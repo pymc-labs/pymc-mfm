@@ -4,7 +4,15 @@ version = "0.0.1.dev0"
 description = "Graph-conditional Marketing Foundation Models."
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "numpy>=2.1",
+    "torch>=2.6",
+]
+
+[project.optional-dependencies]
+generation = [
+    "pymc-generator @ git+https://github.com/pymc-labs/pymc-generator.git@main",
+]
 
 [project.urls]
 Repository = "https://github.com/pymc-labs/pymc-mfm"
@@ -19,6 +27,9 @@ dev = [
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pymc_mfm"]
