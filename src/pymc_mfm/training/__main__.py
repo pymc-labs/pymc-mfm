@@ -14,6 +14,7 @@ import sys
 from dataclasses import fields
 
 from pymc_mfm.training.config import TrainingConfig
+from pymc_mfm.training.tracking import TrackingConfig
 from pymc_mfm.training.trainer import train
 
 
@@ -30,6 +31,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out-dir", required=True, help="new run directory")
     parser.add_argument("--device", default="auto", help="auto | cpu | cuda | mps")
     parser.add_argument("--run-name", default=None)
+    parser.add_argument(
+        "--no-tracking",
+        action="store_true",
+        help="explicitly disable MLflow and diagnostic delivery",
+    )
+    parser.add_argument(
+        "--tracking-uri",
+        default=None,
+        help="MLflow URI; defaults to MLFLOW_TRACKING_URI or output-local SQLite",
+    )
+    parser.add_argument("--experiment-name", default="pymc-mfm")
+    parser.add_argument(
+        "--profile", default="new-run", help="honest corpus/checkpoint profile label"
+    )
+    parser.add_argument(
+        "--no-diagnostics",
+        action="store_true",
+        help="retain evaluation metrics without rendering reports",
+    )
     for field in fields(TrainingConfig):
         flag = "--" + field.name.replace("_", "-")
         default = getattr(defaults, field.name)
@@ -69,6 +89,13 @@ def main(argv: list[str] | None = None) -> int:
         device=args.device,
         corpus_provenance=[provenance(item) for item in loaded],
         run_name=args.run_name,
+        tracking=TrackingConfig(
+            enabled=not args.no_tracking,
+            tracking_uri=args.tracking_uri,
+            experiment_name=args.experiment_name,
+            profile=args.profile,
+            diagnostics=not args.no_diagnostics,
+        ),
     )
     summary = {
         "run_dir": str(result.run_dir),
@@ -76,6 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         "final_step": result.final_step,
         "budget": result.run["training_config"]["budget"],
         "best": result.run["best"],
+        "tracking": result.run["tracking"],
     }
     print(json.dumps(summary, indent=2))
     return 0

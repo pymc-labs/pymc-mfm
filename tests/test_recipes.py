@@ -201,6 +201,19 @@ def test_load_corpora_reports_identity_and_sidecar(tmp_path):
     json.dumps(record, allow_nan=False)
 
 
+def test_synthetic_sharing_permission_requires_hash_bound_origin(tmp_path):
+    from pymc_mfm.data.recipes import LoadedCorpus
+
+    path = tmp_path / "corpus.npz"
+    loaded = LoadedCorpus(str(path), "a" * 64, 2, 1, 1, (6,), {})
+    assert provenance(loaded)["data_origin"] == "unknown"
+    sidecar = prior_sidecar_path(path)
+    sidecar.write_text(json.dumps({"data_origin": "synthetic", "corpus_sha256": "b" * 64}))
+    assert provenance(loaded)["data_origin"] == "unknown"
+    sidecar.write_text(json.dumps({"data_origin": "synthetic", "corpus_sha256": loaded.sha256}))
+    assert provenance(loaded)["data_origin"] == "synthetic"
+
+
 @needs_generator
 def test_load_corpora_rejects_missing_split_arrays(tmp_path):
     from pymc_generator import save_corpus

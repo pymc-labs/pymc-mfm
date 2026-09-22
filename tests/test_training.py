@@ -8,11 +8,12 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.inference.checkpoint import load_model
+from pymc_mfm.inference import from_pretrained
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
 from pymc_mfm.training import (
     MONITOR_METRIC,
+    TrackingConfig,
     TrainingConfig,
     TrainingError,
     TrainingObserver,
@@ -176,6 +177,7 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
     config = reduced()
     result = train(
         [corpus],
+        tracking=TrackingConfig(enabled=False),
         out_dir=tmp_path / "run",
         model_config=TINY,
         training=config,
@@ -230,7 +232,7 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
     reloaded, payload = load_checkpoint(tmp_path / "run" / "checkpoint_last.pt")
     assert payload["step"] == 4 and payload["kind"] == "last"
     assert payload["evaluation"]["step"] == 4 and payload["run"]["run_id"] == run["run_id"]
-    exported = load_model(tmp_path / "run" / "model.pt")
+    exported = from_pretrained(tmp_path / "run" / "model")
     for name, parameter in result.model.state_dict().items():
         torch.testing.assert_close(reloaded.state_dict()[name], parameter, rtol=0, atol=0)
         torch.testing.assert_close(exported.state_dict()[name], parameter, rtol=0, atol=0)
@@ -261,6 +263,7 @@ def test_seed_reproduces_weights_and_observers_or_evaluation_never_perturb_train
     def run(name, observers=(), **overrides):
         result = train(
             [corpus],
+            tracking=TrackingConfig(enabled=False),
             out_dir=tmp_path / name,
             model_config=TINY,
             training=reduced(**overrides),
@@ -304,9 +307,10 @@ def test_nonfinite_loss_fails_the_run_without_a_finished_record(tmp_path, monkey
         return result
 
     monkeypatch.setattr(MFM, "loss_terms", poisoned)
-    with pytest.raises(TrainingError) as exc_info:
+    with pytest.raises(TrainingError):
         train(
             [corpus],
+            tracking=TrackingConfig(enabled=False),
             out_dir=tmp_path / "run",
             model_config=TINY,
             training=reduced(prefetch_batches=0),
@@ -315,8 +319,8 @@ def test_nonfinite_loss_fails_the_run_without_a_finished_record(tmp_path, monkey
     run = json.loads((tmp_path / "run" / "run.json").read_text())
     assert run["status"] == "failed" and run["final_step"] == 2
     assert run["consumed"]["updates"] == 2 and run["consumed"]["rows"] == 4
-    assert run["error"] == f"TrainingError: {exc_info.value}"
-    assert not (tmp_path / "run" / "model.pt").exists()
+    assert run["error_type"] == "TrainingError"
+    assert not (tmp_path / "run" / "model").exists()
     assert not (tmp_path / "run" / "checkpoint_last.pt").exists()
 
 
@@ -344,6 +348,7 @@ def test_loss_failure_counts_only_completed_updates_with_prefetch(
     with pytest.raises(exception_type) as exc_info:
         train(
             [corpus],
+            tracking=TrackingConfig(enabled=False),
             out_dir=tmp_path / "run",
             model_config=TINY,
             training=reduced(eval_every=4, milestone_steps=(), prefetch_batches=2),
@@ -363,7 +368,7 @@ def test_loss_failure_counts_only_completed_updates_with_prefetch(
     assert [record["step"] for record in steps] == [1, 2]
     assert [record["consumed_rows"] for record in steps] == [2, 4]
     assert recorder.events[-1] == ("end", status)
-    assert not (tmp_path / "run" / "model.pt").exists()
+    assert not (tmp_path / "run" / "model").exists()
     assert not (tmp_path / "run" / "checkpoint_last.pt").exists()
 
 
@@ -382,6 +387,7 @@ def test_prefetch_producer_failure_propagates_and_records_completed_updates(tmp_
     with pytest.raises(RuntimeError) as exc_info:
         train(
             [corpus],
+            tracking=TrackingConfig(enabled=False),
             out_dir=tmp_path / "run",
             model_config=TINY,
             training=reduced(eval_every=4, milestone_steps=(), prefetch_batches=2),
@@ -394,9 +400,9 @@ def test_prefetch_producer_failure_propagates_and_records_completed_updates(tmp_
     assert run["status"] == "failed"
     assert run["final_step"] == run["consumed"]["updates"] == 2
     assert run["consumed"]["rows"] == 4
-    assert run["error"] == f"RuntimeError: {failure}"
+    assert run["error_type"] == "RuntimeError"
     assert recorder.events[-1] == ("end", "failed")
-    assert not (tmp_path / "run" / "model.pt").exists()
+    assert not (tmp_path / "run" / "model").exists()
 
 
 def test_startup_observer_failure_records_failed_run_without_consumption(tmp_path):
@@ -411,6 +417,7 @@ def test_startup_observer_failure_records_failed_run_without_consumption(tmp_pat
     with pytest.raises(RuntimeError) as exc_info:
         train(
             [make_synthetic_corpus()],
+            tracking=TrackingConfig(enabled=False),
             out_dir=tmp_path / "run",
             model_config=TINY,
             training=reduced(prefetch_batches=2),
@@ -423,9 +430,9 @@ def test_startup_observer_failure_records_failed_run_without_consumption(tmp_pat
     assert run["status"] == "failed"
     assert run["final_step"] == run["consumed"]["updates"] == 0
     assert run["consumed"]["rows"] == run["consumed"]["distinct_rows"] == 0
-    assert run["error"] == f"RuntimeError: {failure}"
+    assert run["error_type"] == "RuntimeError"
     assert recorder.events[-1] == ("end", "failed")
-    assert not (tmp_path / "run" / "model.pt").exists()
+    assert not (tmp_path / "run" / "model").exists()
 
 
 def test_partial_holdout_prediction_blocks_best_checkpoint_but_finishes_training(
@@ -447,6 +454,7 @@ def test_partial_holdout_prediction_blocks_best_checkpoint_but_finishes_training
     monkeypatch.setattr(MFM, "predict", partial_prediction)
     result = train(
         [corpus],
+        tracking=TrackingConfig(enabled=False),
         out_dir=tmp_path / "run",
         model_config=TINY,
         training=reduced(steps=1, eval_every=1, eval_samples=2, milestone_steps=()),
@@ -465,7 +473,7 @@ def test_partial_holdout_prediction_blocks_best_checkpoint_but_finishes_training
     assert selection["promoted"] is False
     assert result.status == "finished" and result.run["best"] is None
     assert (tmp_path / "run" / "checkpoint_last.pt").exists()
-    assert (tmp_path / "run" / "model.pt").exists()
+    assert (tmp_path / "run" / "model").is_dir()
     assert not (tmp_path / "run" / "checkpoint_best.pt").exists()
 
 
@@ -488,6 +496,7 @@ def test_multi_corpus_training_evaluates_all_available_holdout_and_seen_identiti
     monkeypatch.setattr(trainer_module, "evaluate_rows", record_evaluated_rows)
     result = train(
         corpora,
+        tracking=TrackingConfig(enabled=False),
         out_dir=tmp_path / "run",
         model_config=TINY,
         training=reduced(steps=2, eval_every=1, eval_worlds=10, eval_samples=2, milestone_steps=()),
@@ -516,6 +525,7 @@ def test_epoch_budget_excludes_rows_dropped_from_each_context_bucket(tmp_path):
     corpus = make_synthetic_corpus(n_cells=8, draws_per_cell=1)
     result = train(
         [corpus],
+        tracking=TrackingConfig(enabled=False),
         out_dir=tmp_path / "run",
         model_config=TINY,
         training=reduced(steps=3, eval_every=3, eval_samples=2, milestone_steps=()),
@@ -551,6 +561,7 @@ def test_observer_failure_records_only_persisted_best_checkpoint(tmp_path, hook)
     with pytest.raises(RuntimeError) as exc_info:
         train(
             [make_synthetic_corpus()],
+            tracking=TrackingConfig(enabled=False),
             out_dir=out,
             model_config=TINY,
             training=reduced(steps=1, warmup_steps=1, milestone_steps=()),
@@ -577,16 +588,24 @@ def test_run_directory_and_geometry_are_guarded(tmp_path):
     corpus = make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=8)
     train(
         [corpus],
+        tracking=TrackingConfig(enabled=False),
         out_dir=tmp_path / "run",
         model_config=TINY,
         training=reduced(steps=1, eval_every=1, milestone_steps=()),
         device="cpu",
     )
     with pytest.raises(FileExistsError):
-        train([corpus], out_dir=tmp_path / "run", model_config=TINY, training=reduced())
+        train(
+            [corpus],
+            out_dir=tmp_path / "run",
+            model_config=TINY,
+            training=reduced(),
+            tracking=TrackingConfig(enabled=False),
+        )
     with pytest.raises(ValueError):
         train(
             [corpus],
+            tracking=TrackingConfig(enabled=False),
             out_dir=tmp_path / "other",
             model_config=ModelConfig(n_controls=3, n_demand=2),
             training=reduced(),
@@ -612,6 +631,7 @@ def test_cli_trains_from_saved_corpora_with_recorded_provenance(tmp_path, capsys
     save_corpus(corpus, path)
     code = main(
         [
+            "--no-tracking",
             "--corpus",
             str(path),
             "--out-dir",

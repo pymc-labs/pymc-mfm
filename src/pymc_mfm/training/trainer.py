@@ -14,26 +14,31 @@ defined gate metrics block promotion and remain visible in the records.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
-import platform
 import time
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 
-from pymc_mfm.inference.checkpoint import save_model
+from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM, objective_trace_to_jsonable
-from pymc_mfm.training.checkpoint import save_checkpoint
+from pymc_mfm.training._provenance import (
+    code_record,
+    corpus_identity,
+    environment_record,
+    export_lineage,
+)
+from pymc_mfm.training.checkpoint import file_sha256, save_checkpoint
 from pymc_mfm.training.config import TrainingConfig
 from pymc_mfm.training.evaluation import (
     GATE_METRICS,
@@ -43,6 +48,12 @@ from pymc_mfm.training.evaluation import (
 )
 from pymc_mfm.training.observer import TrainingObserver
 from pymc_mfm.training.stream import CorpusStream, PrefetchingStream
+from pymc_mfm.training.tracking import (
+    MlflowTrainingObserver,
+    TrackingConfig,
+    evidence_value,
+    preserve_rng,
+)
 
 RUN_FORMAT_VERSION = 1
 LOSS_TERMS = (
@@ -142,7 +153,7 @@ def default_corpus_provenance(corpora: Sequence[Mapping[str, Any]]) -> list[dict
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(json.dumps(payload, indent=2, allow_nan=False, sort_keys=True))
+    tmp.write_text(json.dumps(evidence_value(payload), indent=2, allow_nan=False, sort_keys=True))
     tmp.replace(path)
 
 
@@ -210,6 +221,95 @@ def train(
     corpus_provenance: Sequence[Mapping[str, Any]] | None = None,
     observers: Sequence[TrainingObserver] = (),
     run_name: str | None = None,
+    tracking: TrackingConfig | None = None,
+) -> TrainingResult:
+    """Train with durable local evidence and default-enabled optional MLflow.
+
+    Use ``TrackingConfig(enabled=False)`` for explicit tracking opt-out.
+    Numerical configuration, optimizer updates and evaluation sampling do not
+    depend on tracking. The lifecycle starts before device/model/stream setup,
+    so failed initialization is also an identified, honestly finalized run.
+    The terminal model is a safe directory bundle at ``out_dir / "model"``.
+    """
+    training = TrainingConfig() if training is None else training
+    tracking = TrackingConfig() if tracking is None else tracking
+    out_dir = Path(out_dir)
+    if (out_dir / "run.json").exists():
+        raise FileExistsError(f"{out_dir} already holds a training run")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    started = datetime.now(UTC)
+    run: dict[str, Any] = {
+        "format_version": RUN_FORMAT_VERSION,
+        "run_id": f"{started:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex}",
+        "run_name": run_name,
+        "profile": tracking.profile,
+        "status": "running",
+        "created_at": started.isoformat(),
+        "finished_at": None,
+        "final_step": 0,
+        "error": None,
+        "training_config": training.to_dict(),
+        "requested_device": str(device),
+        "requested_model_config": None if model_config is None else model_config.to_dict(),
+        "consumed": {"updates": 0, "rows": 0, "distinct_rows": 0, "epoch": 0},
+        "checkpoints": [],
+        "best": None,
+    }
+    tracker = MlflowTrainingObserver(out_dir, tracking)
+    run["tracking"] = tracker.summary
+    _write_json(out_dir / "run.json", run)
+    try:
+        tracker.on_run_start(run)
+        run["tracking"] = tracker.summary
+        _write_json(out_dir / "run.json", run)
+        return _train_run(
+            corpora,
+            out_dir=out_dir,
+            model_config=model_config,
+            training=training,
+            device=device,
+            corpus_provenance=corpus_provenance,
+            observers=observers,
+            run=run,
+            tracker=tracker,
+        )
+    except BaseException as exc:
+        if run["status"] == "running":
+            run["status"] = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+            run["error"] = f"{type(exc).__name__} during initialization"
+            run["error_type"] = type(exc).__name__
+            run["finished_at"] = datetime.now(UTC).isoformat()
+        raise
+    finally:
+        run["tracking"] = tracker.summary
+        run["tracking"]["lifecycle_status"] = run["status"]
+        if run["tracking"]["status"] not in ("disabled", "degraded"):
+            run["tracking"]["status"] = run["status"]
+        _write_json(out_dir / "run.json", run)
+        try:
+            tracker.on_run_end(run)
+        except BaseException as exc:
+            run["status"] = tracker.lifecycle_status
+            run["error"] = f"{type(exc).__name__} during tracking finalization"
+            run["error_type"] = type(exc).__name__
+            run["finished_at"] = datetime.now(UTC).isoformat()
+            raise
+        finally:
+            run["tracking"] = tracker.summary
+            _write_json(out_dir / "run.json", run)
+
+
+def _train_run(
+    corpora: Sequence[Mapping[str, Any]],
+    *,
+    out_dir: str | Path,
+    model_config: ModelConfig | None = None,
+    training: TrainingConfig | None = None,
+    device: str | torch.device = "auto",
+    corpus_provenance: Sequence[Mapping[str, Any]] | None = None,
+    observers: Sequence[TrainingObserver] = (),
+    run: dict[str, Any],
+    tracker: MlflowTrainingObserver,
 ) -> TrainingResult:
     """Train the canonical model on loaded schema-4 corpora.
 
@@ -218,20 +318,15 @@ def train(
     (the first update's executed objective), ``metrics.jsonl`` (one record per
     ``log_every`` updates and at update 1), ``evaluations.jsonl`` (one record
     per evaluation event), ``checkpoint_last.pt``/``checkpoint_best.pt``/
-    ``checkpoint_step_<N>.pt`` and, on completion, ``model.pt`` in the
-    :func:`pymc_mfm.inference.checkpoint.save_model` format holding the
-    terminal weights.
+    ``checkpoint_step_<N>.pt`` and, on completion, ``model`` in the
+    :func:`pymc_mfm.inference.checkpoint.save_pretrained` directory format
+    holding the terminal weights.
 
     ``model_config`` defaults to the A/B architecture sized to the corpus
     controls/latents; a supplied one must match the corpus geometry. A
     nonfinite loss or gradient norm at a logging step fails the run, and an
     interrupted or failed run is recorded as such rather than as finished.
     """
-    training = TrainingConfig() if training is None else training
-    out_dir = Path(out_dir)
-    if (out_dir / "run.json").exists():
-        raise FileExistsError(f"{out_dir} already holds a training run")
-    out_dir.mkdir(parents=True, exist_ok=True)
     resolved_device = resolve_device(device)
 
     geometry = corpus_geometry(corpora)
@@ -253,6 +348,8 @@ def train(
     )
     if len(provenance) != len(corpora):
         raise ValueError("corpus_provenance must have one record per corpus")
+    for corpus, record in zip(corpora, provenance, strict=True):
+        record["actual_inputs"] = corpus_identity(corpus)
 
     # Batches are encoded on the CPU (possibly on the prefetch thread) and
     # moved to the device by this thread only; accelerator work must not be
@@ -278,80 +375,84 @@ def train(
     parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
     parameter_count = sum(parameter.numel() for parameter in parameters)
 
-    started = datetime.now(UTC)
-    run: dict[str, Any] = {
-        "format_version": RUN_FORMAT_VERSION,
-        "run_id": f"{started:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:8]}",
-        "run_name": run_name,
-        "status": "running",
-        "created_at": started.isoformat(),
-        "finished_at": None,
-        "final_step": 0,
-        "error": None,
-        "environment": {
-            "pymc_mfm": package_version("pymc-mfm"),
-            "torch": str(torch.__version__),
-            "numpy": str(np.__version__),
-            "python": platform.python_version(),
-            "platform": platform.platform(),
-            "device": str(resolved_device),
-        },
-        "model_config": model_config.to_dict(),
-        "training_config": training.to_dict(),
-        "optimizer": {
-            "type": "AdamW",
-            "lr": training.lr,
-            "betas": list(TrainingConfig.adam_betas),
-            "eps": TrainingConfig.adam_eps,
-            "weight_decay": training.weight_decay,
-            "grad_clip_norm": training.grad_clip,
-        },
-        "objective_weights": {
-            "struct_weight": model_config.struct_weight,
-            "struct_cy_weight": model_config.struct_cy_weight,
-            "graph_conditional_weight": model_config.graph_conditional_weight,
-            "context_decomposition_weight": model_config.context_decomposition_weight,
-            "context_graph_weight": model_config.context_graph_weight,
-            "graph_conditional_context_weight": (
-                model_config.graph_conditional_weight * model_config.context_decomposition_weight
-            ),
-        },
-        "geometry": geometry,
-        "parameter_count": parameter_count,
-        "corpus": provenance,
-        "extraction_source": {
-            "repository": "https://github.com/pymc-labs/pymc-pfn",
-            "revision": "52687cf25cca9be13094a397fabdf016367c0a52",
-            "training_entrypoint": "scripts/train_mmm_decomposition.py",
-        },
-        "consumption_budget": {
-            "steps": training.steps,
-            "batch_size": training.batch_size,
-            "train_rows": stream.n_rows,
-            "holdout_rows": n_holdout,
-            "rows_per_epoch": stream.rows_per_epoch,
-            "dropped_rows_per_epoch": stream.n_rows - stream.rows_per_epoch,
-            "epochs": training.steps * training.batch_size / stream.rows_per_epoch,
-        },
-        "evaluation_policy": {
-            "every": training.eval_every,
-            "holdout_worlds": eval_holdout,
-            "seen_worlds": training.eval_worlds,
-            "samples": training.eval_samples,
-            "seed": training.eval_seed,
-            "legs": ["holdout", "seen"],
-        },
-        "selection_policy": {
-            "monitor": MONITOR_METRIC,
-            "direction": "min",
-            "gates": [MONITOR_METRIC, *GATE_METRICS],
-            "readout": SELECTION_READOUT,
-            "terminal_checkpoint": "checkpoint_last.pt",
-        },
-        "checkpoints": [],
-        "best": None,
-    }
+    run.update(
+        {
+            "environment": environment_record(str(resolved_device)),
+            "code": code_record(),
+            "model_config": model_config.to_dict(),
+            "training_config": training.to_dict(),
+            "optimizer": {
+                "type": "AdamW",
+                "lr": training.lr,
+                "betas": list(TrainingConfig.adam_betas),
+                "eps": TrainingConfig.adam_eps,
+                "weight_decay": training.weight_decay,
+                "grad_clip_norm": training.grad_clip,
+            },
+            "objective_weights": {
+                "struct_weight": model_config.struct_weight,
+                "struct_cy_weight": model_config.struct_cy_weight,
+                "graph_conditional_weight": model_config.graph_conditional_weight,
+                "context_decomposition_weight": model_config.context_decomposition_weight,
+                "context_graph_weight": model_config.context_graph_weight,
+                "graph_conditional_context_weight": (
+                    model_config.graph_conditional_weight
+                    * model_config.context_decomposition_weight
+                ),
+            },
+            "geometry": geometry,
+            "parameter_count": parameter_count,
+            "total_parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+            "corpus": evidence_value(provenance),
+            "extraction_source": {
+                "repository": "https://github.com/pymc-labs/pymc-pfn",
+                "revision": "52687cf25cca9be13094a397fabdf016367c0a52",
+                "training_entrypoint": "scripts/train_mmm_decomposition.py",
+            },
+            "consumption_budget": {
+                "steps": training.steps,
+                "batch_size": training.batch_size,
+                "train_rows": stream.n_rows,
+                "holdout_rows": n_holdout,
+                "rows_per_epoch": stream.rows_per_epoch,
+                "dropped_rows_per_epoch": stream.n_rows - stream.rows_per_epoch,
+                "epochs": training.steps * training.batch_size / stream.rows_per_epoch,
+            },
+            "evaluation_policy": {
+                "every": training.eval_every,
+                "holdout_worlds": eval_holdout,
+                "seen_worlds": training.eval_worlds,
+                "samples": training.eval_samples,
+                "seed": training.eval_seed,
+                "legs": ["holdout", "seen"],
+                "prior_shift": {
+                    "status": "not_applicable",
+                    "reason": "no prior-shift corpus supplied",
+                },
+                "diagnostics": {
+                    "enabled": tracker.config.enabled and tracker.config.diagnostics,
+                    "cadence": "each evaluation event, all existing conditional world/window draws",
+                    "resampling": False,
+                    "reference_fits": "not_scheduled",
+                    "stress_comparisons": "not_scheduled",
+                    "posterior_sbc": "not_scheduled",
+                },
+            },
+            "selection_policy": {
+                "monitor": MONITOR_METRIC,
+                "direction": "min",
+                "gates": [MONITOR_METRIC, *GATE_METRICS],
+                "readout": SELECTION_READOUT,
+                "terminal_checkpoint": "checkpoint_last.pt",
+            },
+            "checkpoints": [],
+            "diagnostics": [],
+            "best": None,
+        }
+    )
     _write_json(out_dir / "run.json", run)
+    tracker.on_run_config(run)
+    event_observers = (tracker, *observers)
 
     metrics_path = out_dir / "metrics.jsonl"
     evaluations_path = out_dir / "evaluations.jsonl"
@@ -362,6 +463,10 @@ def train(
     # Count only completed optimizer updates; the prefetch thread can build
     # later batches without those worlds having reached the optimizer.
     first_seen: dict[tuple[int, int], None] = {}
+    consumption_digest = hashlib.sha256()
+    diagnostic_inputs: list[tuple[Any, Any, Any, Any]] = []
+    training_records: list[dict[str, Any]] = []
+    evaluation_records: list[dict[str, Any]] = []
     consumed = {
         "updates": 0,
         "rows": 0,
@@ -375,16 +480,21 @@ def train(
     def note_consumed(step: int, provenance_record) -> None:
         for item in provenance_record.rows:
             first_seen.setdefault(item, None)
+        consumption_digest.update(
+            json.dumps(provenance_record.rows, separators=(",", ":")).encode()
+        )
         consumed.update(
             updates=step,
             rows=step * training.batch_size,
             distinct_rows=len(first_seen),
             epoch=provenance_record.epoch,
+            row_sequence_sha256=consumption_digest.hexdigest(),
         )
 
-    def record_checkpoint(kind: str, step: int, name: str, evaluation, selection) -> None:
+    def record_checkpoint(kind: str, step: int, name: str, evaluation, selection) -> dict[str, Any]:
         nonlocal best_value, best_step
         path = out_dir / name
+        run["tracking"] = tracker.summary
         digest = save_checkpoint(
             path,
             model=model,
@@ -401,6 +511,9 @@ def train(
                     "corpus",
                     "geometry",
                     "extraction_source",
+                    "code",
+                    "profile",
+                    "tracking",
                 )
             },
             consumed=consumed,
@@ -408,16 +521,103 @@ def train(
             selection=selection,
         )
         entry = {"kind": kind, "step": step, "file": name, "sha256": digest}
+        if evaluation is not None:
+            entry["evaluation_sha256"] = hashlib.sha256(
+                json.dumps(evaluation, sort_keys=True, allow_nan=False).encode()
+            ).hexdigest()
         run["checkpoints"] = [
             existing for existing in run["checkpoints"] if existing["file"] != name
         ] + [entry]
         if kind == "best":
             best_value, best_step = selection["best_value"], selection["best_step"]
-        for observer in observers:
+        for observer in event_observers:
             observer.on_checkpoint({**entry, "path": str(path), "selection": selection})
+        return entry
+
+    def record_diagnostics(step: int, checkpoint: Mapping[str, Any]) -> None:
+        for index, (result, truth, graph_truth, observed) in enumerate(diagnostic_inputs):
+            provenance = {
+                **result.provenance,
+                "checkpoint_sha256": checkpoint["sha256"],
+                "source_step": step,
+                "training_local_run_id": run["run_id"],
+                "tracking_run_id": tracker.run_id,
+                "profile": tracker.config.profile,
+                "evaluation_data_origin": "training_corpus",
+                "synthetic_training_evaluation": all(
+                    item.get("data_origin") == "synthetic" for item in run["corpus"]
+                ),
+                "world_id": result.provenance.get("world_id", index),
+            }
+            report_dir = (
+                out_dir
+                / "diagnostics"
+                / f"step_{step:09d}"
+                / checkpoint["sha256"]
+                / f"world_{index:04d}_{result.window}_{result.mode}"
+            )
+            try:
+                from pymc_mfm.diagnostics import build_report
+
+                with preserve_rng():
+                    manifest = build_report(
+                        replace(result, provenance=provenance),
+                        report_dir,
+                        truth=truth,
+                        graph_truth=graph_truth,
+                        observed=observed,
+                        training_records=training_records,
+                        evaluation_records=evaluation_records,
+                        strict=False,
+                    )
+                run["diagnostics"].append(
+                    {
+                        "name": f"step_{step}_world_{index}_{result.window}_{result.mode}",
+                        "sha256": file_sha256(report_dir / "manifest.json"),
+                        "checkpoint_sha256": checkpoint["sha256"],
+                        "status": manifest.get("status", "recorded"),
+                        "recipe": "saved_conditional_evaluation_report",
+                    }
+                )
+                for observer in event_observers:
+                    observer.on_diagnostic(manifest, report_dir)
+                event = {
+                    "step": step,
+                    "checkpoint_sha256": checkpoint["sha256"],
+                    "path": str(report_dir),
+                    "manifest": manifest,
+                }
+            except Exception as exc:
+                event = {
+                    "step": step,
+                    "checkpoint_sha256": checkpoint["sha256"],
+                    "path": str(report_dir),
+                    "status": "failed",
+                    "error_type": type(exc).__name__,
+                    "provenance": provenance,
+                }
+                tracker.on_diagnostic_failure(event)
+                run["diagnostics"].append(
+                    {
+                        "name": f"step_{step}_world_{index}_{result.window}_{result.mode}",
+                        "checkpoint_sha256": checkpoint["sha256"],
+                        "status": "failed",
+                        "recipe": "saved_conditional_evaluation_report",
+                    }
+                )
+            with (out_dir / "diagnostics.jsonl").open("a") as handle:
+                handle.write(json.dumps(evidence_value(event), allow_nan=False) + "\n")
+        diagnostic_inputs.clear()
 
     def evaluate(step: int) -> dict[str, Any]:
         legs: dict[str, Any] = {}
+        diagnostic_inputs.clear()
+        result_sink = None
+        if tracker.config.enabled and tracker.config.diagnostics:
+
+            def result_sink(result, truth, graph_truth, observed):
+                diagnostic_inputs.append((result, truth, graph_truth, observed))
+
         # Fixed seeds per leg keep worlds and draws comparable across events.
         holdout_rows = stream.holdout_rows(eval_holdout, seed=training.eval_seed)
         legs["holdout"] = evaluate_rows(
@@ -428,6 +628,7 @@ def train(
             seed=training.eval_seed + 1,
             device=resolved_device,
             leg="holdout",
+            result_sink=result_sink,
         )
         seen_count = min(training.eval_worlds, len(first_seen))
         if seen_count:
@@ -439,6 +640,7 @@ def train(
                 seed=training.eval_seed,
                 device=resolved_device,
                 leg="seen",
+                result_sink=result_sink,
             )
         flat: dict[str, float | None] = {}
         for record in legs.values():
@@ -448,6 +650,8 @@ def train(
             for leg, record in legs.items()
             for key, reason in record["undefined"].items()
         }
+        for leg, values in legs.items():
+            values["rows"] = holdout_rows if leg == "holdout" else list(first_seen)[:seen_count]
         selection = _select_checkpoint(flat, undefined, best_value, best_step, step)
         record = {
             "step": step,
@@ -460,7 +664,8 @@ def train(
         }
         with evaluations_path.open("a") as handle:
             handle.write(json.dumps(record, allow_nan=False) + "\n")
-        for observer in observers:
+        evaluation_records.append(record)
+        for observer in event_observers:
             observer.on_evaluation(record)
         # Sampling folds draws into the batch axis; hand its blocks back so the
         # allocator does not keep training steps slow for the rest of the run.
@@ -477,6 +682,7 @@ def train(
     try:
         for observer in observers:
             observer.on_run_start(run)
+            observer.on_run_config(run)
         if training.prefetch_batches > 0:
             source = PrefetchingStream(stream, depth=training.prefetch_batches)
         with metrics_path.open("a") as metrics_handle:
@@ -493,8 +699,8 @@ def train(
                 step_start = time.perf_counter()
                 if step == 1:
                     terms, trace = model.loss_terms(batch, return_trace=True)
-                    (out_dir / "objective_trace.json").write_text(
-                        json.dumps(objective_trace_to_jsonable(trace), indent=2, allow_nan=False)
+                    _write_json(
+                        out_dir / "objective_trace.json", objective_trace_to_jsonable(trace)
                     )
                 else:
                     terms = model.loss_terms(batch)
@@ -524,8 +730,21 @@ def train(
                         "step": step,
                         "epoch": provenance_record.epoch,
                         "consumed_rows": consumed["rows"],
+                        "row_sequence_sha256": consumed["row_sequence_sha256"],
+                        "batch_rows": provenance_record.rows,
                         "lr": lr,
                         **dict(zip(LOSS_TERMS, losses, strict=True)),
+                        "objective_weights": run["objective_weights"],
+                        "struct_loss_raw": (
+                            losses[LOSS_TERMS.index("struct_loss")] / model_config.struct_weight
+                            if model_config.struct_weight
+                            else None
+                        ),
+                        "struct_loss_raw_status": (
+                            "reconstructed_from_weighted_term"
+                            if model_config.struct_weight
+                            else "inactive_zero_weight"
+                        ),
                         "grad_norm": grad_norm_value,
                         "grad_clipped": grad_norm_value > training.grad_clip,
                         "batch_context_length": provenance_record.context_length,
@@ -540,28 +759,60 @@ def train(
                         if not math.isfinite(value)
                     ]
                     if nonfinite:
-                        raise TrainingError(f"non-finite {', '.join(nonfinite)} at update {step}")
-                    metrics_handle.write(json.dumps(record, allow_nan=False) + "\n")
+                        record["nonfinite"] = {name: repr(record[name]) for name in nonfinite}
+                        for name in nonfinite:
+                            record[name] = None
+                    metrics_handle.write(json.dumps(evidence_value(record), allow_nan=False) + "\n")
                     metrics_handle.flush()
-                    for observer in observers:
+                    training_records.append(record)
+                    for observer in event_observers:
                         observer.on_step(record)
+                    if nonfinite:
+                        raise TrainingError(f"non-finite {', '.join(nonfinite)} at update {step}")
 
                 if step % training.eval_every == 0 or step == training.steps:
                     evaluation = evaluate(step)
-                    record_checkpoint(
+                    checkpoint = record_checkpoint(
                         "last", step, "checkpoint_last.pt", evaluation, evaluation["selection"]
                     )
                     if evaluation["selection"]["promoted"]:
                         record_checkpoint(
                             "best", step, "checkpoint_best.pt", evaluation, evaluation["selection"]
                         )
-        save_model(model, out_dir / "model.pt")
+                    record_diagnostics(step, checkpoint)
+        terminal = next(entry for entry in run["checkpoints"] if entry["kind"] == "last")
+        export_provenance = {
+            "source_checkpoint_sha256": terminal["sha256"],
+            "source_step": completed_updates,
+            "tracking_local_run_id": run["run_id"],
+            "tracking_run_id": tracker.run_id,
+            "tracking_experiment_id": tracker.experiment_id,
+            "training_seed": training.seed,
+            "source_revision": run["code"]["revision"],
+            **export_lineage(run, terminal["sha256"]),
+        }
+        save_pretrained(
+            model,
+            out_dir / "model",
+            provenance={
+                key: value for key, value in export_provenance.items() if value is not None
+            },
+            profile=tracker.config.profile,
+        )
+        run["export"] = {
+            "path": "model",
+            "source_checkpoint_sha256": terminal["sha256"],
+            "source_step": completed_updates,
+            "files": ["config.json", "model.safetensors", "manifest.json"],
+        }
         status = "finished"
     except KeyboardInterrupt:
         status, error = "interrupted", f"KeyboardInterrupt at update {step}"
+        run["error_type"] = "KeyboardInterrupt"
         raise
     except BaseException as exc:
-        error = f"{type(exc).__name__}: {exc}"
+        error = f"{type(exc).__name__} at update {step}"
+        run["error_type"] = type(exc).__name__
         raise
     finally:
         if source is not None:
@@ -580,7 +831,8 @@ def train(
         except BaseException as exc:
             if status == "finished":
                 run["status"] = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
-            detail = f"on_run_end: {type(exc).__name__}: {exc}"
+            detail = f"on_run_end: {type(exc).__name__}"
+            run["error_type"] = type(exc).__name__
             run["error"] = f"{error}; {detail}" if error else detail
             _write_json(out_dir / "run.json", run)
             raise

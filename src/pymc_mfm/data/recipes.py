@@ -236,10 +236,14 @@ def generate_corpus(prior: SCMPrior, path: str | Path) -> dict[str, Any]:
 
     corpus = pymc_generator.DataGenerator(prior).generate()
     pymc_generator.save_corpus(corpus, path)
+    with Path(path).open("rb") as handle:
+        corpus_digest = hashlib.file_digest(handle, "sha256").hexdigest()
     sidecar = {
         "prior": dataclasses.asdict(prior),
         "pymc_generator_version": pymc_generator.__version__,
         "generated_at": datetime.now(UTC).isoformat(),
+        "data_origin": "synthetic",
+        "corpus_sha256": corpus_digest,
     }
     prior_sidecar_path(path).write_text(json.dumps(sidecar, indent=2, sort_keys=True))
     return corpus
@@ -315,6 +319,12 @@ def provenance(loaded: LoadedCorpus) -> dict[str, Any]:
     ``prior_sidecar``: the parsed ``<path>.prior.json`` when present, else ``None``.
     """
     sidecar = prior_sidecar_path(loaded.path)
+    sidecar_record = json.loads(sidecar.read_text()) if sidecar.exists() else None
+    synthetic = (
+        isinstance(sidecar_record, dict)
+        and sidecar_record.get("data_origin") == "synthetic"
+        and sidecar_record.get("corpus_sha256") == loaded.sha256
+    )
     return {
         "path": loaded.path,
         "sha256": loaded.sha256,
@@ -322,5 +332,6 @@ def provenance(loaded: LoadedCorpus) -> dict[str, Any]:
         "n_train": loaded.n_train,
         "n_holdout": loaded.n_holdout,
         "context_lengths": list(loaded.context_lengths),
-        "prior_sidecar": json.loads(sidecar.read_text()) if sidecar.exists() else None,
+        "prior_sidecar": sidecar_record,
+        "data_origin": "synthetic" if synthetic else "unknown",
     }

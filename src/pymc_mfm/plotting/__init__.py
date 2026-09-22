@@ -1,1 +1,41 @@
 """Figures and reports built from inference and diagnostic results."""
+
+from .panels import (
+    plot_calibration,
+    plot_cardinality,
+    plot_channel_totals,
+    plot_component_trajectories,
+    plot_dag,
+    plot_family_totals,
+    plot_graph_posterior,
+    plot_panel,
+    plot_records,
+    plot_recovery_scatter,
+    plot_sbc_report,
+    plot_set_posterior,
+    plot_structure_heatmap,
+    plot_support,
+    plot_target_recovery,
+    plot_uncertainty,
+    plot_zero_atoms,
+)
+
+__all__ = [
+    "plot_calibration",
+    "plot_cardinality",
+    "plot_channel_totals",
+    "plot_component_trajectories",
+    "plot_dag",
+    "plot_family_totals",
+    "plot_graph_posterior",
+    "plot_panel",
+    "plot_records",
+    "plot_recovery_scatter",
+    "plot_sbc_report",
+    "plot_set_posterior",
+    "plot_structure_heatmap",
+    "plot_support",
+    "plot_target_recovery",
+    "plot_uncertainty",
+    "plot_zero_atoms",
+]

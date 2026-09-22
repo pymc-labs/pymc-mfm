@@ -1,0 +1,861 @@
+"""Durable training evidence with optional, independently owned MLflow delivery.
+
+No fluent MLflow API or autologging is used. Local JSON events are authoritative;
+MLflow is a projection of their finite scalars and explicitly allowlisted files.
+An unavailable dependency/backend never changes a numerical training operation.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import random
+import re
+import shutil
+import time
+import warnings
+from collections.abc import Mapping
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from numbers import Real
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+import numpy as np
+import torch
+
+from pymc_mfm.inference._artifact_schema import validate_profile
+from pymc_mfm.training.checkpoint import CHECKPOINT_KINDS, file_sha256
+from pymc_mfm.training.observer import TrainingObserver
+
+_SECRET = re.compile(
+    r"(?:^|_)(?:password|passwd|secret|token|authorization|api_key|access_key|credential)(?:$|_)",
+    re.I,
+)
+_URI = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s\"'<>]+")
+_KEY = re.compile(r"[^A-Za-z0-9_./ -]")
+_SECRET_TEXT = re.compile(
+    r"(?i)(authorization\s*[:=]\s*(?:bearer\s+)?|(?:api[_-]?key|password|passwd|secret|token)\s*[:=]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+)
+
+
+def _secret_key(key: str) -> bool:
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key).replace("-", "_")
+    return _SECRET.search(normalized) is not None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TrackingConfig:
+    """Delivery/report settings, deliberately separate from numerical training.
+
+    ``tracking_uri`` takes precedence over ``MLFLOW_TRACKING_URI``. Otherwise
+    the SQLite database and artifact store live below the run output directory.
+    Diagnostics consume *existing* evaluation draws at every evaluation event;
+    expensive reference fits, stress runs and SBC are never scheduled implicitly.
+    """
+
+    enabled: bool = True
+    tracking_uri: str | None = None
+    experiment_name: str = "pymc-mfm"
+    profile: str = "new-run"
+    diagnostics: bool = True
+
+    def __post_init__(self) -> None:
+        if type(self.enabled) is not bool or type(self.diagnostics) is not bool:
+            raise ValueError("enabled and diagnostics must be booleans")
+        validate_profile(self.profile)
+        if not self.experiment_name.strip() or not self.profile.strip():
+            raise ValueError("experiment_name and profile must not be empty")
+        if self.tracking_uri is not None and not self.tracking_uri.strip():
+            raise ValueError("tracking_uri must not be empty")
+
+
+def _safe_uri(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        try:
+            parsed = urlsplit(match.group())
+
+            def private(key):
+                return (
+                    _secret_key(key)
+                    or key.lower() in {"auth", "sig", "signature"}
+                    or key.lower().startswith(("x-amz-", "x-goog-"))
+                )
+
+            query = parse_qsl(parsed.query, keep_blank_values=True)
+            safe_query = [(key, item) for key, item in query if not private(key)]
+            private_fragment = any(private(key) for key, _ in parse_qsl(parsed.fragment))
+            if "@" not in parsed.netloc and len(query) == len(safe_query) and not private_fragment:
+                return match.group()
+            host = parsed.netloc.rsplit("@", 1)[-1]
+            return urlunsplit(
+                (
+                    parsed.scheme,
+                    host,
+                    parsed.path,
+                    urlencode(safe_query) if len(query) != len(safe_query) else parsed.query,
+                    "" if private_fragment else parsed.fragment,
+                )
+            )
+        except ValueError:
+            return "[redacted URI]"
+
+    return _URI.sub(replace, value)
+
+
+def evidence_value(value: Any) -> Any:
+    """JSON evidence preserves undefined/nonfinite values without invalid JSON.
+
+    Credential-like keys and URL credentials/query strings are never retained.
+    Arrays remain structured evidence; they are not averaged into fake metrics.
+    """
+    if isinstance(value, Mapping):
+        return {
+            str(key): "[redacted]" if _secret_key(str(key)) else evidence_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [evidence_value(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return evidence_value(value.tolist())
+    if isinstance(value, np.generic):
+        return evidence_value(value.item())
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"status": "nonfinite", "value": repr(value)}
+    if isinstance(value, (str, Path)):
+        return _SECRET_TEXT.sub(r"\1[redacted]", _safe_uri(str(value)))
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    raise TypeError(f"unsupported evidence type: {type(value).__name__}")
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        json.dumps(evidence_value(payload), indent=2, sort_keys=True, allow_nan=False)
+    )
+    temporary.replace(path)
+
+
+def _leaves(value: Any, path: tuple[str, ...] = ()):
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            yield from _leaves(item, (*path, str(key)))
+    else:
+        yield path, value
+
+
+def _pointer(path: tuple[str, ...]) -> str:
+    return "/".join(part.replace("~", "~0").replace("/", "~1") for part in path)
+
+
+@contextmanager
+def preserve_rng():
+    """Keep delivery/rendering out of caller CPU and initialized accelerator RNGs."""
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    cpu_state = torch.random.get_rng_state()
+    cuda_state = torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else None
+    # MPS RNG queries initialize the device; only preserve an already used MPS
+    # device, never initialize an accelerator for a CPU tracking operation.
+    mps_state = None
+    if torch.backends.mps.is_available() and torch.mps.current_allocated_memory() > 0:
+        mps_state = torch.mps.get_rng_state()
+    try:
+        yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.random.set_rng_state(cpu_state)
+        if cuda_state is not None:
+            torch.cuda.set_rng_state_all(cuda_state)
+        if mps_state is not None:
+            torch.mps.set_rng_state(mps_state)
+
+
+class MlflowTrainingObserver(TrainingObserver):
+    """One owned client run plus complete local evidence and delivery receipts.
+
+    ``tracking/state.json`` distinguishes numerical lifecycle from delivery
+    health. Each event and every checkpoint version is retained even when
+    delivery fails. Errors record operation/type, not backend exception strings
+    (which can contain authentication headers, tokens, or observations).
+    """
+
+    def __init__(self, out_dir: str | Path, config: TrackingConfig | None = None):
+        self.out_dir = Path(out_dir).resolve()
+        self.config = TrackingConfig() if config is None else config
+        self.root = self.out_dir / "tracking"
+        self.tracking_uri = (
+            self.config.tracking_uri
+            or os.environ.get("MLFLOW_TRACKING_URI")
+            or f"sqlite:///{self.root / 'mlflow.db'}"
+        )
+        self.client = None
+        self.run_id: str | None = None
+        self.experiment_id: str | None = None
+        self.local_run_id: str | None = None
+        self.lifecycle_status = "running"
+        self.delivery_status = "initializing" if self.config.enabled else "disabled"
+        self.failure_count = 0
+        self.delivery_seconds = 0.0
+        self._sequence = 0
+        self._warned = False
+        self._names: dict[str, dict[str, Any]] = {}
+        self._params: dict[str, str] = {}
+        self._metric_type = None
+        self._param_type = None
+        self._started = False
+        self._ended = False
+        self._withheld_reports = False
+
+    @property
+    def summary(self) -> dict[str, Any]:
+        status = self.lifecycle_status
+        if self.delivery_status in ("disabled", "degraded"):
+            status = self.delivery_status
+        return {
+            "status": status,
+            "lifecycle_status": self.lifecycle_status,
+            "delivery_status": self.delivery_status,
+            "enabled": self.config.enabled,
+            "local_run_id": self.local_run_id,
+            "run_id": self.run_id,
+            "experiment_id": self.experiment_id,
+            "tracking_uri": _safe_uri(self.tracking_uri),
+            "experiment_name": self.config.experiment_name,
+            "profile": self.config.profile,
+            "failure_count": self.failure_count,
+            "delivery_seconds": self.delivery_seconds,
+            "evidence": "tracking/events",
+            "failures": "tracking/delivery_failures.jsonl",
+            "name_table": "tracking/names.json",
+        }
+
+    def _state(self) -> None:
+        _write_json(self.root / "state.json", self.summary)
+        _write_json(self.root / "names.json", self._names)
+
+    def _failure(self, operation: str, exc: BaseException, *, artifact: str | None = None) -> None:
+        self.failure_count += 1
+        self.delivery_status = "degraded"
+        entry = {
+            "sequence": self._sequence,
+            "operation": operation,
+            "error_type": type(exc).__name__,
+            "artifact": artifact,
+            "timestamp_ms": int(time.time() * 1000),
+            "reason": (
+                "See retained local evidence; backend exception text is withheld for privacy."
+            ),
+        }
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            with (self.root / "delivery_failures.jsonl").open("a") as handle:
+                handle.write(json.dumps(entry, allow_nan=False) + "\n")
+                handle.flush()
+            self._state()
+        except Exception:
+            # A broken output filesystem also cannot hold delivery-failure
+            # evidence. The trainer's independent records remain authoritative.
+            pass
+        if not self._warned:
+            self._warned = True
+            try:
+                warnings.warn(
+                    "MLflow tracking is degraded; numerical training continues. "
+                    "Inspect tracking/state.json and tracking/delivery_failures.jsonl. "
+                    "Install pymc-mfm[training] for MLflow support, "
+                    "or explicitly disable tracking.",
+                    RuntimeWarning,
+                    stacklevel=3,
+                )
+            except Warning:
+                pass
+
+    def _guard(self, operation: str, function) -> Any:
+        started = time.perf_counter()
+        try:
+            with preserve_rng():
+                return function()
+        except Exception as exc:
+            self._failure(operation, exc)
+            return None
+        finally:
+            self.delivery_seconds += time.perf_counter() - started
+
+    def _deliver(self, operation: str, function, *, artifact: str | None = None) -> None:
+        if not self.config.enabled:
+            return
+        if self.client is None or self.run_id is None:
+            self._failure(operation, RuntimeError("backend unavailable"), artifact=artifact)
+            return
+        try:
+            function()
+        except Exception as exc:
+            self._failure(operation, exc, artifact=artifact)
+
+    def metric_name(
+        self, original: str, *, path: tuple[str, ...] = (), kind: str = "metric"
+    ) -> str:
+        """Stable bounded key; the full original name/path remains in names.json.
+
+        All names carry their complete SHA-256, including already legal names,
+        so a raw name cannot impersonate a sanitized/truncated name. An actual
+        digest collision is detected, never silently merged.
+        """
+        digest = hashlib.sha256(original.encode()).hexdigest()
+        readable = _KEY.sub("_", original).strip(" /.") or "unnamed"
+        key = f"{readable[:184]}--{digest}"
+        entry = {"original": original, "path": list(path), "kind": kind}
+        existing = self._names.get(key)
+        if existing is not None and not path and existing["original"] == original:
+            return key
+        if existing is not None and existing != entry:
+            raise ValueError("tracking name identity collision")
+        self._names[key] = entry
+        return key
+
+    def _artifact(self, source: Path, destination: str) -> None:
+        self._deliver(
+            "log_artifact",
+            lambda: self.client.log_artifact(self.run_id, str(source), artifact_path=destination),
+            artifact=f"{destination}/{source.name}",
+        )
+
+    def _snapshot(
+        self, source: Path, *, kind: str, step: int, deliver: bool = True
+    ) -> dict[str, Any]:
+        if not source.is_file() or source.is_symlink():
+            raise ValueError("artifact must be a regular non-symlink file")
+        digest = file_sha256(source)
+        relative = Path("objects") / f"step_{step:09d}" / kind / digest / source.name
+        target = self.root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            shutil.copyfile(source, target)
+        if deliver:
+            self._artifact(target, relative.parent.as_posix())
+        return {"path": relative.as_posix(), "sha256": digest, "kind": kind, "step": step}
+
+    def _event(
+        self,
+        kind: str,
+        record: Mapping[str, Any],
+        *,
+        metrics=None,
+        metric_steps=None,
+        deliver: bool = True,
+    ) -> Path:
+        self._sequence += 1
+        payload = evidence_value(record)
+        step = int(record.get("step", record.get("final_step", 0)))
+        timestamp = int(time.time() * 1000)
+        scalars = []
+        for original, path, _value in metrics or ():
+            value = payload
+            for part in path:
+                value = value.get(part) if isinstance(value, Mapping) else None
+            if isinstance(value, Real) and math.isfinite(float(value)):
+                key = self.metric_name(original, path=path)
+                scalar_step = (
+                    step if metric_steps is None else int(metric_steps.get(original, step))
+                )
+                scalars.append(
+                    {
+                        "key": key,
+                        "original": original,
+                        "path": list(path),
+                        "value": float(value),
+                        "step": scalar_step,
+                    }
+                )
+        scalar_paths = {tuple(item["path"]) for item in scalars}
+        fields = [
+            {
+                "path": list(path),
+                "representation": "metric_and_json" if path in scalar_paths else "json",
+                "status": "undefined" if value is None else "recorded",
+            }
+            for path, value in _leaves(payload)
+        ]
+        event = {
+            "format_version": 1,
+            "sequence": self._sequence,
+            "kind": kind,
+            "step": step,
+            "timestamp_ms": timestamp,
+            "payload": payload,
+            "scalars": scalars,
+            "fields": fields,
+        }
+        path = self.root / "events" / f"{self._sequence:07d}_{kind}_step_{step:09d}.json"
+        _write_json(path, event)
+        if deliver:
+            self._artifact(path, "events")
+        if scalars and deliver:
+            for offset in range(0, len(scalars), 1000):
+                batch = scalars[offset : offset + 1000]
+                self._deliver(
+                    "log_metrics",
+                    lambda batch=batch: self.client.log_batch(
+                        self.run_id,
+                        metrics=[
+                            self._metric_type(item["key"], item["value"], timestamp, item["step"])
+                            for item in batch
+                        ],
+                    ),
+                    artifact=str(path.relative_to(self.root)),
+                )
+        self._state()
+        return path
+
+    def _parameters(self, record: Mapping[str, Any]) -> None:
+        pending = []
+        for path, value in _leaves(evidence_value(record)):
+            original = "config/" + _pointer(path)
+            key = self.metric_name(original, path=path, kind="parameter")
+            encoded = json.dumps(value, sort_keys=True, allow_nan=False)
+            # Full values are in the configuration event, never silently lost.
+            if len(encoded) > 500:
+                encoded = (
+                    "sha256:"
+                    + hashlib.sha256(encoded.encode()).hexdigest()
+                    + " (full value in configuration event)"
+                )
+            if key in self._params:
+                if self._params[key] != encoded:
+                    raise ValueError("immutable tracking parameter changed")
+                continue
+            self._params[key] = encoded
+            pending.append((key, encoded))
+        for offset in range(0, len(pending), 100):
+            batch = pending[offset : offset + 100]
+            self._deliver(
+                "log_parameters",
+                lambda batch=batch: self.client.log_batch(
+                    self.run_id, params=[self._param_type(key, value) for key, value in batch]
+                ),
+            )
+
+    def on_run_start(self, run: Mapping[str, Any]) -> None:
+        def start():
+            if self._started:
+                raise RuntimeError("a tracking observer owns exactly one training execution")
+            self._started = True
+            self.local_run_id = str(run["run_id"])
+            self._state()
+            if self.config.enabled:
+                try:
+                    from mlflow import MlflowClient
+                    from mlflow.entities import Metric, Param
+
+                    self._metric_type, self._param_type = Metric, Param
+                    self.client = MlflowClient(tracking_uri=self.tracking_uri)
+                    experiment = self.client.get_experiment_by_name(self.config.experiment_name)
+                    if experiment is None:
+                        kwargs = {}
+                        if not self.config.tracking_uri and not os.environ.get(
+                            "MLFLOW_TRACKING_URI"
+                        ):
+                            kwargs["artifact_location"] = (self.root / "artifacts").as_uri()
+                        self.experiment_id = self.client.create_experiment(
+                            self.config.experiment_name, **kwargs
+                        )
+                    else:
+                        self.experiment_id = experiment.experiment_id
+                    created = self.client.create_run(
+                        self.experiment_id,
+                        tags={
+                            "mlflow.runName": evidence_value(
+                                str(run.get("run_name") or self.local_run_id)
+                            ),
+                            "mfm.local_run_id": self.local_run_id,
+                            "mfm.profile": self.config.profile,
+                            "mfm.lifecycle_status": "running",
+                            "mfm.delivery_status": "healthy",
+                        },
+                    )
+                    self.run_id = created.info.run_id
+                    self.delivery_status = "healthy"
+                    self._state()
+                except Exception as exc:
+                    self._failure("start_run", exc)
+            self._event("run_start", run)
+            self._snapshot(
+                Path(__file__).with_name("tracking_catalog.json"), kind="catalog", step=0
+            )
+            self._event("tracking_config", asdict(self.config))
+
+        self._guard("run_start", start)
+
+    def on_run_config(self, run: Mapping[str, Any]) -> None:
+        def configure():
+            self._event("configuration", run)
+            mutable = {
+                "status",
+                "finished_at",
+                "final_step",
+                "error",
+                "error_type",
+                "checkpoints",
+                "diagnostics",
+                "best",
+                "tracking",
+                "consumed",
+            }
+            self._parameters({key: value for key, value in run.items() if key not in mutable})
+            self._state()
+
+        self._guard("run_config", configure)
+
+    def on_step(self, record: Mapping[str, Any]) -> None:
+        def log():
+            self._event(
+                "step",
+                record,
+                metrics=[
+                    ("train/" + _pointer(path), path, value) for path, value in _leaves(record)
+                ],
+            )
+            if record["step"] == 1 and (self.out_dir / "objective_trace.json").is_file():
+                self._snapshot(
+                    self.out_dir / "objective_trace.json", kind="objective_trace", step=1
+                )
+
+        self._guard("step", log)
+
+    def on_evaluation(self, record: Mapping[str, Any]) -> None:
+        def log():
+            metrics = [
+                ("evaluation/" + key, ("flat", key), value)
+                for key, value in record.get("flat", {}).items()
+            ]
+            metrics.extend(
+                ("evaluation/" + _pointer(path), path, value)
+                for path, value in _leaves(record)
+                if path and path[0] not in ("flat", "legs")
+            )
+            for leg, values in record.get("legs", {}).items():
+                metrics.extend(
+                    (f"evaluation/{leg}/{key}", ("legs", leg, key), values[key])
+                    for key in ("n_worlds", "n_samples", "seed")
+                    if key in values
+                )
+                metrics.extend(
+                    (f"evaluation/{leg}/" + _pointer(path), ("legs", leg, *path), value)
+                    for path, value in _leaves(values)
+                    if path and path[0] not in ("heads", "n_worlds", "n_samples", "seed")
+                )
+            self._event("evaluation", record, metrics=metrics)
+
+        self._guard("evaluation", log)
+
+    def on_checkpoint(self, record: Mapping[str, Any]) -> None:
+        def log():
+            try:
+                source = Path(record["path"])
+                if record["kind"] not in CHECKPOINT_KINDS:
+                    raise ValueError("unknown checkpoint kind")
+                if file_sha256(source) != record["sha256"]:
+                    raise ValueError("checkpoint changed before delivery")
+                artifact = self._snapshot(
+                    source, kind="checkpoint_" + str(record["kind"]), step=int(record["step"])
+                )
+            except Exception as exc:
+                self._event(
+                    "checkpoint",
+                    {
+                        **record,
+                        "artifact_status": "failed",
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                raise
+            self._event("checkpoint", {**record, "artifact": artifact})
+
+        self._guard("checkpoint", log)
+
+    def on_diagnostic(self, manifest: Mapping[str, Any], path: str | Path) -> None:
+        """Deliver only declared-synthetic reports; keep private evidence local."""
+
+        def log():
+            root = Path(path).resolve()
+            if root.is_file():
+                root = root.parent
+            provenance = manifest.get("provenance", {})
+            dimensions = manifest.get("dimensions", {})
+            source_step = provenance.get("source_step")
+            step = 0 if source_step is None else int(source_step)
+            checkpoint = provenance.get("checkpoint_sha256", "unbound")
+            if not isinstance(checkpoint, str) or re.fullmatch(r"[a-f0-9]{64}", checkpoint) is None:
+                checkpoint = "unbound"
+            identity = hashlib.sha256(
+                json.dumps(evidence_value(manifest), sort_keys=True).encode()
+            ).hexdigest()
+            prefix = f"diagnostics/step_{step:09d}/{checkpoint}/{identity}"
+            sensitive = provenance.get("synthetic_training_evaluation") is not True or any(
+                item.get("sensitive", False) for item in manifest.get("artifacts", [])
+            )
+            unsafe_metadata = json.dumps(evidence_value(manifest), sort_keys=True) != json.dumps(
+                manifest, sort_keys=True
+            )
+            saved_manifest = self.root / "reports" / identity / "manifest.json"
+            _write_json(saved_manifest, manifest)
+            approved = []
+            invalid_artifacts = False
+            # JSON evidence can carry labels later rendered into PNG/HTML.
+            # Inspect the whole allowlist before releasing any derivative.
+            if not sensitive and not unsafe_metadata:
+                for descriptor in manifest.get("artifacts", []):
+                    relative = Path(descriptor["path"])
+                    source = root / relative
+                    if (
+                        relative.is_absolute()
+                        or ".." in relative.parts
+                        or source.is_symlink()
+                        or not source.resolve().is_relative_to(root)
+                    ):
+                        invalid_artifacts = True
+                        self._failure(
+                            "diagnostic_allowlist",
+                            ValueError("unsafe artifact path"),
+                            artifact=str(relative),
+                        )
+                        continue
+                    try:
+                        if not source.is_file() or file_sha256(source) != descriptor["sha256"]:
+                            raise ValueError("diagnostic artifact missing or changed")
+                        if source.suffix == ".json":
+                            contents = json.loads(source.read_text())
+                            unsafe_metadata = (
+                                unsafe_metadata or evidence_value(contents) != contents
+                            )
+                        approved.append((source, relative))
+                    except Exception as exc:
+                        invalid_artifacts = True
+                        self._failure("diagnostic_artifact", exc, artifact=str(relative))
+            if sensitive or unsafe_metadata or invalid_artifacts:
+                self._withheld_reports = True
+                withheld = (
+                    "withheld_sensitive"
+                    if sensitive
+                    else "withheld_credentials"
+                    if unsafe_metadata
+                    else "failed_artifact_validation"
+                )
+                # Even one-week support summaries can equal raw observations.
+                # No private provenance, scalar metrics, filenames or figures
+                # leave the local evidence directory.
+                self._event(
+                    "diagnostic",
+                    {
+                        "step": step,
+                        "manifest": manifest,
+                        "delivery_status": withheld,
+                    },
+                    deliver=False,
+                )
+                self._event(
+                    "diagnostic_receipt",
+                    {
+                        "step": step,
+                        "checkpoint_sha256": checkpoint,
+                        "report_sha256": identity,
+                        "status": withheld,
+                        "reason": (
+                            "Full report upload requires explicitly synthetic, nonsensitive, "
+                            "credential-free evidence."
+                        ),
+                    },
+                )
+                return
+            report_dimensions = {
+                "data_split": dimensions.get(
+                    "data_split", provenance.get("data_split", "unspecified")
+                ),
+                "head": dimensions.get("head", "conditional"),
+                "mode": dimensions.get("mode", "unspecified"),
+                "window": dimensions.get("window", "unspecified"),
+                "units": dimensions.get("units", "unspecified"),
+                "world_id": provenance.get("world_id", provenance.get("row", "world")),
+            }
+            metrics = []
+            metric_steps = {}
+            representation = manifest.get("metric_representation", "scalars")
+            if representation not in ("scalars", "per_world_table"):
+                raise ValueError("unknown diagnostic metric representation")
+            for key, value in manifest.get("metrics", {}).items():
+                # Captured training worlds are a growing table, not a growing
+                # set of run-level time series. Their full values remain in the
+                # verified manifest and arrays. Canonical train/evaluation
+                # histories already preserve their actual optimizer steps.
+                if representation == "per_world_table":
+                    continue
+                specific = manifest.get("metric_dimensions", {}).get(key, {})
+                labels = {
+                    **report_dimensions,
+                    "units": manifest.get("metric_units", {}).get(key, report_dimensions["units"]),
+                    **specific,
+                }
+                dimensions_key = tuple(
+                    str(labels.get(name, "unspecified"))
+                    for name in (
+                        "data_split",
+                        "head",
+                        "mode",
+                        "window",
+                        "units",
+                        "world_id",
+                        "profile",
+                        "method",
+                        "checkpoint_sha256",
+                    )
+                )
+                original = "diagnostic/" + _pointer((*dimensions_key, key))
+                metrics.append((original, ("manifest", "metrics", key), value))
+                source_step = specific.get("source_step", step)
+                metric_steps[original] = step if source_step is None else int(source_step)
+            self._event(
+                "diagnostic",
+                {"step": step, "manifest": manifest, "artifact_path": prefix},
+                metrics=metrics,
+                metric_steps=metric_steps,
+            )
+            self._artifact(saved_manifest, prefix)
+            for source, relative in approved:
+                self._artifact(source, f"{prefix}/{relative.parent.as_posix()}".rstrip("/."))
+            self._state()
+
+        self._guard("diagnostic", log)
+
+    def on_diagnostic_failure(self, record: Mapping[str, Any]) -> None:
+        def log():
+            self._event("diagnostic_failure", record, deliver=False)
+            self._event(
+                "diagnostic_failure_receipt",
+                {
+                    "step": record.get("step", 0),
+                    "status": "failed",
+                    "error_type": record.get("error_type", "DiagnosticError"),
+                },
+            )
+
+        self._guard("diagnostic_failure", log)
+        self._failure("build_report", RuntimeError("diagnostic report failed"))
+
+    def on_run_end(self, run: Mapping[str, Any]) -> None:
+        if self._ended:
+            return
+        self._ended = True
+        self.lifecycle_status = str(run["status"])
+
+        def finish():
+            step = int(run.get("final_step", 0))
+            self._event("run_end", {**run, "tracking": self.summary})
+            for name in (
+                "run.json",
+                "metrics.jsonl",
+                "evaluations.jsonl",
+                "diagnostics.jsonl",
+                "objective_trace.json",
+            ):
+                source = self.out_dir / name
+                if source.is_file():
+                    try:
+                        public = name != "diagnostics.jsonl" or (
+                            not self._withheld_reports
+                            and bool(run.get("corpus"))
+                            and all(
+                                item.get("data_origin") == "synthetic" for item in run["corpus"]
+                            )
+                        )
+                        self._snapshot(source, kind="terminal_evidence", step=step, deliver=public)
+                    except Exception as exc:
+                        self._failure("terminal_artifact", exc, artifact=name)
+            # Export paths are explicitly recorded by the trainer, not a
+            # recursive working-directory scan.
+            for name in run.get("export", {}).get("files", []):
+                relative = Path(name)
+                source = self.out_dir / "model" / relative
+                if (
+                    relative.is_absolute()
+                    or ".." in relative.parts
+                    or not source.resolve().is_relative_to(self.out_dir / "model")
+                ):
+                    self._failure(
+                        "export_allowlist", ValueError("unsafe export path"), artifact=str(relative)
+                    )
+                    continue
+                try:
+                    self._snapshot(source, kind="model_export", step=step)
+                except Exception as exc:
+                    self._failure("export_artifact", exc, artifact=str(relative))
+            self._state()
+            for name in ("names.json", "state.json", "delivery_failures.jsonl"):
+                source = self.root / name
+                if source.is_file():
+                    self._artifact(source, "tracking")
+
+        def terminate():
+            terminal = {"finished": "FINISHED", "interrupted": "KILLED", "failed": "FAILED"}.get(
+                self.lifecycle_status, "FAILED"
+            )
+            self._deliver(
+                "lifecycle_tag",
+                lambda: self.client.set_tag(
+                    self.run_id, "mfm.lifecycle_status", self.lifecycle_status
+                ),
+            )
+            self._deliver(
+                "delivery_tag",
+                lambda: self.client.set_tag(
+                    self.run_id, "mfm.delivery_status", self.delivery_status
+                ),
+            )
+            # FINISHED is never asserted when delivery is incomplete.
+            if self.delivery_status == "degraded" and terminal == "FINISHED":
+                terminal = "FAILED"
+            self._deliver(
+                "terminate_run", lambda: self.client.set_terminated(self.run_id, status=terminal)
+            )
+            self._state()
+
+        try:
+            self._guard("run_end", finish)
+        except BaseException as exc:
+            if self.lifecycle_status in ("running", "finished"):
+                self.lifecycle_status = (
+                    "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+                )
+            self._failure("finalization_interrupted", exc)
+            error_type = type(exc).__name__
+            self._guard(
+                "interruption_event",
+                lambda: self._event(
+                    "finalization_interrupted",
+                    {
+                        "status": self.lifecycle_status,
+                        "error_type": error_type,
+                        "final_step": run.get("final_step", 0),
+                    },
+                ),
+            )
+            raise
+        finally:
+            # KeyboardInterrupt during artifact delivery must still attempt to
+            # terminate our run, never an unrelated caller's active run.
+            try:
+                self._guard("terminate", terminate)
+            except BaseException as exc:
+                if self.lifecycle_status in ("running", "finished"):
+                    self.lifecycle_status = (
+                        "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+                    )
+                self._failure("termination_interrupted", exc)
+                raise
