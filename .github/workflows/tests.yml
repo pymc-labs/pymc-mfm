@@ -12,6 +12,7 @@ jobs:
   contracts:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         installation: [base, full]
     env:
