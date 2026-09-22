@@ -8,16 +8,16 @@ from typing import ClassVar, Self
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ModelConfig:
-    """Shared construction and checkpoint configuration, resolved from A and B.
+    """Construction and checkpoint configuration for the canonical architecture.
 
     Version 1 fixes causal bi-attention, all five observation feature blocks,
     signed sales-scale targets, the eight-family graph router, support-projected
     conditional decoder, coherent context-state flows, and the extended
     control-equivariant structure objective. These are not optional architectures.
 
-    Paths, corpus identity, device, seed, optimizer and run budget are not model
-    inputs. Channels are count-agnostic; ``n_controls`` records the training
-    geometry and ``n_demand`` also sizes the router's demand embeddings.
+    Paths, corpus identity, device, seed, optimizer, and run budget are not
+    model inputs. Channels are count-agnostic; ``n_controls`` records training
+    geometry and ``n_demand`` also sizes router demand embeddings.
     """
 
     format_version: ClassVar[int] = 1

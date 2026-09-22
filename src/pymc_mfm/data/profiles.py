@@ -5,12 +5,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ArtifactProfile:
-    """Identity and data differences recorded in the original A/B references.
+    """Identity and data characteristics for a named corpus profile.
 
-    Locations are deliberately absent: callers supply a local path to loading,
-    and a future artifact transport can resolve these same identities. The
-    checksum identifies the original reference checkpoint, not a converted MFM
-    artifact. Neither this record nor choosing A/B changes ``ModelConfig``.
+    Locations are deliberately absent: callers provide local paths, while an
+    artifact transport can resolve the same identities. A profile identifies
+    data and designated checkpoint weights; it never changes ``ModelConfig``.
     """
 
     name: str
