@@ -131,7 +131,7 @@ def test_observations_use_context_statistics_and_natural_time(corpus):
         "spend_std": [(spend_sd - 0.55) / 0.25, (1e-6 - 0.55) / 0.25, (1e-6 - 0.55) / 0.25],
         "ctx_week": [[0], [1 / 6], [2 / 6], [3 / 6]],
         "qry_week": [[4 / 6], [5 / 6]],
-        "control_location_scale": [[0, controls_sd], [0, 1], [2, 1]],
+        "control_location_scale": [[0, controls_sd], [0, 0], [2, 1]],
         "active_c_mask": [1, 1, 0],
         "active_m_mask": [1, 0, 1],
         "active_j_mask": [0, 1, 1],
@@ -149,6 +149,8 @@ def test_observations_use_context_statistics_and_natural_time(corpus):
     )
     torch.testing.assert_close(batch["adstock_moments"][:, 0, 0], expected_location)
     torch.testing.assert_close(batch["control_effect_moments"][:, 2], torch.zeros(2, 6))
+    torch.testing.assert_close(batch["control_moments"][:, 1], torch.zeros(2, 3))
+    torch.testing.assert_close(batch["control_effect_moments"][:, 1], torch.zeros(2, 6))
 
 
 def test_targets_restore_signed_natural_components_without_observation_noise(corpus):
@@ -259,5 +261,19 @@ def test_zero_observed_outcome_is_rejected_instead_of_clipped(corpus):
 
 def test_negative_direct_effect_is_rejected_instead_of_training_outside_support(corpus):
     corpus["treatment_contribution_raw"][0, 1, 0] = -1
+    with pytest.raises(ValueError):
+        corpus_batch(corpus)
+
+
+@pytest.mark.parametrize(
+    ("key", "index", "value"),
+    [
+        ("treatment_raw", (0, 0, 0), -1e-50),
+        ("treatment_raw", (0, 0, 2), 1e-50),
+        ("covariates", (0, 0, 1), 1e-50),
+    ],
+)
+def test_raw_domain_and_padding_are_checked_before_precision_narrowing(corpus, key, index, value):
+    corpus[key][index] = value
     with pytest.raises(ValueError):
         corpus_batch(corpus)

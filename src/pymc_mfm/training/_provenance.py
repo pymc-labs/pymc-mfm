@@ -76,8 +76,10 @@ def code_record() -> dict[str, Any]:
         "modified_from_revision": None,
         "revision_status": "not_available",
     }
-    repository = next((parent for parent in root.parents if (parent / ".git").exists()), None)
-    if repository is not None:
+    # Only a source checkout owns its Git revision; an installed environment may
+    # be nested under an unrelated application's repository.
+    repository = root.parent.parent if root.parent.name == "src" else None
+    if repository is not None and (repository / ".git").exists():
         try:
             revision = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
@@ -141,7 +143,7 @@ def corpus_identity(corpus: Mapping[str, Any]) -> dict[str, Any]:
         "arrays": arrays,
         "metadata_sha256": other,
         "unavailable": unavailable,
-        "identity_scope": "actual in-memory inputs, not a historical source-corpus assertion",
+        "identity_scope": "actual in-memory inputs",
     }
 
 

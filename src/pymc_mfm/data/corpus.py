@@ -123,8 +123,8 @@ def corpus_batch(
     active_j = values("latent_active_mask", (j,), binary=True)
     if np.any(active_c.sum(axis=1) == 0) or np.any(active_m.sum(axis=1) == 0):
         raise ValueError("each world needs at least one active treatment and covariate")
-    spend = values("treatment_raw", (n_weeks, k)).astype(np.float32)
-    controls = values("covariates", (n_weeks, m)).astype(np.float32)
+    spend = values("treatment_raw", (n_weeks, k))
+    controls = values("covariates", (n_weeks, m))
     outcome = values("outcome_raw", (n_weeks,)).astype(np.float64)
     if np.any(spend < 0):
         raise ValueError("treatment_raw must be nonnegative for the MFM representation")
@@ -154,7 +154,12 @@ def corpus_batch(
         raise ValueError("g has an edge touching an inactive padded node")
 
     encoded = encode_observations(
-        spend, controls, outcome[:, :n_context], active_c, active_m, active_j
+        spend.astype(np.float32),
+        controls.astype(np.float32),
+        outcome[:, :n_context],
+        active_c,
+        active_m,
+        active_j,
     )
     scale = encoded["sales_scale"]
     targets = (

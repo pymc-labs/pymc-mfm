@@ -99,9 +99,23 @@ class DecompositionResult:
             raise ValueError("units must be a nonempty label")
         if type(self.context_length) is not int or self.context_length < 1:
             raise ValueError("context_length must be a positive integer")
+        if self.window == "context" and t != self.context_length:
+            raise ValueError("context results must span context_length rows")
         if not isinstance(self.provenance, dict):
             raise ValueError("provenance must be a JSON object")
         json.dumps(self.provenance, allow_nan=False)
+        if "inference_config" in self.provenance:
+            inference = self.provenance["inference_config"]
+            if not isinstance(inference, dict):
+                raise ValueError("inference_config must be a JSON object")
+            for key, expected in (("mode", self.mode), ("window", self.window), ("n_samples", s)):
+                if key in inference and (
+                    type(inference[key]) is not type(expected) or inference[key] != expected
+                ):
+                    raise ValueError(f"result {key} conflicts with recorded inference_config")
+        graph_source = "supplied_hypothesis" if self.mode == "fixed" else "joint_router"
+        if "graph_source" in self.provenance and self.provenance["graph_source"] != graph_source:
+            raise ValueError("result mode conflicts with recorded graph_source")
         allowed = {"baseline", "channel", "control", "latent", "indirect"}
         if not set(self.component_families) <= allowed:
             raise ValueError("unknown component family")

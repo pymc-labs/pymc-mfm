@@ -34,6 +34,7 @@ jobs:
         if: matrix.installation == 'full'
         run: uv sync --locked --all-extras
       - name: Check formatting and lint
+        if: matrix.installation == 'base'
         run: |
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
@@ -41,3 +42,6 @@ jobs:
         run: uv run --no-sync pytest -q
       - name: Build distributable artifacts
         run: uv build
+      - name: Verify installed sdist, base wheel and diagnostics-only wheel
+        if: matrix.installation == 'full'
+        run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed

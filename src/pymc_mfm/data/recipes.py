@@ -1,15 +1,14 @@
 """Canonical corpus recipes and schema-4 corpus helpers.
 
-``FW53_PRIOR`` is the fixed public ``pymc_generator`` configuration for profile
-A. Corpus size and random seed are caller arguments rather than recipe fields.
+``PROFILE_A_PRIOR`` is the fixed ``pymc_generator`` configuration for profile A.
+Corpus size and random seed are caller arguments rather than recipe fields.
 ``generate_corpus`` writes one corpus and a JSON sidecar with its exact
 construction inputs; ``load_corpora`` validates schema 4 and records corpus
 identity for training.
 
-Profile B is intentionally marked ``reconstructed``. It changes profile A's
-``cy`` edge budget to B's documented live-channel range, but does not claim to
-reproduce a specific reference corpus. ``pymc_generator`` is imported lazily,
-so this module remains importable without the ``generation`` extra.
+Profile B changes profile A's ``cy`` edge budget to ``(4, 10)`` while retaining
+the other prior settings. ``pymc_generator`` is imported lazily, so this module
+remains importable without the ``generation`` extra.
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ _GENERATION_EXTRA_HINT = (
 
 #: Canonical profile-A SCMPrior payload in public ``pymc_generator`` field
 #: names. ``n_cells``, ``draws_per_cell``, and ``seed`` are caller arguments.
-FW53_PRIOR: Mapping[str, Any] = MappingProxyType(
+PROFILE_A_PRIOR: Mapping[str, Any] = MappingProxyType(
     {
         "n_time_steps": 104,
         "n_treatments": 15,
@@ -120,47 +119,37 @@ FW53_PRIOR: Mapping[str, Any] = MappingProxyType(
     }
 )
 
-#: Reference shard cell geometry for profile A (1,250 worlds).
-FW53_TRAIN_CELLS: Mapping[str, int] = MappingProxyType({"n_cells": 125, "draws_per_cell": 10})
+#: Shard cell geometry for profile A (1,250 worlds).
+PROFILE_A_TRAIN_CELLS: Mapping[str, int] = MappingProxyType({"n_cells": 125, "draws_per_cell": 10})
 
 #: Base seed for the documented profile-A shard sequence.
-FW53_SHARD_BASE_SEED = 530000
+PROFILE_A_SHARD_BASE_SEED = 530000
 
 
 @dataclass(frozen=True, slots=True)
 class PriorRecipe:
-    """A profile's SCMPrior payload and provenance note.
+    """A profile's named SCMPrior payload.
 
     ``payload`` holds every ``SCMPrior`` field except ``n_cells``,
-    ``draws_per_cell``, and ``seed``. ``reconstructed`` marks a payload
-    inferred from profile metadata; ``source`` summarizes that confidence.
+    ``draws_per_cell``, and ``seed``.
     """
 
     name: str
     profile: ArtifactProfile
     payload: Mapping[str, Any]
-    reconstructed: bool
-    source: str
 
 
 _RECIPES: dict[ArtifactProfile, PriorRecipe] = {
     PROFILE_A: PriorRecipe(
-        name="fw53_geo_mm",
+        name="A",
         profile=PROFILE_A,
-        payload=FW53_PRIOR,
-        reconstructed=False,
-        source="canonical profile-A configuration in pymc_generator schema 4",
+        payload=PROFILE_A_PRIOR,
     ),
     PROFILE_B: PriorRecipe(
-        name="fw53cy410",
+        name="B",
         profile=PROFILE_B,
         payload=MappingProxyType(
-            {**FW53_PRIOR, "edge_budget": {**FW53_PRIOR["edge_budget"], "cy": (4, 10)}}
-        ),
-        reconstructed=True,
-        source=(
-            "reconstructed from the cy410 profile label and documented live-channel range; "
-            "not a reproduced corpus configuration"
+            {**PROFILE_A_PRIOR, "edge_budget": {**PROFILE_A_PRIOR["edge_budget"], "cy": (4, 10)}}
         ),
     ),
 }
@@ -169,10 +158,8 @@ _RECIPES: dict[ArtifactProfile, PriorRecipe] = {
 def recipe_for(profile: ArtifactProfile) -> PriorRecipe:
     """Return the corpus recipe for a known profile.
 
-    A returns the canonical profile-A configuration. B changes
-    ``edge_budget["cy"]`` to ``(4, 10)`` and is explicitly marked
-    ``reconstructed``; it must not be used to claim reproduction of a specific
-    corpus. Unknown profiles raise ``KeyError``.
+    A returns the profile-A configuration. B changes ``edge_budget["cy"]``
+    to ``(4, 10)``. Unknown profiles raise ``KeyError``.
     """
     try:
         return _RECIPES[profile]

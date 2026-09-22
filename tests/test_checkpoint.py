@@ -300,6 +300,65 @@ def test_source_identity_survives_reexport_with_actual_export_hashes(model, tmp_
         )
 
 
+def test_reexport_annotations_preserve_existing_source_and_run_identity(model, tmp_path):
+    source = {"source_checkpoint_sha256": "a" * 64, "training_run_id": "training-17"}
+    original = from_pretrained(
+        save_pretrained(model, tmp_path / "original", provenance=source, profile="A")
+    )
+    copied = from_pretrained(
+        save_pretrained(
+            original,
+            tmp_path / "copy",
+            provenance={"training_run_id": "training-17", "tracking_run_id": "backend-17"},
+            profile="A",
+        )
+    )
+    assert copied.provenance["checkpoint_sha256"] == "a" * 64
+    assert copied.provenance["training_run_id"] == "training-17"
+    assert copied.provenance["tracking_run_id"] == "backend-17"
+    assert copied.provenance["profile"] == "A"
+    for name, value in original.state_dict().items():
+        torch.testing.assert_close(copied.state_dict()[name], value, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("record_source", [False, True])
+def test_reexport_cannot_replace_loaded_source_or_producing_run(model, tmp_path, record_source):
+    source = {
+        "training_run_id": "training-17",
+        "tracking_local_run_id": "local-17",
+        "tracking_run_id": "backend-17",
+    }
+    if record_source:
+        source["source_checkpoint_sha256"] = "a" * 64
+    loaded = from_pretrained(
+        save_pretrained(model, tmp_path / "original", provenance=source, profile="A")
+    )
+    for provenance in (
+        {"source_checkpoint_sha256": "f" * 64},
+        {"training_run_id": "other-training"},
+        {"tracking_local_run_id": "other-local"},
+        {"tracking_run_id": "other-backend"},
+    ):
+        with pytest.raises(ValueError):
+            save_pretrained(loaded, tmp_path / "conflict", provenance=provenance)
+        assert not (tmp_path / "conflict").exists()
+    with pytest.raises(ValueError):
+        save_pretrained(loaded, tmp_path / "other-profile", profile="B")
+    assert not (tmp_path / "other-profile").exists()
+
+
+def test_recording_missing_provenance_survives_empty_reexport_annotations(model, tmp_path):
+    original = from_pretrained(save_pretrained(model, tmp_path / "original"))
+    assert original.artifact_metadata["provenance"]["status"] == "not_recorded"
+    recorded = from_pretrained(
+        save_pretrained(original, tmp_path / "recorded", provenance={"tracking_run_id": "run-17"})
+    )
+    assert recorded.artifact_metadata["provenance"]["status"] == "recorded"
+    copied = from_pretrained(save_pretrained(recorded, tmp_path / "copied", provenance={}))
+    assert copied.artifact_metadata["provenance"]["status"] == "recorded"
+    assert copied.provenance["tracking_run_id"] == "run-17"
+
+
 def test_export_refuses_to_modify_existing_bundle_or_neighbor_data(model, tmp_path):
     path = save_pretrained(model, tmp_path / "model")
     saved = {file.name: file.read_bytes() for file in path.iterdir()}

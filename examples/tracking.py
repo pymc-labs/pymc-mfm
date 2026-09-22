@@ -2,11 +2,13 @@
 
 Install ``pymc-mfm[training]``. Canonical training enables MLflow by default:
 
+    export MLFLOW_TRACKING_URI=sqlite:///outputs/mlflow.db
     python -m pymc_mfm.training --corpus generated.npz --out-dir outputs/seed31
     python examples/tracking.py outputs/seed31 --metric train/loss --download-reports downloads
 
-The default backend is outputs/seed31/tracking/mlflow.db. To compare several
-runs in one UI, configure the same output-local SQLite URI for all runs:
+These commands select outputs/mlflow.db. Readback uses the run's saved backend
+unless ``--tracking-uri`` overrides it. To compare several runs in one UI, select
+the same output-local SQLite URI for all training runs:
 
     export MLFLOW_TRACKING_URI=sqlite:////absolute/worktree/outputs/mlflow.db
     python -m pymc_mfm.training --corpus generated.npz --out-dir outputs/seed32 --seed 32
@@ -33,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 
@@ -65,7 +66,7 @@ def main(argv=None):
         )
     from mlflow import MlflowClient
 
-    uri = args.tracking_uri or os.environ.get("MLFLOW_TRACKING_URI") or state["tracking_uri"]
+    uri = args.tracking_uri or state["tracking_uri"]
     client = MlflowClient(tracking_uri=uri)
     run_id = state["run_id"]
     run = client.get_run(run_id)

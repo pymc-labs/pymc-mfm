@@ -13,12 +13,12 @@ import numpy as np
 
 
 def cardinality_decode(marginals, cardinality, beta=1.0):
-    """Enumerate sets with frozen half-draw-256 smoothing and log probabilities.
+    """Enumerate fixed-cardinality sets with smoothed log probabilities.
 
-    The clipping epsilon is ``1/(2*A*256)`` for A active slots, preserving the
-    banked decoder's numerical convention. MAP must use beta=1 probabilities;
-    tempering changes set probabilities, not the selection rule. k=0 is the
-    single empty hypothesis, not an unavailable posterior.
+    The clipping epsilon is ``1/(2*A*256)`` for A active slots. MAP must use
+    beta=1 probabilities; tempering changes set probabilities, not the
+    selection rule. k=0 is the single empty hypothesis, not an unavailable
+    posterior.
     """
     probabilities = np.asarray(marginals, dtype=np.float64)
     if probabilities.ndim != 1 or probabilities.size == 0:

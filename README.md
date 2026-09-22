@@ -19,7 +19,7 @@ src/pymc_mfm/
   inference/     Checkpoint loading and observation-based inference APIs
   diagnostics/   Numerical diagnostics, calibration and evaluation metrics
   plotting/      Figures and reports, separate from numerical diagnostics
-tests/           Focused behavioral and equivalence tests
+tests/           Focused behavioral tests
 examples/        Small examples using the public API
 pyproject.toml   Package metadata, dependencies and development-tool settings
 uv.lock          Locked dependencies for the uv workflow
@@ -28,7 +28,7 @@ environment.yml  Conda Python environment
 
 The model contains a causal bi-attention encoder, a joint contribution/graph
 router, a graph conditioner, a support-projected conditional contribution flow,
-and the trainable extended structure head. Both flow heads retain coherent
+and the trainable extended structure head. Both flow heads include coherent
 trajectory/context-state modules. The full objective scores query and context
 decomposition, context graph structure, graph-conditioned query/context
 decomposition, and auxiliary structure prediction.
@@ -39,9 +39,9 @@ Install `[diagnostics]` for the complete numerical/plotting suite, `[hub]` for
 remote artifact transport, `[training]` for diagnostics and MLflow, and
 `[generation]` for public `pymc-generator`. The `dev` group supplies pytest and Ruff.
 
-Model weights, corpora, and generated experiment outputs do **not** belong in the
-library. They remain external, on Hugging Face or
-[Google Drive](https://drive.google.com/drive/folders/1G3jcruRo3PVq_mE_6Lvoiobfz2smc8Mg).
+Model weights, corpora, and generated experiment outputs are external artifacts,
+not bundled with the library. Supply a known local model directory or an explicit
+Hub repository and revision; no pretrained model is selected automatically.
 
 ## Model configuration and local artifacts
 
@@ -71,10 +71,10 @@ support projection, and the complete active training path. No architecture
 selectors or optional-head flags are exposed. Paths, device, seed, optimizer,
 corpus selection, and run budget stay outside `ModelConfig`.
 
-`pymc_mfm.data.profiles.PROFILE_A` and `PROFILE_B` are named corpus/checkpoint
+`pymc_mfm.data.profiles.PROFILE_A` and `PROFILE_B` are named corpus
 profiles. They describe data metadata only and never modify `ModelConfig`.
-Checksums identify designated reference weights. `from_pretrained` accepts strict
-MFM directory bundles locally or retrieves that same format through the Hub extra.
+`from_pretrained` accepts strict MFM directory bundles locally or retrieves
+that same format through the Hub extra.
 
 ### Tensor-level training and inference
 
@@ -120,20 +120,23 @@ joint router marginals rather than the conditional decoder.
 
 ### Generating and preparing a corpus
 
-Install the optional public generator from its `main` branch:
+Install the optional public generator with the project's locked dependencies:
 
 ```bash
 uv sync --locked --extra generation
 uv run --locked --extra generation python
 ```
 
-Or install `.[generation]` with pip in your isolated environment. The Git URL
-is declared in package metadata, so it works without uv-specific overrides.
-`pyproject.toml` tracks `main`; `uv.lock` records the exact tested commit,
-[`ce068d5`](https://github.com/pymc-labs/pymc-generator/commit/ce068d598fc0438b511c265ef09d7ba33354cb48).
-Update deliberately with `uv lock --upgrade-package pymc-generator`, then rerun
-the generation checks. Installation requires Git/network access; adapting an
-already loaded corpus or running model inference does not.
+Or install `.[generation]` with pip in your isolated environment. Package metadata
+declares `pymc-generator` from
+`git+https://github.com/pymc-labs/pymc-generator.git@main`, so no uv-specific
+override is needed. The dependency follows `@main`; `uv.lock` records the
+resolved commit used by `uv sync --locked`. Pip does not consume `uv.lock` and
+resolves the branch when installing. Refresh the locked revision deliberately
+with `uv lock --upgrade-package pymc-generator` and rerun the generation/workflow
+checks before accepting the updated lockfile. Installation requires Git/network
+access; adapting an already loaded corpus or running local model inference does
+not.
 
 ```python
 import numpy as np
@@ -181,7 +184,7 @@ not an identified causal decomposition. Draws return to natural units with
 `draws * batch["sales_scale"][None, :, None, None]`.
 
 All normalization statistics and moment features use observed context only.
-The A/B log representation requires positive observed outcomes, nonnegative
+The model's log representation requires positive observed outcomes, nonnegative
 treatments/direct contributions, and at least one active treatment and
 covariate. Unsupported worlds are rejected, not clipped into that domain.
 Other decomposition terms can be signed. The canonical covariate zscore
@@ -190,15 +193,15 @@ arrays or `outcome_scale` for the model's context-based representation.
 
 ### Canonical corpus recipes
 
-`pymc_mfm.data.recipes.FW53_PRIOR` is profile A's canonical public
-`pymc-generator` configuration. `recipe_for(PROFILE_B)` exposes the documented
-profile-B live-channel range through `edge_budget["cy"] = (4, 10)` and marks
-the result `reconstructed=True`; use it as an explicit configuration, not as a
-claim that a separately produced corpus has been recreated.
+`pymc_mfm.data.recipes.PROFILE_A_PRIOR` is profile A's canonical public
+`pymc-generator` configuration. It sets the direct-effect edge budget to
+`edge_budget["cy"] = (5, 5)`; `recipe_for(PROFILE_B)` uses `(4, 10)`.
+These are synthetic training-prior settings, not counts inferred from observed
+columns.
 
 ```bash
 uv run --locked --extra generation python -m pymc_mfm.data generate \
-  --profile A --n-cells 60 --draws-per-cell 4 --seed 530000 --out corpora/fw53_A_small.npz
+  --profile A --n-cells 60 --draws-per-cell 4 --seed 530000 --out corpora/profile_A_small.npz
 ```
 
 This writes the corpus and a `<path>.prior.json` sidecar with the complete
@@ -209,7 +212,7 @@ lengths, and any sidecar in the run manifest.
 ## Training
 
 `pymc_mfm.training.train` is the single entry point; `python -m pymc_mfm.training`
-wraps it. `TrainingConfig()` is the recorded full-run contract; corpus choice
+wraps it. `TrainingConfig()` defines the canonical full-run configuration; corpus choice
 is supplied separately:
 
 | Setting | Canonical value |
@@ -227,21 +230,22 @@ and is recorded as such. A reduced run should also shrink `warmup_steps`,
 
 ```bash
 uv run --locked --extra generation --extra training python -m pymc_mfm.training \
-  --corpus corpora/fw53_A_small.npz --out-dir runs/reduced_A \
+  --corpus corpora/profile_A_small.npz --out-dir runs/reduced_A \
   --steps 200 --warmup-steps 10 --eval-every 100 --milestone-steps 150 \
-  --eval-samples 32 --log-every 10 --device auto
+  --eval-samples 32 --log-every 10 --device auto --tracking-uri sqlite:///runs/mlflow.db
 ```
 
 ```python
 from pymc_mfm.data.recipes import load_corpora, provenance
-from pymc_mfm.training import TrainingConfig, load_checkpoint, train
+from pymc_mfm.training import TrackingConfig, TrainingConfig, load_checkpoint, train
 
-loaded = load_corpora(["corpora/fw53_A_small.npz"])
+loaded = load_corpora(["corpora/profile_A_small.npz"])
 result = train(
     [item.corpus for item in loaded],
     out_dir="runs/reduced_A",
     training=TrainingConfig(steps=200, warmup_steps=10, eval_every=100, milestone_steps=(150,)),
     corpus_provenance=[provenance(item) for item in loaded],
+    tracking=TrackingConfig(tracking_uri="sqlite:///runs/mlflow.db"),
 )
 model, payload = load_checkpoint("runs/reduced_A/checkpoint_last.pt")
 ```
@@ -268,7 +272,7 @@ or interrupted batches.
 | `metrics.jsonl` | one record at update 1 and every `log_every` updates: `loss`, `flow_loss`, `context_flow_loss`, `graph_conditional_flow_loss`, `graph_conditional_context_flow_loss`, `task_loss`, `struct_loss`, `lr`, pre-clip `grad_norm`, `grad_clipped`, epoch, consumed rows, batch context length, timings and throughput |
 | `evaluations.jsonl` | one record per evaluation event with the `holdout` and `seen` legs, a flat `{leg}/{head}/{window}/{metric}` view and the selection decision |
 | `checkpoint_last.pt`, `checkpoint_best.pt`, `checkpoint_step_<N>.pt` | atomic training checkpoints (`load_checkpoint`): `config`, `state_dict`, training configuration, run identity and provenance, consumption, the accompanying evaluation record and selection |
-| `model/` | complete terminal safetensors/JSON model export; original training checkpoint and exported tensor hashes remain distinct |
+| `model/` | complete terminal safetensors/JSON model export; training checkpoint and exported tensor hashes remain distinct |
 
 A nonfinite loss or gradient norm at a logging update fails the run with the
 reason in `run.json`; interrupted runs are recorded as `interrupted`. Nothing
@@ -327,6 +331,11 @@ claims remain limited to the stored evaluation results.
 
 ## Observation-only conditional inference
 
+Supply a known local MFM bundle directory. The example below uses `model` from
+the save/load example above, which has untrained weights; substitute your own
+trained bundle for meaningful evaluation. The library does not choose a
+pretrained checkpoint for you.
+
 ```python
 import numpy as np
 from pymc_mfm import DecompositionResult, decompose, from_pretrained
@@ -371,6 +380,23 @@ likelihood. Auxiliary structure probabilities never route conditional inference.
 Context and query calls are **separate marginal evaluations**, not a joint
 full-horizon posterior. Component totals exclude observation noise.
 
+`examples/observation_only.py` is an executable offline example. `--model` is
+required and must name an existing local bundle directory. Its input JSON contains
+only the `spend`, `controls`, `context_outcome` and optional mask fields shown
+above. It saves the two marginal windows separately and reports CPU load time,
+sampling time and peak process RSS (including imports and loading):
+
+```bash
+uv run --no-sync python examples/observation_only.py \
+  --model model --observations observations.json --out runs/observed --samples 32
+```
+
+Validation precedes dtype narrowing: tiny negative spend, nonzero padding and
+near-binary encoded masks cannot become valid through rounding. Caller annotations
+cannot replace a loaded checkpoint's identity. Saved results reject
+contradictory mode/window/sample-count metadata instead of turning a fixed-graph
+hypothesis into graph-averaged posterior evidence.
+
 ## Diagnostics, plots and reusable evidence
 
 ```bash
@@ -401,8 +427,7 @@ The catalog includes all component families and indirect-source splits, credible
 bands and recovery, graph edge/complete-graph views and DAGs, support/padding and
 zero atoms, training/optimization/evaluation trajectories, calibration screening,
 and within-/between-graph empirical uncertainty. Router and auxiliary-head
-readouts remain separately labeled. `source_inventory.json` under
-`pymc_mfm.diagnostics` records capability destinations and applicability.
+readouts remain separately labeled.
 
 Missing truth, prior support, training histories, or usable references is an
 explicit unavailable/not-applicable status, not zero or a passing calibration
@@ -427,8 +452,8 @@ They require common data and entity identities. Matched omissions need paired
 raw evidence or verified derived evidence; aggregate-only CSV rows cannot invent
 the missing pairing. `load_replication_summary` accepts a pinned summary SHA-256
 and verifies the referenced raw inputs before replotting saved aggregate evidence.
-Compressed historical quantiles are never reconstructed into fictitious joint
-trajectory draws.
+Saved marginal quantiles are never reconstructed into fictitious joint trajectory
+draws.
 
 Rendering is headless by default and works in notebooks without paper fonts or
 hosted services. `examples/diagnostics.ipynb` demonstrates observation-only
@@ -440,9 +465,10 @@ availability rather than silently skipping a panel.
 
 Install `[hub]`; local directories need neither that extra nor authentication.
 `from_pretrained` uses the same strict local reconstruction after official Hub
-snapshot retrieval. An explicit revision is required for remote loading.
-Branches/tags resolve once; every selected file is then loaded at the same
-immutable full commit. The resolved revision is retained in model provenance.
+snapshot retrieval. An omitted revision selects the Hub repository's default
+branch. Branches/tags resolve once; every selected file is then loaded at the same
+immutable full commit, retained in model provenance. Supply a full commit for
+reproducible loading and release instructions.
 
 Root bundles use no `profile` argument. Collections store separate complete
 bundles under `profiles/A`, `profiles/B`, or another explicit profile name.
@@ -477,8 +503,9 @@ stored in model metadata. Offline cache misses, missing revisions/access and
 transport failures remain distinguishable without exposing backend credentials.
 Cached snapshots are never modified. Standard `hf download` directories load
 through `from_pretrained(local_directory, profile="A")`.
-With `hf` 1.32, offline multi-file/pattern downloads attempt remote tree listing;
-use the SDK offline call above or single-file CLI calls for each selected
+With `hf` 1.32, offline multi-file/pattern downloads can attempt remote tree
+listing when tree metadata is not cached. Use the SDK offline call above or
+single-file CLI calls for each selected
 `config.json`, `model.safetensors`, and `manifest.json`.
 
 Publishing is a separate, explicitly authorized maintainer action:
@@ -492,7 +519,7 @@ production repository is inferred by this package. Model cards describe the
 canonical architecture, provenance, domain, units and diagnostic limitations;
 they do not claim Transformers/AutoModel or hosted inference support.
 
-Preserve original checkpoint hashes separately from exported-file and bundle
+Preserve training checkpoint hashes separately from exported-file and bundle
 hashes; serialization can change bytes without changing state. A real
 push → pinned download → strict load → conditional inference check requires an
 authorized test repository. The default tests never publish or require secrets.
@@ -613,3 +640,51 @@ The regression suite covers complete-objective gradients, truth isolation,
 graph support and draw alignment, complete-graph mode, strict configuration and
 weight loading, and dtype-preserving artifact round trips. It requires no
 external checkpoints, corpora or hosted services.
+
+### Small public workflow
+
+```bash
+uv sync --locked --extra generation --extra training
+uv run --no-sync python examples/workflow.py --out runs/workflow
+```
+
+This generates and reloads twelve synthetic worlds from an explicitly reduced
+profile-A recipe (16 time points, context 8), runs two real AdamW updates on the
+full canonical architecture, reloads both the training checkpoint and local
+safetensors export, and checks aligned conditional outputs. It writes
+`observations.json`, reusable query draws, observation-only and truth-enabled
+reports, and an inference-free rerender. Open `runs/workflow/synthetic-report/report.html`.
+This is an integration exercise, **not** usable pretrained weights or a calibrated
+attribution model.
+
+Tracking is enabled with an explicitly local SQLite backend under the output
+directory, so an ambient remote tracking URI cannot receive this example.
+The example checks actual MLflow metric histories, downloaded checkpoint/report
+hashes, healthy delivery and run→checkpoint→result→report lineage. The metric
+name table maps producer names to stored MLflow keys; use it rather than guessing
+the encoded keys. Outputs require a new directory and are never published.
+
+CI runs the existing base/full behavioral suites, then builds wheel and sdist.
+The same installed-artifact checks can be run locally:
+
+```bash
+uv build
+uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
+```
+
+The script uses locked dependencies in three fresh environments, executes the
+sdist workflow with isolated imports, loads its model with only the base wheel,
+and renders the saved output with only the diagnostics extra. Import origins and
+absence of training/Hub/plotting dependencies in the relevant lanes are checked.
+The checks use generated synthetic data and local artifacts; they require no
+external checkpoints, service credentials, MCMC, long training run or registry writes.
+
+## Release status
+
+This remains `0.0.1.dev0`, not a published or approved public release.
+See [release preparation and prerequisites](RELEASE.md) for supported behavior,
+resource and scientific limits, and outstanding licensing/distribution decisions.
+Maintainers must choose and approve code and model licenses before distribution;
+those licenses are not yet declared.
+Repository visibility changes and package/model publication require explicit
+maintainer approval; a successful local smoke test does not grant that approval.

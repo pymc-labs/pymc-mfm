@@ -15,7 +15,7 @@
     },
     {
       "producer": "trainer._train_run",
-      "fields": ["model_config.*", "training_config.*", "optimizer.*", "objective_weights.*", "geometry.*", "parameter_count", "total_parameter_count", "evaluation_policy.*", "selection_policy.*", "consumption_budget.*", "extraction_source.*"],
+      "fields": ["model_config.*", "training_config.*", "optimizer.*", "objective_weights.*", "geometry.*", "parameter_count", "total_parameter_count", "evaluation_policy.*", "selection_policy.*", "consumption_budget.*"],
       "representation": "complete configuration JSON artifact plus indexed parameters; bounded indexed values refer to full artifact by digest",
       "cadence": "once after setup and before optimizer updates",
       "applicability": "successful initialization; training config is independent of tracking config"
@@ -25,7 +25,7 @@
       "fields": ["environment.python", "environment.platform", "environment.device", "environment.packages.*", "environment.hardware.*", "environment.torch", "environment.numpy", "environment.pymc_mfm", "code.source_sha256", "code.source_files.*", "code.revision", "code.modified_from_revision", "code.revision_status"],
       "representation": "configuration JSON and indexed parameters; absent packages/hardware/revision are null or explicitly not_available, never assumed",
       "cadence": "resolved setup",
-      "applicability": "actual installed package/source bytes and actual selected device, not an asserted historical training environment"
+      "applicability": "actual installed package/source bytes and actual selected device"
     },
     {
       "producer": "data.recipes.provenance/trainer.default_corpus_provenance/training._provenance.corpus_identity",
@@ -88,7 +88,7 @@
       "fields": ["selection.monitor", "selection.value", "selection.direction", "selection.gates.*", "selection.promoted", "selection.rationale", "selection.best_value", "selection.best_step"],
       "representation": "structured selection decision and all finite scalar leaves",
       "cadence": "each evaluation and linked checkpoint event",
-      "applicability": "existing joint-router holdout gates only; tracking cannot promote or change historical terminal-checkpoint semantics"
+      "applicability": "joint-router holdout gates only; tracking cannot promote or change terminal-checkpoint semantics"
     },
     {
       "producer": "trainer.record_checkpoint/training.checkpoint.save_checkpoint",
