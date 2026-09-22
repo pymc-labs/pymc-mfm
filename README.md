@@ -457,12 +457,18 @@ from pymc_mfm import from_pretrained, list_profiles
 # Set these to an authorized repository and its immutable release commit.
 profiles = list_profiles(repository, revision=release_commit)
 model = from_pretrained(
-    repository, revision=profiles["A"]["revision"], profile="A",
-    cache_dir="model-cache", local_files_only=False,
+    repository,
+    revision=profiles["A"]["revision"],
+    profile="A",
+    cache_dir="model-cache",
+    local_files_only=False,
 )
 offline = from_pretrained(
-    repository, revision=model.provenance["hub_revision"], profile="A",
-    cache_dir="model-cache", local_files_only=True,
+    repository,
+    revision=model.provenance["hub_revision"],
+    profile="A",
+    cache_dir="model-cache",
+    local_files_only=True,
 )
 ```
 
