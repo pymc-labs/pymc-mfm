@@ -8,7 +8,6 @@ A supplied fixed graph is a hypothesis, never an estimated posterior probability
 from __future__ import annotations
 
 import base64
-import csv
 import hashlib
 import html
 import json
@@ -16,11 +15,13 @@ import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from pymc_mfm.diagnostics.calibration import COVERAGE_LEVELS
 from pymc_mfm.inference.result import DecompositionResult
 from pymc_mfm.training.metrics import empirical_crps
 
@@ -71,6 +72,16 @@ def _status(status: str, reason: str) -> dict[str, str]:
     return {"status": status, "reason": reason}
 
 
+def _valid_scale(value: Any) -> bool:
+    """Whether ``value`` is a finite positive real ruler; a boolean is not one."""
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, Real)
+        and math.isfinite(value)
+        and value > 0
+    )
+
+
 @dataclass(frozen=True)
 class ComparisonRecord:
     """One saved method/world/window, with optional separately supplied truth.
@@ -113,8 +124,8 @@ class ComparisonRecord:
         if not isinstance(self.result, DecompositionResult):
             raise ValueError("result must be a DecompositionResult")
         _digest(self.result.provenance.get("data_sha256"), "result.provenance.data_sha256")
-        if not math.isfinite(self.scale) or self.scale <= 0:
-            raise ValueError("scale must be finite and positive")
+        if not _valid_scale(self.scale):
+            raise ValueError(f"scale must be a finite positive number, got {self.scale!r}")
         _, weeks, width = self.result.components.shape
         if self.truth is not None:
             object.__setattr__(self, "truth", _finite(self.truth, "truth", (weeks, width)))
@@ -605,11 +616,34 @@ def _estimate(values: Sequence[float], *, seed: int, bootstrap_samples: int) -> 
     }
 
 
+def _automatic_pairs(records: Sequence[ComparisonRecord]) -> set[tuple[str, str]]:
+    """Graph-averaging contrasts ``(map or fixed method, model-average method)``.
+
+    A checkpoint pairs automatically when exactly one method shows its model
+    average and exactly one its map (or fixed) view.
+    """
+    automatic_pairs = set()
+    checkpoint_methods = defaultdict(lambda: defaultdict(set))
+    for record in records:
+        checkpoint = record.result.provenance.get("checkpoint_sha256")
+        if checkpoint:
+            _digest(checkpoint, "checkpoint_sha256")
+            checkpoint_methods[checkpoint][record.result.mode].add(record.method)
+    for modes in checkpoint_methods.values():
+        if len(modes["model_average"]) == 1:
+            average = next(iter(modes["model_average"]))
+            for mode in ("map", "fixed"):
+                if len(modes[mode]) == 1:
+                    automatic_pairs.add((next(iter(modes[mode])), average))
+    return automatic_pairs
+
+
 def comparison_summary(
     records: Sequence[ComparisonRecord],
     *,
     mass: float = 0.8,
     method_pairs: Sequence[tuple[str, str]] = (),
+    oracle_pairs: Sequence[tuple[str, str]] = (),
     omission_pairs: Sequence[tuple[str, str]] = (),
     bootstrap_samples: int = 2000,
     seed: int = 0,
@@ -620,6 +654,12 @@ def comparison_summary(
     Bootstrap units are whole worlds, not posterior draws or component-weeks.
     Every requested contrast requires identical world coverage; unmatched rows
     never disappear through an inner join. Reference fits remain even if unhealthy.
+    Paired rows are second minus first: ``method_pairs`` contrast two methods and
+    ``oracle_pairs`` contrast a method (second) with a privileged approximate
+    oracle (first), such as a reference fitted with the generating graph.
+    One checkpoint's model average and its map or fixed view are paired
+    automatically (``graph_averaging``) unless ``oracle_pairs`` declares the
+    two methods, in either order, an oracle contrast.
     """
     _mass(mass)
     if (
@@ -728,21 +768,15 @@ def comparison_summary(
             }
         )
     paired = []
-    automatic_pairs = set()
-    checkpoint_methods = defaultdict(lambda: defaultdict(set))
-    for record in records:
-        checkpoint = record.result.provenance.get("checkpoint_sha256")
-        if checkpoint:
-            _digest(checkpoint, "checkpoint_sha256")
-            checkpoint_methods[checkpoint][record.result.mode].add(record.method)
-    for modes in checkpoint_methods.values():
-        if len(modes["model_average"]) == 1:
-            average = next(iter(modes["model_average"]))
-            for mode in ("map", "fixed"):
-                if len(modes[mode]) == 1:
-                    automatic_pairs.add((next(iter(modes[mode])), average))
+    oracle_pairs = tuple(dict.fromkeys(map(tuple, oracle_pairs)))
+    declared = {frozenset(pair) for pair in oracle_pairs}
+    automatic_pairs = {
+        pair for pair in _automatic_pairs(records) if frozenset(pair) not in declared
+    }
     method_pairs = tuple(dict.fromkeys((*map(tuple, method_pairs), *sorted(automatic_pairs))))
-    for first, second in method_pairs:
+    if set(method_pairs) & set(oracle_pairs):
+        raise ValueError("method_pairs and oracle_pairs cannot share a pair")
+    for first, second in (*method_pairs, *oracle_pairs):
         a = {(r.case, r.world, r.result.window): r for r in records if r.method == first}
         b = {(r.case, r.world, r.result.window): r for r in records if r.method == second}
         if not a or set(a) != set(b):
@@ -773,7 +807,9 @@ def comparison_summary(
                     "second": second,
                     "metric": "crps_difference",
                     "definition": "second minus first",
-                    "kind": "graph_averaging"
+                    "kind": "oracle_comparison"
+                    if (first, second) in oracle_pairs
+                    else "graph_averaging"
                     if (first, second) in automatic_pairs
                     else "method_comparison",
                     "n_second_better": int(np.sum(np.asarray(values) < 0)),
@@ -823,6 +859,7 @@ def comparison_summary(
             "seed": seed,
             "false_effect_threshold": false_effect_threshold,
             "method_pairs": _json(method_pairs),
+            "oracle_pairs": _json(oracle_pairs),
             "omission_pairs": _json(omission_pairs),
         },
         "qualifications": [
@@ -1063,7 +1100,7 @@ def posterior_sbc_from_draws(
     *,
     provenance: Mapping[str, Any],
     seed: int = 0,
-    levels: Sequence[float] = (0.5, 0.8, 0.95),
+    levels: Sequence[float] = COVERAGE_LEVELS,
 ) -> dict:
     """Rank saved posterior-world values against saved augmented-posterior draws.
 
@@ -1200,8 +1237,12 @@ def reference_diagnostics(result: DecompositionResult, reference: Mapping[str, A
             "reference": second,
         },
         "label": str(reference["label"]),
+        "head": str(result.provenance.get("head", "conditional")),
         "window": result.window,
+        "mode": result.mode,
         "units": result.units,
+        "n_samples": result.n_samples,
+        "reference_n_samples": len(draws),
         "reference_health": health,
         "provenance": _json(reference["provenance"]),
         "qualifications": [
@@ -1552,238 +1593,6 @@ def render_comparison_report(saved_path: str | Path, out_dir: str | Path) -> lis
     return render_comparisons(summary, out_dir)
 
 
-def load_replication_summary(
-    summary_path: str | Path,
-    *,
-    expected_sha256: str,
-    evidence_root: str | Path,
-) -> dict:
-    """Read a hash-pinned, verified derived replication table and its raw receipts.
-
-    The version-2 evidence schema retains full window-mean draws and verifies
-    matched omissions at original component identity level. Its weekly quantiles
-    are NOT a replacement for aligned weekly draws. This adapter verifies every
-    declared raw archive and required omission/sparse-world archive; it never
-    manufactures weekly paths or graph banks. Additional scalar-table intervals
-    bootstrap whole worlds once at import, with the recorded seed/resample count.
-    """
-    path, root = Path(summary_path), Path(evidence_root).resolve()
-    _digest(expected_sha256, "expected_sha256")
-    if _sha256(path) != expected_sha256:
-        raise ValueError("replication summary hash mismatch")
-    source = json.loads(path.read_text())
-    if source.get("schema_version") != 2:
-        raise ValueError("unsupported verified replication summary schema")
-    receipts = source["source"]["raw_npz_sha256"]
-    if len(receipts) != source["source"]["raw_npz_count"] or not receipts:
-        raise ValueError("raw evidence receipt inventory is incomplete")
-    verified = []
-    for relative, expected in receipts.items():
-        member = Path(relative)
-        target = (root / member).resolve()
-        if member.is_absolute() or ".." in member.parts or not target.is_relative_to(root):
-            raise ValueError("raw evidence path escapes its root")
-        _digest(expected, f"raw evidence {relative}")
-        if _sha256(target) != expected:
-            raise ValueError(f"raw evidence hash mismatch: {relative}")
-        verified.append({"path": relative, "sha256": expected, "kind": "raw_evidence"})
-    n_worlds = source["population"]["worlds_per_case"]
-    if type(n_worlds) is not int or n_worlds < 1:
-        raise ValueError("invalid replication world count")
-    for case in ("constant_intercept", "omitted_channel", "omitted_control", "sparse_inputs"):
-        for world in range(n_worlds):
-            for directory in ("worlds", "networks/A", "networks/B", "references", "references_mmm"):
-                name = f"{directory}/{case}/w{world:04d}.npz"
-                if name not in receipts:
-                    raise ValueError(f"insufficient paired raw evidence: {name}")
-    checks = source["verification"]
-    if (
-        checks["matched_world_pairs"] != 2 * n_worlds
-        or checks["false_effect_worlds"] != n_worlds
-        or checks["aggregate_scores_checked"] < 1
-    ):
-        raise ValueError("derived evidence lacks complete raw-pair verification")
-    if (
-        not math.isfinite(checks["max_absolute_crps_difference"])
-        or checks["max_absolute_crps_difference"] > checks["score_atol"]
-    ):
-        raise ValueError("derived scores do not match raw-evidence verification tolerance")
-    # Bind aggregate metrics and protocol/checkpoint identities as well.
-    for kind in ("metrics", "manifest"):
-        relative = Path(source["source"][kind])
-        if relative.is_absolute() or ".." in relative.parts:
-            raise ValueError("invalid replication metadata path")
-        member = path.parent.parent / relative
-        if _sha256(member) != source["source"][f"{kind}_sha256"]:
-            raise ValueError(f"replication {kind} hash mismatch")
-    manifest = json.loads((path.parent.parent / source["source"]["manifest"]).read_text())
-    aggregate, paired, omission = [], [], []
-    families = {"media": "channel", "controls": "control", "latent_total": "total"}
-
-    def add(case, method, family, metric, stats):
-        for key in ("mean", "ci_low", "ci_high"):
-            if key in stats and stats[key] is not None and not math.isfinite(stats[key]):
-                raise ValueError(f"nonfinite derived statistic: {case}/{method}/{metric}/{key}")
-        aggregate.append(
-            {
-                "case": case,
-                "method": method,
-                "window": "query",
-                "family": family,
-                "metric": metric,
-                **stats,
-            }
-        )
-
-    for case, methods in source["metrics"].items():
-        for method, values in methods.items():
-            for name, stats in values.items():
-                family, metric = name.rsplit("_", 1)
-                saved = dict(stats)
-                if metric == "crps":
-                    saved.update(source["failure_size"][case][method][name])
-                add(case, method, families[family], metric, saved)
-    for case, methods in source["recovery"].items():
-        for method, values in methods.items():
-            for name, stats in values.items():
-                add(case, method, "all", "recovered" if name == "recovery_rate" else name, stats)
-    for case, values in source["ab_verdict"].items():
-        for name, stats in values.items():
-            paired.append(
-                {
-                    "case": case,
-                    "window": "query",
-                    "family": families[name.removesuffix("_crps")],
-                    "first": stats["a_method"],
-                    "second": stats["b_method"],
-                    "kind": "method_comparison",
-                    "definition": "second minus first",
-                    "metric": "crps_difference",
-                    **stats,
-                }
-            )
-    for case, values in source["averaging"].items():
-        for stats in values.values():
-            paired.append(
-                {
-                    "case": case,
-                    "window": "query",
-                    "family": "control",
-                    "first": stats["modal_method"],
-                    "second": stats["average_method"],
-                    "kind": "graph_averaging",
-                    "definition": "graph average minus modal graph",
-                    "metric": "crps_difference",
-                    **stats,
-                }
-            )
-    for case, methods in source["omission"].items():
-        for method, values in methods.items():
-            for family, stats in values.items():
-                omission.append(
-                    {
-                        "case": case,
-                        "method": method,
-                        "window": "query",
-                        "family": family,
-                        "metric": "matched_delta_crps",
-                        "n_component_pairs": stats["n_component_pairs"],
-                        **stats["delta_crps"],
-                    }
-                )
-    for stats in source["five_controls"].values():
-        add(
-            "five_controls",
-            stats["method"],
-            "all",
-            "five_control_false_exclusions",
-            stats["false_exclusions"],
-        )
-        add(
-            "five_controls",
-            stats["method"],
-            "all",
-            "five_control_modal_count_hit",
-            stats["modal_control_count_hit"],
-        )
-    for method, values in source["false_effects"]["methods"].items():
-        for family in ("channel", "control"):
-            detail = values[family]
-            add(
-                source["false_effects"]["case"],
-                method,
-                family,
-                "inactive_mean_attribution",
-                detail["mean_attribution"],
-            )
-            add(
-                source["false_effects"]["case"],
-                method,
-                family,
-                "worlds_with_false_effect",
-                detail["worlds_with_any_false_effect"],
-            )
-            add(
-                source["false_effects"]["case"],
-                method,
-                family,
-                "false_effect_rate",
-                {
-                    "mean": detail["component_false_effect_rate"],
-                    "ci_low": None,
-                    "ci_high": None,
-                    "n_worlds": n_worlds,
-                },
-            )
-    scalar_rows = _replication_scalar_tables(
-        path.parent.parent / source["source"]["metrics"],
-        aggregate,
-        paired,
-        seed=source["bootstrap"]["seed"],
-        bootstrap_samples=source["bootstrap"]["resamples"],
-    )
-    return {
-        "format_version": 1,
-        "records": [],
-        "aggregate": aggregate,
-        "paired": paired,
-        "matched_omission": [],
-        "omission_summary": omission,
-        "settings": {
-            "mass": 0.8,
-            "interval": "equal-tailed, NumPy linear quantiles",
-            "seed": source["bootstrap"]["seed"],
-            "bootstrap_samples": source["bootstrap"]["resamples"],
-            "false_effect_threshold": source["false_effects"]["threshold"],
-        },
-        "source_evidence": {
-            "summary_sha256": expected_sha256,
-            "artifacts": verified,
-            "verification": checks,
-            "checkpoint_identities": manifest["checkpoints"],
-        },
-        "source_summary": source,
-        "source_metrics": scalar_rows,
-        "reference_fit_summary": source["diagnostics"],
-        "statuses": {
-            "weekly_joint_draws": _status(
-                "unavailable", "Replication retained weekly quantiles, not aligned weekly draws"
-            ),
-            "weekly_graph_uncertainty": _status(
-                "unavailable", "Complete paired weekly graph/quantity banks are not retained"
-            ),
-            "matched_omission": _status(
-                "available",
-                (
-                    "Externally hash-pinned derived component-ID pairing; all "
-                    "required raw input/draw archives verified"
-                ),
-            ),
-        },
-        "qualifications": source["limitations"],
-    }
-
-
 def input_support_summary(
     context_inputs: Mapping[str, Any],
     query_inputs: Mapping[str, Any] | None = None,
@@ -1852,145 +1661,6 @@ def input_support_summary(
             "generator or inferred truth is used."
         ),
     }
-
-
-def _replication_scalar_tables(
-    path: Path, aggregate: list, paired: list, *, seed: int, bootstrap_samples: int
-) -> list:
-    """Import all verified scalar evidence; never reconstruct discarded trajectories."""
-    with path.open(newline="") as stream:
-        reader = csv.DictReader(stream)
-        if not {
-            "case",
-            "world",
-            "method",
-            "window",
-            "media_crps",
-            "controls_crps",
-            "latent_total_crps",
-        }.issubset(reader.fieldnames or ()):
-            raise ValueError("replication scalar table lacks identity or CRPS columns")
-        rows = []
-        identities = set()
-        for source in reader:
-            row = {}
-            for name, value in source.items():
-                if name in ("case", "world", "method", "window", "network"):
-                    row[name] = value
-                elif value in ("", "nan", "NaN"):
-                    row[name] = None
-                elif value in ("True", "False"):
-                    row[name] = value == "True"
-                else:
-                    parsed = float(value)
-                    if not math.isfinite(parsed):
-                        raise ValueError("nonfinite replication scalar")
-                    row[name] = parsed
-            key = tuple(row[name] for name in ("case", "world", "method", "window"))
-            if key in identities or row["window"] not in ("context", "query"):
-                raise ValueError("duplicate or invalid replication scalar identity")
-            identities.add(key)
-            total_live = (row.get("media_n_live") or 0) + (row.get("controls_n_live") or 0)
-            if (
-                total_live
-                and row.get("media_coverage") is not None
-                and row.get("controls_coverage") is not None
-            ):
-                row["component_hit_rate"] = (
-                    row["media_coverage"] * row["media_n_live"]
-                    + row["controls_coverage"] * row["controls_n_live"]
-                ) / total_live
-            rows.append(row)
-    if not rows:
-        raise ValueError("replication scalar table is empty")
-    mapping = {
-        "latent_total_error": ("total", "signed_error"),
-        "latent_total_crps": ("total", "crps"),
-        "latent_total_covered": ("total", "coverage"),
-        "latent_total_weekly_coverage": ("total", "weekly_coverage"),
-        "baseline_error": ("baseline", "total_signed_error"),
-        "recovered": ("all", "recovered"),
-        "component_hit_rate": ("all", "component_hit_rate"),
-        "n_live_components": ("all", "n_live_components"),
-        "hidden_truth_mean": ("all", "hidden_mean"),
-        "absorbed_share": ("all", "absorbed_share"),
-        "structure_exact_hit": ("graph", "structure_exact_hit"),
-        "live_channel_count_hit": ("graph", "family/cy/modal_count_hit"),
-        "live_control_count_hit": ("graph", "family/zb/modal_count_hit"),
-        "router_mode_share": ("graph", "router_mode_share"),
-        "router_unique_graphs": ("graph", "router_unique_graphs"),
-    }
-    for old, family in (("media", "channel"), ("controls", "control")):
-        for suffix, metric in (
-            ("crps", "crps"),
-            ("abs_error", "mae"),
-            ("total_error", "total_signed_error"),
-            ("coverage", "coverage"),
-            ("all_covered", "all_covered"),
-            ("switched_off", "false_exclusions"),
-            ("max_zero_share", "max_zero_path_mass"),
-            ("n_live", "n_live"),
-        ):
-            mapping[f"{old}_{suffix}"] = (family, metric)
-    grouped = defaultdict(list)
-    for row in rows:
-        for column, (family, metric) in mapping.items():
-            if row.get(column) is not None:
-                grouped[(row["case"], row["method"], row["window"], family, metric)].append(
-                    float(row[column])
-                )
-    present = {
-        tuple(row[name] for name in ("case", "method", "window", "family", "metric"))
-        for row in aggregate
-    }
-    for key, values in sorted(grouped.items()):
-        if key not in present:
-            aggregate.append(
-                dict(
-                    zip(("case", "method", "window", "family", "metric"), key, strict=True),
-                    **_estimate(values, seed=seed, bootstrap_samples=bootstrap_samples),
-                )
-            )
-    by_method = defaultdict(dict)
-    for row in rows:
-        by_method[row["method"]][(row["case"], row["world"], row["window"])] = row
-    oracle = by_method.get("oracle")
-    if oracle:
-        for method, values in sorted(by_method.items()):
-            if method == "oracle":
-                continue
-            if set(values) != set(oracle):
-                raise ValueError("oracle comparisons require identical world/window coverage")
-            differences = defaultdict(list)
-            for identity, row in sorted(values.items()):
-                for family, column in (
-                    ("channel", "media_crps"),
-                    ("control", "controls_crps"),
-                    ("total", "latent_total_crps"),
-                ):
-                    first, second = oracle[identity].get(column), row.get(column)
-                    if (first is None) != (second is None):
-                        raise ValueError("oracle comparison has asymmetric scoring evidence")
-                    if first is not None:
-                        differences[(identity[0], identity[2], family)].append(second - first)
-            for (case, window, family), values in sorted(differences.items()):
-                paired.append(
-                    {
-                        "case": case,
-                        "window": window,
-                        "family": family,
-                        "first": "oracle",
-                        "second": method,
-                        "metric": "crps_difference",
-                        "definition": "method minus privileged approximate oracle",
-                        "kind": "oracle_comparison",
-                        "n_second_better": int(np.sum(np.asarray(values) < 0)),
-                        "n_first_better": int(np.sum(np.asarray(values) > 0)),
-                        "n_ties": int(np.sum(np.asarray(values) == 0)),
-                        **_estimate(values, seed=seed, bootstrap_samples=bootstrap_samples),
-                    }
-                )
-    return rows
 
 
 def corpus_support_summary(

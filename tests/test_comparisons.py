@@ -1,6 +1,5 @@
 """Scientific comparison contracts, identity boundaries and saved-only reporting."""
 
-import hashlib
 import json
 import shutil
 from dataclasses import replace
@@ -339,6 +338,18 @@ def test_posterior_sbc_zero_atoms_include_both_tie_endpoints_and_bind_data():
         )
 
 
+def test_posterior_sbc_default_levels_include_ninety_percent_coverage():
+    # Ranks 1, 18, 10, 10 among untied draws 0..18 give mid-PITs 0.075, 0.925, 0.525, 0.525.
+    evidence = dict(
+        posterior_evidence(),
+        posterior_draws=np.array([[0.5], [17.5], [9.5], [9.5]]),
+        augmented_draws=np.tile(np.arange(19.0), (4, 1))[:, :, None],
+        query_indices=np.zeros(4, dtype=int),
+    )
+    coverage = posterior_sbc_from_draws(**evidence)["coverage"]["control:z"]
+    assert coverage == {"0.5": 0.5, "0.8": 0.5, "0.9": 1.0, "0.95": 1.0}
+
+
 def test_input_support_retains_raw_location_scale_and_constant_undefined():
     summary = input_support_summary(
         {"control:z": [100, 102], "channel:a": [2, 2]},
@@ -400,15 +411,12 @@ def test_saved_report_round_trip_and_pure_replot(saved_report, tmp_path, monkeyp
         == "available"
     )
     stored = json.loads((saved_report / "summary.json").read_text())
-    import matplotlib.pyplot as plt
-
     from pymc_mfm.plotting.comparisons import plot_world_comparison
 
     figure = plot_world_comparison(stored, case="base", world="0")
     np.testing.assert_array_equal(
         figure.axes[0].lines[0].get_ydata(), stored["records"][0]["total"]["weekly"]["mean"]
     )
-    plt.close(figure)
 
 
 @pytest.mark.parametrize(
@@ -488,6 +496,12 @@ def test_native_widths_cannot_mix_units_across_worlds():
         comparison_summary([first, second], bootstrap_samples=20)
 
 
+@pytest.mark.parametrize("scale", [True, "2", 0, float("inf")])
+def test_record_scales_are_finite_positive_numbers(scale):
+    with pytest.raises(ValueError):
+        record(scale=scale)
+
+
 def test_report_metrics_preserve_normalized_units_paired_deltas_and_uncertainty(tmp_path):
     pytest.importorskip("matplotlib")
     first = record(scale=10)
@@ -530,8 +544,6 @@ def test_report_persists_failed_panel_status_before_strict_error(tmp_path, monke
 
 def test_posterior_sbc_and_c2st_figures_use_saved_numerical_evidence():
     pytest.importorskip("matplotlib")
-    import matplotlib.pyplot as plt
-
     from pymc_mfm.plotting.comparisons import plot_c2st, plot_posterior_sbc
 
     summary = posterior_sbc_from_draws(**posterior_evidence(), seed=4)
@@ -542,7 +554,6 @@ def test_posterior_sbc_and_c2st_figures_use_saved_numerical_evidence():
     np.testing.assert_array_equal(
         figure.axes[2].lines[0].get_ydata(), list(summary["coverage"]["control:z"].values())
     )
-    plt.close(figure)
     summary = c2st_from_predictions(
         [0, 0, 1, 1],
         [0.1, 0.2, 0.8, 0.9],
@@ -553,123 +564,6 @@ def test_posterior_sbc_and_c2st_figures_use_saved_numerical_evidence():
     figure = plot_c2st(summary)
     assert figure.axes[1].patches[0].get_height() == summary["accuracy"]
     assert figure.axes[2].patches[0].get_height() == summary["cross_entropy"]
-    plt.close(figure)
-
-
-def pinned_replication(tmp_path):
-    data = tmp_path / "summary" / "data"
-    data.mkdir(parents=True)
-    root = tmp_path / "results"
-    receipts = {}
-    for case in ("constant_intercept", "omitted_channel", "omitted_control", "sparse_inputs"):
-        for directory in ("worlds", "networks/A", "networks/B", "references", "references_mmm"):
-            path = root / directory / case / "w0000.npz"
-            path.parent.mkdir(parents=True)
-            np.savez(path, stored_window_means=np.array([[1.0], [2.0]]))
-            receipts[path.relative_to(root).as_posix()] = hashlib.sha256(
-                path.read_bytes()
-            ).hexdigest()
-    metrics = data / "replication_metrics.csv"
-    metrics.write_text(
-        "case,world,method,window,media_crps,controls_crps,latent_total_crps,recovered,structure_exact_hit,live_channel_count_hit,live_control_count_hit,absorbed_share,baseline_error,media_total_error,controls_total_error\n"
-        "constant_intercept,0,oracle,context,1,2,3,True,,,,,0,0,0\n"
-        "constant_intercept,0,A_all,context,3,4,5,False,False,True,False,0.25,1,2,3\n"
-        "constant_intercept,0,oracle,query,2,3,4,True,,,,,0,0,0\n"
-        "constant_intercept,0,A_all,query,5,6,7,False,False,True,False,0.5,2,3,4\n"
-    )
-    manifest = data / "manifest.json"
-    manifest.write_text(json.dumps({"checkpoints": {"A": {"sha256": "b" * 64}}}))
-    source = {
-        "schema_version": 2,
-        "source": {
-            "raw_npz_sha256": receipts,
-            "raw_npz_count": len(receipts),
-            "metrics": "data/replication_metrics.csv",
-            "manifest": "data/manifest.json",
-            "metrics_sha256": hashlib.sha256(metrics.read_bytes()).hexdigest(),
-            "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
-        },
-        "population": {"worlds_per_case": 1},
-        "verification": {
-            "matched_world_pairs": 2,
-            "false_effect_worlds": 1,
-            "aggregate_scores_checked": 4,
-            "max_absolute_crps_difference": 0,
-            "score_atol": 1e-12,
-        },
-        "metrics": {},
-        "failure_size": {},
-        "recovery": {},
-        "ab_verdict": {},
-        "averaging": {},
-        "omission": {},
-        "five_controls": {},
-        "false_effects": {"methods": {}, "threshold": 0.01},
-        "bootstrap": {"seed": 7, "resamples": 20},
-        "diagnostics": {},
-        "limitations": ["Frozen fixture, no weekly draw bank."],
-    }
-    path = data / "figure_summary.json"
-    path.write_text(json.dumps(source))
-    return path, root
-
-
-def test_frozen_adapter_recovers_context_structure_oracle_and_absorption_scalars(tmp_path):
-    path, root = pinned_replication(tmp_path)
-    summary = comparisons.load_replication_summary(
-        path, expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest(), evidence_root=root
-    )
-
-    def value(metric, window, family="all"):
-        return next(
-            row["mean"]
-            for row in summary["aggregate"]
-            if row["method"] == "A_all"
-            and row["metric"] == metric
-            and row["window"] == window
-            and row["family"] == family
-        )
-
-    assert value("recovered", "context") == 0
-    assert value("structure_exact_hit", "query", "graph") == 0
-    assert value("family/cy/modal_count_hit", "query", "graph") == 1
-    assert value("absorbed_share", "query") == 0.5
-    assert value("total_signed_error", "context", "channel") == 2
-    assert (
-        next(
-            row["mean"]
-            for row in summary["paired"]
-            if row["window"] == "context" and row["family"] == "channel"
-        )
-        == 2
-    )
-    assert (
-        next(
-            row["mean"]
-            for row in summary["paired"]
-            if row["window"] == "query" and row["family"] == "channel"
-        )
-        == 3
-    )
-    assert summary["records"] == []
-    assert summary["statuses"]["weekly_joint_draws"]["status"] == "unavailable"
-
-
-@pytest.mark.parametrize("change", ["missing_raw", "altered_archive"])
-def test_frozen_adapter_requires_complete_unmodified_raw_receipts(tmp_path, change):
-    path, root = pinned_replication(tmp_path)
-    source = json.loads(path.read_text())
-    raw = "networks/A/omitted_channel/w0000.npz"
-    if change == "missing_raw":
-        source["source"]["raw_npz_sha256"].pop(raw)
-        source["source"]["raw_npz_count"] -= 1
-        path.write_text(json.dumps(source))
-    else:
-        (root / raw).write_bytes(b"altered")
-    with pytest.raises(ValueError, match="paired raw evidence|raw evidence hash"):
-        comparisons.load_replication_summary(
-            path, expected_sha256=hashlib.sha256(path.read_bytes()).hexdigest(), evidence_root=root
-        )
 
 
 @pytest.mark.parametrize("private", [False, True])
@@ -789,8 +683,6 @@ def test_omission_bootstrap_weights_worlds_not_retained_component_counts():
 
 def test_corpus_support_preserves_world_level_location_scale_and_plot_values():
     pytest.importorskip("matplotlib")
-    import matplotlib.pyplot as plt
-
     from pymc_mfm.plotting.comparisons import plot_corpus_support
 
     summary = comparisons.corpus_support_summary({"first": [98, 102], "second": [15, 25]})
@@ -802,4 +694,3 @@ def test_corpus_support_preserves_world_level_location_scale_and_plot_values():
     np.testing.assert_array_equal(figure.axes[0].collections[0].get_offsets(), [[100, 2], [20, 5]])
     assert sum(patch.get_height() for patch in figure.axes[1].patches) == 2
     assert sum(patch.get_height() for patch in figure.axes[2].patches) == 2
-    plt.close(figure)

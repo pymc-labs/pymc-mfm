@@ -6,10 +6,12 @@ import hashlib
 import json
 import math
 import re
+import sys
 from collections.abc import Mapping
-from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
+
+from packaging.version import InvalidVersion, Version
 
 from pymc_mfm.data.features import (
     ADSTOCK_LEVEL_LIMIT,
@@ -26,16 +28,20 @@ from pymc_mfm.model.flow import (
     _TRAJECTORY_FEATURE_VERSION,
     _TRAJECTORY_RANK,
     DECOMPOSITION_FIXED_TARGETS,
+    FLOW_STEPS_SAMPLE,
+    FLOW_TRAJECTORY_CORRELATION,
     ZERO_ATOM_GATES,
 )
-from pymc_mfm.model.graph import STRUCT_EDGE_KEYS
+from pymc_mfm.model.graph import STRUCT_EDGE_KEYS, EdgeSlotLayout
 
 FORMAT_VERSION = 1
 ARCHITECTURE = "mfm-graph-conditional-v1"
 BUNDLE_FILES = ("config.json", "model.safetensors", "manifest.json")
+#: Optional sidecar next to a bundle: synthetic inputs and their expected outputs.
+RECORDED_OUTPUTS_FILE = "recorded_outputs.json"
 COMPATIBILITY = {
     "python": ">=3.13",
-    "pymc-mfm": ">=0.0.1.dev0,<0.0.2",
+    "pymc-mfm": ">=0.0.1.dev0",
     "numpy": ">=2.1,<3",
     "torch": ">=2.6,<3",
     "safetensors": ">=0.6.2,<1",
@@ -62,7 +68,76 @@ _PROVENANCE_KEYS = frozenset(
         "prior",
         "data",
         "diagnostics",
+        "training_evaluation",
     }
+)
+#: Frozen shape of recorded evaluation metric keys, which omit the leg. Only the
+#: shape is checked on load; membership in the live evaluator key set is checked
+#: where training code is available.
+TRAINING_EVALUATION_KEY_PATTERN = re.compile(
+    r"^(joint|conditional)/(query|context)/[a-z0-9_]+$"
+    r"|^structure_head/[a-z]{2}/[a-z_]+$"
+    r"|^joint_router/(edge/[a-z]{2}/[a-z_]+|graph/[a-z0-9_]+)$"
+    r"|^counts/[a-z_]+$"
+)
+_TRAINING_EVALUATION_KEYS = frozenset(
+    {
+        "status",
+        "source",
+        "step",
+        "leg",
+        "head",
+        "eval_seed",
+        "n_worlds",
+        "n_samples",
+        "flow_steps",
+        "worlds",
+        "metrics",
+        "aggregation",
+    }
+)
+#: ``slot`` averages each world's slots, then worlds; ``slot_pooled`` pools every
+#: world's slots, the convention of historically recorded evaluations.
+_AGGREGATIONS = frozenset({"world", "slot", "slot_pooled", "pooled_edges"})
+_RECORDED_OUTPUTS_KEYS = frozenset(
+    {
+        "format_version",
+        "profile",
+        "source_checkpoint_sha256",
+        "state_sha256",
+        "world",
+        "observations",
+        "graph",
+        "n_samples",
+        "cases",
+        "producer",
+    }
+)
+_RECORDED_OBSERVATION_KEYS = frozenset(
+    {"spend", "controls", "context_outcome", "channel_mask", "control_mask", "latent_mask"}
+)
+#: One expected ``decompose`` output per mode and window.
+_RECORDED_CASES = frozenset(
+    f"{mode}/{window}"
+    for mode in ("model_average", "map", "fixed")
+    for window in ("query", "context")
+)
+_RECORDED_PRODUCER_VERSIONS = ("python", "pymc-mfm", "pymc-generator", "torch", "numpy")
+#: Recorded seeds are int64 integers.
+_INT64 = range(-(1 << 63), 1 << 63)
+#: ``platform.system()`` and ``platform.machine()`` values of the platforms torch
+#: supports; anything else, such as a host, user or node name, is rejected. Tuples,
+#: so that membership of an unhashable JSON value is False rather than a TypeError.
+_PLATFORM_SYSTEMS = ("Linux", "Darwin", "Windows")
+_PLATFORM_MACHINES = ("x86_64", "AMD64", "aarch64", "arm64", "ARM64")
+#: The only local version labels a producer may record, those of torch builds, as
+#: packaging normalizes them: the CPU, CUDA, ROCm and XPU wheels, optionally with the
+#: suffix of a CPU cxx11-ABI or AMD ROCm wheel (``cpu.cxx11.abi``,
+#: ``rocm7.0.0.git56b79e13``, ``rocm7.0.0.lw.git2e48b21f``), and the commit of a
+#: source or NVIDIA NGC build (``git5228986``, ``5228986c39.nv25.5``).
+_TORCH_BUILD = re.compile(
+    r"(cpu|cu\d+|rocm\d+(\.\d+)*|xpu)(\.cxx11\.abi|(\.lw)?\.git[0-9a-f]{7,40})?"
+    r"|(git)?[0-9a-f]{7,40}(\.nv\d+\.\d+)?"
 )
 _REFERENCE_KEYS = frozenset(
     {"name", "sha256", "config_hash", "content_hash", "manifest_hash", "uri", "status", "recipe"}
@@ -105,8 +180,15 @@ def _pairs(items: list[tuple[str, object]]) -> dict:
 def read_json(path: Path) -> dict:
     if path.stat().st_size > 8 << 20:
         raise ValueError("artifact metadata exceeds the 8 MiB format limit")
+    return parse_json(path.read_bytes())
+
+
+def parse_json(data: bytes) -> dict:
+    """Strict artifact JSON: one object, unique keys and finite numbers only."""
+    if len(data) > 8 << 20:
+        raise ValueError("artifact metadata exceeds the 8 MiB format limit")
     try:
-        value = json.loads(path.read_bytes(), object_pairs_hook=_pairs)
+        value = json.loads(data, object_pairs_hook=_pairs)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError("artifact metadata is not valid UTF-8 JSON") from exc
     if not isinstance(value, dict):
@@ -184,7 +266,14 @@ def provenance_metadata(value: Mapping | None) -> dict:
     _check_private_metadata(result)
     if result["status"] not in ("recorded", "not_recorded"):
         raise ValueError("provenance status must be recorded or not_recorded")
-    for key in _PROVENANCE_KEYS - {"source_step", "training_seed", "prior", "data", "diagnostics"}:
+    for key in _PROVENANCE_KEYS - {
+        "source_step",
+        "training_seed",
+        "prior",
+        "data",
+        "diagnostics",
+        "training_evaluation",
+    }:
         if key in result and (not isinstance(result[key], str) or not result[key].strip()):
             raise ValueError(f"provenance {key} must be a nonempty string")
     if "source_checkpoint_sha256" in result and not SHA256_PATTERN.fullmatch(
@@ -237,9 +326,251 @@ def provenance_metadata(value: Mapping | None) -> dict:
                 for field in ("sha256", "config_hash", "content_hash", "manifest_hash"):
                     if field in reference and not SHA256_PATTERN.fullmatch(reference[field]):
                         raise ValueError("artifact reference hashes must be full lowercase SHA-256")
+    if "training_evaluation" in result:
+        _validate_training_evaluation(result["training_evaluation"])
     if len(json_bytes(result)) > 1 << 20:
         raise ValueError("provenance exceeds the 1 MiB metadata limit")
     return result
+
+
+def _validate_training_evaluation(value: object) -> None:
+    """Check the recorded evaluation's structure; values are never recomputed here.
+
+    ``provenance_metadata`` has already rejected non-finite numbers.
+    """
+    record = exact_keys(value, _TRAINING_EVALUATION_KEYS, "provenance training_evaluation")
+    if record["status"] != "recorded":
+        raise ValueError("training_evaluation status must be recorded")
+    if not isinstance(record["source"], str) or not record["source"].strip():
+        raise ValueError("training_evaluation source must be a nonempty string")
+    if record["leg"] not in ("holdout", "seen"):
+        raise ValueError("training_evaluation leg must be holdout or seen")
+    if record["head"] not in ("joint", "conditional"):
+        raise ValueError("training_evaluation head must be joint or conditional")
+    if type(record["eval_seed"]) is not int:
+        raise ValueError("training_evaluation eval_seed must be an integer")
+    for key, minimum in (("step", 0), ("n_worlds", 1), ("n_samples", 1), ("flow_steps", 1)):
+        if type(record[key]) is not int or record[key] < minimum:
+            raise ValueError(f"training_evaluation {key} must be an integer >= {minimum}")
+    worlds = record["worlds"]
+    if not isinstance(worlds, list) or len(worlds) != record["n_worlds"]:
+        raise ValueError("training_evaluation worlds must list exactly n_worlds worlds")
+    for world in worlds:
+        exact_keys(world, {"shard_seed", "row"}, "training_evaluation world")
+        if any(type(world[key]) is not int or world[key] < 0 for key in world):
+            raise ValueError("training_evaluation worlds need nonnegative integer seeds and rows")
+    metrics, aggregation = record["metrics"], record["aggregation"]
+    if (
+        not isinstance(metrics, dict)
+        or not metrics
+        or not isinstance(aggregation, dict)
+        or metrics.keys() != aggregation.keys()
+    ):
+        raise ValueError("training_evaluation metrics and aggregation need equal nonempty keys")
+    for key, metric in metrics.items():
+        if TRAINING_EVALUATION_KEY_PATTERN.fullmatch(key) is None:
+            raise ValueError(f"training_evaluation metric {key!r} is not an evaluator key")
+        if metric is not None and type(metric) is not float:
+            raise ValueError(f"training_evaluation metric {key!r} must be a float or null")
+        if not isinstance(aggregation[key], str) or aggregation[key] not in _AGGREGATIONS:
+            raise ValueError(f"training_evaluation aggregation of {key!r} is unknown")
+
+
+def recorded_outputs_metadata(
+    value: object,
+    *,
+    profile: str | None,
+    provenance: Mapping,
+    state_sha256: str,
+    model_config: ModelConfig,
+) -> dict:
+    """Bind a recorded-output sidecar to the one exported artifact it describes.
+
+    The sidecar holds one row of a ``SHARD_PLANS`` shard: its raw observations, a
+    supplied graph and the expected ``decompose`` outputs per mode and window,
+    recorded with the weights whose state digest is ``state_sha256``. It names the
+    bundle profile and the original checkpoint, which export never rehashes. Every
+    array must have the shape its observations imply, the observations need the
+    bundle's control and latent widths (``model_config``) and an active channel and
+    control, numbers must be finite float64 values and seeds int64 integers, and
+    ``producer`` holds only release versions (see ``_release_version``), the
+    platform system and machine, and the torch thread count, so credentials, paths,
+    host or user names and other free text are rejected.
+    """
+    _validate_json(value)
+    if any(_SECRET_VALUE.search(text) for text in _strings(value)):
+        raise ValueError("recorded outputs must not contain credentials")
+    record = exact_keys(value, _RECORDED_OUTPUTS_KEYS, "recorded outputs")
+    if type(record["format_version"]) is not int or record["format_version"] != 1:
+        raise ValueError("unsupported recorded outputs version")
+    if record["profile"] != profile:
+        raise ValueError("recorded outputs describe another profile")
+    source = provenance.get("source_checkpoint_sha256")
+    if source is None:
+        raise ValueError("recorded outputs require a recorded source_checkpoint_sha256")
+    if record["source_checkpoint_sha256"] != source:
+        raise ValueError("recorded outputs describe another source checkpoint")
+    if record["state_sha256"] != state_sha256:
+        raise ValueError("recorded outputs were recorded with other weights")
+    _recorded_world(record["world"])
+    observations = exact_keys(
+        record["observations"], _RECORDED_OBSERVATION_KEYS, "recorded observations"
+    )
+    steps, channels = _array(observations["spend"], 2, "spend")
+    control_steps, controls = _array(observations["controls"], 2, "controls")
+    (context,) = _array(observations["context_outcome"], 1, "context_outcome")
+    (demand,) = _array(observations["latent_mask"], 1, "latent_mask", binary=True)
+    # Every window's cases need nonempty arrays, so the context is a proper prefix.
+    if (
+        control_steps != steps
+        or _array(observations["channel_mask"], 1, "channel_mask", binary=True) != (channels,)
+        or _array(observations["control_mask"], 1, "control_mask", binary=True) != (controls,)
+    ):
+        raise ValueError("recorded observations disagree in length or entity counts")
+    if controls != model_config.n_controls or demand != model_config.n_demand:
+        raise ValueError("recorded observations need the artifact's control and latent widths")
+    if 1 not in observations["channel_mask"] or 1 not in observations["control_mask"]:
+        raise ValueError("recorded observations need an active channel and an active control")
+    slots = EdgeSlotLayout(channels, controls, demand).n_slots
+    if _array(record["graph"], 1, "graph", binary=True) != (slots,):
+        raise ValueError("recorded graph needs one 0/1 entry per edge slot")
+    n_samples = record["n_samples"]
+    if type(n_samples) is not int:
+        raise ValueError("recorded n_samples must be an integer")
+    columns = 1 + channels + controls + len(DECOMPOSITION_FIXED_TARGETS)
+    for name, case in exact_keys(record["cases"], _RECORDED_CASES, "recorded cases").items():
+        exact_keys(case, {"seed", "sales_scale", "components_mean", "graphs"}, "recorded case")
+        rows = context if name.endswith("/context") else steps - context
+        if (
+            not (type(case["seed"]) is int and case["seed"] in _INT64)
+            or not (_float64(case["sales_scale"]) and case["sales_scale"] > 0)
+            or _array(case["components_mean"], 2, "components_mean") != (rows, columns)
+            or _array(case["graphs"], 2, "graphs", binary=True) != (n_samples, slots)
+        ):
+            raise ValueError(f"recorded case {name} does not match the recorded world")
+    _recorded_producer(record["producer"])
+    return record
+
+
+def recorded_outputs_bytes(record: Mapping) -> bytes:
+    """The canonical serialization of a validated recorded-output sidecar."""
+    text = json.dumps(record, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return (text + "\n").encode("utf-8")
+
+
+def _strings(value: object):
+    """Every string of a JSON value, object keys included."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _strings(item)
+    elif isinstance(value, str):
+        yield value
+
+
+def _float64(value: object) -> bool:
+    """Whether a JSON number converts to a finite float64; huge integers do not."""
+    try:
+        return type(value) in (int, float) and math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
+def _array(value: object, ndim: int, label: str, *, binary: bool = False) -> tuple[int, ...]:
+    """Shape of a nonempty rectangular array of finite float64 numbers, or of 0/1 integers."""
+    shape = []
+    item = value
+    for _ in range(ndim):
+        if not isinstance(item, list) or not item:
+            raise ValueError(f"recorded {label} must be a nonempty {ndim}-dimensional array")
+        shape.append(len(item))
+        item = item[0]
+    items = [value]
+    for size in shape:
+        if any(not isinstance(row, list) or len(row) != size for row in items):
+            raise ValueError(f"recorded {label} must be a rectangular array")
+        items = [entry for row in items for entry in row]
+    if not all(
+        type(entry) is int and entry in (0, 1) if binary else _float64(entry) for entry in items
+    ):
+        kind = "0/1 integers" if binary else "finite float64 numbers"
+        raise ValueError(f"recorded {label} must hold {kind}")
+    return tuple(shape)
+
+
+def _recorded_world(value: object) -> None:
+    from pymc_mfm.data.recipes import SHARD_PLANS
+
+    world = exact_keys(value, {"plan", "shard", "shard_seed", "row"}, "recorded world")
+    plan = SHARD_PLANS.get(world["plan"]) if isinstance(world["plan"], str) else None
+    # ``plan.seed`` raises ValueError unless the shard is an index of the plan.
+    if (
+        plan is None
+        or any(type(world[key]) is not int for key in ("shard", "shard_seed", "row"))
+        or world["shard_seed"] != plan.seed(world["shard"])
+        or not 0 <= world["row"] < plan.n_cells * plan.draws_per_cell
+    ):
+        raise ValueError("recorded world must be a row of a SHARD_PLANS shard")
+
+
+def _release_version(text: object, *, build: bool) -> bool:
+    """Whether ``text`` is a release version: canonical PEP 440 text, no local label.
+
+    Pre-, post- and development releases (``2.8.0a0``, ``0.0.1.dev0``) qualify as
+    packaging parses them. Only a torch ``build`` may carry a local label, and only
+    a ``_TORCH_BUILD`` label; ``normalized_version`` gives the canonical text.
+    """
+    try:
+        parsed = Version(text) if isinstance(text, str) else None
+    except InvalidVersion:
+        return False
+    if parsed is None or str(parsed) != text:
+        return False
+    return parsed.local is None or (build and _TORCH_BUILD.fullmatch(parsed.local) is not None)
+
+
+def normalized_version(text: str) -> str:
+    """``text`` as packaging normalizes it, e.g. ``nv25.05`` as ``nv25.5``.
+
+    Text that is no PEP 440 version is returned unchanged, for the release-version
+    rule to refuse.
+    """
+    try:
+        return str(Version(text))
+    except InvalidVersion:
+        return text
+
+
+def python_version() -> str:
+    """The running Python as a PEP 440 version, from ``sys.version_info``.
+
+    ``platform.python_version()`` is no PEP 440 version for a CPython built from an
+    untagged commit (``3.13.9+``).
+    """
+    info = sys.version_info
+    level = {"alpha": "a", "beta": "b", "candidate": "rc"}.get(info.releaselevel)
+    release = f"{info.major}.{info.minor}.{info.micro}"
+    return release if level is None else f"{release}{level}{info.serial}"
+
+
+def _recorded_producer(value: object) -> None:
+    producer = exact_keys(
+        value,
+        {*_RECORDED_PRODUCER_VERSIONS, "system", "machine", "torch_threads"},
+        "recorded producer",
+    )
+    for name in _RECORDED_PRODUCER_VERSIONS:
+        if not _release_version(producer[name], build=name == "torch"):
+            raise ValueError(f"recorded producer {name} must be a release version")
+    if (
+        producer["system"] not in _PLATFORM_SYSTEMS
+        or producer["machine"] not in _PLATFORM_MACHINES
+        or not (type(producer["torch_threads"]) is int and producer["torch_threads"] >= 1)
+    ):
+        raise ValueError("recorded producer must name a supported platform and thread count")
 
 
 def semantic_schema(config: ModelConfig) -> dict:
@@ -346,18 +677,14 @@ def semantic_schema(config: ModelConfig) -> dict:
     }
 
 
-def inference_metadata(config: ModelConfig) -> dict:
+def inference_metadata() -> dict:
     return {
         "head": "conditional",
         "mode": "model_average",
         "graph_threshold": 0.0,
-        "flow_steps": config.flow_steps_sample,
-        "ode_method": config.flow_ode_method,
-        "trajectory_correlation": config.flow_trajectory_correlation,
+        "flow_steps": FLOW_STEPS_SAMPLE,
+        "ode_method": "euler",
+        "trajectory_correlation": FLOW_TRAJECTORY_CORRELATION,
         "component_units": "context_sales_scale",
         "natural_units": "outcome",
     }
-
-
-def producer_metadata() -> dict:
-    return {name: version(name) for name in ("pymc-mfm", "numpy", "torch", "safetensors")}

@@ -1,0 +1,30 @@
+name: Generator drift
+
+# CI installs the pymc-generator commit pinned in uv.lock. This canary resolves
+# the dependency's tracked branch instead, so a generator change that alters the
+# A, B or evaluation shard plans shows up before anyone refreshes the lock.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest-generator:
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Resolve the generator's tracked branch
+        run: |
+          uv lock --upgrade-package pymc-generator
+          uv sync --all-extras
+      - name: Compare the shard-plan probes with the recorded arrays
+        run: uv run --no-sync pytest -q tests/test_generator_drift.py

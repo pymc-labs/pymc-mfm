@@ -13,7 +13,7 @@ import json
 import sys
 from dataclasses import fields
 
-from pymc_mfm.training.config import TrainingConfig
+from pymc_mfm.training.config import SELECTION_HEADS, TrainingConfig
 from pymc_mfm.training.tracking import TrackingConfig
 from pymc_mfm.training.trainer import train
 
@@ -66,6 +66,8 @@ def build_parser() -> argparse.ArgumentParser:
             )
         elif field.name == "lr_schedule":
             parser.add_argument(flag, choices=("cosine", "constant"), default=default)
+        elif field.name == "selection_head":
+            parser.add_argument(flag, choices=SELECTION_HEADS, default=default)
         else:
             parser.add_argument(flag, type=type(default), default=default)
     return parser

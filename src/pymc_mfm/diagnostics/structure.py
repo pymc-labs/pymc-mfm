@@ -250,7 +250,9 @@ def graph_support_diagnostics(graphs, edge_families, edge_mask, *, truth=None, s
         else:
             true_count = target[keep].sum()
             add(f"{prefix}/true_count", true_count)
-            add(f"{prefix}/count_mae", np.abs(counts - true_count).mean())
+            # Unsigned graph arrays sum to unsigned counts; subtracting them wraps.
+            error = counts.astype(np.float64) - np.float64(true_count)
+            add(f"{prefix}/count_mae", np.abs(error).mean())
             add(f"{prefix}/count_recovery", (counts == true_count).mean())
             add(f"{prefix}/modal_count_hit", full_mode[keep].sum() == true_count)
             add(f"{prefix}/modal_set_exact_hit", np.array_equal(full_mode[keep], target[keep]))

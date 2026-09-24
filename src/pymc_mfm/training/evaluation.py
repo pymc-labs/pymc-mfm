@@ -8,17 +8,22 @@ returns one JSON-safe record with separately labeled readouts:
 * ``structure_head``: auxiliary edge probabilities over active slots;
 * ``joint_router``: edge marginals and whole-graph statistics from joint draws.
 
-Scores aggregate active coordinates within each world, then aggregate across
-worlds. Unavailable or non-finite values are named under ``undefined`` rather
-than coerced into valid-looking metrics.
+Decomposition and graph scores are computed per world (slot families average
+the world's slots) and then averaged with equal world weights; edge scores
+pool the active slots of all worlds. Unavailable or non-finite values are
+``None`` and named under ``undefined`` with a reason rather than coerced into
+valid-looking metrics. :data:`METRIC_BOUNDS` states every metric's valid range,
+:data:`METRIC_UNITS` its unit and :func:`selection_metrics` the keys that
+select checkpoints.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from numbers import Integral
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 import torch
@@ -26,6 +31,7 @@ from torch import Tensor
 
 from pymc_mfm.data.observations import observation_identity
 from pymc_mfm.model.graph import (
+    SQUARE_EDGE_TYPES,
     STRUCT_EDGE_KEYS,
     EdgeSlotLayout,
     binary_graphs_from_flow,
@@ -39,16 +45,6 @@ if TYPE_CHECKING:
     from pymc_mfm.inference.result import DecompositionResult
 
 ResultSink = Callable[["DecompositionResult", np.ndarray, np.ndarray, np.ndarray], None]
-
-#: Held-out joint-query energy score minimized during checkpoint selection.
-MONITOR_METRIC = "holdout/joint/query/decomposition_energy_score"
-
-#: Additional required checkpoint gates: auxiliary ``cy`` log score and exact
-#: padded-channel leakage.
-GATE_METRICS = (
-    "holdout/structure_head/cy/log_score",
-    "holdout/joint/query/contribution_padding_leakage_scaled_mae",
-)
 
 HEAD_LABELS = {
     "joint": "joint router marginal; not a conditional-decoder quality claim",
@@ -77,16 +73,237 @@ _ENERGY_METRICS = (
     "decomposition_energy_score",
     "latent_sales_temporal_energy_score",
     "contribution_temporal_energy_score",
+    "contribution_cumulative_energy_score",
 )
-DECOMPOSITION_METRICS: tuple[str, ...] = tuple(
-    f"{family}_{stat}" for family in _FAMILIES for stat in _FAMILY_STATS
-) + ("contribution_padding_leakage_scaled_mae", "closure_rel_err", *_ENERGY_METRICS)
-_EDGE_SCORES = ("log_score", "brier", "auroc", "ece", "prevalence")
+#: Effect families scored live/dead: media (live by ``cy``) and controls (by ``zb``).
+_ATTRIBUTION_EFFECTS = ("media", "control")
+_ATTRIBUTION_METRICS = tuple(
+    f"attribution_live_{effect}_{key}"
+    for effect in _ATTRIBUTION_EFFECTS
+    for key in metrics.LIVE_ATTRIBUTION_KEYS
+) + tuple(
+    f"attribution_dead_{effect}_{key}"
+    for effect in _ATTRIBUTION_EFFECTS
+    for key in metrics.DEAD_ATTRIBUTION_KEYS
+)
+_TEMPORAL_METRICS = tuple(f"contribution_{key}" for key in metrics.TEMPORAL_KEYS)
+_TIME_AVERAGE_METRICS = tuple(f"timeavg_contribution_{key}" for key in metrics.TIME_AVERAGE_KEYS)
+DECOMPOSITION_METRICS: tuple[str, ...] = (
+    *(f"{family}_{stat}" for family in _FAMILIES for stat in _FAMILY_STATS),
+    "contribution_padding_leakage_scaled_mae",
+    *metrics.LATENT_SALES_KEYS,
+    *_ENERGY_METRICS,
+    *_ATTRIBUTION_METRICS,
+    *_TEMPORAL_METRICS,
+    *_TIME_AVERAGE_METRICS,
+)
+_EDGE_SCORES = ("log_score", "brier", "auroc", "auprc", "ece", "null_fpr", "prevalence")
 EDGE_METRICS = (*_EDGE_SCORES, "n", "n_pos")
-GRAPH_METRICS = ("shd_mean", "exact_recovery")
+GRAPH_METRICS = (
+    *metrics.GRAPH_KEYS,
+    *(f"{et}_{rate}" for et in SQUARE_EDGE_TYPES for rate in ("two_cycle_rate", "cycle_rate")),
+)
+#: Per-world means of active channels and controls, and the number of scored worlds.
+COUNT_METRICS = ("active_channels", "active_controls", "worlds")
+_WORLD_COUNTS = COUNT_METRICS[:2]
 
-#: Denominator floor for ``closure_rel_err``.
-CLOSURE_EPS = 1e-6
+#: Decomposition metrics that average slots within a world; ``per_world``
+#: weights count those slots, so ``sum(value * weight) / sum(weight)`` over
+#: worlds pools the slots of every world.
+SLOT_METRICS = frozenset(
+    {
+        *(
+            f"{family}_{stat}"
+            for family in ("contribution", "control_contribution")
+            for stat in _FAMILY_STATS
+        ),
+        "contribution_padding_leakage_scaled_mae",
+        *_TEMPORAL_METRICS,
+        *_TIME_AVERAGE_METRICS,
+    }
+)
+
+_NONNEGATIVE = (0.0, math.inf)
+_PROBABILITY = (0.0, 1.0)
+_CORRELATION = (-1.0, 1.0)
+
+#: Valid ``(lower, upper)`` range of every metric, keyed by its exact name (the
+#: last component of a flat key). No other names are valid.
+METRIC_BOUNDS: dict[str, tuple[float, float]] = {
+    **{
+        f"{family}_{stat}": _PROBABILITY if stat == "cov80" else _NONNEGATIVE
+        for family in _FAMILIES
+        for stat in _FAMILY_STATS
+    },
+    "contribution_padding_leakage_scaled_mae": _NONNEGATIVE,
+    "closure_rel_err": _NONNEGATIVE,
+    "closure_draw_rel_err": _NONNEGATIVE,
+    "closure_draw_q90_rel_err": _NONNEGATIVE,
+    "latent_sales_r2": (-math.inf, 1.0),
+    **dict.fromkeys(_ENERGY_METRICS, _NONNEGATIVE),
+    **{
+        name: (-math.inf, math.inf) if name.endswith("_mean_bias") else _NONNEGATIVE
+        for name in _ATTRIBUTION_METRICS
+    },
+    "contribution_truth_lag1": _CORRELATION,
+    "contribution_draw_lag1": _CORRELATION,
+    "contribution_lag1_tracking_abs_error": (0.0, 2.0),
+    "contribution_truth_error_residual_lag1": _CORRELATION,
+    "contribution_posterior_centered_residual_lag1": _CORRELATION,
+    "contribution_adjacent_draw_correlation": _CORRELATION,
+    **dict.fromkeys(_TIME_AVERAGE_METRICS, _PROBABILITY),
+    "log_score": _NONNEGATIVE,
+    "brier": _PROBABILITY,
+    "auroc": _PROBABILITY,
+    "auprc": _PROBABILITY,
+    "ece": _PROBABILITY,
+    "null_fpr": _PROBABILITY,
+    "prevalence": _PROBABILITY,
+    "n": _NONNEGATIVE,
+    "n_pos": _NONNEGATIVE,
+    "shd_mean": _NONNEGATIVE,
+    "exact_recovery": _PROBABILITY,
+    "shd_median": _NONNEGATIVE,
+    "normalized_shd_mean": _PROBABILITY,
+    "energy_score": _NONNEGATIVE,
+    "categorical_brier_score": (0.0, 2.0),
+    "entropy": _NONNEGATIVE,
+    "n_distinct": (1.0, math.inf),
+    "pairwise_comoment_abs_err": (0.0, 0.25),
+    "pairwise_comoment_max_abs_err": (0.0, 0.25),
+    **{
+        f"{et}_{rate}": _PROBABILITY
+        for et in SQUARE_EDGE_TYPES
+        for rate in ("two_cycle_rate", "cycle_rate")
+    },
+    "active_channels": _NONNEGATIVE,
+    "active_controls": _NONNEGATIVE,
+    "worlds": (1.0, math.inf),
+}
+#: Round-off allowed beyond every bound: U-statistic energy scores and the
+#: sorted-sample CRPS can dip just below zero in floating point.
+BOUNDS_SLACK = 1e-12
+#: Unit of every metric, keyed like :data:`METRIC_BOUNDS`, as its scorer computes
+#: it: ``sales_scale`` for errors and scores of z-space draws (natural units over
+#: the world's ``sales_scale``), ``nats`` for natural-log losses and entropy,
+#: ``count`` for counts and edge distances, and ``dimensionless`` for
+#: probabilities, rates, coverage, correlations, relative errors and R².
+METRIC_UNITS: dict[str, str] = {
+    **{
+        f"{family}_{stat}": "dimensionless" if stat == "cov80" else "sales_scale"
+        for family in _FAMILIES
+        for stat in _FAMILY_STATS
+    },
+    "contribution_padding_leakage_scaled_mae": "sales_scale",
+    **dict.fromkeys(metrics.LATENT_SALES_KEYS, "dimensionless"),
+    **dict.fromkeys(_ENERGY_METRICS, "sales_scale"),
+    **dict.fromkeys(_ATTRIBUTION_METRICS, "sales_scale"),
+    **dict.fromkeys(_TEMPORAL_METRICS, "dimensionless"),
+    **dict.fromkeys(_TIME_AVERAGE_METRICS, "dimensionless"),
+    "log_score": "nats",
+    **dict.fromkeys(("brier", "auroc", "auprc", "ece", "null_fpr", "prevalence"), "dimensionless"),
+    **dict.fromkeys(("n", "n_pos", "shd_mean", "shd_median", "n_distinct"), "count"),
+    **dict.fromkeys(
+        (
+            "exact_recovery",
+            "normalized_shd_mean",
+            "energy_score",
+            "categorical_brier_score",
+            "pairwise_comoment_abs_err",
+            "pairwise_comoment_max_abs_err",
+        ),
+        "dimensionless",
+    ),
+    "entropy": "nats",
+    **{
+        f"{et}_{rate}": "dimensionless"
+        for et in SQUARE_EDGE_TYPES
+        for rate in ("two_cycle_rate", "cycle_rate")
+    },
+    **dict.fromkeys(COUNT_METRICS, "count"),
+}
+
+
+def metric_bounds(key: str) -> tuple[float, float]:
+    """``(lower, upper)`` for a flat key (with or without its leg) or a metric name."""
+    return METRIC_BOUNDS[key.rsplit("/", 1)[-1]]
+
+
+def metric_units(key: str) -> str:
+    """:data:`METRIC_UNITS` unit of a flat key (with or without its leg) or a metric name.
+
+    A metric this release does not define raises ``ValueError`` naming the key.
+    """
+    name = key.rsplit("/", 1)[-1]
+    if name not in METRIC_UNITS:
+        raise ValueError(f"{key!r}: no unit for {name!r} in this release")
+    return METRIC_UNITS[name]
+
+
+def within_bounds(key: str, value: float) -> bool:
+    """Whether ``value`` lies in :func:`metric_bounds` of ``key`` up to :data:`BOUNDS_SLACK`."""
+    lower, upper = metric_bounds(key)
+    return lower - BOUNDS_SLACK <= value <= upper + BOUNDS_SLACK
+
+
+class SelectionMetrics(NamedTuple):
+    """Held-out flat keys that select checkpoints for one selection head."""
+
+    monitor: str
+    context_gate: str
+    structure_gate: str
+    leakage_gate: str
+
+
+def selection_metrics(head: str) -> SelectionMetrics:
+    """Checkpoint-selection keys for ``TrainingConfig.selection_head``.
+
+    The minimized monitor is the head's held-out query decomposition energy
+    score; the gates are the same head's context energy score, the auxiliary
+    ``cy`` log score and the head's query padded-channel leakage.
+    """
+    if head not in DECOMPOSITION_HEADS:
+        raise ValueError(f"selection head must be one of {DECOMPOSITION_HEADS}, got {head!r}")
+    return SelectionMetrics(
+        monitor=f"holdout/{head}/query/decomposition_energy_score",
+        context_gate=f"holdout/{head}/context/decomposition_energy_score",
+        structure_gate="holdout/structure_head/cy/log_score",
+        leakage_gate=f"holdout/{head}/query/contribution_padding_leakage_scaled_mae",
+    )
+
+
+def _selected_heads(heads: Sequence[str]) -> tuple[str, ...]:
+    """Validated decomposition heads in canonical (sampling) order."""
+    if isinstance(heads, str):
+        raise ValueError(f"heads must be a sequence of head names, got {heads!r}")
+    chosen = tuple(heads)
+    if not chosen or len(set(chosen)) != len(chosen) or set(chosen) - set(DECOMPOSITION_HEADS):
+        raise ValueError(f"heads must be distinct names from {DECOMPOSITION_HEADS}, got {chosen}")
+    return tuple(head for head in DECOMPOSITION_HEADS if head in chosen)
+
+
+def metric_aggregation(heads: Sequence[str] = DECOMPOSITION_HEADS) -> dict[str, str]:
+    """Every flat key without its leg, mapped to how worlds combine into its value.
+
+    ``"world"``: equal-world mean of per-world values. ``"slot"``: equal-world
+    mean of per-world slot means (see :data:`SLOT_METRICS`). ``"pooled_edges"``:
+    one score over the active edge slots of all worlds. ``heads`` selects the
+    decomposition heads as in :func:`evaluate_rows`.
+    """
+    out: dict[str, str] = {}
+    for head in _selected_heads(heads):
+        for window in WINDOWS:
+            for name in DECOMPOSITION_METRICS:
+                out[f"{head}/{window}/{name}"] = "slot" if name in SLOT_METRICS else "world"
+    for prefix in ("structure_head", "joint_router/edge"):
+        for et in STRUCT_EDGE_KEYS:
+            for name in EDGE_METRICS:
+                out[f"{prefix}/{et}/{name}"] = "pooled_edges"
+    for name in GRAPH_METRICS:
+        out[f"joint_router/graph/{name}"] = "world"
+    for name in COUNT_METRICS:
+        out[f"counts/{name}"] = "world"
+    return out
 
 
 @contextmanager
@@ -115,33 +332,49 @@ def isolated_rng(device: torch.device, seed: int) -> Iterator[None]:
 
 
 class _MeanAccumulator:
-    """Finite per-world means over a fixed key set with drop bookkeeping."""
+    """Equal-world means of one key family, with the worlds and reasons behind them."""
 
-    def __init__(self, keys: Sequence[str]):
+    def __init__(self, prefix: str, keys: Sequence[str]):
+        self.prefix = prefix
         self.keys = tuple(keys)
         self._finite: dict[str, list[float]] = {key: [] for key in self.keys}
         self._nonfinite: dict[str, int] = dict.fromkeys(self.keys, 0)
         self._reasons: dict[str, str] = {}
 
-    def push(self, key: str, value: float) -> None:
-        if np.isfinite(value):
-            self._finite[key].append(float(value))
-        else:
-            self._nonfinite[key] += 1
+    def add(self, world: metrics.WorldScores, entry: dict[str, Any] | None = None) -> None:
+        """Take one world's scores; ``entry`` collects them for ``per_world``."""
+        scored = world.values.keys() | world.undefined.keys()
+        if scored != set(self.keys):
+            raise ValueError(f"world scores disagree on {sorted(scored ^ set(self.keys))}")
+        for key in self.keys:
+            if key in world.values:
+                self._finite[key].append(world.values[key])
+            elif world.undefined[key] == metrics.NONFINITE:
+                self._nonfinite[key] += 1
+            else:
+                self._reasons.setdefault(key, world.undefined[key])
+        if entry is not None:
+            for key in self.keys:
+                name = f"{self.prefix}/{key}"
+                entry["values"][name] = world.values.get(key)
+                entry["weights"][name] = world.weights.get(key, 0)
+                if key in world.undefined:
+                    entry["undefined"][name] = world.undefined[key]
 
-    def skip(self, key: str, reason: str) -> None:
-        self._reasons.setdefault(key, reason)
-
-    def finalize(self, prefix: str, undefined: dict[str, str]) -> dict[str, float | None]:
+    def finalize(
+        self, undefined: dict[str, str], metric_worlds: dict[str, int]
+    ) -> dict[str, float | None]:
         out: dict[str, float | None] = {}
         for key in self.keys:
+            name = f"{self.prefix}/{key}"
             finite = self._finite[key]
             dropped = self._nonfinite[key]
             out[key] = float(np.mean(finite)) if finite else None
+            metric_worlds[name] = len(finite)
             if dropped:
-                undefined[f"{prefix}/{key}"] = f"nonfinite_in_{dropped}_worlds"
+                undefined[name] = f"nonfinite_in_{dropped}_worlds"
             elif not finite:
-                undefined[f"{prefix}/{key}"] = self._reasons.get(key, "no_scored_worlds")
+                undefined[name] = self._reasons.get(key, "no_scored_worlds")
         return out
 
 
@@ -156,13 +389,22 @@ class _EdgePool:
         self._probs[et].append(probs[keep])
         self._truth[et].append(truth[keep])
 
-    def finalize(self, prefix: str, undefined: dict[str, str]) -> dict[str, dict[str, Any]]:
-        out: dict[str, dict[str, Any]] = {}
+    def finalize(
+        self, prefix: str, undefined: dict[str, str]
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, list]]]:
+        """Scores and reliability/threshold tables per edge type."""
+        records: dict[str, dict[str, Any]] = {}
+        tables: dict[str, dict[str, list]] = {}
         for et in STRUCT_EDGE_KEYS:
             p = np.concatenate(self._probs[et]) if self._probs[et] else np.empty(0)
             y = np.concatenate(self._truth[et]) if self._truth[et] else np.empty(0)
-            out[et] = _edge_record(p, y, f"{prefix}/{et}", undefined)
-        return out
+            records[et] = _edge_record(p, y, f"{prefix}/{et}", undefined)
+            scoreable = y.size > 0 and np.isfinite(p).all()
+            tables[et] = {
+                "reliability": metrics.reliability_table(p, y) if scoreable else [],
+                "thresholds": metrics.threshold_table(p, y) if scoreable else [],
+            }
+        return records, tables
 
 
 def _edge_record(
@@ -187,38 +429,55 @@ def _edge_record(
             "n_pos": n_pos,
         }
     auroc = metrics.auroc(p, y)
-    if auroc is None:
-        undefined[f"{prefix}/auroc"] = "one_class"
-    return {
+    scored = {
+        "auroc": (auroc, None if auroc is not None else "one_class"),
+        "auprc": metrics.auprc(p, y),
+        "null_fpr": metrics.null_fpr(p, y),
+    }
+    for key, (_, reason) in scored.items():
+        if reason is not None:
+            undefined[f"{prefix}/{key}"] = reason
+    record = {
         "log_score": metrics.log_score(p, y),
         "brier": metrics.brier(p, y),
-        "auroc": auroc,
+        **{key: value for key, (value, _) in scored.items()},
         "ece": metrics.ece(p, y),
         "prevalence": float(y.mean()),
         "n": n,
         "n_pos": n_pos,
     }
+    return {key: record[key] for key in EDGE_METRICS}
 
 
 def _numpy(value: Tensor) -> np.ndarray:
-    return value.detach().to(device="cpu", dtype=torch.float64).numpy()
+    # One combined device-and-dtype copy returns zeros for MPS tensors; copy to
+    # the CPU first and convert there.
+    return value.detach().cpu().to(torch.float64).numpy()
+
+
+def _finite(*arrays: np.ndarray) -> bool:
+    return all(np.isfinite(array).all() for array in arrays)
 
 
 def _score_decomposition(
-    acc: _MeanAccumulator,
     pred: np.ndarray,
     truth: np.ndarray,
     active_c: np.ndarray,
     active_m: np.ndarray,
+    live_c: np.ndarray,
+    live_m: np.ndarray,
     outcome: np.ndarray,
     noise: np.ndarray,
     scale: float,
-) -> None:
-    """Push one world's z-space decomposition metrics.
+) -> metrics.WorldScores:
+    """One world's z-space decomposition metrics (:data:`DECOMPOSITION_METRICS`).
 
     ``pred`` is ``[S, T, D]``, ``truth`` ``[T, D]`` with
     ``D = 1 + K + M + 4 = [baseline | K direct | M covariate | confounder_total
-    | indirect cc, zc, dc]``; ``outcome``/``noise`` are natural ``[T]`` series.
+    | indirect cc, zc, dc]``; ``live_c``/``live_m`` are the ``cy``/``zb`` graph
+    truth that makes a present channel/control live; ``outcome``/``noise`` are
+    natural ``[T]`` series. A family whose inputs are not all finite is
+    ``nonfinite`` for every key.
     """
     n_samples = pred.shape[0]
     k, m = active_c.size, active_m.size
@@ -231,32 +490,38 @@ def _score_decomposition(
     controls = slice(1 + k, 1 + k + m)
     confounder = 1 + k + m
     indirect = slice(confounder + 1, confounder + 4)
+    n_channels, n_controls = int(active_c.sum()), int(active_m.sum())
+    world = metrics.WorldScores()
 
-    def family(name: str, p: np.ndarray, t: np.ndarray) -> None:
-        acc.push(f"{name}_scaled_mae", float(np.mean(np.abs(p.mean(axis=0) - t))))
-        acc.push(f"{name}_crps", metrics.empirical_crps(p, t))
-        acc.push(f"{name}_cov80", metrics.coverage(p, t))
+    def skip(names: Sequence[str], reason: str) -> None:
+        for name in names:
+            world.skip(name, reason)
 
-    def skip_family(name: str, reason: str) -> None:
-        for stat in _FAMILY_STATS:
-            acc.skip(f"{name}_{stat}", reason)
+    def family(name: str, p: np.ndarray, t: np.ndarray, weight: int = 1) -> None:
+        names = [f"{name}_{stat}" for stat in _FAMILY_STATS]
+        if not _finite(p, t):
+            skip(names, metrics.NONFINITE)
+            return
+        world.put(names[0], np.mean(np.abs(p.mean(axis=0) - t)), weight)
+        world.put(names[1], metrics.empirical_crps(p, t), weight)
+        world.put(names[2], metrics.coverage(p, t), weight)
 
-    pred_contrib = pred[..., contrib]
-    true_contrib = truth[:, contrib]
+    pred_contrib = pred[..., contrib][..., active_c]
+    true_contrib = truth[:, contrib][:, active_c]
     pred_controls = pred[..., controls][..., active_m]
     true_controls = truth[:, controls][:, active_m]
     pred_indirect_total = pred[..., indirect].sum(axis=-1)
     true_indirect_total = truth[:, indirect].sum(axis=-1)
 
     family("baseline_intrinsic", pred[..., 0], truth[:, 0])
-    if active_c.any():
-        family("contribution", pred_contrib[..., active_c], true_contrib[:, active_c])
+    if n_channels:
+        family("contribution", pred_contrib, true_contrib, n_channels)
     else:
-        skip_family("contribution", "no_active_channels")
-    if active_m.any():
-        family("control_contribution", pred_controls, true_controls)
+        skip([f"contribution_{stat}" for stat in _FAMILY_STATS], "no_active_channels")
+    if n_controls:
+        family("control_contribution", pred_controls, true_controls, n_controls)
     else:
-        skip_family("control_contribution", "no_active_controls")
+        skip([f"control_contribution_{stat}" for stat in _FAMILY_STATS], "no_active_controls")
     family("confounder_total", pred[..., confounder], truth[:, confounder])
     for i, source in enumerate(INDIRECT_SOURCES):
         column = indirect.start + i
@@ -264,18 +529,26 @@ def _score_decomposition(
     family("indirect_total", pred_indirect_total, true_indirect_total)
 
     inactive_c = ~active_c
-    if inactive_c.any():
-        leakage = np.abs(pred_contrib[..., inactive_c].mean(axis=0) - true_contrib[:, inactive_c])
-        acc.push("contribution_padding_leakage_scaled_mae", float(np.mean(leakage)))
+    leakage = "contribution_padding_leakage_scaled_mae"
+    pred_padded = pred[..., contrib][..., inactive_c]
+    true_padded = truth[:, contrib][:, inactive_c]
+    if not inactive_c.any():
+        world.skip(leakage, "no_inactive_channels")
+    elif not _finite(pred_padded, true_padded):
+        world.skip(leakage, metrics.NONFINITE)
     else:
-        acc.skip("contribution_padding_leakage_scaled_mae", "no_inactive_channels")
+        world.put(
+            leakage,
+            np.mean(np.abs(pred_padded.mean(axis=0) - true_padded)),
+            int(inactive_c.sum()),
+        )
 
-    # Closure of the posterior-mean decomposition against STRUCTURAL outcome
-    # (observed net of iid noise), with the observed magnitude as denominator.
+    # Closure of the decomposition against STRUCTURAL outcome (observed net of
+    # iid noise), with the observed magnitude as denominator.
     component_draws = np.concatenate(
         [
             pred[..., :1],
-            pred_contrib[..., active_c],
+            pred_contrib,
             pred_controls,
             pred[..., confounder : confounder + 1],
             pred_indirect_total[..., None],
@@ -285,7 +558,7 @@ def _score_decomposition(
     component_truth = np.concatenate(
         [
             truth[:, :1],
-            true_contrib[:, active_c],
+            true_contrib,
             true_controls,
             truth[:, confounder : confounder + 1],
             true_indirect_total[:, None],
@@ -293,30 +566,53 @@ def _score_decomposition(
         axis=-1,
     )
     draw_sales = component_draws.sum(axis=-1)
-    structural = outcome - noise
-    safe_outcome = np.maximum(np.abs(outcome), CLOSURE_EPS)
-    acc.push(
-        "closure_rel_err",
-        float(np.mean(np.abs(draw_sales.mean(axis=0) * scale - structural) / safe_outcome)),
-    )
-    if n_samples < 2:
-        for key in _ENERGY_METRICS:
-            acc.skip(key, "needs_n_samples_ge_2")
-        return
-    acc.push("decomposition_energy_score", metrics.energy_score(component_draws, component_truth))
+    world.update(metrics.latent_sales_scores(draw_sales * scale, outcome - noise, outcome))
+
+    def energy(name: str, samples: np.ndarray, target: np.ndarray, cumulative: bool) -> None:
+        if not _finite(samples, target):
+            world.skip(name, metrics.NONFINITE)
+        elif n_samples < 2:
+            world.skip(name, "needs_n_samples_ge_2")
+        elif cumulative:
+            world.score(name, metrics.cumulative_energy_score(samples, target))
+        else:
+            world.put(name, metrics.energy_score(samples, target))
+
+    energy("decomposition_energy_score", component_draws, component_truth, False)
     # Latent (structural) sales in z-space: the summed component truth equals
     # (outcome - noise) / scale by the corpus identity, without float32 round-off.
-    acc.push(
-        "latent_sales_temporal_energy_score",
-        metrics.energy_score(draw_sales, component_truth.sum(axis=-1)),
-    )
-    if active_c.any():
-        acc.push(
-            "contribution_temporal_energy_score",
-            metrics.energy_score(pred_contrib[..., active_c], true_contrib[:, active_c]),
+    energy("latent_sales_temporal_energy_score", draw_sales, component_truth.sum(axis=-1), False)
+    if n_channels:
+        energy("contribution_temporal_energy_score", pred_contrib, true_contrib, False)
+        energy("contribution_cumulative_energy_score", pred_contrib, true_contrib, True)
+    else:
+        skip(_ENERGY_METRICS[2:], "no_active_channels")
+
+    live_channels = live_c[active_c] != 0
+    for effect, samples, target, labels in (
+        ("media", pred_contrib, true_contrib, live_channels),
+        ("control", pred_controls, true_controls, live_m[active_m] != 0),
+    ):
+        world.update(
+            metrics.attribution_scores(
+                samples,
+                target,
+                labels,
+                live_prefix=f"attribution_live_{effect}_",
+                dead_prefix=f"attribution_dead_{effect}_",
+            )
+        )
+
+    if n_channels:
+        world.update(metrics.temporal_scores(pred_contrib, true_contrib, prefix="contribution_"))
+        world.update(
+            metrics.time_average_scores(
+                pred_contrib, true_contrib, live_channels, prefix="timeavg_contribution_"
+            )
         )
     else:
-        acc.skip("contribution_temporal_energy_score", "no_active_channels")
+        skip((*_TEMPORAL_METRICS, *_TIME_AVERAGE_METRICS), "no_active_channels")
+    return world
 
 
 def _active_edge_masks(batch: dict[str, Tensor]) -> dict[str, np.ndarray]:
@@ -339,49 +635,75 @@ def evaluate_rows(
     seed: int,
     device: str | torch.device,
     leg: str,
+    heads: Sequence[str] = DECOMPOSITION_HEADS,
+    per_world: bool = False,
     result_sink: ResultSink | None = None,
 ) -> dict[str, Any]:
-    """Score ``rows`` (``(corpus_index, row)`` pairs) on all four heads.
+    """Score ``rows`` (``(corpus_index, row)`` pairs) on the decomposition ``heads``.
 
-    Batches are built per context length with
+    ``heads`` is a non-empty subset of :data:`DECOMPOSITION_HEADS`. The
+    structure head and joint router are always scored: they come from the
+    structure pass and the joint query draws, which are made even when
+    ``"joint"`` is not selected. Batches are built per context length with
     :func:`pymc_mfm.training.stream.batches_for_rows`; sampling runs under a
     forked CPU/CUDA RNG seeded with ``seed`` and explicit MPS state restoration.
     Only the CPU and evaluation device are seeded; all caller RNG states and
-    the model's ``training`` flag are untouched on return. Truth comes from the batch
-    (``targets_z``, ``context_targets_z``, ``sales_scale``, masks, ``g_*``) and
-    from the corpus (``outcome_raw``, ``outcome_noise`` for closure).
+    the model's ``training`` flag are untouched on return. Truth comes from the
+    batch (``targets_z``, ``context_targets_z``, ``sales_scale``, masks,
+    ``g_*``) and from the corpus (``outcome_raw``, ``outcome_noise``).
 
-    The record is JSON-safe (floats, ints, ``None``, strings):
-    ``{"leg", "n_worlds", "n_samples", "seed", "heads": {"joint": {window:
-    metrics}, "conditional": {...}, "structure_head": {edge: metrics},
-    "joint_router": {"edge": {edge: metrics}, "graph": metrics}}, "undefined":
-    {"head/.../metric": reason}, "labels": HEAD_LABELS}``. Metric keys are
-    fixed (:data:`DECOMPOSITION_METRICS`, :data:`EDGE_METRICS`,
-    :data:`GRAPH_METRICS`); a metric with no finite world is ``None`` and named
-    in ``undefined`` with its reason; partially non-finite metrics keep the
-    finite mean and report ``nonfinite_in_<k>_worlds``.
+    The record is JSON-safe (floats, ints, ``None``, strings, lists):
+
+    * ``leg``, ``n_worlds``, ``n_samples``, ``seed``, ``labels``;
+    * ``heads``: ``{head: {window: metrics}}`` for the selected decomposition
+      heads, ``"structure_head": {edge: metrics}`` and ``"joint_router":
+      {"edge": {edge: metrics}, "graph": metrics}``;
+    * ``counts``: equal-world means of active channels and controls, and the
+      number of worlds;
+    * ``undefined``: ``{"head/.../metric": reason}``. A metric with no finite
+      world is ``None`` with its reason; a partially non-finite metric keeps the
+      finite mean and reports ``nonfinite_in_<k>_worlds``;
+    * ``metric_worlds``: ``{"head/.../metric": worlds with a finite value}`` for
+      every per-world metric;
+    * ``tables``: ``{"structure_head" | "joint_router": {edge: {"reliability",
+      "thresholds"}}}`` from :func:`metrics.reliability_table` and
+      :func:`metrics.threshold_table` (empty without scoreable slots);
+    * ``per_world`` (only with ``per_world=True``), in evaluation order:
+      ``[{corpus_index, row, values, weights, undefined}]`` with every per-world
+      key's value (``None`` when undefined), its slot weight (``0`` when
+      undefined) and its reason.
+
+    Metric keys are fixed (:data:`DECOMPOSITION_METRICS`, :data:`EDGE_METRICS`,
+    :data:`GRAPH_METRICS`, :data:`COUNT_METRICS`); :func:`metric_aggregation`
+    names how each combines worlds.
 
     Optional ``result_sink(result, truth, graph_truth, observed)`` captures each
-    world's context/query conditional draws already computed here. It never
-    samples a second time. Capture conversion failures are explicit under
-    ``result_capture`` and do not alter numerical scores; callback failures
-    propagate. The callback receives natural-unit truth/observations separately.
+    world's context/query conditional draws already computed here; it needs
+    the conditional head. It never samples a second time. Capture conversion
+    failures are explicit under ``result_capture`` and do not alter numerical
+    scores; callback failures propagate. The callback receives natural-unit
+    truth/observations separately.
     """
     if isinstance(n_samples, bool) or not isinstance(n_samples, Integral) or n_samples < 1:
         raise ValueError("n_samples must be a positive integer")
     if not rows:
         raise ValueError("evaluate_rows needs at least one row")
+    selected = _selected_heads(heads)
+    if result_sink is not None and "conditional" not in selected:
+        raise ValueError("result_sink captures conditional draws; select the conditional head")
     n_samples = int(n_samples)
     device = torch.device(device)
 
     decomposition = {
-        (head, window): _MeanAccumulator(DECOMPOSITION_METRICS)
-        for head in DECOMPOSITION_HEADS
+        (head, window): _MeanAccumulator(f"{head}/{window}", DECOMPOSITION_METRICS)
+        for head in selected
         for window in WINDOWS
     }
     structure_pool = _EdgePool()
     router_pool = _EdgePool()
-    graph_acc = _MeanAccumulator(GRAPH_METRICS)
+    graph_acc = _MeanAccumulator("joint_router/graph", GRAPH_METRICS)
+    count_acc = _MeanAccumulator("counts", _WORLD_COUNTS)
+    worlds: list[dict[str, Any]] | None = [] if per_world else None
     result_capture: dict[str, Any] = {"captured": 0, "failures": []}
 
     batches = batches_for_rows(corpora, rows, device=device)
@@ -400,6 +722,8 @@ def evaluate_rows(
                     structure_pool,
                     router_pool,
                     graph_acc,
+                    count_acc,
+                    worlds=worlds,
                     result_sink=result_sink,
                     result_capture=result_capture,
                     leg=leg,
@@ -409,26 +733,34 @@ def evaluate_rows(
         model.train(was_training)
 
     undefined: dict[str, str] = {}
-    heads: dict[str, Any] = {
+    metric_worlds: dict[str, int] = {}
+    record_heads: dict[str, Any] = {
         head: {
-            window: decomposition[(head, window)].finalize(f"{head}/{window}", undefined)
+            window: decomposition[(head, window)].finalize(undefined, metric_worlds)
             for window in WINDOWS
         }
-        for head in DECOMPOSITION_HEADS
+        for head in selected
     }
-    heads["structure_head"] = structure_pool.finalize("structure_head", undefined)
-    heads["joint_router"] = {
-        "edge": router_pool.finalize("joint_router/edge", undefined),
-        "graph": graph_acc.finalize("joint_router/graph", undefined),
+    structure, structure_tables = structure_pool.finalize("structure_head", undefined)
+    router_edges, router_tables = router_pool.finalize("joint_router/edge", undefined)
+    record_heads["structure_head"] = structure
+    record_heads["joint_router"] = {
+        "edge": router_edges,
+        "graph": graph_acc.finalize(undefined, metric_worlds),
     }
+    counts = {**count_acc.finalize(undefined, metric_worlds), "worlds": len(rows)}
     return {
         "leg": str(leg),
         "n_worlds": len(rows),
         "n_samples": n_samples,
         "seed": int(seed),
-        "heads": heads,
+        "heads": record_heads,
+        "counts": counts,
         "undefined": undefined,
-        "labels": dict(HEAD_LABELS),
+        "metric_worlds": metric_worlds,
+        "tables": {"structure_head": structure_tables, "joint_router": router_tables},
+        "labels": {head: HEAD_LABELS[head] for head in record_heads},
+        **({"per_world": worlds} if worlds is not None else {}),
         **({"result_capture": result_capture} if result_sink is not None else {}),
     }
 
@@ -443,7 +775,9 @@ def _score_batch(
     structure_pool: _EdgePool,
     router_pool: _EdgePool,
     graph_acc: _MeanAccumulator,
+    count_acc: _MeanAccumulator,
     *,
+    worlds: list[dict[str, Any]] | None = None,
     result_sink: ResultSink | None = None,
     result_capture: dict[str, Any] | None = None,
     leg: str = "",
@@ -461,33 +795,32 @@ def _score_batch(
     truth = {"query": _numpy(batch["targets_z"]), "context": _numpy(batch["context_targets_z"])}
     edge_truth = {et: _numpy(batch[f"g_{et}"]) for et in STRUCT_EDGE_KEYS}
     edge_active = _active_edge_masks(batch)
+    heads = {head for head, _ in decomposition}
 
     weekly, channels, controls = model.encoder.forward_with_controls(batch)
     probs = model.struct_head.predictive_probs(model.structure_logits(weekly, channels, controls))
     probs = {et: _numpy(probs[et]) for et in STRUCT_EDGE_KEYS}
 
+    # The joint query pass also feeds the router, so it always runs; the call
+    # order below is the draw order of the seeded stream.
     joint_query, g_flow = model.predict(batch, n_samples, return_structure=True)
-    joint_context, _ = model.sample_context(batch, n_samples, return_structure=True)
-    conditional_query, query_graphs = model.sample_disentangled(
-        batch, n_samples, mode="model_average", window="query"
-    )
-    conditional_context, context_graphs = model.sample_disentangled(
-        batch, n_samples, mode="model_average", window="context"
-    )
-    draws = {
-        ("joint", "query"): _numpy(joint_query),
-        ("joint", "context"): _numpy(joint_context),
-        ("conditional", "query"): _numpy(conditional_query),
-        ("conditional", "context"): _numpy(conditional_context),
-    }
-    conditional_graphs = (
-        None
-        if result_sink is None
-        else {
-            "query": _numpy(query_graphs),
-            "context": _numpy(context_graphs),
-        }
-    )
+    draws: dict[tuple[str, str], np.ndarray] = {}
+    conditional_graphs = None
+    if "joint" in heads:
+        joint_context, _ = model.sample_context(batch, n_samples, return_structure=True)
+        draws[("joint", "query")] = _numpy(joint_query)
+        draws[("joint", "context")] = _numpy(joint_context)
+    if "conditional" in heads:
+        conditional_query, query_graphs = model.sample_disentangled(
+            batch, n_samples, mode="model_average", window="query"
+        )
+        conditional_context, context_graphs = model.sample_disentangled(
+            batch, n_samples, mode="model_average", window="context"
+        )
+        draws[("conditional", "query")] = _numpy(conditional_query)
+        draws[("conditional", "context")] = _numpy(conditional_context)
+        if result_sink is not None:
+            conditional_graphs = {"query": _numpy(query_graphs), "context": _numpy(context_graphs)}
 
     graphs = _numpy(binary_graphs_from_flow(g_flow))  # [S, B, L]
     # Thresholding NaN/Inf flow values would silently turn them into binary edges.
@@ -500,12 +833,25 @@ def _score_batch(
     true_flat = np.asarray(layout.pack(edge_truth), dtype=np.float64)  # [B, L]
     slot_active = np.asarray(layout.active_slot_mask(active_c, active_m, active_j)).astype(bool)
     marginals = layout.unpack(graphs.mean(axis=0))  # blocks [B, ...]
+    slot_families = np.asarray(layout.slot_edge_types)
+    slot_endpoints = np.stack([layout.slot_src_index, layout.slot_dst_index], axis=1)  # [L, 2]
 
     window_slices = {"query": slice(n_context, None), "context": slice(None, n_context)}
     for b, (corpus_index, row) in enumerate(batch_rows):
         corpus = corpora[corpus_index]
         outcome = np.asarray(corpus["outcome_raw"][row], dtype=np.float64)
         noise = np.asarray(corpus["outcome_noise"][row], dtype=np.float64)
+        entry = (
+            None
+            if worlds is None
+            else {
+                "corpus_index": int(corpus_index),
+                "row": int(row),
+                "values": {},
+                "weights": {},
+                "undefined": {},
+            }
+        )
         capture_provenance = None
         if result_sink is not None:
             input_support = {}
@@ -519,12 +865,14 @@ def _score_batch(
                     "min": values.min(axis=0).tolist(),
                     "max": values.max(axis=0).tolist(),
                 }
-            for key, field in (("channels", "treatment_raw"), ("controls", "covariates")):
+            # The keys and layout ``decompose`` records, so diagnostics read both alike.
+            prefixes = {"ctx": window_slices["context"], "qry": window_slices["query"]}
+            for key, field in (("spend", "treatment_raw"), ("controls", "covariates")):
                 raw = np.asarray(corpus[field][row], dtype=np.float64)
-                for window, span in window_slices.items():
+                for window, span in prefixes.items():
                     values = raw[span]
                     input_support[f"{window}_{key}_raw"] = {
-                        "units": "native observed input units",
+                        "units": "native input units",
                         "n": len(values),
                         "mean": values.mean(axis=0).tolist(),
                         "std": values.std(axis=0).tolist(),
@@ -532,7 +880,7 @@ def _score_batch(
                         "max": values.max(axis=0).tolist(),
                     }
             context_observed = outcome[:n_context]
-            input_support["context_outcome_raw"] = {
+            input_support["ctx_outcome_raw"] = {
                 "units": "outcome",
                 "n": n_context,
                 "mean": float(context_observed.mean()),
@@ -552,15 +900,19 @@ def _score_batch(
             }
         for (head, window), samples in draws.items():
             span = window_slices[window]
-            _score_decomposition(
-                decomposition[(head, window)],
-                samples[:, b],
-                truth[window][b],
-                active_c[b],
-                active_m[b],
-                outcome[span],
-                noise[span],
-                float(scale[b]),
+            decomposition[(head, window)].add(
+                _score_decomposition(
+                    samples[:, b],
+                    truth[window][b],
+                    active_c[b],
+                    active_m[b],
+                    edge_truth["cy"][b],
+                    edge_truth["zb"][b],
+                    outcome[span],
+                    noise[span],
+                    float(scale[b]),
+                ),
+                entry,
             )
             if result_sink is not None and head == "conditional":
                 from pymc_mfm.inference.result import result_from_batch
@@ -603,18 +955,17 @@ def _score_batch(
             structure_pool.add(et, probs[et][b].ravel(), y, keep)
             router_pool.add(et, np.asarray(marginals[et][b]).ravel(), y, keep)
         keep = slot_active[b]
-        if not keep.any():
-            for key in GRAPH_METRICS:
-                graph_acc.skip(key, "no_active_slots")
-            continue
-        active_draws = graphs[:, b, keep]
-        active_truth = true_flat[b, keep]
-        if not np.isfinite(active_draws).all():
-            for key in GRAPH_METRICS:
-                graph_acc.push(key, float("nan"))
-            continue
-        graph_acc.push("shd_mean", float(np.abs(active_draws - active_truth).sum(axis=1).mean()))
-        graph_acc.push("exact_recovery", float((active_draws == active_truth).all(axis=1).mean()))
+        world_graphs = graphs[:, b, keep]
+        squares = metrics.adjacency_blocks(
+            world_graphs, slot_families[keep], slot_endpoints[keep], SQUARE_EDGE_TYPES
+        )
+        graph_acc.add(metrics.graph_scores(world_graphs, true_flat[b, keep], squares), entry)
+        counts = metrics.WorldScores()
+        counts.put("active_channels", active_c[b].sum())
+        counts.put("active_controls", active_m[b].sum())
+        count_acc.add(counts, entry)
+        if entry is not None:
+            worlds.append(entry)
 
 
 def flatten_evaluation(record: Mapping[str, Any]) -> dict[str, float | None]:
@@ -622,9 +973,10 @@ def flatten_evaluation(record: Mapping[str, Any]) -> dict[str, float | None]:
 
     Key shapes: ``{leg}/{joint|conditional}/{window}/{metric}``,
     ``{leg}/structure_head/{edge}/{metric}``,
-    ``{leg}/joint_router/edge/{edge}/{metric}`` and
-    ``{leg}/joint_router/graph/{metric}``. Integer counts become floats;
-    undefined metrics stay ``None``. ``/`` is the only separator (MLflow-safe).
+    ``{leg}/joint_router/edge/{edge}/{metric}``,
+    ``{leg}/joint_router/graph/{metric}`` and ``{leg}/counts/{metric}``.
+    Integer counts become floats; undefined metrics stay ``None``. ``/`` is the
+    only separator (MLflow-safe).
     """
     leg = record["leg"]
     heads = record["heads"]
@@ -635,11 +987,12 @@ def flatten_evaluation(record: Mapping[str, Any]) -> dict[str, float | None]:
             out[f"{prefix}/{key}"] = None if value is None else float(value)
 
     for head in DECOMPOSITION_HEADS:
-        for window, values in heads[head].items():
+        for window, values in heads.get(head, {}).items():
             put(f"{leg}/{head}/{window}", values)
     for et, values in heads["structure_head"].items():
         put(f"{leg}/structure_head/{et}", values)
     for et, values in heads["joint_router"]["edge"].items():
         put(f"{leg}/joint_router/edge/{et}", values)
     put(f"{leg}/joint_router/graph", heads["joint_router"]["graph"])
+    put(f"{leg}/counts", record["counts"])
     return out

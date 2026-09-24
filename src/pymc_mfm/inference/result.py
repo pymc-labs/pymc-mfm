@@ -1,16 +1,25 @@
-"""Aligned conditional evidence, independent of rendering and tracking services."""
+"""Aligned conditional evidence; diagnostics and figures load only when requested."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import tempfile
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
+
+from ._artifact_schema import json_bytes
+
+if TYPE_CHECKING:
+    from pymc_mfm.diagnostics.accessors import Diagnostics, ResultPlots
+
+#: ``result.json`` version: metadata is hash-bound like the arrays since version 2.
+RESULT_FORMAT_VERSION = 2
+_PAYLOAD_KEYS = frozenset({"format_version", "arrays_sha256", "metadata_sha256", "metadata"})
 
 _ARRAY_FIELDS = ("components", "graphs", "component_mask", "edge_mask", "time")
 _TUPLE_FIELDS = (
@@ -32,6 +41,38 @@ def _numpy(value):
     return np.asarray(value)
 
 
+def _require_text(text, path):
+    """Text that cannot encode as UTF-8 (a lone surrogate) breaks every figure and report."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(
+            f"{path} is not valid Unicode text: {exc.reason} at character {exc.start}"
+        ) from None
+
+
+def _require_json_text(value, path):
+    """String keys and UTF-8-encodable strings at every depth.
+
+    JSON silently stringifies other keys, so saved identity would drift on reload.
+    An explicit stack walks any depth ``json.dumps`` accepts; the caller runs it
+    after ``json.dumps``, which rejects circular references.
+    """
+    stack = [(value, path)]
+    while stack:
+        value, path = stack.pop()
+        if isinstance(value, str):
+            _require_text(value, path)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise ValueError(f"{path} keys must be strings, got {key!r}")
+                _require_text(key, f"{path} key")
+                stack.append((item, f"{path}/{key}"))
+        elif isinstance(value, (list, tuple)):
+            stack.extend((item, f"{path}/{index}") for index, item in enumerate(value))
+
+
 @dataclass(frozen=True, slots=True)
 class DecompositionResult:
     """One world's conditional component/graph draws for one marginal window.
@@ -40,7 +81,8 @@ class DecompositionResult:
     share sample identity. Context and query results are separate marginals:
     concatenating their sample axes does not create full-horizon joint draws.
     Padding is explicit, not an estimate of causal activity. No simulation
-    truth or observation noise is manufactured by this contract.
+    truth or observation noise is manufactured by this contract. The array
+    fields are read-only copies of the supplied arrays.
     """
 
     components: np.ndarray
@@ -58,21 +100,41 @@ class DecompositionResult:
     units: str
     provenance: dict[str, Any]
     context_length: int
+    # Evidence-free diagnostics shared by ``plot`` and ``diagnostics()``. Never
+    # compared, shown, saved, pickled or copied; ``dataclasses.replace`` starts
+    # with an empty cache.
+    _cache: dict[str, Any] = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def __getstate__(self):
+        return [
+            None if item.name == "_cache" else getattr(self, item.name) for item in fields(self)
+        ]
+
+    def __setstate__(self, state):
+        for item, value in zip(fields(self), state, strict=True):
+            if item.name in _ARRAY_FIELDS:
+                value.setflags(write=False)  # unpickled and deep-copied arrays are writable
+            object.__setattr__(self, item.name, {} if item.name == "_cache" else value)
 
     def __post_init__(self):
         for name in _ARRAY_FIELDS:
-            array = np.asarray(getattr(self, name))
+            # A read-only copy: the caller's buffer, reused after construction,
+            # cannot change these draws or the diagnostics computed from them.
+            array = np.array(getattr(self, name), copy=True)
             if array.dtype.kind not in "biuf" or not np.isfinite(array).all():
                 raise ValueError(f"{name} must contain finite real values")
             if name.endswith("mask"):
                 if not np.isin(array, (0, 1)).all():
                     raise ValueError(f"{name} must be binary")
                 array = array.astype(bool, copy=False)
+            array.setflags(write=False)
             object.__setattr__(self, name, array)
         for name in _TUPLE_FIELDS:
             values = tuple(getattr(self, name))
             if not all(isinstance(item, str) and item for item in values):
                 raise ValueError(f"{name} must contain nonempty strings")
+            for item in values:
+                _require_text(item, name)
             if name != "component_families" and len(set(values)) != len(values):
                 raise ValueError(f"{name} must be unique")
             object.__setattr__(self, name, values)
@@ -97,6 +159,7 @@ class DecompositionResult:
             raise ValueError("mode must be model_average, map or fixed")
         if not isinstance(self.units, str) or not self.units:
             raise ValueError("units must be a nonempty label")
+        _require_text(self.units, "units")
         if type(self.context_length) is not int or self.context_length < 1:
             raise ValueError("context_length must be a positive integer")
         if self.window == "context" and t != self.context_length:
@@ -104,6 +167,7 @@ class DecompositionResult:
         if not isinstance(self.provenance, dict):
             raise ValueError("provenance must be a JSON object")
         json.dumps(self.provenance, allow_nan=False)
+        _require_json_text(self.provenance, "provenance")
         if "inference_config" in self.provenance:
             inference = self.provenance["inference_config"]
             if not isinstance(inference, dict):
@@ -132,6 +196,55 @@ class DecompositionResult:
     def n_samples(self) -> int:
         return self.components.shape[0]
 
+    @property
+    def plot(self) -> ResultPlots:
+        """Figures of these draws; matplotlib is imported only when a figure is drawn."""
+        from pymc_mfm.diagnostics.accessors import ResultPlots
+
+        return ResultPlots(self)
+
+    def diagnostics(
+        self,
+        *,
+        truth=None,
+        graph_truth=None,
+        observed=None,
+        reference=None,
+        training_records=(),
+        evaluation_records=(),
+    ) -> Diagnostics:
+        """Score these draws once against the supplied evidence; never samples.
+
+        The returned object holds the computed catalog, so its metrics,
+        statuses, figures and report reuse one computation. Without evidence
+        the object is also cached on this result and shared with ``plot``.
+        """
+        from pymc_mfm.diagnostics.accessors import Diagnostics
+
+        training_records, evaluation_records = list(training_records), list(evaluation_records)
+        evidence_free = (
+            truth is None
+            and graph_truth is None
+            and observed is None
+            and reference is None
+            and not training_records
+            and not evaluation_records
+        )
+        if evidence_free and "diagnostics" in self._cache:
+            return self._cache["diagnostics"]
+        diagnostics = Diagnostics(
+            self,
+            truth=truth,
+            graph_truth=graph_truth,
+            observed=observed,
+            reference=reference,
+            training_records=training_records,
+            evaluation_records=evaluation_records,
+        )
+        if evidence_free:
+            self._cache["diagnostics"] = diagnostics
+        return diagnostics
+
     def save(self, path: str | Path) -> Path:
         """Atomically create a new evidence directory, never mutate cached evidence."""
         path = Path(path)
@@ -141,7 +254,7 @@ class DecompositionResult:
         metadata = {
             item.name: getattr(self, item.name)
             for item in fields(self)
-            if item.name not in _ARRAY_FIELDS
+            if item.init and item.name not in _ARRAY_FIELDS
         }
         with tempfile.TemporaryDirectory(prefix=".result-", dir=path.parent) as temporary:
             staged = Path(temporary) / "result"
@@ -150,28 +263,48 @@ class DecompositionResult:
             np.savez_compressed(arrays, **{name: getattr(self, name) for name in _ARRAY_FIELDS})
             with arrays.open("rb") as handle:
                 digest = hashlib.file_digest(handle, "sha256").hexdigest()
-            payload = {"format_version": 1, "arrays_sha256": digest, "metadata": metadata}
+            payload = {
+                "format_version": RESULT_FORMAT_VERSION,
+                "arrays_sha256": digest,
+                "metadata_sha256": hashlib.sha256(json_bytes(metadata)).hexdigest(),
+                "metadata": metadata,
+            }
             (staged / "result.json").write_text(json.dumps(payload, allow_nan=False, indent=2))
             staged.rename(path)
         return path
 
     @classmethod
     def load(cls, path: str | Path) -> DecompositionResult:
-        """Load verified, non-executable saved evidence without inference."""
+        """Load verified, non-executable saved evidence without inference.
+
+        Arrays and metadata (labels, units, provenance) are both hash-bound, so
+        an edited ``result.json`` is rejected instead of relabeling the draws.
+        """
         path = Path(path)
         payload = json.loads((path / "result.json").read_text())
-        if set(payload) != {"format_version", "arrays_sha256", "metadata"}:
+        if not isinstance(payload, dict):
             raise ValueError("invalid result metadata fields")
-        if type(payload["format_version"]) is not int or payload["format_version"] != 1:
-            raise ValueError("unsupported result format_version")
+        version = payload.get("format_version")
+        if type(version) is not int or version != RESULT_FORMAT_VERSION:
+            raise ValueError(
+                f"unsupported result format_version {version!r}; "
+                f"this release reads version {RESULT_FORMAT_VERSION}"
+            )
+        if set(payload) != _PAYLOAD_KEYS:
+            raise ValueError("invalid result metadata fields")
         arrays_path = path / "arrays.npz"
         with arrays_path.open("rb") as handle:
             digest = hashlib.file_digest(handle, "sha256").hexdigest()
         if digest != payload["arrays_sha256"]:
             raise ValueError("result array checksum mismatch")
         metadata = payload["metadata"]
-        expected = {item.name for item in fields(cls)} - set(_ARRAY_FIELDS)
-        if not isinstance(metadata, dict) or set(metadata) != expected:
+        if (
+            not isinstance(metadata, dict)
+            or hashlib.sha256(json_bytes(metadata)).hexdigest() != payload["metadata_sha256"]
+        ):
+            raise ValueError("result metadata checksum mismatch")
+        expected = {item.name for item in fields(cls) if item.init} - set(_ARRAY_FIELDS)
+        if set(metadata) != expected:
             raise ValueError("incomplete or unknown result metadata")
         with np.load(arrays_path, allow_pickle=False) as arrays:
             if set(arrays.files) != set(_ARRAY_FIELDS):
@@ -280,6 +413,8 @@ def result_from_batch(
     }
     metadata["sales_scale"] = scale
     metadata["representation"] = "natural; latent total excludes observation noise"
+    # Every result decodes graph-conditional decoder draws; figures label this head.
+    metadata["head"] = "conditional"
     metadata["graph_source"] = "supplied_hypothesis" if mode == "fixed" else "joint_router"
     metadata["marginal_windows"] = "separately sampled; not aligned across windows"
     return DecompositionResult(

@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from numbers import Integral
 from typing import Any
 
 import torch
 from torch import Tensor, nn
 
-from .config import ModelConfig
+from .config import LossWeights, ModelConfig
 from .encoder import BiAttentionEncoder, SplitRepresentations
-from .flow import _FLOW_SAMPLE_CHUNK, JointFlowHead, _edge_slot_layout
+from .flow import (
+    _FLOW_SAMPLE_CHUNK,
+    DEFAULT_N_SAMPLES,
+    JointFlowHead,
+    _edge_slot_layout,
+    _sample_count,
+)
 from .graph import (
     STRUCT_EDGE_KEYS,
     EdgeSlotLayout,
@@ -68,6 +73,7 @@ class MFM(nn.Module):
         channel_repr: Tensor,
         control_repr: Tensor,
         *,
+        weights: LossWeights,
         return_trace: bool = False,
     ) -> Tensor | tuple[Tensor, dict[str, object]]:
         g_true = {
@@ -98,21 +104,21 @@ class MFM(nn.Module):
             logits,
             g_true,
             active_mask,
-            edge_weights={"cy": self.config.struct_cy_weight},
+            edge_weights={"cy": weights.struct_cy_weight},
             return_trace=return_trace,
         )
         if return_trace:
             bce_loss, bce_trace = bce_result
         else:
             bce_loss = bce_result
-        loss = self.config.struct_weight * bce_loss
+        loss = weights.struct_weight * bce_loss
         if not return_trace:
             return loss
         return loss, {
             "objective": "per_family_structure_bce",
-            "weight": self.config.struct_weight,
+            "weight": weights.struct_weight,
             "unweighted_loss": bce_loss,
-            "weighted_numerator": self.config.struct_weight * bce_trace["combined_numerator"],
+            "weighted_numerator": weights.struct_weight * bce_trace["combined_numerator"],
             "weighted_denominator": bce_trace["combined_denominator"],
             "bce": bce_trace,
         }
@@ -280,14 +286,16 @@ class MFM(nn.Module):
         self,
         batch: dict[str, Tensor],
         *,
+        weights: LossWeights = LossWeights(),
         return_trace: bool = False,
     ) -> dict[str, Tensor] | tuple[dict[str, Tensor], dict[str, object]]:
-        """Execute every active training objective once.
+        """Execute every active training objective once with the recipe's ``weights``.
 
-        ``struct_loss`` already includes its configured weight. ``task_loss``
+        ``struct_loss`` already includes ``weights.struct_weight``. ``task_loss``
         combines the query router loss, context router loss, and both conditional
-        losses. The optional trace records the values and weights actually used,
-        with the structure head's per-family normalization details.
+        losses as documented on :class:`LossWeights`. The optional trace records
+        the values and weights actually used, with the structure head's
+        per-family normalization details.
         """
         if "context_targets_z" not in batch:
             raise ValueError("training requires context_targets_z and targets_z")
@@ -313,9 +321,9 @@ class MFM(nn.Module):
             self._flow_targets(batch, key="context_targets_z"),
             control_repr=context_repr.controls,
             state_mask=self._flow_state_mask(batch),
-            graph_loss_weight=self.config.context_graph_weight,
+            graph_loss_weight=weights.context_graph_weight,
         )
-        task_loss = flow_loss + self.config.context_decomposition_weight * context_loss
+        task_loss = flow_loss + weights.context_decomposition_weight * context_loss
 
         layout, conditional_mask, active_nodes = self._graph_conditional_geometry(batch, query_repr)
         # Generating graphs are training targets only. Inference never executes
@@ -338,7 +346,7 @@ class MFM(nn.Module):
             control_repr=conditional_repr.controls,
             state_mask=conditional_mask,
         )
-        task_loss = task_loss + self.config.graph_conditional_weight * conditional_loss
+        task_loss = task_loss + weights.graph_conditional_weight * conditional_loss
         conditional_context_repr = self._condition_on_graph(
             context_repr, true_graph, layout, active_nodes
         )
@@ -350,12 +358,17 @@ class MFM(nn.Module):
             state_mask=conditional_mask,
         )
         task_loss = task_loss + (
-            self.config.graph_conditional_weight
-            * self.config.context_decomposition_weight
+            weights.graph_conditional_weight
+            * weights.context_decomposition_weight
             * conditional_context_loss
         )
         struct_result = self._structure_loss(
-            batch, weekly_repr, channel_repr, control_repr, return_trace=return_trace
+            batch,
+            weekly_repr,
+            channel_repr,
+            control_repr,
+            weights=weights,
+            return_trace=return_trace,
         )
         if return_trace:
             struct_loss, struct_trace = struct_result
@@ -382,27 +395,27 @@ class MFM(nn.Module):
                 "per_family_structure_bce",
             ],
             "structure": struct_trace,
-            "context_graph_weight": self.config.context_graph_weight,
+            "context_graph_weight": weights.context_graph_weight,
             "loss_reconstruction": {
                 **terms,
-                "context_decomposition_weight": self.config.context_decomposition_weight,
-                "graph_conditional_weight": self.config.graph_conditional_weight,
+                "context_decomposition_weight": weights.context_decomposition_weight,
+                "graph_conditional_weight": weights.graph_conditional_weight,
                 "graph_conditional_context_weight": (
-                    self.config.graph_conditional_weight * self.config.context_decomposition_weight
+                    weights.graph_conditional_weight * weights.context_decomposition_weight
                 ),
             },
         }
         return terms, trace
 
-    def loss(self, batch: dict[str, Tensor]) -> Tensor:
+    def loss(self, batch: dict[str, Tensor], *, weights: LossWeights = LossWeights()) -> Tensor:
         """Return the complete scalar training objective."""
-        return self.loss_terms(batch)["loss"]
+        return self.loss_terms(batch, weights=weights)["loss"]
 
     @torch.no_grad()
     def predict(
         self,
         batch: dict[str, Tensor],
-        n_samples: int | None = None,
+        n_samples: int = DEFAULT_N_SAMPLES,
         *,
         return_structure: bool = False,
     ) -> Tensor | tuple[Tensor, Tensor]:
@@ -426,7 +439,7 @@ class MFM(nn.Module):
     def sample_disentangled(
         self,
         batch: dict[str, Tensor],
-        n_samples: int | None = None,
+        n_samples: int = DEFAULT_N_SAMPLES,
         *,
         mode: str = "model_average",
         graph: Tensor | None = None,
@@ -456,13 +469,10 @@ class MFM(nn.Module):
         if mode != "map" and router_samples is not None:
             raise ValueError("router_samples is only accepted with mode='map'")
 
-        def count(value: int, name: str) -> int:
-            if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
-                raise ValueError(f"{name} must be a positive integer")
-            return int(value)
-
-        s = count(self.head.mc_samples if n_samples is None else n_samples, "n_samples")
-        router_count = count(s if router_samples is None else router_samples, "router_samples")
+        s = _sample_count(n_samples)
+        router_count = _sample_count(
+            s if router_samples is None else router_samples, "router_samples"
+        )
         if window == "context":
             timeline = self.encoder.forward_timeline(batch)
             query_repr, selected_repr = timeline.query, timeline.context
@@ -536,7 +546,7 @@ class MFM(nn.Module):
     def sample_context(
         self,
         batch: dict[str, Tensor],
-        n_samples: int | None = None,
+        n_samples: int = DEFAULT_N_SAMPLES,
         return_structure: bool = False,
     ) -> Tensor | tuple[Tensor, Tensor]:
         """Draw the trained context joint marginal without reading graph truth.
@@ -560,7 +570,7 @@ class MFM(nn.Module):
         batch: dict[str, Tensor],
         weekly_repr: Tensor,
         channel_repr: Tensor,
-        n_samples: int | None = None,
+        n_samples: int = DEFAULT_N_SAMPLES,
         return_structure: bool = False,
         control_repr: Tensor | None = None,
     ) -> Tensor | tuple[Tensor, Tensor]:

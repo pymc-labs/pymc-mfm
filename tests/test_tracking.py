@@ -4,6 +4,7 @@ import builtins
 import json
 import math
 import random
+import re
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -90,7 +91,7 @@ def artifact_paths(client, run_id, prefix=""):
     return paths
 
 
-def tiny_run(path, *, tracking=None, corpus=None, **kwargs):
+def tiny_run(path, *, tracking=None, corpus=None, eval_every=1, **kwargs):
     return train(
         [
             make_synthetic_corpus(n_cells=4, draws_per_cell=1, context_lengths=(6,), seed=8)
@@ -101,7 +102,7 @@ def tiny_run(path, *, tracking=None, corpus=None, **kwargs):
         model_config=TINY,
         training=reduced(
             steps=2,
-            eval_every=1,
+            eval_every=eval_every,
             eval_worlds=1,
             eval_samples=2,
             milestone_steps=(1,),
@@ -209,6 +210,13 @@ def test_actual_client_histories_reports_and_checkpoint_versions(tmp_path, monke
         for key, metadata in names.items()
         if key in remote.data.metrics
     )
+    # Per-world values, world lists and tables stay in the event artifacts.
+    leaked = re.compile(r"^evaluation/[^/]+/(metric_worlds|tables|per_world)/")
+    assert not any(
+        leaked.match(metadata["original"])
+        for key, metadata in names.items()
+        if key in remote.data.metrics
+    )
     assert all(not event["scalars"] for event in records if event["kind"] == "diagnostic")
     assert not [
         event for event in records if event["kind"] in ("diagnostic_failure", "artifact_policy")
@@ -241,10 +249,13 @@ def test_tracking_on_off_preserves_weights_rng_consumption_and_predictions(tmp_p
     for enabled in (False, True):
         random.seed(417)
         np.random.seed(718)
+        # One evaluation event (step 2) builds the reports; any RNG it consumed
+        # would show in the end-of-run generator states compared below.
         result = tiny_run(
             tmp_path / str(enabled),
             tracking=TrackingConfig(enabled=enabled),
             corpus=corpus,
+            eval_every=2,
             corpus_provenance=[{"data_origin": "synthetic"}],
         )
         results.append(result)
@@ -363,10 +374,11 @@ def test_absent_tracking_never_prevents_numerical_training_or_hides_status(
             .read_text()
             .splitlines()
         ]
-        assert any(failure["operation"] == "start_run" for failure in failures)
-        assert any(
-            failure["artifact"] and "checkpoint" in failure["artifact"] for failure in failures
-        )
+        # One receipt for the failed start; later events stay local without one
+        # undeliverable-copy receipt each.
+        assert [(failure["operation"], failure["delivery_stopped"]) for failure in failures] == [
+            ("start_run", True)
+        ]
 
 
 def test_backend_artifact_failure_keeps_local_versions_and_marks_delivery_failed(
@@ -688,6 +700,58 @@ def test_diagnostic_dimension_boundaries_and_per_metric_steps_do_not_collide(tmp
         (5, 0.25),
         (9, 0.75),
     ]
+
+
+@pytest.mark.parametrize("private", [False, True])
+def test_saved_calibration_report_delivers_scalars_and_files_or_withholds_them(
+    tmp_path, monkeypatch, private
+):
+    pytest.importorskip("scipy")
+    pytest.importorskip("matplotlib")
+    mlflow = pytest.importorskip("mlflow")
+    from pymc_mfm.diagnostics import sbc_report, write_calibration_report
+
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    provenance = {"independent_worlds": True, "data_sha256": "c" * 64, "prior": "point mass"}
+    if not private:
+        provenance["synthetic_training_evaluation"] = True
+    card = sbc_report(
+        np.zeros((20, 4, 1)),
+        np.ones((20, 1)),
+        world_ids=[str(index) for index in range(20)],
+        quantity_names=["total"],
+        provenance=provenance,
+        simulations=200,
+    )
+    root = tmp_path / "sbc"
+    manifest = write_calibration_report(card, root)
+    observer = MlflowTrainingObserver(tmp_path / "run", TrackingConfig(diagnostics=False))
+    observer.on_run_start({"run_id": "calibration-delivery", "status": "running"})
+    observer.on_diagnostic(manifest, root)
+    observer.on_run_end({"run_id": "calibration-delivery", "status": "finished", "final_step": 0})
+    client = mlflow.MlflowClient(tracking_uri=observer.tracking_uri)
+    paths = artifact_paths(client, observer.run_id)
+    records = events(observer.out_dir)
+    if private:
+        assert client.get_run(observer.run_id).data.metrics == {}
+        assert not any(path.endswith(("calibration.json", ".png", "report.html")) for path in paths)
+        receipt = next(event for event in records if event["kind"] == "diagnostic_receipt")
+        assert receipt["payload"]["status"] == "withheld_sensitive"
+    else:
+        event = next(event for event in records if event["kind"] == "diagnostic")
+        delivered = {scalar["path"][-1]: scalar["key"] for scalar in event["scalars"]}
+        recorded = {key: value for key, value in manifest["metrics"].items() if value is not None}
+        assert set(delivered) == set(recorded)
+        for key, value in recorded.items():
+            history = client.get_metric_history(observer.run_id, delivered[key])
+            assert [(point.step, point.value) for point in history] == [(0, value)]
+        prefix = event["payload"]["artifact_path"]
+        assert prefix + "/manifest.json" in paths
+        for artifact in manifest["artifacts"]:
+            remote = f"{prefix}/{artifact['path']}"
+            downloaded = Path(client.download_artifacts(observer.run_id, remote))
+            assert file_sha256(downloaded) == artifact["sha256"]
+    assert observer.summary["status"] == "finished"
 
 
 @pytest.mark.parametrize("secret_location", ["manifest", "record"])
