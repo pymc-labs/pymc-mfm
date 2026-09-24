@@ -7,8 +7,6 @@ import numpy as np
 import pytest
 import torch
 from conftest import make_synthetic_corpus
-from scipy.stats import binom
-from scipy.stats import t as student_t
 
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.graph import EdgeSlotLayout
@@ -124,6 +122,7 @@ def recorded(worlds, metrics, *, pooled=(), **overrides):
 
 
 def compare(setup, metrics, records=None, *, pooled=()):
+    pytest.importorskip("scipy")  # The comparison's t and binomial quantiles.
     _, corpora, worlds, fixture_records, _ = setup
     record = recorded(worlds, metrics, pooled=pooled)
     _, _, geometry = compatibility._worlds(record, corpora)
@@ -132,6 +131,7 @@ def compare(setup, metrics, records=None, *, pooled=()):
 
 def replay(mixed, metrics, pooled=()):
     """Compare with replicates that all equal the mixed-world evaluation: no spread."""
+    pytest.importorskip("scipy")
     corpus, worlds, evaluation = mixed
     record = recorded(worlds, metrics, pooled=pooled)
     _, _, geometry = compatibility._worlds(record, {MIXED_SHARD: corpus})
@@ -158,6 +158,7 @@ def _off(result, key, tolerances):
 
 
 def test_check_replays_the_recorded_worlds_with_fresh_seeds(setup):
+    pytest.importorskip("scipy")
     model, corpora, worlds, records, means = setup
     # Leg values under metric_aggregation() labels, "slot" keys included.
     model.provenance = {"training_evaluation": recorded(worlds, means)}
@@ -171,6 +172,7 @@ def test_check_replays_the_recorded_worlds_with_fresh_seeds(setup):
 
 
 def test_slot_pooled_values_are_compared_with_slot_pooled_replicates(setup):
+    pytest.importorskip("scipy")
     model, corpora, worlds, records, means = setup
     keys = [f"joint/{window}/contribution_truth_lag1" for window in ("query", "context")]
     pooled = {}
@@ -247,6 +249,7 @@ def test_one_event_where_it_weighs_most_is_within_tolerance(mixed):
 
 
 def test_the_median_distance_moves_half_a_slot_at_an_even_draw_count(setup, mixed):
+    pytest.importorskip("scipy")
     corpus, worlds, _ = mixed
     evaluation = evaluate_rows(
         setup[0],
@@ -372,6 +375,9 @@ def test_exact_keys_and_undefined_replicates_fail_the_verdict(setup):
 def test_the_binomial_allowance_counts_failing_families(setup):
     *_, means = setup
     base = compare(setup, means)
+    from scipy.stats import binom
+    from scipy.stats import t as student_t
+
     compared = [
         key
         for key, entry in base["keys"].items()
