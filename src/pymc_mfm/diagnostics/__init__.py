@@ -10,6 +10,7 @@ from .accessors import (
 from .calibration import (
     calibration_summary,
     compute_rank,
+    conditional_sbc_report,
     coverage_from_ranks,
     randomized_ranks,
     rank_uniformity_stats,
@@ -46,6 +47,7 @@ __all__ = [
     "TrainingRun",
     "build_report",
     "calibration_summary",
+    "conditional_sbc_report",
     "cardinality_decode",
     "compute_diagnostics",
     "compute_rank",

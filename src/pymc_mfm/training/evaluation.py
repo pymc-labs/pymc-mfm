@@ -86,6 +86,9 @@ _ATTRIBUTION_METRICS = tuple(
     for effect in _ATTRIBUTION_EFFECTS
     for key in metrics.DEAD_ATTRIBUTION_KEYS
 )
+_CONDITIONAL_COVERAGE_METRICS = tuple(
+    f"attribution_live_{effect}_conditional_cov80" for effect in _ATTRIBUTION_EFFECTS
+)
 _TEMPORAL_METRICS = tuple(f"contribution_{key}" for key in metrics.TEMPORAL_KEYS)
 _TIME_AVERAGE_METRICS = tuple(f"timeavg_contribution_{key}" for key in metrics.TIME_AVERAGE_KEYS)
 DECOMPOSITION_METRICS: tuple[str, ...] = (
@@ -94,6 +97,7 @@ DECOMPOSITION_METRICS: tuple[str, ...] = (
     *metrics.LATENT_SALES_KEYS,
     *_ENERGY_METRICS,
     *_ATTRIBUTION_METRICS,
+    *_CONDITIONAL_COVERAGE_METRICS,
     *_TEMPORAL_METRICS,
     *_TIME_AVERAGE_METRICS,
 )
@@ -118,6 +122,7 @@ SLOT_METRICS = frozenset(
             for stat in _FAMILY_STATS
         ),
         "contribution_padding_leakage_scaled_mae",
+        *_CONDITIONAL_COVERAGE_METRICS,
         *_TEMPORAL_METRICS,
         *_TIME_AVERAGE_METRICS,
     }
@@ -145,6 +150,7 @@ METRIC_BOUNDS: dict[str, tuple[float, float]] = {
         name: (-math.inf, math.inf) if name.endswith("_mean_bias") else _NONNEGATIVE
         for name in _ATTRIBUTION_METRICS
     },
+    **dict.fromkeys(_CONDITIONAL_COVERAGE_METRICS, _PROBABILITY),
     "contribution_truth_lag1": _CORRELATION,
     "contribution_draw_lag1": _CORRELATION,
     "contribution_lag1_tracking_abs_error": (0.0, 2.0),
@@ -198,6 +204,7 @@ METRIC_UNITS: dict[str, str] = {
     **dict.fromkeys(metrics.LATENT_SALES_KEYS, "dimensionless"),
     **dict.fromkeys(_ENERGY_METRICS, "sales_scale"),
     **dict.fromkeys(_ATTRIBUTION_METRICS, "sales_scale"),
+    **dict.fromkeys(_CONDITIONAL_COVERAGE_METRICS, "dimensionless"),
     **dict.fromkeys(_TEMPORAL_METRICS, "dimensionless"),
     **dict.fromkeys(_TIME_AVERAGE_METRICS, "dimensionless"),
     "log_score": "nats",
@@ -469,15 +476,19 @@ def _score_decomposition(
     outcome: np.ndarray,
     noise: np.ndarray,
     scale: float,
+    *,
+    graph_c: np.ndarray | None = None,
+    graph_m: np.ndarray | None = None,
 ) -> metrics.WorldScores:
     """One world's z-space decomposition metrics (:data:`DECOMPOSITION_METRICS`).
 
     ``pred`` is ``[S, T, D]``, ``truth`` ``[T, D]`` with
     ``D = 1 + K + M + 4 = [baseline | K direct | M covariate | confounder_total
     | indirect cc, zc, dc]``; ``live_c``/``live_m`` are the ``cy``/``zb`` graph
-    truth that makes a present channel/control live; ``outcome``/``noise`` are
-    natural ``[T]`` series. A family whose inputs are not all finite is
-    ``nonfinite`` for every key.
+    truth that makes a present channel/control live. ``graph_c``/``graph_m``
+    are the matching per-draw direct edges ``[S, K]``/``[S, M]``, if available;
+    ``outcome``/``noise`` are natural ``[T]`` series. A family whose inputs are
+    not all finite is ``nonfinite`` for every key.
     """
     n_samples = pred.shape[0]
     k, m = active_c.size, active_m.size
@@ -602,6 +613,57 @@ def _score_decomposition(
                 dead_prefix=f"attribution_dead_{effect}_",
             )
         )
+
+    def conditional_coverage(
+        effect: str,
+        samples: np.ndarray,
+        target: np.ndarray,
+        live: np.ndarray,
+        graph: np.ndarray | None,
+    ) -> None:
+        key = f"attribution_live_{effect}_conditional_cov80"
+        if not live.any():
+            world.skip(key, "no_live_effects")
+            return
+        if graph is None:
+            world.skip(key, "missing_graph_draws")
+            return
+        if graph.shape != (n_samples, live.size):
+            raise ValueError(f"{effect} graph draws must have shape {(n_samples, live.size)}")
+        if not _finite(graph[:, live]):
+            world.skip(key, metrics.NONFINITE)
+            return
+        covered = []
+        for slot in np.flatnonzero(live):
+            edge_on = graph[:, slot] == 1
+            if edge_on.sum() < 2:
+                continue
+            total_draws = samples[edge_on, :, slot].sum(axis=1)
+            total_truth = target[:, slot].sum()
+            if not _finite(total_draws, np.asarray(total_truth)):
+                world.skip(key, metrics.NONFINITE)
+                return
+            low, high = np.quantile(total_draws, (0.1, 0.9))
+            covered.append(low <= total_truth <= high)
+        if covered:
+            world.put(key, np.mean(covered), len(covered))
+        else:
+            world.skip(key, "needs_edge_on_draws_ge_2")
+
+    conditional_coverage(
+        "media",
+        pred_contrib,
+        true_contrib,
+        live_channels,
+        None if graph_c is None else graph_c[:, active_c],
+    )
+    conditional_coverage(
+        "control",
+        pred_controls,
+        true_controls,
+        live_m[active_m] != 0,
+        None if graph_m is None else graph_m[:, active_m],
+    )
 
     if n_channels:
         world.update(metrics.temporal_scores(pred_contrib, true_contrib, prefix="contribution_"))
@@ -805,9 +867,10 @@ def _score_batch(
     # order below is the draw order of the seeded stream.
     joint_query, g_flow = model.predict(batch, n_samples, return_structure=True)
     draws: dict[tuple[str, str], np.ndarray] = {}
+    draw_graphs: dict[tuple[str, str], np.ndarray] = {}
     conditional_graphs = None
     if "joint" in heads:
-        joint_context, _ = model.sample_context(batch, n_samples, return_structure=True)
+        joint_context, context_flow = model.sample_context(batch, n_samples, return_structure=True)
         draws[("joint", "query")] = _numpy(joint_query)
         draws[("joint", "context")] = _numpy(joint_context)
     if "conditional" in heads:
@@ -819,8 +882,9 @@ def _score_batch(
         )
         draws[("conditional", "query")] = _numpy(conditional_query)
         draws[("conditional", "context")] = _numpy(conditional_context)
-        if result_sink is not None:
-            conditional_graphs = {"query": _numpy(query_graphs), "context": _numpy(context_graphs)}
+        conditional_graphs = {"query": _numpy(query_graphs), "context": _numpy(context_graphs)}
+        for window in WINDOWS:
+            draw_graphs[("conditional", window)] = conditional_graphs[window]
 
     graphs = _numpy(binary_graphs_from_flow(g_flow))  # [S, B, L]
     # Thresholding NaN/Inf flow values would silently turn them into binary edges.
@@ -830,6 +894,17 @@ def _score_batch(
         raise ValueError(
             f"joint router emitted {graphs.shape[-1]} slots but the geometry has {layout.n_slots}"
         )
+    if "joint" in heads:
+        draw_graphs[("joint", "query")] = graphs
+        context_graphs = _numpy(binary_graphs_from_flow(context_flow))
+        context_finite = torch.isfinite(context_flow).all(dim=2).detach().cpu().numpy()
+        context_graphs[~context_finite] = np.nan
+        if context_graphs.shape[-1] != layout.n_slots:
+            raise ValueError(
+                f"joint context router emitted {context_graphs.shape[-1]} slots but "
+                f"the geometry has {layout.n_slots}"
+            )
+        draw_graphs[("joint", "context")] = context_graphs
     true_flat = np.asarray(layout.pack(edge_truth), dtype=np.float64)  # [B, L]
     slot_active = np.asarray(layout.active_slot_mask(active_c, active_m, active_j)).astype(bool)
     marginals = layout.unpack(graphs.mean(axis=0))  # blocks [B, ...]
@@ -911,6 +986,8 @@ def _score_batch(
                     outcome[span],
                     noise[span],
                     float(scale[b]),
+                    graph_c=draw_graphs[(head, window)][:, b, layout.slices["cy"]],
+                    graph_m=draw_graphs[(head, window)][:, b, layout.slices["zb"]],
                 ),
                 entry,
             )

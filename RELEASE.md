@@ -41,6 +41,9 @@ approved or published release.
   - `run.json` records a corpus summary and per-module parameter counts, also logged to MLflow at step 0. `corpus_support.json` records per-world context-outcome location and scale (at most 5,000 evenly spaced worlds).
 - **Evaluation.**
   - New metric families: live/dead attribution, per-draw closure, temporal coherence, window totals, router graph posterior statistics, edge AUPRC and `null_fpr`, and counts.
+  - `attribution_live_{media,control}_conditional_cov80` measures central 80% coverage of signed window-summed true-live effects using each head/window's own graph-aligned edge-on draws. A slot needs at least two edge-on draws; only eligible slots enter its per-world mean and weight, and no eligible slot is undefined rather than zero.
+  - Small edge-on draw counts make sample-quantile interval coverage non-nominal even under a calibrated posterior; the independent-cell randomized PIT is the formal check.
+  - `conditional_sbc_report` records separate conditional and model-average rank/ECDF checks on the same independent generator cells (at most one world per cell per corpus), using only edge-on draws for truly live conditional effects, including signed controls. Pooled continuous PIT and eligible full-draw discrete tests share Bonferroni family-wise control. Unavailable or low-rank checks are not passes; this is a prior/data simulation check, not out-of-distribution validation. The evaluation shards use the A prior, so B bundle checks on those cells include a training-prior shift rather than isolating its magnitude head.
   - Also recorded: reliability/threshold tables, per-metric world counts and optional per-world values.
   - Checkpoint gates validate `METRIC_BOUNDS` and include the selected head's context energy score; a held-out metric of that head with non-finite worlds blocks promotion (`selection.nonfinite_keys`).
   - `check_recorded_evaluation` reproduces a bundle's recorded training evaluation within stated tolerances.
@@ -115,9 +118,12 @@ likelihood; auxiliary structure probabilities do not route these calls.
 Truth-based diagnostics require aligned truth, training curves require recorded
 histories, and reference diagnostics require usable, qualified reference
 evidence. Independent-world calibration requires independent-world draws and
-explicit prior/data identities. Missing inputs are unavailable or not applicable,
-not zero scores or successful calibration checks. One-world rank screening and
-finite graph-mixture variance are not calibration guarantees.
+explicit prior/data identities; conditional SBC additionally requires independent
+generator cells, not repeated worlds or posterior draws counted as new rank
+replicates. Missing inputs or insufficient eligible ranks are unavailable or not
+applicable, not zero scores or successful calibration checks. One-world rank
+screening, conditional-SBC non-rejection and finite graph-mixture variance are
+not calibration guarantees or out-of-distribution claims.
 
 ## Training resources and small workflow
 

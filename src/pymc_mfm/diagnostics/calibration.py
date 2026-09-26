@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from numbers import Integral
 
@@ -315,4 +316,356 @@ def sbc_report(
             ],
         },
         "qualification": "A non-rejection is not proof of calibration; prior/data support applies.",
+    }
+
+
+def _continuous_rank_stats(rows, view, *, alpha, seed, simulations):
+    """Uniform randomized PIT from ranks with possibly different draw counts."""
+    available = [row for row in rows if row is not None and row[view] is not None]
+    if len(available) < 2:
+        return None
+    from scipy.stats import binom, kstest
+
+    rng = np.random.default_rng(seed)
+    pairs = [row[view] for row in available]
+    ranks = np.asarray([rank for rank, _, _ in pairs], dtype=np.int64)
+    counts = np.asarray([count for _, count, _ in pairs], dtype=np.int64)
+    full_counts = np.asarray([count == total for _, count, total in pairs], dtype=bool)
+    pit = (ranks + rng.random(len(pairs))) / (counts + 1)
+    grid = np.linspace(0, 1, 101)
+    ecdf = np.searchsorted(np.sort(pit), grid, side="right") / len(pit)
+    radius = float(np.sqrt(np.log(2 / alpha) / (2 * len(pit))))
+    edges = np.linspace(0, 1, 21)
+    histogram = np.histogram(pit, bins=edges)[0]
+    uniformity = kstest(pit, "uniform")
+    full = {}
+    for count in sorted(set(counts[full_counts])):
+        selected = full_counts & (counts == count)
+        if selected.sum() >= 2:
+            discrete = rank_uniformity_stats(
+                ranks[selected],
+                int(count),
+                independent_worlds=True,
+                alpha=alpha,
+                seed=seed,
+                simulations=simulations,
+            )
+            # Each discrete cumulative rank count is binomial under the
+            # exchangeable null. A union bound over both tails at every cut
+            # gives a valid finite-sample simultaneous band, even when the
+            # legacy Monte Carlo band cannot resolve the adjusted level.
+            n = int(selected.sum())
+            cut_probabilities = np.arange(1, int(count) + 1) / (count + 1)
+            tail = alpha / (2 * int(count))
+            lower = binom.ppf(tail, n, cut_probabilities) / n
+            upper = binom.ppf(1 - tail, n, cut_probabilities) / n
+            observed = np.asarray(discrete["ecdf"][:-1])
+            excursion = float(np.maximum(np.maximum(lower - observed, observed - upper), 0).max())
+            discrete.update(
+                ecdf_lower=lower.tolist() + [1.0],
+                ecdf_upper=upper.tolist() + [1.0],
+                ecdf_band_reject=int(excursion > 0),
+                ecdf_max_excursion=excursion,
+                ecdf_gamma=float(tail),
+                qualification=(
+                    discrete["qualification"]
+                    + " This card's simultaneous ECDF decision instead uses exact binomial "
+                    "quantiles and a two-tail union bound over all discrete rank cuts."
+                ),
+            )
+            full[str(int(count))] = discrete
+    return {
+        "ranks": ranks.tolist(),
+        "world_ids": [row["world_id"] for row in available],
+        "cell_ids": [row["cell_id"] for row in available],
+        "entity_names": [row["name"] for row in available],
+        "n_on": counts.tolist(),
+        "pit": pit.tolist(),
+        "rank_histogram": histogram.tolist(),
+        "rank_bin_edges": edges.tolist(),
+        "expected_rank_histogram": [len(pit) / 20] * 20,
+        "ecdf_grid": grid.tolist(),
+        "ecdf": ecdf.tolist(),
+        "null_ecdf": grid.tolist(),
+        "ecdf_lower": np.maximum(0, grid - radius).tolist(),
+        "ecdf_upper": np.minimum(1, grid + radius).tolist(),
+        "rank_coverage": {
+            f"cov{100 * level:g}": float(np.mean(np.abs(pit - 0.5) <= level / 2))
+            for level in COVERAGE_LEVELS
+        },
+        "n_ranks": len(pit),
+        "n_post_samples": None if len(set(counts)) != 1 else int(counts[0]),
+        "ks_pvalue": float(uniformity.pvalue),
+        "ecdf_band_reject": int(uniformity.statistic > radius),
+        "exact_full_draw_count": full,
+        "status": "independent_cells_declared",
+        "qualification": (
+            "One effect per generator cell; continuous randomized PIT pools varying gate-on "
+            "counts. The simultaneous ECDF band uses the conservative DKW inequality."
+        ),
+    }
+
+
+def conditional_sbc_report(
+    records,
+    *,
+    world_ids: Sequence[str],
+    cell_ids: Sequence[tuple[str | int, str | int]],
+    provenance: Mapping[str, object],
+    seed=0,
+    alpha=0.05,
+    simulations=1000,
+):
+    """Conditional live-effect and graph-averaged SBC from saved evaluation captures.
+
+    ``records`` are evaluator ``(result, truth, graph_truth, observed)`` tuples,
+    all from one window. ``cell_ids`` identify ``(corpus, cell_id)`` pairs; only
+    the first world of each cell enters formal tests. A family contributes at
+    most one selected effect per cell. Dead truths enter graph-averaged ranks
+    but never gate-on ranks; signed live truths are retained without filtering.
+    Neither view establishes out-of-distribution calibration.
+    """
+    records = tuple(records)
+    worlds, cells = tuple(world_ids), tuple(cell_ids)
+    if len(records) < 2 or len(worlds) != len(records) or len(cells) != len(records):
+        raise ValueError("records, world_ids and cell_ids must align with at least two worlds")
+    if not all(isinstance(name, str) and name for name in worlds) or len(set(worlds)) != len(
+        worlds
+    ):
+        raise ValueError("world_ids must uniquely identify every world")
+    if any(
+        not isinstance(cell, (tuple, list))
+        or len(cell) != 2
+        or any(not isinstance(part, (str, Integral)) or isinstance(part, bool) for part in cell)
+        for cell in cells
+    ):
+        raise ValueError("cell_ids must contain (corpus, cell_id) pairs")
+    cells = tuple(
+        tuple(int(part) if isinstance(part, Integral) else part for part in cell) for cell in cells
+    )
+    if not isinstance(provenance, Mapping) or provenance.get("independent_worlds") is not True:
+        raise ValueError("provenance must explicitly declare independent_worlds=True")
+    identity = provenance.get("data_sha256")
+    if (
+        not provenance.get("prior")
+        or not isinstance(identity, str)
+        or len(identity) != 64
+        or any(character not in "0123456789abcdef" for character in identity)
+    ):
+        raise ValueError("SBC provenance requires a prior description and data_sha256 identity")
+    from .core import json_safe
+
+    try:
+        safe_provenance = json_safe(provenance)
+        json.dumps(
+            {**safe_provenance, "world_ids": worlds, "cell_ids": cells}, allow_nan=False
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise ValueError("SBC provenance and IDs must be strict JSON values") from exc
+    if not 0 < alpha < 1 or not np.isfinite(alpha):
+        raise ValueError("alpha must lie in (0,1)")
+    if _positive_int(simulations, "simulations") < 100:
+        raise ValueError("independent-cell null tests need at least 100 simulations")
+
+    selected = []
+    seen_cells = set()
+    for index, cell in enumerate(cells):
+        key = tuple(cell)
+        if key not in seen_cells:
+            selected.append(index)
+            seen_cells.add(key)
+    if len(selected) < 2:
+        raise ValueError("at least two independent generator cells are required")
+
+    rng = np.random.default_rng(seed)
+    selection_rng = np.random.default_rng(int(seed) + 1)
+    family_rows = {family: [] for family in ("channel", "control")}
+    entity_rows = {family: {} for family in family_rows}
+    reasons = (
+        "dead_truth_edge",
+        "fewer_than_two_edge_on_draws",
+        "padded",
+        "not_model_average",
+    )
+    skip_counts = {family: dict.fromkeys(reasons, 0) for family in family_rows}
+    entity_skips = {family: {} for family in family_rows}
+    mode_applicable = False
+    window = units = None
+    for index in selected:
+        record = records[index]
+        if not isinstance(record, (tuple, list)) or len(record) != 4:
+            raise ValueError("records must contain (result, truth, graph_truth, observed)")
+        result, truth, graph_truth, _ = record
+        mode_applicable |= result.mode == "model_average"
+        if window is None:
+            window, units = result.window, result.units
+        elif (result.window, result.units) != (window, units):
+            raise ValueError("context and query windows or incompatible units cannot be pooled")
+        targets = np.asarray(truth, dtype=np.float64)
+        edges = np.asarray(graph_truth, dtype=np.float64)
+        if (
+            targets.shape != result.components.shape[1:]
+            or edges.shape != (result.graphs.shape[1],)
+            or not np.isfinite(targets).all()
+            or not np.isin(edges, (0, 1)).all()
+        ):
+            raise ValueError("truth and graph_truth must align with finite saved result axes")
+        families = result.provenance.get("edge_families")
+        endpoints = result.provenance.get("edge_endpoints")
+        if (
+            not isinstance(families, list)
+            or not isinstance(endpoints, list)
+            or len(families) != result.graphs.shape[1]
+            or len(endpoints) != len(families)
+            or any(not isinstance(pair, list) or len(pair) != 2 for pair in endpoints)
+        ):
+            raise ValueError("saved result requires aligned edge_families and edge_endpoints")
+        for family, edge_family in (("channel", "cy"), ("control", "zb")):
+            eligible = []
+            for component, (name, kind) in enumerate(
+                zip(result.component_names, result.component_families, strict=True)
+            ):
+                if kind != family:
+                    continue
+                skips = entity_skips[family].setdefault(name, dict.fromkeys(reasons, 0))
+                entity = entity_rows[family].setdefault(name, [])
+                if not result.component_mask[component]:
+                    skip_counts[family]["padded"] += 1
+                    skips["padded"] += 1
+                    continue
+                slots = [
+                    slot
+                    for slot, (edge, pair) in enumerate(zip(families, endpoints, strict=True))
+                    if edge == edge_family and pair[0] == name and result.edge_mask[slot]
+                ]
+                if len(slots) != 1:
+                    raise ValueError(f"{name} has no unique active {edge_family} gate")
+                slot = slots[0]
+                draws = result.components[:, :, component].sum(axis=1)
+                target = float(targets[:, component].sum())
+                row = {
+                    "world_id": worlds[index],
+                    "cell_id": list(cells[index]),
+                    "name": name,
+                    "model_average": None,
+                    "conditional": None,
+                }
+                if result.mode != "model_average":
+                    skip_counts[family]["not_model_average"] += 1
+                    skips["not_model_average"] += 1
+                else:
+                    average_rank = int(randomized_ranks(draws, np.asarray(target), rng=rng))
+                    row["model_average"] = (average_rank, result.n_samples, result.n_samples)
+                    if edges[slot] == 0:
+                        skip_counts[family]["dead_truth_edge"] += 1
+                        skips["dead_truth_edge"] += 1
+                    else:
+                        on = result.graphs[:, slot] == 1
+                        n_on = int(on.sum())
+                        if n_on < 2:
+                            skip_counts[family]["fewer_than_two_edge_on_draws"] += 1
+                            skips["fewer_than_two_edge_on_draws"] += 1
+                        else:
+                            rank = int(randomized_ranks(draws[on], np.asarray(target), rng=rng))
+                            row["conditional"] = (rank, n_on, result.n_samples)
+                entity.append(row)
+                eligible.append(row)
+            applicable = [row for row in eligible if row["model_average"] is not None]
+            if applicable:
+                # Select once without consulting true gates or edge-on counts:
+                # reselecting among live edges biases the family rank when
+                # effect magnitudes depend on other edges' truth.
+                chosen = applicable[int(selection_rng.integers(len(applicable)))]
+                family_rows[family].append({"model_average": chosen, "conditional": chosen})
+    # Count every formal view, including each eligible fixed-draw discrete
+    # subset; otherwise its independent ECDF decision evades family-wise
+    # multiplicity control.
+    n_tests = 2 * sum(1 + len(rows) for rows in entity_rows.values())
+    for family, rows_by_name in entity_rows.items():
+        for view in ("conditional", "model_average"):
+            groups = ([entry[view] for entry in family_rows[family]], *rows_by_name.values())
+            for rows in groups:
+                full_counts = {}
+                for row in rows:
+                    if row is None or row[view] is None:
+                        continue
+                    _, count, total = row[view]
+                    if count == total:
+                        full_counts[count] = full_counts.get(count, 0) + 1
+                n_tests += sum(n >= 2 for n in full_counts.values())
+    adjusted = alpha / n_tests
+    if adjusted < 1e-9:
+        raise ValueError("alpha is too small for family-wise discrete ECDF calibration")
+
+    def summarize(rows, view):
+        return _continuous_rank_stats(
+            rows, view, alpha=adjusted, seed=seed, simulations=simulations
+        )
+
+    def collect_rejections(stats, path):
+        if stats is None:
+            return
+        if stats["ecdf_band_reject"]:
+            rejecting.append(path)
+        for count, subset in stats["exact_full_draw_count"].items():
+            if subset["ecdf_band_reject"]:
+                rejecting.append(f"{path}/exact_full_draw_count/{count}")
+
+    report_families = {}
+    rejecting = []
+    for family in family_rows:
+        family_data = {}
+        for view in ("conditional", "model_average"):
+            rows = [entry[view] for entry in family_rows[family]]
+            stats = summarize(rows, view)
+            family_data[view] = stats
+            collect_rejections(stats, f"{family}/{view}")
+        family_data["entities"] = {}
+        for name, rows in entity_rows[family].items():
+            data = {view: summarize(rows, view) for view in ("conditional", "model_average")}
+            data["skip_reasons"] = entity_skips[family][name]
+            data["status"] = (
+                "independent_cells_declared"
+                if data["conditional"] is not None or data["model_average"] is not None
+                else "not_applicable"
+                if not mode_applicable
+                else "unavailable"
+            )
+            family_data["entities"][name] = data
+            for view in ("conditional", "model_average"):
+                collect_rejections(data[view], f"{family}/{name}/{view}")
+        family_data["skip_reasons"] = skip_counts[family]
+        family_data["status"] = (
+            "independent_cells_declared"
+            if family_data["conditional"] is not None or family_data["model_average"] is not None
+            else "not_applicable"
+            if not mode_applicable
+            else "unavailable"
+        )
+        report_families[family] = family_data
+    return {
+        "format_version": 1,
+        "kind": "independent_world_conditional_sbc",
+        "provenance": {
+            **safe_provenance,
+            "window": window,
+            "units": units,
+            "mode": "model_average" if mode_applicable else "not_applicable",
+        },
+        "world_ids": [worlds[index] for index in selected],
+        "cell_ids": [list(cells[index]) for index in selected],
+        "seed": int(seed),
+        "alpha": float(alpha),
+        "families": report_families,
+        "family_wise": {
+            "method": "Bonferroni",
+            "alpha": float(alpha),
+            "alpha_per_quantity": float(adjusted),
+            "rejecting_quantities": rejecting,
+        },
+        "qualification": (
+            "True-live conditional magnitude and unconditional graph-averaged ranks test "
+            "different estimands. One world per generator cell and one effect per family/cell "
+            "enter formal tests; non-rejection is not proof of calibration or OOD validity."
+        ),
     }

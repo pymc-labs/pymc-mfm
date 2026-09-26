@@ -114,6 +114,8 @@ def test_perfect_decomposition_scores_zero_and_closes_on_corpus_outcome(corpus, 
         np.asarray(corpus["outcome_raw"][row], dtype=np.float64)[n_context:],
         np.asarray(corpus["outcome_noise"][row], dtype=np.float64)[n_context:],
         float(batch["sales_scale"][0]),
+        graph_c=np.repeat(batch["g_cy"][0].numpy()[None], 3, axis=0),
+        graph_m=np.repeat(batch["g_zb"][0].numpy()[None], 3, axis=0),
     )
     # Identical draws leave residual and across-draw correlations without variation.
     constant = {
@@ -140,6 +142,75 @@ def test_perfect_decomposition_scores_zero_and_closes_on_corpus_outcome(corpus, 
             assert value == pytest.approx(world.values["contribution_truth_lag1"], abs=1e-12)
         else:
             assert value == pytest.approx(0.0, abs=1e-12), key
+
+
+def test_conditional_window_coverage_uses_only_aligned_gate_on_draws():
+    pred = np.zeros((4, 2, 7))
+    pred[:2, :, 1] = 2.0
+    pred[2:, :, 2] = -2.0
+    truth = np.zeros((2, 7))
+    truth[:, 1] = 0.25
+    truth[:, 2] = -0.25
+    media_gates = np.array([[1], [1], [0], [0]])
+    control_gates = np.array([[0], [0], [1], [1]])
+    scored = _score_decomposition(
+        pred,
+        truth,
+        np.ones(1, dtype=bool),
+        np.ones(1, dtype=bool),
+        np.ones(1),
+        np.ones(1),
+        np.zeros(2),
+        np.zeros(2),
+        1.0,
+        graph_c=media_gates,
+        graph_m=control_gates,
+    )
+    # The full graph mixture covers both truths; the edge-on draws do not.
+    assert scored.values["attribution_live_media_conditional_cov80"] == 0
+    assert scored.values["attribution_live_control_conditional_cov80"] == 0
+    assert scored.weights["attribution_live_control_conditional_cov80"] == 1
+    short = _score_decomposition(
+        pred,
+        truth,
+        np.ones(1, dtype=bool),
+        np.ones(1, dtype=bool),
+        np.ones(1),
+        np.ones(1),
+        np.zeros(2),
+        np.zeros(2),
+        1.0,
+        graph_c=np.array([[1], [0], [0], [0]]),
+        graph_m=control_gates,
+    )
+    assert short.undefined["attribution_live_media_conditional_cov80"] == (
+        "needs_edge_on_draws_ge_2"
+    )
+
+
+def test_conditional_coverage_sums_window_and_weights_eligible_slots():
+    pred = np.zeros((4, 2, 8))
+    truth = np.zeros((2, 8))
+    pred[0, :, 1] = [3, -2]
+    pred[1, :, 1] = [-2, 3]
+    truth[:, 1] = [3, -2]
+    pred[2:, :, 2] = 3
+    truth[:, 2] = [0.5, 0.5]
+    scored = _score_decomposition(
+        pred,
+        truth,
+        np.ones(2, dtype=bool),
+        np.ones(1, dtype=bool),
+        np.ones(2),
+        np.zeros(1),
+        truth.sum(axis=1),
+        np.zeros(2),
+        1.0,
+        graph_c=np.array([[1, 0], [1, 0], [0, 1], [0, 1]]),
+        graph_m=np.zeros((4, 1)),
+    )
+    assert scored.values["attribution_live_media_conditional_cov80"] == 0.5
+    assert scored.weights["attribution_live_media_conditional_cov80"] == 2
 
 
 def test_record_has_the_four_heads_with_fixed_keys(record, holdout):

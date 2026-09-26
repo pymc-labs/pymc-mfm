@@ -87,9 +87,12 @@ def _safe_file(root, relative):
 
 def _human_report(manifest, root):
     escape = html.escape
+    conditional_sbc = manifest["kind"] == "conditional_calibration_report"
     sections = [
         "<!doctype html><html lang='en'><meta charset='utf-8'>",
-        "<title>Conditional decomposition diagnostic report</title>",
+        "<title>Conditional live-effect SBC report</title>"
+        if conditional_sbc
+        else "<title>Conditional decomposition diagnostic report</title>",
         (
             "<style>body{font:15px "
             "system-ui,sans-serif;max-width:1200px;margin:2em auto;padding:0 "
@@ -105,7 +108,9 @@ def _human_report(manifest, root):
             "#a00;padding-left:1em}.unavailable{color:#555}h2{margin-top:2em}s"
             "ummary{cursor:pointer;font-weight:600;padding:.7em 0}</style>"
         ),
-        "<h1>Conditional decomposition diagnostics</h1>",
+        "<h1>Conditional live-effect SBC</h1>"
+        if conditional_sbc
+        else "<h1>Conditional decomposition diagnostics</h1>",
         (
             "<p>Report format "
             f"{manifest['format_version']}"
@@ -157,11 +162,19 @@ def _human_report(manifest, root):
         + escape(json.dumps(manifest["statuses"], indent=2))
         + "</pre></details>"
     )
-    sections.append(
-        "<p>Raw evidence, diagnostic arrays, training/evaluation records "
-        "and integrity hashes are listed in <a href='manifest.json'>manifest.json</a>. "
-        "Rendering never runs inference or reference fitting.</p></html>"
-    )
+    if conditional_sbc:
+        sections.append(
+            "<p>Full per-family and per-entity PIT evidence, skip reasons and "
+            "integrity hashes are saved in <a href='calibration.json'>calibration.json</a> "
+            "and <a href='manifest.json'>manifest.json</a>. "
+            "Rendering uses saved values only; missing tests are not non-rejections.</p></html>"
+        )
+    else:
+        sections.append(
+            "<p>Raw evidence, diagnostic arrays, training/evaluation records "
+            "and integrity hashes are listed in <a href='manifest.json'>manifest.json</a>. "
+            "Rendering never runs inference or reference fitting.</p></html>"
+        )
     return "\n".join(sections)
 
 
@@ -400,8 +413,8 @@ def render_report(saved_path, out_dir, *, strict=True):
     """Rerender verified stored values without rescoring or loading any model.
 
     Accepts a report directory or its ``manifest.json``. All artifact hashes
-    are verified before creating output. Raw draws and optional evidence are
-    copied byte-for-byte, and figures are constructed only from diagnostics.json.
+    are verified before creating output. Diagnostic figures use saved
+    diagnostics.json; SBC figures use saved calibration.json without inference.
     """
     path = Path(saved_path)
     manifest_path = path / "manifest.json" if path.is_dir() else path
@@ -410,6 +423,7 @@ def render_report(saved_path, out_dir, *, strict=True):
     if manifest.get("format_version") != FORMAT_VERSION or manifest.get("kind") not in (
         "conditional_diagnostic_report",
         "calibration_report",
+        "conditional_calibration_report",
     ):
         raise ValueError("unsupported diagnostic report format")
     descriptors = manifest.get("artifacts")
@@ -424,12 +438,19 @@ def render_report(saved_path, out_dir, *, strict=True):
         artifact = _safe_file(source, relative)
         if _sha256(artifact) != record.get("sha256"):
             raise ValueError(f"diagnostic artifact checksum mismatch: {relative}")
-    if manifest["kind"] == "calibration_report":
+    if manifest["kind"] in ("calibration_report", "conditional_calibration_report"):
         if "calibration.json" not in seen:
             raise ValueError("calibration report is missing its saved rank evidence")
         calibration = json.loads((source / "calibration.json").read_text(encoding="utf-8"))
         if manifest.get("provenance") != calibration.get("provenance"):
             raise ValueError("calibration manifest provenance disagrees with saved evidence")
+        expected_kind = (
+            "independent_world_conditional_sbc"
+            if manifest["kind"] == "conditional_calibration_report"
+            else "independent_world_sbc"
+        )
+        if calibration.get("kind") != expected_kind:
+            raise ValueError("calibration manifest disagrees with saved card kind")
         return write_calibration_report(calibration, out_dir, strict=strict)
     if not set(_INPUT_FILES) <= seen:
         raise ValueError("report is missing required raw/computed evidence artifacts")
@@ -484,11 +505,14 @@ def render_report(saved_path, out_dir, *, strict=True):
 def write_calibration_report(report, out_dir, *, strict=True):
     """Persist and render an independent-world SBC report card without sampling.
 
-    Accepts the complete output of :func:`pymc_mfm.diagnostics.sbc_report`.
-    Raw randomized ranks, IDs, seeds, null bands and qualifications are saved
-    so :func:`render_report` can reproduce every figure without resimulation.
+    Accepts the complete output of :func:`pymc_mfm.diagnostics.sbc_report`
+    or :func:`pymc_mfm.diagnostics.conditional_sbc_report`. Randomized ranks,
+    PIT, IDs, seeds, null bands and qualifications are saved so
+    :func:`render_report` can reproduce every figure without resimulation.
     """
     report = json_safe(report)
+    if report.get("kind") == "independent_world_conditional_sbc":
+        return _write_conditional_calibration_report(report, out_dir, strict=strict)
     if (
         report.get("format_version") != FORMAT_VERSION
         or report.get("kind") != "independent_world_sbc"
@@ -591,4 +615,302 @@ def write_calibration_report(report, out_dir, *, strict=True):
     _write_json(root / "manifest.json", manifest)
     if strict and manifest["failures"]:
         raise DiagnosticError("Calibration report rendering failed", root / "manifest.json")
+    return manifest
+
+
+def _conditional_calibration_inventory(report):
+    """Flatten saved scalar tests and their eligibility into manifest entries."""
+    metrics = {}
+    units = {}
+    statuses = {}
+    qualifications = []
+    for family in ("channel", "control"):
+        group = report["families"].get(family) or {}
+        entries = [(f"calibration/{family}", group)]
+        entries.extend(
+            (f"calibration/{family}/entities/{name}", entity)
+            for name, entity in group.get("entities", {}).items()
+        )
+        for prefix, entry in entries:
+            skips = entry.get("skip_reasons") or {}
+            skip_reason = f"Saved skip reasons: {json.dumps(skips, sort_keys=True)}"
+            statuses[f"{prefix}/skip_reasons"] = {
+                "status": "recorded",
+                "reason": skip_reason,
+            }
+            entry_status = entry.get("status", "unavailable")
+            statuses[prefix] = {"status": entry_status, "reason": skip_reason}
+            for mode in ("conditional", "model_average"):
+                path = f"{prefix}/{mode}"
+                record = entry.get(mode)
+                if record is None:
+                    missing_status = (
+                        "not_applicable" if entry_status == "not_applicable" else "unavailable"
+                    )
+                    reason = (
+                        f"Saved inference mode is not model_average; {mode} SBC is not "
+                        f"applicable. {skip_reason}"
+                        if missing_status == "not_applicable"
+                        else f"No eligible {mode} rank record. {skip_reason}"
+                    )
+                    statuses[path] = {"status": missing_status, "reason": reason}
+                    statuses[f"{path}/exact_full_draw_count"] = {
+                        "status": missing_status,
+                        "reason": reason,
+                    }
+                    statuses[f"{path}/rank_coverage"] = {
+                        "status": missing_status,
+                        "reason": reason,
+                    }
+                    for key in ("n_ranks", "ks_pvalue", "ecdf_band_reject"):
+                        metric = f"{path}/{key}"
+                        metrics[metric] = None
+                        units[metric] = (
+                            "count"
+                            if key == "n_ranks"
+                            else "fraction"
+                            if key == "ks_pvalue"
+                            else "indicator"
+                        )
+                        statuses[f"metric/{metric}"] = {
+                            "status": missing_status,
+                            "reason": reason,
+                        }
+                    qualifications.append(f"{path}: {reason}")
+                    continue
+                record_status = record.get("status", "recorded")
+                reason = record.get("qualification") or report["qualification"]
+                if isinstance(record_status, dict):
+                    reason = record_status.get("reason") or reason
+                    record_status = record_status.get("status", "recorded")
+                statuses[path] = {"status": record_status, "reason": reason}
+                for key, value in record.items():
+                    if not (value is None or isinstance(value, (int, float))):
+                        continue
+                    metric = f"{path}/{key}"
+                    metrics[metric] = int(value) if isinstance(value, bool) else value
+                    units[metric] = (
+                        "fraction"
+                        if key.endswith("pvalue")
+                        else "indicator"
+                        if key == "ecdf_band_reject"
+                        else "count"
+                        if key in ("n_ranks", "exact_full_draw_count", "n_on")
+                        else "as_defined_in_rank_evidence"
+                    )
+                    statuses[f"metric/{metric}"] = {
+                        "status": record_status if value is not None else "unavailable",
+                        "reason": reason
+                        if value is not None
+                        else (
+                            f"No saved {key} test outcome; unavailable, not a non-rejection. "
+                            f"{reason}"
+                            if key in ("ks_pvalue", "ecdf_band_reject")
+                            else f"Undefined for the saved rank geometry. {reason}"
+                        ),
+                    }
+                    if value is None and key in ("ks_pvalue", "ecdf_band_reject"):
+                        qualifications.append(f"{metric}: no saved test outcome. {reason}")
+                coverage = record.get("rank_coverage") or {}
+                statuses[f"{path}/rank_coverage"] = {
+                    "status": record_status if coverage else "unavailable",
+                    "reason": reason if coverage else "No saved rank-implied coverage.",
+                }
+                for key, value in coverage.items():
+                    metric = f"{path}/rank_coverage/{key}"
+                    metrics[metric] = value
+                    units[metric] = "fraction"
+                    statuses[f"metric/{metric}"] = {
+                        "status": record_status if value is not None else "unavailable",
+                        "reason": (
+                            "Saved PIT-implied central coverage over eligible independent worlds. "
+                            + reason
+                            if value is not None
+                            else "No saved rank-implied coverage; unavailable."
+                        ),
+                    }
+                exact = record.get("exact_full_draw_count") or {}
+                exact_path = f"{path}/exact_full_draw_count"
+                statuses[exact_path] = {
+                    "status": "recorded" if exact else "unavailable",
+                    "reason": (
+                        "Saved discrete-rank tests for full-draw-count subsets."
+                        if exact
+                        else "No subset has enough exact full-draw ranks for a discrete-rank test."
+                    ),
+                }
+                for count, discrete in exact.items():
+                    count_path = f"{exact_path}/{count}"
+                    discrete_reason = discrete["qualification"]
+                    statuses[count_path] = {
+                        "status": discrete["status"],
+                        "reason": discrete_reason,
+                    }
+                    for key in (
+                        "n_ranks",
+                        "n_post_samples",
+                        "ks_pvalue",
+                        "chi2_pvalue",
+                        "ecdf_band_reject",
+                        "pot_c_pvalue",
+                    ):
+                        value = discrete.get(key)
+                        metric = f"{count_path}/{key}"
+                        metrics[metric] = value
+                        units[metric] = (
+                            "count"
+                            if key in ("n_ranks", "n_post_samples")
+                            else "fraction"
+                            if key.endswith("pvalue")
+                            else "indicator"
+                        )
+                        test_status = (
+                            discrete["pot_c_status"]
+                            if key == "pot_c_pvalue"
+                            else {"status": discrete["status"], "reason": discrete_reason}
+                        )
+                        statuses[f"metric/{metric}"] = (
+                            dict(test_status)
+                            if value is not None or key == "pot_c_pvalue"
+                            else {
+                                "status": "unavailable",
+                                "reason": f"No saved {key} test outcome. {test_status['reason']}",
+                            }
+                        )
+                        if value is None and key in (
+                            "ks_pvalue",
+                            "chi2_pvalue",
+                            "ecdf_band_reject",
+                            "pot_c_pvalue",
+                        ):
+                            qualifications.append(
+                                f"{metric}: no saved test outcome. {test_status['reason']}"
+                            )
+    family_wise = report["family_wise"]
+    statuses["calibration/family_wise"] = {
+        "status": "recorded",
+        "reason": "Saved multiple-testing decisions in calibration.json#/family_wise: "
+        + json.dumps(family_wise, sort_keys=True)
+        + ". No decisions are recalculated during rendering.",
+    }
+    return metrics, units, statuses, qualifications
+
+
+def _write_conditional_calibration_report(report, out_dir, *, strict):
+    if (
+        report.get("format_version") != FORMAT_VERSION
+        or not report.get("world_ids")
+        or not report.get("cell_ids")
+        or not isinstance(report.get("families"), dict)
+    ):
+        raise ValueError("expected a versioned independent-world conditional SBC report")
+    provenance = report["provenance"]
+    sensitive = provenance.get("synthetic_training_evaluation") is not True
+    root = _output(out_dir)
+    _write_json(root / "calibration.json", report)
+    metrics, units, statuses, missing = _conditional_calibration_inventory(report)
+    qualification = report["qualification"]
+    manifest = {
+        "format_version": FORMAT_VERSION,
+        "kind": "conditional_calibration_report",
+        "status": "complete",
+        "provenance": provenance,
+        "dimensions": {
+            "head": provenance.get("head", "unspecified"),
+            "mode": provenance.get("mode", "unspecified"),
+            "window": provenance.get("window", "unspecified"),
+            "units": provenance.get("units", "rank"),
+            "data_split": provenance.get("data_split"),
+            "n_worlds": len(report["world_ids"]),
+            "n_cells": len(report["cell_ids"]),
+            "n_entities": sum(
+                len(group.get("entities", {})) for group in report["families"].values()
+            ),
+        },
+        "metrics": metrics,
+        "metric_units": units,
+        "statuses": statuses,
+        "qualifications": [
+            qualification,
+            "Each selected generator cell contributes one independent world; cell and world IDs "
+            "are saved with the card, not inferred by rendering.",
+            "Conditional PIT uses only edge-on draws for live truth edges; graph-averaged PIT "
+            "uses saved full-draw ranks for eligible effects, including dead truth edges.",
+            "Family-wise rejecting quantities are saved Bonferroni-adjusted ECDF-band "
+            "decisions; saved KS p-values are additional diagnostics.",
+            "Missing eligible ranks or null tests are unavailable; map/fixed inference is "
+            "not applicable. Neither state is a non-rejection.",
+            *missing,
+        ],
+        "panels": {},
+        "failures": [],
+        "artifacts": [
+            _artifact(root, "calibration.json", "calibration_evidence", sensitive=sensitive)
+        ],
+        "arrays": {
+            "families": {
+                "path": "calibration.json",
+                "pointer": "/families",
+                "status": "recorded",
+            },
+            "family_wise": {
+                "path": "calibration.json",
+                "pointer": "/family_wise",
+                "status": "recorded",
+            },
+        },
+    }
+    has_rank_record = any(
+        entry.get(mode) is not None
+        for group in report["families"].values()
+        for entry in (group, *group.get("entities", {}).values())
+        for mode in ("conditional", "model_average")
+    )
+    all_not_applicable = all(
+        group.get("status") == "not_applicable" for group in report["families"].values()
+    )
+    for kind in ("ranks", "ecdf", "coverage"):
+        panel = {
+            "status": (
+                "independent_cells_declared"
+                if has_rank_record
+                else "not_applicable"
+                if all_not_applicable
+                else "unavailable"
+            ),
+            "reason": qualification
+            if has_rank_record
+            else (
+                "Saved inference modes are not model_average; conditional SBC is not applicable."
+                if all_not_applicable
+                else "No eligible ranks in any family or entity; figure marks unavailable views."
+            ),
+        }
+        figure = None
+        try:
+            from pymc_mfm.plotting.panels import plot_sbc_report
+
+            figure = plot_sbc_report(report, kind=kind)
+            relative = f"{kind}.png"
+            figure.savefig(root / relative, dpi=120, bbox_inches="tight")
+            panel.update(path=relative, render_status="ok")
+            manifest["artifacts"].append(
+                _artifact(root, relative, "figure", sensitive=sensitive, panel=kind)
+            )
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {exc}"
+            panel.update(status="failed", reason=reason, render_status="failed")
+            manifest["failures"].append(f"{kind}: {reason}")
+        finally:
+            if figure is not None:
+                figure.clear()
+        manifest["panels"][kind] = panel
+        manifest["statuses"][f"panel/{kind}"] = dict(panel)
+    if manifest["failures"]:
+        manifest["status"] = "failed"
+    (root / "report.html").write_text(_human_report(manifest, root), encoding="utf-8")
+    manifest["artifacts"].append(_artifact(root, "report.html", "report", sensitive=sensitive))
+    _write_json(root / "manifest.json", manifest)
+    if strict and manifest["failures"]:
+        raise DiagnosticError("Conditional SBC report rendering failed", root / "manifest.json")
     return manifest
