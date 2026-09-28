@@ -418,6 +418,28 @@ the complete prior is `recipe_for(plan.profile).payload` with
 {_table(("field", "value"), [(name, _cell(value)) for name, value in rows])}"""
 
 
+def _calibration_notes(metrics: Mapping) -> dict[str, str]:
+    """Calibration keys of recorded edge families with one truth class, and why.
+
+    A family recorded with ``n`` active edges and ``n_pos`` positives in ``{0, n}``
+    (or, without counts, a ``prevalence`` of 0 or 1) evidences no calibration,
+    whatever its recorded ``ece`` says.
+    """
+    from pymc_mfm.training.metrics import BRIER_DECOMPOSITION_KEYS, one_class_notice
+
+    notes = {}
+    for name in metrics:
+        family, _, metric = name.rpartition("/")
+        n, n_pos = metrics.get(f"{family}/n"), metrics.get(f"{family}/n_pos")
+        if n is None or n_pos is None:
+            n, n_pos = 1, metrics.get(f"{family}/prevalence")
+        if metric in ("ece", *BRIER_DECOMPOSITION_KEYS) and n and n_pos is not None:
+            notice = one_class_notice(n, n_pos)
+            if notice is not None:
+                notes[name] = notice
+    return notes
+
+
 def _evaluation_section(record: Mapping | None) -> str:
     if record is None:
         return "No training evaluation is recorded in this bundle's provenance."
@@ -435,8 +457,9 @@ def _evaluation_section(record: Mapping | None) -> str:
             "worlds",
         )
     ]
+    notes = _calibration_notes(record["metrics"])
     metrics = [
-        (name, _cell(value), record["aggregation"][name])
+        (name, _cell(value), record["aggregation"][name], notes.get(name, ""))
         for name, value in sorted(record["metrics"].items())
     ]
     head = (
@@ -451,11 +474,13 @@ their values; `null` marks a metric that was undefined. Aggregation `world`
 averages worlds equally; `slot` averages each world's channel or control slots,
 then the worlds equally; `slot_pooled` pools the channel or control slots of all
 worlds, weighting each slot rather than each world equally; `pooled_edges`
-scores the pooled edge slots of all worlds once.
+scores the pooled edge slots of all worlds once. The note marks the calibration
+scores of an edge family recorded with one truth class: they are not evidence
+of calibration.
 {head}
 {_table(("field", "value"), protocol)}
 
-{_table(("metric", "value", "aggregation"), metrics)}"""
+{_table(("metric", "value", "aggregation", "note"), metrics)}"""
 
 
 def _license_section(license: str) -> str:

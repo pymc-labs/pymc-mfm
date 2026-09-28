@@ -310,6 +310,22 @@ def test_derived_metrics_are_holdout_minus_seen_gaps_and_mean_edge_scores(tmp_pa
     assert "holdout/joint_router/edge/mean_ece" not in first
 
 
+def test_mean_ece_leaves_out_families_recorded_with_one_truth_class(tmp_path):
+    root = write_run(tmp_path / "run")
+    record = json.loads((root / "evaluations.jsonl").read_text())
+    # Seen cc holds no positive edge, as the zero-budget A/B families do; its ECE of
+    # 0.2 comes from negatives alone. zb's counts hold both classes.
+    counts = {"cc": (40.0, 0.0), "zb": (10.0, 4.0)}
+    for family, (n, n_pos) in counts.items():
+        record["flat"][f"seen/structure_head/{family}/n"] = n
+        record["flat"][f"seen/structure_head/{family}/n_pos"] = n_pos
+    (root / "evaluations.jsonl").write_text(json.dumps(record) + "\n")
+    [derived] = TrainingRun.load(root).derived_metrics()
+    assert derived["seen/structure_head/mean_ece"] == pytest.approx((0.05 + 0.15) / 2)
+    # Only ECE is filtered; the AUROC mean keeps every defined family.
+    assert derived["seen/structure_head/mean_auroc"] == pytest.approx((0.95 + 0.85 + 0.5) / 3)
+
+
 @pytest.mark.parametrize(
     "tail",
     [

@@ -12,11 +12,15 @@ evaluator's leg value, as :func:`~pymc_mfm.training.evaluation.metric_aggregatio
 defines it.
 
 * **exact** keys do not depend on draws (``structure_head/*``, ``counts/*``,
-  ``joint_router/edge/*/{n,n_pos,prevalence}``,
-  ``joint/*/contribution_truth_lag1``) and must agree within
-  ``max(EXACT_TOLERANCE, delta_k)`` in every replicate;
+  ``joint_router/edge/*/{n,n_pos,prevalence,unc}``, where ``unc = r (1 - r)``
+  of the prevalence ``r``, and ``joint/*/contribution_truth_lag1``) and must
+  agree within ``max(EXACT_TOLERANCE, delta_k)`` in every replicate;
 * **informational** keys (``joint_router/edge/*/log_score``: clipped at machine
-  epsilon, so one confident miss dominates) are reported but not counted;
+  epsilon, so one confident miss dominates; ``joint_router/edge/*/{mcb,dsc}``:
+  they split the compared ``brier`` minus the exact ``unc``, and their
+  isotonic term jumps by at least ``1 / (2 n)`` when one draw ties or inverts a
+  positive and a negative edge that replicates keep apart) are reported but
+  not counted;
 * **stochastic** keys are every other key. The recorded value is compared with
   the replicate mean within the key's tolerance
   ``max(t * sd * sqrt(1 + 1/R), delta_k)``, the half-width of a 99% prediction
@@ -178,9 +182,9 @@ def key_class(key: str) -> str:
     if parts[0] in ("structure_head", "counts"):
         return "exact"
     if parts[:2] == ["joint_router", "edge"]:
-        if parts[-1] in ("n", "n_pos", "prevalence"):
+        if parts[-1] in ("n", "n_pos", "prevalence", "unc"):
             return "exact"
-        if parts[-1] == "log_score":
+        if parts[-1] in ("log_score", "mcb", "dsc"):
             return "informational"
     if parts[0] in DECOMPOSITION_HEADS and parts[-1] == "contribution_truth_lag1":
         return "exact"

@@ -386,7 +386,7 @@ or interrupted batches.
 | `objective_trace.json` | the first update's executed objective trace (all terms, weights, structure-family normalization) |
 | `metrics.jsonl` | one record at update 1 and every `log_every` updates: `loss`, `flow_loss`, `context_flow_loss`, `graph_conditional_flow_loss`, `graph_conditional_context_flow_loss`, `task_loss`, `struct_loss`, `lr`, pre-clip `grad_norm`, `grad_clipped`, epoch, consumed rows, batch context length, timings and throughput |
 | `evaluations.jsonl` | one record per evaluation event with the `holdout` and `seen` legs, a flat `{leg}/{head}/{window}/{metric}` view and the selection decision |
-| `evaluation_tables/step_<N:09d>.json` (e.g. `step_000006250.json`) | per-edge-family reliability tables (the non-empty rows of 10 equal-width probability bins) and threshold tables (0.1, 0.25, 0.5, 0.75, 0.9) for the structure head and the joint router, written before the matching `evaluations.jsonl` line |
+| `evaluation_tables/step_<N:09d>.json` (e.g. `step_000006250.json`) | per-edge-family reliability tables (the non-empty rows of 10 equal-width probability bins), CORP tables (the blocks of the isotonic fit of edge truth on probability; empty for a family with one truth class) and threshold tables (0.1, 0.25, 0.5, 0.75, 0.9) for the structure head and the joint router, written before the matching `evaluations.jsonl` line |
 | `corpus_support.json` | context-outcome mean and standard deviation of each world (`"<corpus>:<row>"`, both splits), at most 5,000 evenly spaced worlds, with the total in `n_worlds` and kept worlds with an empty or non-finite context, or with overflowing statistics, in `skipped`; written at the start and never logged to MLflow |
 | `checkpoint_last.pt`, `checkpoint_best.pt`, `checkpoint_step_<N>.pt` | atomic training checkpoints (`load_checkpoint`): `config`, `state_dict`, training configuration, run identity and provenance, consumption, the accompanying evaluation record and selection |
 | `model/` | complete terminal safetensors/JSON model export; training checkpoint and exported tensor hashes remain distinct |
@@ -441,8 +441,25 @@ uniform draws the expected central 10th-to-90th interval coverage is 0.8/3).
 Use the randomized-rank PIT card for a formal finite-draw calibration check.
 
 `structure_head` and `joint_router/edge` report `log_score`, `brier`, `auroc`,
-`auprc`, `ece`, `null_fpr` (share of negative edges with p > 0.5), `prevalence`,
-`n` and `n_pos` per edge family, pooled over active slots. `joint_router/graph`
+`auprc`, `ece`, the CORP decomposition `brier = mcb - dsc + unc`
+(miscalibration, discrimination, uncertainty), `null_fpr` (share of negative
+edges with p > 0.5), `prevalence`, `n` and `n_pos` per edge family, pooled over
+active slots. CORP (Dimitriadis, Gneiting and Jordan, *PNAS* 2021) fits the
+calibration curve by isotonic regression (pool-adjacent-violators, in NumPy):
+no bins or other tuning parameter. `mcb` is the Brier score's excess over the
+recalibrated probabilities, `dsc` the gain of those over the prevalence and
+`unc = prevalence (1 - prevalence)`. A family with one truth class (`n_pos` 0
+or `n`; `dc`, `dz`, `db`, `zc`, `cc` and `zz` in the recorded A and B
+evaluations, whose priors draw none of these edges) evidences no calibration:
+`mcb`, `dsc` and `unc` are `null` with reason `one_class`, like `auroc` and
+`auprc`, and its CORP table is empty. Its `ece` keeps its definition (so
+recorded evaluations stay comparable) and is not a calibration pass: model
+cards note "no positive edges — calibration not evidenced" (or "no negative
+edges — …") beside it, `TrainingRun.derived_metrics()` leaves it out of
+`mean_ece`, and the diagnostics' reliability figure draws no curve for such a
+family and states the same. `check_recorded_evaluation` compares
+`joint_router/edge/*/unc` exactly and reports the router's `mcb` and `dsc` as
+informational: they split the compared `brier`. `joint_router/graph`
 reports `shd_mean`, `shd_median`, `normalized_shd_mean`, `exact_recovery`, the
 graph `energy_score`, `categorical_brier_score`, `entropy`, `n_distinct`,
 `cc`/`zz` two-cycle and cycle rates (the prior forbids cycles, so non-zero rates
@@ -450,7 +467,10 @@ flag invalid graphs), and `pairwise_comoment_abs_err` /
 `pairwise_comoment_max_abs_err` (dependence between edge draws). `{leg}/counts/*`
 records mean active channels and controls and the number of worlds.
 `result.diagnostics(...)` reports the same whole-graph statistics for one result
-as `graph/<key>`.
+as `graph/<key>`, and with graph truth also `graph/{brier,log_score,auroc,ece}`
+and the CORP `graph/{mcb,dsc,unc}` over its active edges (the CORP keys are
+unavailable, and `graph/ece` and the reliability panel are `not_evidenced`,
+when those edges have one truth class).
 
 Each metric is a mean over worlds; slot families (per-channel contributions,
 temporal coherence and time-average coverage) average a world's defined slots
@@ -465,10 +485,11 @@ metric undefined everywhere is `null`, never zero. Each leg also records
 `evaluate_rows(..., per_world=True)` adds per-world values and slot weights.
 These stay in the JSON records and are not logged as MLflow metrics. Nonfinite
 active edge probabilities make the pooled predictive scores `null` with the
-affected-slot count; truth counts and prevalence remain available. Nonfinite
-graph draws are marked unavailable rather than thresholded into apparently
-valid binary graphs. Held-out − seen gaps, share MAEs and mean AUROC/ECE are
-report-only (`TrainingRun.derived_metrics()` and the diagnostic reports).
+affected-slot count; truth counts, prevalence and `unc` remain available.
+Nonfinite graph draws are marked unavailable rather than thresholded into
+apparently valid binary graphs. Held-out − seen gaps, share MAEs and mean
+AUROC/ECE are report-only (`TrainingRun.derived_metrics()` and the diagnostic
+reports).
 
 Checkpoint selection follows `TrainingConfig.selection_head` (the conditional
 decoder by default). It minimizes `holdout/{head}/query/decomposition_energy_score`.
@@ -748,7 +769,8 @@ diag.plot.attribution()  # live/dead effects: CRPS, bias, MAE, leakage
 diag.plot.window_totals()  # window-mean 80% coverage (live/dead), latent-total fit
 diag.plot.cumulative()  # running channel totals vs truth, cumulative energy score
 diag.plot.temporal()  # lag-1 and residual autocorrelation per family
-diag.plot.reliability()  # router edge probabilities vs graph truth
+diag.plot.reliability()  # CORP isotonic fit of graph truth on router edge frequency
+diag.plot.reliability("binned")  # the 10 equal-width bins and pooled ECE
 diag.report("reports/world_0")  # same files as build_report, no rescoring
 
 from pymc_mfm.diagnostics import Comparison, TrainingRun

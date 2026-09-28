@@ -1111,61 +1111,105 @@ def plot_cycles(summary, *, ax=None):
     return fig
 
 
-def plot_reliability(summary, *, ax=None):
-    """Edge reliability: how often graph truth holds edges of each frequency bin.
+#: Views of :func:`plot_reliability`: the CORP isotonic curve or equal-width bins.
+RELIABILITY_KINDS = ("corp", "binned")
 
-    Router edge frequencies over the active edges are binned into equal-width
-    probability bins; black points (sized by edge count) pool every family,
-    colored points split them by family. The title states the table's ECE of
-    the pooled bins.
+
+def plot_reliability(summary, *, kind="corp", ax=None):
+    """Edge reliability: how often graph truth holds edges of each router frequency.
+
+    ``kind="corp"`` draws the CORP curve, the isotonic (pool-adjacent-violators)
+    fit of graph truth on edge frequency: each block's calibrated probability
+    across its frequency range, joined over the gaps between blocks, with
+    pooled block markers sized by edge count. The title states the pooled
+    Brier decomposition ``MCB − DSC + UNC``. ``kind="binned"`` draws equal-width
+    bins (points at each bin's mean frequency and truth share, pooled points
+    sized by edge count) and the pooled ECE. Black pools every active edge and
+    colors split the families. An edge set with one truth class draws nothing:
+    its legend entry states that its calibration is not evidenced.
     """
+    from pymc_mfm.training.metrics import one_class_notice
+
+    if kind not in RELIABILITY_KINDS:
+        raise ValueError(f"reliability kind must be one of {RELIABILITY_KINDS}, got {kind!r}")
     data = summary["arrays"].get("reliability")
     if data is None:
         raise ValueError("edge reliability requires graph truth")
+    if kind == "corp" and "corp" not in data["pooled"]:
+        raise ValueError("this saved reliability evidence has no CORP fit; draw kind='binned'")
     fig, ax, owned = _single(ax, width=9, row_height=6)
     ax.plot([0, 1], [0, 1], "k--", linewidth=1, label="Perfectly reliable")
-    pooled = data["pooled"]
-    rows = pooled["rows"]
-    counts = np.asarray([row["count"] for row in rows], dtype=float)
-    probability = [row["mean_probability"] for row in rows]
-    frequency = [row["observed_frequency"] for row in rows]
-    ax.plot(
-        probability,
-        frequency,
-        "-o",
-        color="black",
-        linewidth=1.2,
-        markersize=3,
-        gid="reliability/pooled",
-        label=f"All active edges: {pooled['n']} ({pooled['n_pos']} in graph truth)",
-    )
-    ax.scatter(probability, frequency, s=20 + 180 * counts / counts.max(), color="black", alpha=0.3)
-    for number, (family, record) in enumerate(data["families"].items()):
-        ax.scatter(
-            [row["mean_probability"] for row in record["rows"]],
-            [row["observed_frequency"] for row in record["rows"]],
-            s=22,
-            color=f"C{number}",
-            alpha=0.8,
-            gid=f"reliability/{family}",
-            label=f"{family}: {record['n']} {'edge' if record['n'] == 1 else 'edges'}",
+    sets = [("pooled", "All active edges", data["pooled"], "black")]
+    sets += [
+        (family, family, record, f"C{number}")
+        for number, (family, record) in enumerate(data["families"].items())
+    ]
+    for key, name, record, color in sets:
+        pooled = key == "pooled"
+        gid = f"reliability/{key}"
+        n, n_pos = record["n"], record["n_pos"]
+        label = f"{name}: {n} {'edge' if n == 1 else 'edges'} ({n_pos} in graph truth)"
+        notice = one_class_notice(n, n_pos)
+        if notice is not None:
+            # Legend only: one truth class draws no calibration curve or points.
+            ax.plot([], [], "x", color=color, gid=gid, label=f"{label}\n{notice}")
+            continue
+        if kind == "corp":
+            rows = record["corp"]
+            x = [row["mean_probability"] for row in rows]
+            y = [row["calibrated_probability"] for row in rows]
+            # Markers keep a block visible when its frequencies coincide (lower == upper).
+            ax.plot(
+                [bound for row in rows for bound in (row["lower"], row["upper"])],
+                np.repeat(y, 2),
+                "-o",
+                color=color,
+                linewidth=1.6 if pooled else 1.1,
+                markersize=2.5,
+                gid=gid,
+                label=f"{label}\nMCB {record['decomposition']['mcb']:.3g}",
+            )
+        else:
+            rows = record["rows"]
+            x = [row["mean_probability"] for row in rows]
+            y = [row["observed_frequency"] for row in rows]
+            if pooled:
+                ax.plot(x, y, "-o", color=color, linewidth=1.2, markersize=3, gid=gid, label=label)
+            else:
+                ax.scatter(x, y, s=22, color=color, alpha=0.8, gid=gid, label=label)
+        if pooled:
+            counts = np.asarray([row["count"] for row in rows], dtype=float)
+            ax.scatter(x, y, s=20 + 180 * counts / counts.max(), color=color, alpha=0.3)
+    if kind == "binned":
+        ece = summary["metrics"].get("graph/ece")
+        xlabel = "Mean edge frequency in bin"
+        ylabel = "Share of the bin's edges in graph truth"
+        detail = f"{data['bins']} equal-width bins · pooled ECE " + (
+            "undefined" if ece is None else f"{ece:.3g}"
         )
-    ax.set(
-        xlim=(-0.02, 1.02),
-        ylim=(-0.02, 1.02),
-        xlabel="Mean edge frequency in bin",
-        ylabel="Share of the bin's edges in graph truth",
-    )
+        pooled_notice = one_class_notice(data["pooled"]["n"], data["pooled"]["n_pos"])
+        if pooled_notice is not None:
+            detail += f" ({pooled_notice})"
+    else:
+        xlabel = "Edge frequency"
+        ylabel = "Share of edges in graph truth (isotonic fit)"
+        if summary["metrics"]["graph/mcb"] is None:
+            split = f"decomposition {_stated(summary, 'graph/mcb')}"
+        else:
+            split = (
+                f"Brier {_stated(summary, 'graph/brier')} = MCB {_stated(summary, 'graph/mcb')}"
+                f" − DSC {_stated(summary, 'graph/dsc')} + UNC {_stated(summary, 'graph/unc')}"
+            )
+        detail = f"CORP isotonic fit, no bins · pooled {split}"
+    ax.set(xlim=(-0.02, 1.02), ylim=(-0.02, 1.02), xlabel=xlabel, ylabel=ylabel)
     ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1))
-    ece = summary["metrics"].get("graph/ece")
     _title(
         fig,
         ax,
         _labels(summary["metadata"]),
         f"Edge reliability — {data['label']} against graph truth",
         owned,
-        detail=f"{data['bins']} equal-width bins · pooled ECE "
-        + ("undefined" if ece is None else f"{ece:.3g}"),
+        detail=detail,
     )
     return fig
 
@@ -1582,6 +1626,12 @@ def plot_set_posterior(summary):
     return fig
 
 
+def _saved_reliability_kind(summary):
+    """The CORP view, or the bins of reliability evidence saved before CORP fits were recorded."""
+    data = summary["arrays"].get("reliability")
+    return "binned" if data is not None and "corp" not in data["pooled"] else "corp"
+
+
 def plot_panel(name, summary):
     """Render a named applicable catalog panel solely from computed arrays."""
     dispatch = {
@@ -1604,7 +1654,7 @@ def plot_panel(name, summary):
         "graph_cardinality": plot_cardinality,
         "graph_statistics": plot_graph_statistics,
         "cycles": plot_cycles,
-        "reliability": plot_reliability,
+        "reliability": lambda data: plot_reliability(data, kind=_saved_reliability_kind(data)),
         "support": plot_support,
         "zero_atoms": plot_zero_atoms,
         "graph_uncertainty": plot_uncertainty,

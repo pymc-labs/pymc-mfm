@@ -53,6 +53,124 @@ def test_threshold_table_predicts_at_or_above_each_threshold():
     assert rows[1]["precision"] is None and rows[1]["recall"] == 0.0 and rows[1]["fpr"] == 0.0
 
 
+def _fitted(values, weights):
+    values, weights = np.asarray(values, float), np.asarray(weights, float)
+    means, _, ends = metrics._pava(values * weights, weights)
+    return np.repeat(means, np.diff(ends, prepend=0)), means
+
+
+def test_pava_matches_scipy_isotonic_regression_with_ties_and_weights():
+    optimize = pytest.importorskip("scipy.optimize")
+    rng = np.random.default_rng(11)
+    for trial in range(300):
+        n = int(rng.integers(1, 80))
+        # Half the trials draw from a coarse grid, so tied values and tied means abound.
+        values = rng.integers(0, 4, n) / 3 if trial % 2 else rng.normal(size=n)
+        weights = rng.uniform(0.05, 5.0, n)
+        fitted, means = _fitted(values, weights)
+        expected = optimize.isotonic_regression(values, weights=weights).x
+        np.testing.assert_allclose(fitted, expected, rtol=0, atol=1e-12)
+        assert np.all(np.diff(fitted) >= 0)
+
+
+def test_isotonic_calibration_pools_violators_and_tied_probabilities():
+    # Ties at 0.1 hold one positive in two; the 0.5 miss violates order and pools with them.
+    rows = metrics.isotonic_calibration([0.9, 0.1, 0.5, 0.1], [1, 0, 0, 1])
+    assert rows == [
+        {
+            "lower": 0.1,
+            "upper": 0.5,
+            "count": 3,
+            "n_pos": 1,
+            "mean_probability": pytest.approx(0.7 / 3),
+            "calibrated_probability": pytest.approx(1 / 3),
+        },
+        {
+            "lower": 0.9,
+            "upper": 0.9,
+            "count": 1,
+            "n_pos": 1,
+            "mean_probability": 0.9,
+            "calibrated_probability": 1.0,
+        },
+    ]
+    with pytest.raises(ValueError):
+        metrics.isotonic_calibration([], [])
+    # Pooling is exact on counts: the fit's two halves both hold half positives (6/12 and
+    # 15/30), which float means (0.5 and 0.5000000000000001) would leave as two blocks.
+    p = np.repeat([0.1, 0.2, 0.3, 0.4, 0.5, 0.6], [6, 6, 7, 7, 11, 5])
+    y = np.concatenate(
+        [np.arange(count) < hits for count, hits in zip([6, 6, 7, 7, 11, 5], [3, 3, 5, 3, 6, 1])]
+    )
+    [row] = metrics.isotonic_calibration(p, y)
+    assert (row["count"], row["n_pos"], row["calibrated_probability"]) == (42, 21, 0.5)
+
+
+def test_isotonic_calibration_is_the_scipy_fit_over_distinct_probabilities():
+    optimize = pytest.importorskip("scipy.optimize")
+    rng = np.random.default_rng(12)
+    for _ in range(100):
+        p = np.round(rng.uniform(size=int(rng.integers(2, 120))), 1)
+        y = (rng.uniform(size=p.size) < p).astype(float)
+        values, inverse, counts = np.unique(p, return_inverse=True, return_counts=True)
+        rates = np.bincount(inverse, weights=y) / counts
+        expected = optimize.isotonic_regression(rates, weights=counts).x
+        rows = metrics.isotonic_calibration(p, y)
+        calibrated = np.empty(values.size)
+        for row in rows:
+            calibrated[(values >= row["lower"]) & (values <= row["upper"])] = row[
+                "calibrated_probability"
+            ]
+        np.testing.assert_allclose(calibrated, expected, rtol=0, atol=1e-12)
+        assert sum(row["count"] for row in rows) == p.size
+        assert sum(row["n_pos"] for row in rows) == y.sum()
+        assert all(a["upper"] < b["lower"] for a, b in zip(rows, rows[1:], strict=False))
+        assert np.all(np.diff([row["calibrated_probability"] for row in rows]) > 0)
+
+
+def test_brier_decomposition_is_exact_and_its_components_are_nonnegative():
+    rng = np.random.default_rng(13)
+    for _ in range(100):
+        p = rng.uniform(size=int(rng.integers(2, 200)))
+        y = (rng.uniform(size=p.size) < rng.uniform() * p + 0.3 * rng.uniform()).astype(float)
+        split = metrics.brier_decomposition(p, y)
+        assert split["mcb"] - split["dsc"] + split["unc"] == pytest.approx(
+            metrics.brier(p, y), rel=0, abs=1e-12
+        )
+        assert split["unc"] == pytest.approx(y.mean() * (1 - y.mean()), rel=0, abs=1e-15)
+        assert min(split["mcb"], split["dsc"]) >= -1e-12
+    # One class: nothing to discriminate, so the whole Brier score is miscalibration.
+    assert metrics.brier_decomposition([0.2, 0.3], [0, 0]) == {
+        "mcb": pytest.approx(0.065),
+        "dsc": 0.0,
+        "unc": 0.0,
+    }
+
+
+def test_miscalibration_vanishes_for_calibrated_probabilities_only():
+    rng = np.random.default_rng(14)
+    p = rng.uniform(size=20_000)
+    y = (rng.uniform(size=p.size) < p).astype(float)
+    # The isotonic fit itself is calibrated exactly against y.
+    rows = metrics.isotonic_calibration(p, y)
+    recalibrated = np.empty(p.size)
+    for row in rows:
+        recalibrated[(p >= row["lower"]) & (p <= row["upper"])] = row["calibrated_probability"]
+    assert metrics.brier_decomposition(recalibrated, y)["mcb"] == pytest.approx(0.0, abs=1e-12)
+    # True probabilities are calibrated up to sampling noise; overconfident ones are not.
+    calibrated = metrics.brier_decomposition(p, y)["mcb"]
+    logit = np.log(p) - np.log1p(-p)
+    overconfident = metrics.brier_decomposition(1 / (1 + np.exp(-3 * logit)), y)["mcb"]
+    assert calibrated < 0.002
+    assert overconfident > max(0.015, 10 * calibrated)
+
+
+def test_one_class_notice_names_the_missing_class():
+    assert metrics.one_class_notice(4, 2) is None
+    assert metrics.one_class_notice(4, 0) == "no positive edges — calibration not evidenced"
+    assert metrics.one_class_notice(4, 4) == "no negative edges — calibration not evidenced"
+
+
 def test_correlations_are_undefined_for_constant_or_short_series():
     assert metrics.finite_correlation([1, 2, 3], [3, 2, 1]) == (pytest.approx(-1.0), None)
     assert metrics.finite_correlation([1, 1, 1], [1, 2, 3]) == (None, "constant_series")

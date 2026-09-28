@@ -172,6 +172,18 @@ def test_check_replays_the_recorded_worlds_with_fresh_seeds(setup):
     ]
 
 
+def test_recordings_made_before_the_corp_keys_still_pass(setup):
+    pytest.importorskip("scipy")
+    model, corpora, worlds, _, means = setup
+    corp = {"mcb", "dsc", "unc"}
+    # The A/B recordings predate the CORP keys; the evaluator's new keys are not compared.
+    legacy = {key: value for key, value in means.items() if key.rsplit("/", 1)[-1] not in corp}
+    model.provenance = {"training_evaluation": recorded(worlds, legacy)}
+    result = check_recorded_evaluation(model, corpora)
+    assert result["passed"] is True
+    assert not {key.rsplit("/", 1)[-1] for key in result["keys"]} & corp
+
+
 def test_slot_pooled_values_are_compared_with_slot_pooled_replicates(setup):
     pytest.importorskip("scipy")
     model, corpora, worlds, records, means = setup
@@ -555,6 +567,8 @@ def test_a_check_that_compares_no_key_fails(setup):
         ("structure_head/cy/auprc", "exact"),
         ("counts/active_channels", "exact"),
         ("joint_router/edge/zb/prevalence", "exact"),
+        ("joint_router/edge/zb/unc", "exact"),
+        ("joint_router/edge/zb/mcb", "informational"),
         ("joint/context/contribution_truth_lag1", "exact"),
         ("joint_router/edge/cy/log_score", "informational"),
         ("joint_router/edge/cy/null_fpr", "stochastic"),

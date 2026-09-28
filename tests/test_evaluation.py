@@ -250,6 +250,9 @@ def test_record_has_the_four_heads_with_fixed_keys(record, holdout):
             for row in tables["thresholds"]:
                 assert row["tp"] + row["fn"] == n_pos
                 assert row["tp"] + row["fp"] + row["tn"] + row["fn"] == n
+            corp = tables["corp"]
+            assert sum(row["count"] for row in corp) == (n if 0 < n_pos < n else 0)
+            assert sum(row["n_pos"] for row in corp) == (n_pos if corp else 0)
 
 
 def test_joint_and_conditional_are_distinct_and_populated(record):
@@ -470,17 +473,50 @@ def test_nonfinite_auxiliary_probabilities_keep_truth_counts_but_no_scores(
         model, [corpus], holdout[:1], n_samples=2, seed=1, device="cpu", leg="holdout"
     )
     edge = record["heads"]["structure_head"]["cy"]
-    for metric in ("log_score", "brier", "auroc", "auprc", "ece", "null_fpr"):
+    for metric in ("log_score", "brier", "auroc", "auprc", "ece", "mcb", "dsc", "null_fpr"):
         assert edge[metric] is None
         assert record["undefined"][f"structure_head/cy/{metric}"] == "nonfinite_in_1_slots"
-    assert record["tables"]["structure_head"]["cy"] == {"reliability": [], "thresholds": []}
+    assert record["tables"]["structure_head"]["cy"] == {
+        "reliability": [],
+        "corp": [],
+        "thresholds": [],
+    }
     batch = corpus_batch(corpus, [holdout[0][1]])
     active = batch["active_c_mask"].bool()
     truth = batch["g_cy"][active]
     assert edge["n"] == truth.numel()
     assert edge["n_pos"] == int(truth.sum())
     assert edge["prevalence"] == pytest.approx(float(truth.mean()))
+    # unc = prevalence (1 - prevalence) summarizes truth alone (one of two cy edges is live).
+    assert edge["unc"] == pytest.approx(edge["prevalence"] * (1 - edge["prevalence"])) == 0.25
+    assert "structure_head/cy/unc" not in record["undefined"]
     json.dumps(record, allow_nan=False)
+
+
+def test_one_class_edge_families_evidence_no_corp_calibration():
+    pool = evaluation._EdgePool()
+    everything = np.ones(6, dtype=bool)
+    cy = np.array([0.1, 0.4, 0.35, 0.8, 0.9, 0.2]), np.array([0.0, 0.0, 1.0, 1.0, 1.0, 0.0])
+    dz = np.array([0.05, 0.1, 0.2, 0.0, 0.3, 0.1]), np.zeros(6)
+    zb = np.array([0.6, 0.9, 0.2, 1.0, 0.7, 0.8]), np.ones(6)
+    for et, (p, y) in (("cy", cy), ("dz", dz), ("zb", zb)):
+        pool.add(et, p, y, everything)
+    undefined = {}
+    records, tables = pool.finalize("joint_router/edge", undefined)
+    split = records["cy"]
+    assert split["mcb"] - split["dsc"] + split["unc"] == pytest.approx(split["brier"])
+    assert split["unc"] == 0.25 and "joint_router/edge/cy/mcb" not in undefined
+    assert tables["cy"]["corp"] == metrics.isotonic_calibration(*cy)
+    for et, (p, y) in (("dz", dz), ("zb", zb)):
+        for key in ("mcb", "dsc", "unc"):
+            assert records[et][key] is None
+            assert undefined[f"joint_router/edge/{et}/{key}"] == "one_class"
+        # ece keeps its recorded definition, so recorded one-class values stay comparable.
+        assert records[et]["ece"] == metrics.ece(p, y)
+        assert f"joint_router/edge/{et}/ece" not in undefined
+        assert tables[et]["corp"] == [] and tables[et]["reliability"]
+    for key in ("mcb", "dsc", "unc"):
+        assert undefined[f"joint_router/edge/db/{key}"] == "no_active_slots"
 
 
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf")], ids=["nan", "inf"])
