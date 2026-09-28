@@ -26,6 +26,9 @@ PANEL_NAMES = (
     "window_totals",
     "cumulative",
     "temporal",
+    "residual_true_size",
+    "residual_predicted_size",
+    "strata",
     "structure_heatmap",
     "dag_recovery",
     "dag_posterior",
@@ -56,6 +59,8 @@ ATTRIBUTION_EFFECTS = (("media", "channel", "cy"), ("control", "control", "zb"))
 TEMPORAL_FAMILIES = ("baseline", "channel", "control", "latent_total", "indirect")
 #: Per-family ``graph_support`` metrics that count edges; the others are masses or rates.
 _SUPPORT_COUNTS = ("mean_count", "modal_count", "true_count", "count_mae")
+#: Panels drawn from the per-effect stratified rows (:mod:`.strata`).
+STRATA_PANELS = ("residual_true_size", "residual_predicted_size", "strata")
 
 
 def json_safe(value):
@@ -514,6 +519,25 @@ def _temporal(names, families, active, samples, truth, latent, latent_truth, met
     return {"families": records}, None
 
 
+def _strata(result, truth, graph_truth, families, active, scale):
+    """Window-total rows of the active channels and controls and their strata.
+
+    ``{"table": strata_summary(rows), "rows": rows}`` in ``sales_scale`` units,
+    with this world's own size cuts, or ``(None, reason)`` without truth,
+    ``sales_scale`` or an active channel or control.
+    """
+    from .strata import EFFECT_FAMILIES, result_effect_rows, strata_summary
+
+    if truth is None:
+        return None, "simulation truth not supplied"
+    if scale is None:
+        return None, "sales_scale provenance absent"
+    if not (np.isin(families, EFFECT_FAMILIES) & active).any():
+        return None, "no active channel or control components"
+    rows = result_effect_rows(result, truth, graph_truth)
+    return {"table": strata_summary(rows), "rows": rows}, None
+
+
 def _reliability(probabilities, truth, families, label):
     """Binned and CORP reliability of active-edge frequencies against graph truth.
 
@@ -571,7 +595,10 @@ def compute_diagnostics(
     (``cumulative/*``), R² and edge reliability are scored by the evaluator's
     rules in :mod:`pymc_mfm.training.metrics`; ``share/*`` errors are
     report-only. Live and dead come from graph truth on each effect's direct
-    ``cy``/``zb`` edge.
+    ``cy``/``zb`` edge. ``arrays["strata"]`` holds each active channel and
+    control effect's window-total row and their
+    :func:`~pymc_mfm.diagnostics.strata_summary` with this world's cuts
+    (:mod:`.strata`), for the residual and strata panels; not metrics.
 
     Whole-graph statistics ``graph/<key>`` for every key of the evaluator's
     ``joint_router/graph`` score the active slots the evaluator's way; the
@@ -1020,6 +1047,10 @@ def compute_diagnostics(
     if reason is not None:
         unavailable("window_totals", reason)
         unavailable("cumulative", reason)
+    arrays["strata"], reason = _strata(result, truth, graph_truth, labels, active, scale)
+    if reason is not None:
+        for name in STRATA_PANELS:
+            unavailable(name, reason)
     arrays["temporal"], reason = _temporal(
         result.component_names, labels, active, samples, truth, latent, latent_truth, metrics
     )
@@ -1198,6 +1229,7 @@ def compute_diagnostics(
             "graph_statistics",
             "cycles",
             "reliability",
+            "strata",
             "set_posterior",
         ):
             if panels[name]["status"] != "unavailable":

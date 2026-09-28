@@ -381,8 +381,9 @@ def _train_run(
     (the first update's executed objective), ``metrics.jsonl`` (one record per
     ``log_every`` updates and at update 1), ``evaluations.jsonl`` (one record
     per evaluation event), ``evaluation_tables/step_<9d>.json`` (each event's
-    reliability, CORP and threshold tables, written before its
-    ``evaluations.jsonl`` line), ``checkpoint_last.pt``/``checkpoint_best.pt``/
+    reliability, CORP and threshold tables and its per-effect ``strata``
+    tables, written before its ``evaluations.jsonl`` line; the strata tables
+    are only there), ``checkpoint_last.pt``/``checkpoint_best.pt``/
     ``checkpoint_step_<N>.pt`` and, on completion, ``model`` in the
     :func:`pymc_mfm.inference.checkpoint.save_pretrained` directory format
     holding the terminal weights.
@@ -717,6 +718,9 @@ def _train_run(
             for leg, record in legs.items()
             for key, reason in record["undefined"].items()
         }
+        # Stratified tables are per-world-table artifacts: they are written with
+        # the evaluation tables, not into evaluations.jsonl, checkpoints or events.
+        strata = {leg: values.pop("strata") for leg, values in legs.items()}
         for leg, values in legs.items():
             values["rows"] = holdout_rows if leg == "holdout" else list(first_seen)[:seen_count]
         selection = _select_checkpoint(
@@ -732,11 +736,16 @@ def _train_run(
             "selection": selection,
         }
         # The tables file lands before its evaluations.jsonl line, so every
-        # recorded evaluation has its reliability, CORP and threshold tables.
+        # recorded evaluation has its reliability, CORP, threshold and strata tables.
         tables_dir.mkdir(exist_ok=True)
         _write_json(
             tables_dir / f"step_{step:09d}.json",
-            {"step": step, "legs": {leg: values["tables"] for leg, values in legs.items()}},
+            {
+                "step": step,
+                "legs": {
+                    leg: {**values["tables"], "strata": strata[leg]} for leg, values in legs.items()
+                },
+            },
         )
         with evaluations_path.open("a") as handle:
             handle.write(json.dumps(record, allow_nan=False) + "\n")

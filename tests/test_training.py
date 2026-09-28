@@ -344,6 +344,7 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
     monitor = selection_metrics("conditional").monitor
     assert run["selection_policy"]["head"] == "conditional"
     assert run["selection_policy"]["monitor"] == monitor
+    cuts = []
     for event in events:
         assert set(event["legs"]) == {"holdout", "seen"}
         for leg in event["legs"].values():
@@ -352,10 +353,21 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
         assert event["selection"]["monitor"] == monitor
         assert set(event["selection"]["gates"]) == set(run["selection_policy"]["gates"])
         tables = tmp_path / "run" / "evaluation_tables" / f"step_{event['step']:09d}.json"
-        assert json.loads(tables.read_text()) == {
-            "step": event["step"],
-            "legs": {leg: values["tables"] for leg, values in event["legs"].items()},
-        }
+        written = json.loads(tables.read_text())
+        assert written["step"] == event["step"]
+        assert set(written["legs"]) == set(event["legs"])
+        for leg, values in event["legs"].items():
+            # The per-effect strata tables are written only beside the edge tables.
+            strata = written["legs"][leg].pop("strata")
+            assert "strata" not in values
+            assert written["legs"][leg] == values["tables"]
+            assert {head: set(windows) for head, windows in strata.items()} == {
+                head: {"query", "context"} for head in ("joint", "conditional")
+            }
+            if leg == "holdout":
+                cuts.append(strata["conditional"]["query"]["cuts"])
+    # The fixed held-out worlds keep their size bins however the weights changed.
+    assert cuts[0] == cuts[1] and cuts[0]
     assert events[0]["selection"]["promoted"] is True
 
     files = {entry["file"]: entry for entry in run["checkpoints"]}

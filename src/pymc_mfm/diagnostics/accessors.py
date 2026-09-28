@@ -204,6 +204,28 @@ class DiagnosticsPlots(_SummaryPlots):
         """Lag-1 and residual autocorrelation per trajectory family (needs truth)."""
         return self._draw("temporal")
 
+    def residuals(self, axis="true", *, ax=None) -> Figure:
+        """Signed window-total residual per size bin: ``"true"`` or ``"predicted"`` size.
+
+        Each channel and control effect's posterior mean minus truth in
+        ``sales_scale`` units, binned by its true or posterior-mean size with
+        this world's cuts (needs truth and the result's ``sales_scale``).
+        """
+        if axis not in panels.RESIDUAL_AXES:
+            raise ValueError(f"residual axis must be one of {panels.RESIDUAL_AXES}, got {axis!r}")
+        return self._draw(
+            f"residual_{axis}_size", panels.plot_residual_by_magnitude, axis=axis, ax=ax
+        )
+
+    def strata(self, metric="coverage", by="true_size_bin", *, ax=None) -> Figure:
+        """One stratified cell value of this world's effects, per stratum of ``by``.
+
+        ``metric`` is ``"coverage"``, ``"crps"``, ``"signed_residual"`` or
+        ``"abs_residual"``; ``by`` is one of
+        :data:`pymc_mfm.diagnostics.STRATA_AXES`.
+        """
+        return self._draw("strata", panels.plot_strata, metric=metric, by=by, ax=ax)
+
     def reliability(self, kind="corp", *, ax=None) -> Figure:
         """Router edge frequencies against graph truth: ``"corp"`` isotonic fit or ``"binned"``.
 
@@ -342,7 +364,8 @@ def _read_records(path, partial):
 class TrainingRun:
     """Recorded history of one :func:`pymc_mfm.training.train` run directory.
 
-    Reads ``run.json``, ``metrics.jsonl`` and ``evaluations.jsonl`` only and
+    Reads ``run.json``, ``metrics.jsonl`` and ``evaluations.jsonl`` only
+    (``plot.strata`` reads one ``evaluation_tables`` file when called) and
     never loads a model, so it also follows a run that is still writing.
     ``training`` and ``evaluation`` are :func:`record_series` summaries; a
     missing records file gives empty series. ``partial_lines`` lists the
@@ -551,6 +574,55 @@ class TrainingPlots:
         }
         shown = recorded or names
         return self._evaluation(list(shown.values()), metric, window, tuple(shown), (leg,), ax)
+
+    def strata(
+        self,
+        metric="coverage",
+        by="true_size_bin",
+        *,
+        head="conditional",
+        window="query",
+        leg="holdout",
+        step=None,
+        ax=None,
+    ) -> Figure:
+        """One stratified cell value per stratum, from a recorded evaluation's strata table.
+
+        Reads ``evaluation_tables/step_<N:09d>.json`` of ``step`` (the last
+        recorded evaluation by default) and draws its ``leg`` leg's
+        ``strata[head][window]`` table; ``metric`` and ``by`` are those of
+        :meth:`DiagnosticsPlots.strata`, for example ``strata("coverage",
+        by="active_channels")`` or ``strata("signed_residual",
+        by="true_size_bin")``. A step without that table raises ``ValueError``.
+        """
+        evaluation_path = self._run.run_dir / _RECORD_FILES["evaluation"]
+        steps = self._run.evaluation["steps"] or []
+        if not steps:
+            raise ValueError(f"no evaluation records in {evaluation_path}")
+        step = steps[-1] if step is None else step
+        if step not in steps:
+            raise ValueError(f"{evaluation_path} records no evaluation at step {step}")
+        path = self._run.run_dir / "evaluation_tables" / f"step_{int(step):09d}.json"
+        if not path.is_file():
+            raise ValueError(f"{path} not found; this run recorded no tables at step {step}")
+        tables = _read_json(path, "evaluation tables")
+        try:
+            table = tables["legs"][leg]["strata"][head][window]
+        except (KeyError, TypeError):
+            raise ValueError(
+                f"{path} records no {head} {window} strata for the {leg} leg"
+            ) from None
+        record = self._run.evaluation["records"][steps.index(step)]
+        label = ((record.get("legs") or {}).get(leg, {}).get("labels") or {}).get(
+            head, "sampling mode unrecorded"
+        )
+        detail = (
+            f"{leg} leg · step {step} · {window} window · "
+            f"{record.get('n_samples', 'unrecorded')} draws per world\n{head}: {label}"
+        )
+        return panels.plot_strata_table(
+            table, metric=metric, by=by, header=self._header(detail), ax=ax
+        )
 
     def corpus(self, *, ax=None) -> Figure:
         """Training-corpus composition, as ``run.json`` recorded it when training started.

@@ -386,7 +386,7 @@ or interrupted batches.
 | `objective_trace.json` | the first update's executed objective trace (all terms, weights, structure-family normalization) |
 | `metrics.jsonl` | one record at update 1 and every `log_every` updates: `loss`, `flow_loss`, `context_flow_loss`, `graph_conditional_flow_loss`, `graph_conditional_context_flow_loss`, `task_loss`, `struct_loss`, `lr`, pre-clip `grad_norm`, `grad_clipped`, epoch, consumed rows, batch context length, timings and throughput |
 | `evaluations.jsonl` | one record per evaluation event with the `holdout` and `seen` legs, a flat `{leg}/{head}/{window}/{metric}` view and the selection decision |
-| `evaluation_tables/step_<N:09d>.json` (e.g. `step_000006250.json`) | per-edge-family reliability tables (the non-empty rows of 10 equal-width probability bins), CORP tables (the blocks of the isotonic fit of edge truth on probability; empty for a family with one truth class) and threshold tables (0.1, 0.25, 0.5, 0.75, 0.9) for the structure head and the joint router, written before the matching `evaluations.jsonl` line |
+| `evaluation_tables/step_<N:09d>.json` (e.g. `step_000006250.json`) | per-edge-family reliability tables (the non-empty rows of 10 equal-width probability bins), CORP tables (the blocks of the isotonic fit of edge truth on probability; empty for a family with one truth class) and threshold tables (0.1, 0.25, 0.5, 0.75, 0.9) for the structure head and the joint router, and the per-effect `strata` tables of each decomposition head and window (only here: not in `evaluations.jsonl`, checkpoints or MLflow), written before the matching `evaluations.jsonl` line |
 | `corpus_support.json` | context-outcome mean and standard deviation of each world (`"<corpus>:<row>"`, both splits), at most 5,000 evenly spaced worlds, with the total in `n_worlds` and kept worlds with an empty or non-finite context, or with overflowing statistics, in `skipped`; written at the start and never logged to MLflow |
 | `checkpoint_last.pt`, `checkpoint_best.pt`, `checkpoint_step_<N>.pt` | atomic training checkpoints (`load_checkpoint`): `config`, `state_dict`, training configuration, run identity and provenance, consumption, the accompanying evaluation record and selection |
 | `model/` | complete terminal safetensors/JSON model export; training checkpoint and exported tensor hashes remain distinct |
@@ -531,6 +531,49 @@ The check requires a current-representation bundle and its matching corpus and
 training prior. Previous dimensional A/B weights are rejected before evaluation,
 not compared under the new preprocessing.
 
+#### Stratified readouts
+
+Aggregates hide where coverage fails, so each leg also records
+`strata[head][window]` for every selected decomposition head: the
+`pymc_mfm.diagnostics.strata_summary` of one row per active channel and
+control effect of each world (`effect_rows`). A row holds the effect's
+window-total truth, posterior mean, central 80% interval and CRPS in
+`sales_scale` units, the frequency of its direct `cy`/`zb` edge in that
+head/window's own draws, its graph-truth live label, and the world's active and
+truly live channel counts. The rows are grouped per family (`channel`,
+`control`) on five axes:
+
+| Axis | Strata |
+| --- | --- |
+| `true_size_bin`, `predicted_size_bin` | `zero` (exactly zero), then `q1`–`q4`: right-closed bins of the absolute true or posterior-mean window total at the recorded `cuts` |
+| `edge_probability_bin` | `[0, 0.1)`, `[0.1, 0.25)`, `[0.25, 0.5)`, `[0.5, 0.75)`, `[0.75, 0.9)`, `[0.9, 1]` |
+| `active_channels`, `live_channels` | every count from the smallest to the largest observed |
+
+The `cuts` are the quartiles of the evaluated worlds' nonzero absolute true
+totals. They depend on the worlds only, so both heads, replays and other models
+on the same worlds bin identically, and the same cuts bin the true and the
+predicted size. Each cell reports `n_worlds`, `n_effects`, `n_scored`, `n_live`,
+`coverage`, `crps`, the signed residual `mean - truth` (its mean and its 10%,
+50% and 90% quantiles; never divided by the truth) and the absolute residual.
+`misclassification` joins each threshold's edge call with the same cell values:
+an effect is called live when `p >= t`, the `threshold_table` rule, and is then
+a `tp`, `fp`, `tn` or `fn`. For the joint head's query window these counts equal
+the recorded `joint_router` `cy` and `zb` threshold tables, since both use the same
+router draws, when every router draw is finite (a non-finite draw empties the
+router table and moves that effect under `excluded`). A stratum without effects
+is `unavailable` with reason `no_worlds_in_stratum` or `no_effects_in_stratum`
+and `null` values, never zero. Rows that an axis cannot place (non-finite
+totals, no graph truth) are counted under that axis's `excluded`, and
+`n_worlds` is `null` for rows without a world id. The strata are descriptive: no selection gate
+reads them. On `SHARD_PLANS["evaluation"]`, `by="active_channels"` holds one
+stratum per shard, 6 to 15 channels with 128 worlds each.
+
+`evaluate_rows(..., per_world=True)` adds each world's rows under
+`per_world[i]["effects"][head][window]`, and `strata_summary(rows, cuts=...)`
+bins other rows with stored cuts. Training writes the strata tables, like other
+per-world tables, only to `evaluation_tables/step_<N:09d>.json`: they are not in
+`evaluations.jsonl`, checkpoints or MLflow. `run.plot.strata(...)` draws them.
+
 ### Record consumers
 
 `pymc_mfm.training.TrainingObserver` receives lifecycle, configuration, step,
@@ -662,7 +705,12 @@ whole-graph statistics as `graph/<key>` (entropy, distinct graphs, co-moments
 and cc/zz cycle rates also without graph truth), support/padding and
 zero atoms, training/optimization/evaluation trajectories, calibration screening,
 and within-/between-graph empirical uncertainty. Router and auxiliary-head
-readouts remain separately labeled.
+readouts remain separately labeled. With truth and the result's `sales_scale`,
+`arrays["strata"]` holds the world's per-effect rows and their
+`strata_summary` (cuts from this world's effects), drawn as the
+`residual_true_size`, `residual_predicted_size` and `strata` (coverage by true
+size) panels; outside `model_average` mode the `strata` panel is
+`hypothesis_conditional`.
 
 Missing truth, prior support, training histories, or usable references is an
 explicit unavailable/not-applicable status, not zero or a passing calibration
@@ -771,6 +819,9 @@ diag.plot.cumulative()  # running channel totals vs truth, cumulative energy sco
 diag.plot.temporal()  # lag-1 and residual autocorrelation per family
 diag.plot.reliability()  # CORP isotonic fit of graph truth on router edge frequency
 diag.plot.reliability("binned")  # the 10 equal-width bins and pooled ECE
+diag.plot.residuals()  # signed window-total residual per true size bin, every effect shown
+diag.plot.residuals("predicted")  # the same cuts on the posterior-mean size
+diag.plot.strata("crps", by="edge_probability_bin")  # any strata cell value on any axis
 diag.report("reports/world_0")  # same files as build_report, no rescoring
 
 from pymc_mfm.diagnostics import Comparison, TrainingRun
@@ -784,6 +835,8 @@ run.plot.heads("decomposition_energy_score")  # joint vs conditional, held-out
 run.plot.heads("auroc", window="cy")  # structure head vs joint router edges
 run.plot.corpus()  # run.json corpus summary
 run.plot.corpus_support()  # corpus_support.json world cloud: context mean vs std
+run.plot.strata("coverage", by="active_channels")  # recorded strata table, last evaluation
+run.plot.strata("signed_residual", by="true_size_bin", head="joint", window="context")
 run.derived_metrics()  # held-out minus seen gaps, mean AUROC/ECE
 
 comparison = Comparison({"A": result_a, "B": result_b}, truth=truth, live=live)

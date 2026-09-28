@@ -281,6 +281,7 @@ AXES_RENDERERS = {
     "plot_uncertainty": "graph_uncertainty",
     "plot_cycles": "cycles",
     "plot_reliability": "reliability",
+    "plot_strata": "strata",
 }
 #: The catalog panel of each ``plot_calibration`` kind.
 CALIBRATION_PANELS = {
@@ -317,6 +318,9 @@ DIAGNOSTICS_PANELS = {
     ("cumulative",): "cumulative",
     ("temporal",): "temporal",
     ("reliability",): "reliability",
+    ("residuals", "true"): "residual_true_size",
+    ("residuals", "predicted"): "residual_predicted_size",
+    ("strata",): "strata",
     ("calibration", "pit"): "calibration_pit",
     ("calibration", "ecdf"): "calibration_ecdf",
     ("calibration", "coverage"): "coverage",
@@ -371,6 +375,11 @@ def test_each_accessor_method_draws_its_documented_panel(monkeypatch):
         panels,
         "plot_calibration",
         lambda summary, *, kind, **_: drawn.append(CALIBRATION_PANELS[kind]),
+    )
+    monkeypatch.setattr(
+        panels,
+        "plot_residual_by_magnitude",
+        lambda summary, *, axis, **_: drawn.append(f"residual_{axis}_size"),
     )
     for plots, source, table in (
         (result.plot, result.diagnostics(), RESULT_PANELS),

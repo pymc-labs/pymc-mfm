@@ -737,6 +737,21 @@ def _active_edge_masks(batch: dict[str, Tensor]) -> dict[str, np.ndarray]:
     return out
 
 
+def _effect_layout(
+    active_c: np.ndarray, active_m: np.ndarray, layout: EdgeSlotLayout
+) -> tuple[np.ndarray, np.ndarray, list[str], list[str]]:
+    """One world's active channel and control effects for the strata rows.
+
+    Their decomposition columns, direct ``cy``/``zb`` edge slots, names (as
+    :func:`pymc_mfm.inference.result.result_from_batch` labels them) and families.
+    """
+    channels, controls = np.flatnonzero(active_c), np.flatnonzero(active_m)
+    columns = np.r_[1 + channels, 1 + active_c.size + controls]
+    slots = np.r_[layout.slices["cy"].start + channels, layout.slices["zb"].start + controls]
+    names = [f"channel:channel_{i}" for i in channels] + [f"control:control_{i}" for i in controls]
+    return columns, slots, names, ["channel"] * channels.size + ["control"] * controls.size
+
+
 def evaluate_rows(
     model: MFM,
     corpora: Sequence[Mapping[str, Any]],
@@ -780,10 +795,18 @@ def evaluate_rows(
       "corp", "thresholds"}}}`` from :func:`metrics.reliability_table`,
       :func:`metrics.isotonic_calibration` and :func:`metrics.threshold_table`
       (empty without scoreable slots; ``corp`` also empty for one truth class);
+    * ``strata``: ``{head: {window: summary}}`` for the selected decomposition
+      heads, the :func:`pymc_mfm.diagnostics.strata_summary` of every active
+      channel and control effect's window total in ``sales_scale`` units: the
+      head/window's own draws, their direct ``cy``/``zb`` edge frequency and
+      its graph truth. Its size ``cuts`` are quartiles of the evaluated worlds'
+      nonzero absolute true totals, the same for both heads and any model on
+      these worlds;
     * ``per_world`` (only with ``per_world=True``), in evaluation order:
-      ``[{corpus_index, row, values, weights, undefined}]`` with every per-world
-      key's value (``None`` when undefined), its slot weight (``0`` when
-      undefined) and its reason.
+      ``[{corpus_index, row, values, weights, undefined, effects}]`` with every
+      per-world key's value (``None`` when undefined), its slot weight (``0``
+      when undefined), its reason, and ``effects[head][window]``, the world's
+      :func:`pymc_mfm.diagnostics.effect_rows` behind ``strata``.
 
     Metric keys are fixed (:data:`DECOMPOSITION_METRICS`, :data:`EDGE_METRICS`,
     :data:`GRAPH_METRICS`, :data:`COUNT_METRICS`); :func:`metric_aggregation`
@@ -816,6 +839,7 @@ def evaluate_rows(
     graph_acc = _MeanAccumulator("joint_router/graph", GRAPH_METRICS)
     count_acc = _MeanAccumulator("counts", _WORLD_COUNTS)
     worlds: list[dict[str, Any]] | None = [] if per_world else None
+    effects: dict[tuple[str, str], list[dict[str, Any]]] = {key: [] for key in decomposition}
     result_capture: dict[str, Any] = {"captured": 0, "failures": []}
 
     batches = batches_for_rows(corpora, rows, device=device)
@@ -836,6 +860,7 @@ def evaluate_rows(
                     graph_acc,
                     count_acc,
                     worlds=worlds,
+                    effects=effects,
                     result_sink=result_sink,
                     result_capture=result_capture,
                     leg=leg,
@@ -861,6 +886,12 @@ def evaluate_rows(
         "graph": graph_acc.finalize(undefined, metric_worlds),
     }
     counts = {**count_acc.finalize(undefined, metric_worlds), "worlds": len(rows)}
+    from pymc_mfm.diagnostics.strata import strata_summary
+
+    strata = {
+        head: {window: strata_summary(effects[(head, window)]) for window in WINDOWS}
+        for head in selected
+    }
     return {
         "leg": str(leg),
         "n_worlds": len(rows),
@@ -871,6 +902,7 @@ def evaluate_rows(
         "undefined": undefined,
         "metric_worlds": metric_worlds,
         "tables": {"structure_head": structure_tables, "joint_router": router_tables},
+        "strata": strata,
         "labels": {head: HEAD_LABELS[head] for head in record_heads},
         **({"per_world": worlds} if worlds is not None else {}),
         **({"result_capture": result_capture} if result_sink is not None else {}),
@@ -890,11 +922,14 @@ def _score_batch(
     count_acc: _MeanAccumulator,
     *,
     worlds: list[dict[str, Any]] | None = None,
+    effects: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
     result_sink: ResultSink | None = None,
     result_capture: dict[str, Any] | None = None,
     leg: str = "",
     seed: int = 0,
 ) -> None:
+    from pymc_mfm.diagnostics.strata import effect_rows
+
     active_c = _numpy(batch["active_c_mask"]).astype(bool)
     active_m = _numpy(batch["active_m_mask"]).astype(bool)
     active_j = _numpy(batch["active_j_mask"]).astype(bool)
@@ -966,6 +1001,9 @@ def _score_batch(
         corpus = corpora[corpus_index]
         outcome = np.asarray(corpus["outcome_raw"][row], dtype=np.float64)
         noise = np.asarray(corpus["outcome_noise"][row], dtype=np.float64)
+        world_id = f"corpus:{corpus_index}/row:{row}"
+        columns, slots, names, families = _effect_layout(active_c[b], active_m[b], layout)
+        live = true_flat[b, slots] != 0
         entry = (
             None
             if worlds is None
@@ -975,6 +1013,7 @@ def _score_batch(
                 "values": {},
                 "weights": {},
                 "undefined": {},
+                "effects": {},
             }
         )
         capture_provenance = None
@@ -1002,7 +1041,7 @@ def _score_batch(
                 "data_split": str(leg),
                 "corpus_index": int(corpus_index),
                 "row": int(row),
-                "world_id": f"corpus:{corpus_index}/row:{row}",
+                "world_id": world_id,
                 "data_sha256": observation_identity(batch, world=b),
                 "seed": int(seed),
                 "input_support": input_support,
@@ -1026,6 +1065,19 @@ def _score_batch(
                 ),
                 entry,
             )
+            world_rows = effect_rows(
+                world_id,
+                names,
+                families,
+                samples[:, b][..., columns],
+                truth[window][b][:, columns],
+                live=live,
+                edge_draws=draw_graphs[(head, window)][:, b][:, slots],
+            )
+            if effects is not None:
+                effects[(head, window)].extend(world_rows)
+            if entry is not None:
+                entry["effects"].setdefault(head, {})[window] = world_rows
             if result_sink is not None and head == "conditional":
                 from pymc_mfm.inference.result import result_from_batch
 
