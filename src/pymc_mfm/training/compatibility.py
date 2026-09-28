@@ -110,6 +110,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from pymc_mfm.inference._artifact_schema import validate_semantic_schema
 from pymc_mfm.model import FLOW_STEPS_SAMPLE
 from pymc_mfm.model.graph import SQUARE_EDGE_TYPES, EdgeSlotLayout
 from pymc_mfm.model.model import MFM
@@ -225,6 +226,9 @@ def _integer(value: Any, name: str, minimum: int) -> int:
 
 def _training_evaluation(model: MFM) -> Mapping[str, Any]:
     """The recorded evaluation of ``model``'s provenance, checked for this comparison."""
+    metadata = getattr(model, "artifact_metadata", {})
+    if metadata:
+        validate_semantic_schema(metadata.get("schemas"), model.config, label="loaded artifact")
     record = getattr(model, "provenance", {}).get("training_evaluation")
     if not isinstance(record, Mapping):
         raise ValueError("the model's provenance holds no recorded training_evaluation")

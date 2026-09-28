@@ -8,6 +8,7 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
+from pymc_mfm.inference._artifact_schema import semantic_schema
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM
@@ -607,3 +608,16 @@ def test_check_needs_a_recorded_evaluation_and_enough_replicates(setup):
     model.provenance = {"training_evaluation": recorded(worlds, means)}
     with pytest.raises(ValueError):
         check_recorded_evaluation(model, corpora, replicates=7)
+
+
+def test_old_representations_cannot_claim_recorded_evaluation_compatibility(model):
+    model.artifact_metadata = {"schemas": semantic_schema(model.config)}
+    model.artifact_metadata["schemas"]["version"] = 1
+    model.provenance = {
+        "training_evaluation": recorded(
+            [{"shard_seed": SHARDS[0], "row": 0}],
+            {"counts/worlds": 1.0},
+        )
+    }
+    with pytest.raises(ValueError, match="(?i)representation.*retrain"):
+        check_recorded_evaluation(model, {})

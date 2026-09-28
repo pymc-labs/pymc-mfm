@@ -41,6 +41,21 @@ def _numpy(value):
     return np.asarray(value)
 
 
+def _input_summary(values, units):
+    """Describe finite input columns without overflowing raw sums or squares."""
+    values = np.asarray(values, dtype=np.float64)
+    magnitude = np.max(np.abs(values), axis=0)
+    relative = values / np.where(magnitude > 0, magnitude, 1.0)
+    return {
+        "units": units,
+        "n": len(values),
+        "mean": (relative.mean(axis=0) * magnitude).tolist(),
+        "std": (relative.std(axis=0) * magnitude).tolist(),
+        "min": values.min(axis=0).tolist(),
+        "max": values.max(axis=0).tolist(),
+    }
+
+
 def _require_text(text, path):
     """Text that cannot encode as UTF-8 (a lone surrogate) breaks every figure and report."""
     try:

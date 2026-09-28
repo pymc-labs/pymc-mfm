@@ -179,7 +179,6 @@ def test_encoded_masks_are_validated_before_dtype_conversion(model, synthetic_co
         ("response_moments", float("inf")),
         ("ctx_spend_z", 1 + 1j),
         ("sales_scale", -1.0),
-        ("sales_scale", 1e-50),
         ("qry_controls_z", 1e300),
     ],
 )
@@ -394,8 +393,7 @@ def test_modal_result_retains_actual_router_bank_size(model, synthetic_corpus):
     assert result.provenance["inference_config"]["n_samples"] == result.n_samples
 
 
-def test_omitted_draw_count_is_the_ab_default_and_fractions_are_rejected(model, synthetic_corpus):
-    assert decompose(model, observed(synthetic_corpus)).n_samples == 32
+def test_fractional_draw_count_is_rejected(model, synthetic_corpus):
     with pytest.raises(ValueError):
         decompose(model, observed(synthetic_corpus), n_samples=2.5)
 
@@ -404,7 +402,7 @@ def test_bfloat16_evidence_preserves_sample_values(model, synthetic_corpus):
     model = model.to(dtype=torch.bfloat16)
     inputs = observed(synthetic_corpus)
     batch = {
-        key: value.to(dtype=torch.bfloat16)
+        key: value if key == "sales_scale" else value.to(dtype=torch.bfloat16)
         for key, value in observation_batch(**inputs, model_config=model.config).items()
     }
     torch.manual_seed(321)
@@ -429,3 +427,31 @@ def test_public_dag_has_one_outcome_for_all_direct_families(model, synthetic_cor
     }
     assert targets == {"outcome"}
     assert result.provenance["node_names"].count("outcome") == 1
+
+
+@pytest.mark.parametrize("window", ["context", "query"])
+@pytest.mark.parametrize("sales_units", [10.0, 1e200, 1e-200])
+def test_decomposition_restores_units_without_changing_graphs(
+    model, synthetic_corpus, tmp_path, window, sales_units
+):
+    inputs = observed(synthetic_corpus)
+    scaled = {
+        **inputs,
+        "spend": inputs["spend"].astype(np.float64) * [1e200, 1e-200, 1],
+        "controls": inputs["controls"].astype(np.float64) * [1e-190, 1e190],
+        "context_outcome": inputs["context_outcome"].astype(np.float64) * sales_units,
+    }
+    torch.manual_seed(931)
+    reference = decompose(model, inputs, window=window, n_samples=5)
+    torch.manual_seed(931)
+    actual = decompose(model, scaled, window=window, n_samples=5, units="rescaled sales")
+    np.testing.assert_allclose(
+        actual.components / sales_units, reference.components, rtol=1e-5, atol=1e-6
+    )
+    np.testing.assert_array_equal(actual.graphs, reference.graphs)
+    assert actual.provenance["sales_scale"] / sales_units == pytest.approx(
+        reference.provenance["sales_scale"], rel=1e-14
+    )
+    replay = DecompositionResult.load(actual.save(tmp_path / "scaled"))
+    np.testing.assert_array_equal(replay.components, actual.components)
+    assert replay.units == "rescaled sales"

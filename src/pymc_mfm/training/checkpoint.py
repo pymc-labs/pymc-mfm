@@ -17,10 +17,11 @@ from typing import Any
 
 import torch
 
+from pymc_mfm.inference._artifact_schema import semantic_schema, validate_semantic_schema
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
 
-CHECKPOINT_FORMAT_VERSION = 1
+CHECKPOINT_FORMAT_VERSION = 2
 CHECKPOINT_KINDS = ("last", "best", "milestone")
 
 _PAYLOAD_KEYS = frozenset(
@@ -29,6 +30,7 @@ _PAYLOAD_KEYS = frozenset(
         "kind",
         "step",
         "config",
+        "schemas",
         "state_dict",
         "training_config",
         "run",
@@ -85,11 +87,15 @@ def save_checkpoint(
         raise ValueError(f"kind must be one of {CHECKPOINT_KINDS}, got {kind!r}")
     if type(step) is not int or step < 1:
         raise ValueError("step must be a positive integer")
+    previous = getattr(model, "artifact_metadata", {})
+    if previous:
+        validate_semantic_schema(previous.get("schemas"), model.config, label="loaded artifact")
     payload = {
         "format_version": CHECKPOINT_FORMAT_VERSION,
         "kind": kind,
         "step": step,
         "config": model.config.to_dict(),
+        "schemas": semantic_schema(model.config),
         "state_dict": model.state_dict(),
         "training_config": dict(training_config),
         "run": dict(run),
@@ -106,16 +112,26 @@ def load_checkpoint(path: str | Path, *, device: str | torch.device = "cpu") -> 
 
     Returns the model and the complete non-tensor payload (with ``state_dict``
     removed). Only tensors and primitives are deserialized; configuration
-    fields are never defaulted.
+    fields are never defaulted. Checkpoints from dimensional preprocessing must
+    be retrained, not converted by preserving their equal-shaped weights.
     """
     payload = torch.load(path, map_location="cpu", weights_only=True)
-    if not isinstance(payload, dict) or payload.keys() != _PAYLOAD_KEYS:
-        raise ValueError(f"training checkpoint must contain exactly {sorted(_PAYLOAD_KEYS)}")
-    if payload["format_version"] != CHECKPOINT_FORMAT_VERSION:
+    if (
+        not isinstance(payload, dict)
+        or type(payload.get("format_version")) is not int
+        or payload["format_version"] != CHECKPOINT_FORMAT_VERSION
+        or "schemas" not in payload
+    ):
         raise ValueError(
-            f"unsupported training checkpoint format_version: {payload['format_version']!r}"
+            "training checkpoint has an incompatible input representation or format; "
+            "retrain with the current context-only unit-invariant preprocessing. "
+            "Old dimensional checkpoints, including A/B weights, cannot be converted."
         )
+    if payload.keys() != _PAYLOAD_KEYS:
+        raise ValueError(f"training checkpoint must contain exactly {sorted(_PAYLOAD_KEYS)}")
+    validate_semantic_schema(payload["schemas"], label="training checkpoint schemas")
     config = ModelConfig.from_dict(payload["config"])
+    validate_semantic_schema(payload["schemas"], config, label="training checkpoint schemas")
     with torch.device("meta"):
         model = MFM(config)
     model.load_state_dict(payload.pop("state_dict"), strict=True, assign=True)

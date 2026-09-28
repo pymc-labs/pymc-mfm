@@ -120,12 +120,12 @@ inputs, including padded slots, must be finite; NaN/Inf are not padding sentinel
 | `active_c_mask`, `active_m_mask`, `active_j_mask` | Binary `[B,K]`, `[B,M]`, `[B,J]` padding masks |
 | `targets_z`, `context_targets_z` (training only) | `[B,Tquery,D]`, `[B,Tcontext,D]` |
 | `g_cy`, `g_dc`, `g_dz`, `g_db`, `g_zb`, `g_zc`, `g_cc`, `g_zz` (training only) | Unpacked binary edge-family arrays |
-| `sales_scale` (corpus adapter metadata) | `[B]`, for restoring natural target units |
+| `sales_scale` (adapter metadata, not a neural input) | `[B]`, float64 on CPU, for restoring natural target units |
 
 Here `D = 1 + K + M + 4`: intrinsic baseline, K media contributions, M control
 contributions, total confounder contribution, then indirect `cc`, `zc`, `dc`.
 Every decomposition coordinate is natural value divided by
-`max(p95(abs(context sales)), 1e-6)`; intrinsic baseline excludes observation
+`p95(abs(context sales))`, without a raw-unit floor; intrinsic baseline excludes observation
 noise. Week coordinates are zero-based `t / T` over the complete series.
 The corpus and observation-only adapters share this exact numerical representation.
 `observation_batch` requires no generating graph, simulation truth or dummy targets.
@@ -222,7 +222,7 @@ generator's `dy`/`zy` graph slots retain their positions as the model's internal
 intrinsic intercept. Decomposition targets exclude `outcome_noise`; their
 ordered `cc, zc, dc` indirect split is the generator's attribution convention,
 not an identified causal decomposition. Draws return to natural units with
-`draws * batch["sales_scale"][None, :, None, None]`.
+`draws.detach().cpu().double() * batch["sales_scale"][None, :, None, None]`.
 
 All normalization statistics and moment features use observed context only.
 The model's log representation requires positive observed outcomes, nonnegative
@@ -231,6 +231,43 @@ covariate. Unsupported worlds are rejected, not clipped into that domain.
 Other decomposition terms can be signed. The canonical covariate zscore
 clipping at `[-10, 10]` is retained. Do not substitute generator-normalized
 arrays or `outcome_scale` for the model's context-based representation.
+
+#### Context-fitted unit scaling
+
+Training and observed inference use the same per-world transformation **before**
+logs, regression features, clipping, or float32 conversion:
+
+| Series | Context-fitted divisor |
+| --- | --- |
+| Positive outcome | 95th percentile of absolute context outcome |
+| Each nonnegative media channel | Mean context spend for that channel |
+| Each signed control | Context root-mean-square for that control |
+
+These are scale-only transformations: zero spend, control signs, and the
+meaning of the intrinsic baseline are preserved. Context-fitted divisors apply
+unchanged to query inputs. Original magnitudes are not neural features.
+Float64, max-magnitude-factored reductions avoid overflow in the spend/control
+scales; model tensors are float32 at the batch boundary, then inference uses
+the model's dtype. The original outcome ruler stays float64 on CPU, including
+for MPS or lower-precision models. `decompose` restores every component draw to
+the supplied outcome units; media contributions are **not** multiplied by spend
+units.
+
+Positive, independent unit changes preserve canonical inputs and graph
+distributions and scale contributions only with the outcome, up to floating-point
+roundoff. All-zero columns remain zero. A column that is zero throughout context
+but nonzero in query has no identifiable context scale and is rejected, as are
+relative dynamics that cannot be represented numerically. Nonzero constant
+controls are allowed. This is not invariance to shifts, sign changes, or a
+guarantee of accuracy under different causal structures or relative effects.
+
+Relative evaluation/diagnostic errors use context units too, so their epsilon
+guards and squared errors do not depend on the original sales units.
+
+This is semantic representation **2**, with training-checkpoint format **2**.
+Old dimensional A/B weights are incompatible even though parameter shapes match.
+Retrain using the existing raw corpora and new output directories; do not edit
+an old bundle's schema or treat an inference-only scaler as calibrated retraining.
 
 ### Canonical corpus recipes
 
@@ -467,17 +504,11 @@ definedness differs between the recording and any replicate, or a replicate is
 non-finite; when a key lies more than three tolerances off; when two keys of one
 metric family lie outside their 99.9% intervals; or when more metric families
 have a key outside its tolerance than a 99% binomial allowance (1% per family)
-over the families it compares. In a simulation that draws correct replays from
-the A and B replicates (each metric family from its replicate mean and
-covariance, 10,000 trials per bundle), 2.2-2.3% of correct replays fail, about
-half of them on the headline alone; drawing all keys jointly from the
-8-replicate covariance, which overstates how families move together, gives
-5.6-5.8% (also 10,000 trials). Leaving out one of the 8 real replicates as the
-recording fails 0 of 16 times, and the real A and B recordings lie at most 0.801
-and 0.689 of a tolerance from their replicates. A failure is therefore evidence
-to investigate, not proof of a broken model. Router edge log scores are
-reported but not counted. The opt-in `tests/test_ab_compatibility.py` runs it
-for A and B when `MFM_AB_BUNDLES` and `MFM_AB_CORPORA` are set.
+over the families it compares. A failure is evidence to investigate, not proof
+of a broken model. Router edge log scores are reported but not counted.
+The check requires a current-representation bundle and its matching corpus and
+training prior. Previous dimensional A/B weights are rejected before evaluation,
+not compared under the new preprocessing.
 
 ### Record consumers
 
@@ -862,7 +893,7 @@ recorded held-out evaluation, including its leg, head, evaluation seed, draw
 count, flow steps, the ordered `{shard_seed, row}` worlds, and per-metric values
 and aggregation classes. Loading validates its structure only, so later metric
 renames never make a published bundle unloadable. Membership in the live metric
-set is checked by the conversion and by `check_recorded_evaluation`. A loaded
+set is checked by `check_recorded_evaluation`. A loaded
 model whose weights have changed (a dtype cast or an edit) inherits neither the
 loaded provenance nor the loaded profile when saved; pass `provenance=`
 explicitly (`{}` records none) and `profile=` to label it. The load-time weight
@@ -877,16 +908,18 @@ repository. The default tests never publish or require secrets.
 
 ### A and B bundles
 
-A and B are one network (`ModelConfig(n_controls=6)`) trained on different
-corpora (plans `A` and `B` above). Their MFM bundles are converted from the
-original checkpoints and are distributed through the Hugging Face Hub only, not
-from this repository. Until publication is approved, a local collection with
-`profiles/A` and `profiles/B` loads with
-`from_pretrained(collection, profile="A")`. `tests/test_ab_bundles.py` checks each
-bundle's source checkpoint SHA-256, recorded evaluation and recorded outputs
-when `MFM_AB_BUNDLES` points at such a collection, or when the pinned published
-revision is cached; otherwise it skips. After publication, set its `PUBLISHED`
-constant to the repository and full commit.
+A and B retain one network geometry (`ModelConfig(n_controls=6)`) and different
+corpus plans (`A` and `B` above). The original converted checkpoints predate
+unit-invariant preprocessing and **cannot load in this representation**.
+The tensor shapes do not establish compatibility; retrain and export new
+representation-2 bundles. No full-budget A/B retraining is claimed here.
+
+A new collection can hold `profiles/A` and `profiles/B` and load with
+`from_pretrained(collection, profile="A")`, locally or through the Hub.
+The opt-in `tests/test_ab_bundles.py` uses `MFM_LEGACY_AB_BUNDLES` only to verify
+that the original dimensional collection cannot load or receive current
+compatibility cards. Current-format bundle/checkpoint round trips and evaluation
+compatibility are exercised by the ordinary tests and the small training workflow.
 
 ## MLflow lifecycle and evidence
 

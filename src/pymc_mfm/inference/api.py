@@ -10,7 +10,12 @@ import torch
 
 from pymc_mfm.data.features import MOMENT_FEATURE_BLOCKS
 from pymc_mfm.data.observations import encode_observations, observation_identity
-from pymc_mfm.inference.result import DecompositionResult, _numpy, result_from_batch
+from pymc_mfm.inference.result import (
+    DecompositionResult,
+    _input_summary,
+    _numpy,
+    result_from_batch,
+)
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.flow import DEFAULT_N_SAMPLES
 from pymc_mfm.model.model import MFM
@@ -36,6 +41,10 @@ def observation_batch(
     Latent slots are architectural, not claimed observed confounder counts.
     Rows are equally spaced observations; time encoding is the trained relative
     horizon position. Outcomes must be positive and spend nonnegative.
+    Each world's context fits the sales p95, per-channel mean spend and per-control
+    RMS scales, before any features or precision narrowing. Query uses the same
+    scales; zero-context/nonzero-query columns are unsupported. ``sales_scale``
+    stays float64 CPU metadata for restoring units, even with a low-precision model.
     """
 
     def numeric(value, name, ndim):
@@ -69,23 +78,17 @@ def observation_batch(
     active_j = mask(latent_mask, "latent_mask", model_config.n_demand, False)
     if np.any(spend[:, ~active_c]) or np.any(controls[:, ~active_m]):
         raise ValueError("padded observation columns must be zero")
-    # Domain and padding belong to the supplied values, not rounded float32 zeros.
-    with np.errstate(over="ignore"):
-        spend = spend.astype(np.float32)
-        controls = controls.astype(np.float32)
-        outcome = outcome.astype(np.float64)
-    if not all(np.isfinite(value).all() for value in (spend, controls, outcome)):
-        raise ValueError("observations exceed the finite model representation")
     encoded = encode_observations(
         spend[None], controls[None], outcome[None], active_c[None], active_m[None], active_j[None]
     )
     tensors = {}
     for key, value in encoded.items():
         with np.errstate(over="ignore", invalid="ignore"):
-            value = np.ascontiguousarray(value, dtype=np.float32)
+            dtype = np.float64 if key == "sales_scale" else np.float32
+            value = np.ascontiguousarray(value, dtype=dtype)
         if not np.isfinite(value).all():
             raise ValueError(f"{key} exceeds the finite model representation")
-        tensors[key] = torch.from_numpy(value).to(device)
+        tensors[key] = torch.from_numpy(value).to("cpu" if key == "sales_scale" else device)
     return tensors
 
 
@@ -170,14 +173,18 @@ def decompose(
             **observations, model_config=model.config, device=parameter.device
         )
     batch = {
-        key: value.to(device=parameter.device, dtype=parameter.dtype)
+        key: (
+            value.to(device="cpu", dtype=torch.float64)
+            if key == "sales_scale"
+            else value.to(device=parameter.device, dtype=parameter.dtype)
+        )
         for key, value in batch.items()
     }
     for key, value in batch.items():
         if not torch.isfinite(value).all():
             raise ValueError(f"{key} exceeds the finite model representation")
     if (batch["sales_scale"] <= 0).any():
-        raise ValueError("sales_scale must remain positive in the model representation")
+        raise ValueError("sales_scale must remain positive")
     if graph is not None:
         # Validate the caller's precision before the model converts graph dtype. A
         # copy keeps a caller's (possibly read-only) array out of the tensor.
@@ -216,15 +223,7 @@ def decompose(
         support_arrays["ctx_outcome_raw"] = (np.asarray(observations["context_outcome"]), units)
     identity["input_support"] = {}
     for key, (values, input_units) in support_arrays.items():
-        values = values.astype(np.float64)
-        identity["input_support"][key] = {
-            "units": input_units,
-            "n": int(values.shape[0]),
-            "mean": values.mean(axis=0).tolist(),
-            "std": values.std(axis=0).tolist(),
-            "min": values.min(axis=0).tolist(),
-            "max": values.max(axis=0).tolist(),
-        }
+        identity["input_support"][key] = _input_summary(values, input_units)
     if time is not None:
         time = np.asarray(time)
         full_length = batch["ctx_spend_z"].shape[1] + batch["qry_spend_z"].shape[1]

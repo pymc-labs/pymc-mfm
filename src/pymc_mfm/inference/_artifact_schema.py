@@ -35,6 +35,7 @@ from pymc_mfm.model.flow import (
 from pymc_mfm.model.graph import STRUCT_EDGE_KEYS, EdgeSlotLayout
 
 FORMAT_VERSION = 1
+SEMANTIC_SCHEMA_VERSION = 2
 ARCHITECTURE = "mfm-graph-conditional-v1"
 BUNDLE_FILES = ("config.json", "model.safetensors", "manifest.json")
 #: Optional sidecar next to a bundle: synthetic inputs and their expected outputs.
@@ -584,13 +585,13 @@ def semantic_schema(config: ModelConfig) -> dict:
             f"{metric}_decay_{decay:g}"
             for decay in ADSTOCK_MOMENT_DECAYS
             for metric in (
-                "signed_log1p_mean_over_sales_scale",
+                "signed_log1p_canonical_mean_over_canonical_sales_scale",
                 "tanh_partial_slope",
                 "clipped_level",
             )
         ],
         "control_moments": [f"tanh_abs_t_stat_decay_{decay:g}" for decay in ADSTOCK_MOMENT_DECAYS],
-        "control_location_scale": ["raw_mean", "normalization_scale"],
+        "control_location_scale": ["canonical_mean", "canonical_normalization_scale"],
         "control_effect_moments": [
             f"{metric}_decay_{decay:g}"
             for decay in ADSTOCK_MOMENT_DECAYS
@@ -598,7 +599,7 @@ def semantic_schema(config: ModelConfig) -> dict:
         ],
     }
     return {
-        "version": 1,
+        "version": SEMANTIC_SCHEMA_VERSION,
         "geometry": {"channels": "input", "controls": "input", "demand": config.n_demand},
         "representation": {
             "cells": ["channels", "controls", "outcome"],
@@ -618,7 +619,7 @@ def semantic_schema(config: ModelConfig) -> dict:
             "readouts": ["weekly", "channels", "controls"],
             "attention": "causal_over_context_then_query",
             "query_outcome": "unobserved_zero_cell",
-            "feature_source": "observed_context_only",
+            "feature_source": "canonical_observed_context_only",
             "response_decays": list(RESPONSE_MOMENT_DECAYS),
             "response_max_lag": RESPONSE_MOMENT_L_MAX,
             "adstock_decays": list(ADSTOCK_MOMENT_DECAYS),
@@ -626,20 +627,40 @@ def semantic_schema(config: ModelConfig) -> dict:
             "level_limit": ADSTOCK_LEVEL_LIMIT,
             "control_t_divisor": CONTROL_MOMENT_T_DIVISOR,
         },
+        "canonicalization": {
+            "fit": "context_only",
+            "apply": "unchanged_scales_over_context_and_query",
+            "precision": "float64_before_log1p_regression_zscore_clipping_and_float32",
+            "reductions": "max_magnitude_factored_mean_and_rms",
+            "spend": "divide_each_channel_by_context_mean",
+            "controls": "divide_each_control_by_context_rms_without_centering",
+            "outcome": "divide_positive_outcome_by_context_p95_absolute_outcome",
+            "zero_context": "all_zero_column_stays_zero_nonzero_query_rejected",
+            "constant_nonzero_controls": "valid_sign_and_origin_preserved",
+            "raw_unit_features": False,
+        },
         "normalization": {
-            "spend": "context_zscore_log1p",
+            "spend": "context_zscore_log1p_canonical_spend",
             "spend_std_floor": 1e-6,
-            "spend_mean_affine": [9.5, 1.5],
-            "spend_std_affine": [0.55, 0.25],
-            "outcome": "context_centered_log_without_std_division",
-            "controls": "context_zscore_raw",
+            "spend_mean": "context_mean_log1p_canonical_spend",
+            "spend_std": "context_std_log1p_canonical_spend",
+            "outcome": "context_centered_log_canonical_outcome_without_std_division",
+            "controls": "context_zscore_canonical_controls",
             "control_std_threshold": 1e-3,
             "control_small_std_replacement": 1.0,
             "control_z_clip": [-10.0, 10.0],
             "week": "zero_based_index_divided_by_total_window_length",
-            "target": "signed_natural_components_divided_by_context_p95_abs_outcome",
+            "target": "signed_natural_components_divided_by_original_context_p95_abs_outcome",
             "sales_scale_quantile": 0.95,
-            "sales_scale_floor": 1e-6,
+            "sales_scale": {
+                "source": "original_positive_context_outcome",
+                "floor": None,
+                "dtype": "float64",
+                "device": "cpu",
+                "network_input": False,
+                "use": "target_normalization_and_original_unit_output_restoration",
+            },
+            "model_tensors": "float32_at_batch_boundary_then_model_dtype_on_model_device",
         },
         "targets": {
             "ordered_blocks": [
@@ -675,6 +696,24 @@ def semantic_schema(config: ModelConfig) -> dict:
             "context_query": "separately_sampled_marginals_not_paired_full_horizon_draws",
         },
     }
+
+
+def validate_semantic_schema(
+    value: object, config: ModelConfig | None = None, *, label: str
+) -> None:
+    """Check the representation version, then its full contract when geometry is known."""
+    if (
+        not isinstance(value, dict)
+        or type(value.get("version")) is not int
+        or value["version"] != SEMANTIC_SCHEMA_VERSION
+        or (config is not None and json_bytes(value) != json_bytes(semantic_schema(config)))
+    ):
+        raise ValueError(
+            f"{label} has an incompatible input representation; expected semantic schema "
+            f"version {SEMANTIC_SCHEMA_VERSION} with context-only unit-invariant scaling. "
+            "Retrain with the current preprocessing; dimensional A/B weights cannot be "
+            "converted by relabeling their schema."
+        )
 
 
 def inference_metadata() -> dict:

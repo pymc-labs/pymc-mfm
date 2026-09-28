@@ -36,6 +36,7 @@ from ._artifact_schema import (
     read_json,
     semantic_schema,
     validate_profile,
+    validate_semantic_schema,
 )
 
 _FLOAT_DTYPES = {torch.float16, torch.bfloat16, torch.float32, torch.float64}
@@ -268,6 +269,9 @@ def save_pretrained(
         raise ValueError("save_pretrained accepts only the canonical MFM architecture")
     compatibility, producer = _export_environment()
     config = ModelConfig.from_dict(model.config.to_dict())
+    previous = getattr(model, "artifact_metadata", {})
+    if previous:
+        validate_semantic_schema(previous.get("schemas"), config, label="loaded artifact")
     reference = _canonical_model(config)
     _validate_runtime(model, reference)
     state = model.state_dict()
@@ -278,7 +282,6 @@ def save_pretrained(
             entry["requires_grad"] = parameters[entry["name"]].requires_grad
     # Exercise custom semantic-buffer checks without copying into initialized weights.
     reference.load_state_dict(state, strict=True, assign=True)
-    previous = getattr(model, "artifact_metadata", {})
     loaded_state = previous.get("state_sha256")
     if loaded_state is not None and _state_sha256(state, catalog) != loaded_state:
         # The loaded source, run and evaluation records and the profile label
@@ -406,15 +409,12 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
         or metadata["architecture"] != ARCHITECTURE
     ):
         raise ValueError("unsupported artifact configuration or architecture")
+    validate_semantic_schema(metadata["schemas"], label="artifact schemas")
     config = ModelConfig.from_dict(metadata["model_config"])
-    # The architecture is fixed: a changed schema or inference contract changes what
-    # the weights mean, so it rejects every bundle recorded under the previous one.
-    for key, expected in (
-        ("schemas", semantic_schema(config)),
-        ("inference", inference_metadata()),
-    ):
-        if json_bytes(metadata[key]) != json_bytes(expected):
-            raise ValueError(f"artifact {key} do not match the canonical contract")
+    # Geometry alone cannot distinguish dimensional weights from canonical ones.
+    validate_semantic_schema(metadata["schemas"], config, label="artifact schemas")
+    if json_bytes(metadata["inference"]) != json_bytes(inference_metadata()):
+        raise ValueError("artifact inference does not match the canonical contract")
     if metadata["training_resume"] is not False:
         raise ValueError("model bundles do not contain training-resume state")
     if validate_profile(metadata["profile"]) != manifest["profile"]:

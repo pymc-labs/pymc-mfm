@@ -1,8 +1,9 @@
 """Generate, train, reload, infer and report using public APIs and a local backend.
 
-Requires [generation,training]. This two-update integration exercise produces
-neither usable pretrained weights nor calibrated attribution. The full model
-uses a reduced world count, horizon and training budget. No Hub writes.
+Requires [generation,training]. This two-update integration exercise checks
+unit-equivariant inference but produces neither usable pretrained weights nor
+calibrated attribution. The full model uses a reduced world count, horizon and
+training budget. No Hub writes.
 """
 
 from __future__ import annotations
@@ -109,6 +110,46 @@ def main() -> None:
     saved = DecompositionResult.load(out / "result")
     np.testing.assert_array_equal(saved.components, result.components)
     assert saved.provenance == result.provenance
+
+    # Reuse the fitted context scales in both windows. All contributions are in
+    # outcome units, so only the sales multiplier is undone on the returned draws.
+    rescalings = {
+        "case_10_units": (10.0, 10_000.0, 100.0),
+        "tiny_units": (1e-8, 1e-8, 1e-8),
+        "independent_columns": (
+            1e6,
+            np.logspace(-8, 8, observations["spend"].shape[1]),
+            np.logspace(8, -8, observations["controls"].shape[1]),
+        ),
+    }
+    unit_checks = []
+    for window in ("context", "query"):
+        torch.manual_seed(31)
+        reference = decompose(model, observations, n_samples=19, window=window)
+        for label, (sales_units, spend_units, control_units) in rescalings.items():
+            transformed = {
+                **observations,
+                "spend": observations["spend"].astype(np.float64) * spend_units,
+                "controls": observations["controls"].astype(np.float64) * control_units,
+                "context_outcome": (
+                    observations["context_outcome"].astype(np.float64) * sales_units
+                ),
+            }
+            torch.manual_seed(31)
+            changed = decompose(model, transformed, n_samples=19, window=window)
+            restored = changed.components / sales_units
+            np.testing.assert_allclose(restored, reference.components, rtol=1e-5, atol=1e-6)
+            np.testing.assert_array_equal(changed.graphs, reference.graphs)
+            unit_checks.append(
+                {
+                    "window": window,
+                    "units": label,
+                    "max_abs_error_original_units": float(
+                        np.max(np.abs(restored - reference.components))
+                    ),
+                    "graphs_identical": True,
+                }
+            )
     observed_report = build_report(saved, out / "observed-report")
     replay = render_report(out / "observed-report", out / "observed-rerender")
     assert replay["provenance"] == observed_report["provenance"]
@@ -172,6 +213,7 @@ def main() -> None:
         "tracking_delivery": tracking["delivery_status"],
         "loss_history": history,
         "query_shape": list(saved.components.shape),
+        "unit_checks": unit_checks,
         "report": str(out / "synthetic-report/report.html"),
     }
     (out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")

@@ -577,7 +577,12 @@ def _score_decomposition(
         axis=-1,
     )
     draw_sales = component_draws.sum(axis=-1)
-    world.update(metrics.latent_sales_scores(draw_sales * scale, outcome - noise, outcome))
+    # Keep dimensionless diagnostics in context units: raw-unit epsilon floors
+    # and sums of squares would make checkpoint selection depend on sales units.
+    observed_sales = outcome / scale
+    world.update(
+        metrics.latent_sales_scores(draw_sales, observed_sales - noise / scale, observed_sales)
+    )
 
     def energy(name: str, samples: np.ndarray, target: np.ndarray, cumulative: bool) -> None:
         if not _finite(samples, target):
@@ -929,40 +934,25 @@ def _score_batch(
         )
         capture_provenance = None
         if result_sink is not None:
+            from pymc_mfm.inference.result import _input_summary
+
             input_support = {}
             for key in ("ctx_spend_z", "qry_spend_z", "ctx_controls_z", "qry_controls_z"):
                 values = _numpy(batch[key][b])
-                input_support[key] = {
-                    "units": "encoded context-normalized representation",
-                    "n": len(values),
-                    "mean": values.mean(axis=0).tolist(),
-                    "std": values.std(axis=0).tolist(),
-                    "min": values.min(axis=0).tolist(),
-                    "max": values.max(axis=0).tolist(),
-                }
+                input_support[key] = _input_summary(
+                    values, "encoded context-normalized representation"
+                )
             # The keys and layout ``decompose`` records, so diagnostics read both alike.
             prefixes = {"ctx": window_slices["context"], "qry": window_slices["query"]}
             for key, field in (("spend", "treatment_raw"), ("controls", "covariates")):
                 raw = np.asarray(corpus[field][row], dtype=np.float64)
                 for window, span in prefixes.items():
                     values = raw[span]
-                    input_support[f"{window}_{key}_raw"] = {
-                        "units": "native input units",
-                        "n": len(values),
-                        "mean": values.mean(axis=0).tolist(),
-                        "std": values.std(axis=0).tolist(),
-                        "min": values.min(axis=0).tolist(),
-                        "max": values.max(axis=0).tolist(),
-                    }
+                    input_support[f"{window}_{key}_raw"] = _input_summary(
+                        values, "native input units"
+                    )
             context_observed = outcome[:n_context]
-            input_support["ctx_outcome_raw"] = {
-                "units": "outcome",
-                "n": n_context,
-                "mean": float(context_observed.mean()),
-                "std": float(context_observed.std()),
-                "min": float(context_observed.min()),
-                "max": float(context_observed.max()),
-            }
+            input_support["ctx_outcome_raw"] = _input_summary(context_observed, "outcome")
             capture_provenance = {
                 "data_split": str(leg),
                 "corpus_index": int(corpus_index),
