@@ -217,12 +217,30 @@ def test_actual_client_histories_reports_and_checkpoint_versions(tmp_path, monke
         for key, metadata in names.items()
         if key in remote.data.metrics
     )
+    assert not any(
+        "coverage_intervals" in metadata["original"]
+        for key, metadata in names.items()
+        if key in remote.data.metrics
+    )
     assert all(not event["scalars"] for event in records if event["kind"] == "diagnostic")
     assert not [
         event for event in records if event["kind"] in ("diagnostic_failure", "artifact_policy")
     ]
     for report in reports:
         manifest = report["manifest"]
+        snapshot = next(
+            item for item in manifest["coverage_intervals"] if item["step"] == report["step"]
+        )
+        interval = snapshot["coverage_intervals"]["holdout"][
+            "conditional/query/baseline_intrinsic_cov80"
+        ]
+        evaluation = next(item for item in local_evaluations if item["step"] == report["step"])
+        assert (
+            interval["mean"]
+            == evaluation["flat"]["holdout/conditional/query/baseline_intrinsic_cov80"]
+        )
+        assert interval["n_worlds"] == interval["n_cells"] == 1
+        assert interval["status"] == "unavailable" and interval["reason"] == "fewer_than_two_cells"
         assert manifest["metric_representation"] == "per_world_table"
         assert manifest["provenance"]["checkpoint_sha256"] == next(
             record["sha256"] for record in last if record["step"] == report["step"]

@@ -212,7 +212,12 @@ def _score(draws: np.ndarray, truth: np.ndarray | None, mass: float, scale: floa
 
 
 def score_record(record: ComparisonRecord, *, mass: float = 0.8) -> dict:
-    """Score native trajectories and within-draw window means; never pool windows."""
+    """Score native trajectories and within-draw window means; never pool windows.
+
+    ``all_covered`` means every live component's pointwise interval covers its
+    truth. It has no fixed joint nominal level, and is distinct from coverage
+    by a studentized simultaneous live-effect band.
+    """
     _mass(mass)
     result = record.result
     rows, families = [], {}
@@ -593,20 +598,42 @@ def matched_omission(
     return rows
 
 
-def _estimate(values: Sequence[float], *, seed: int, bootstrap_samples: int) -> dict:
+def _estimate(
+    values: Sequence[float],
+    *,
+    seed: int,
+    bootstrap_samples: int,
+    weights: Sequence[float] | None = None,
+) -> dict:
+    """Bootstrap whole units, optionally resampling their mean/count pairs.
+
+    ``weights`` count the worlds behind each unit's mean. A resample uses the
+    ratio of its weighted sum to its count, not an equal-unit mean. Uniform
+    weights take the original unweighted path, including its exact RNG order.
+    """
     values = _finite(values, "world values").astype(float, copy=False)
     if values.ndim != 1 or values.size == 0:
         raise ValueError("estimates require nonempty one-dimensional world values")
+    if weights is not None:
+        weights = _finite(weights, "unit weights", values.shape).astype(float, copy=False)
+        if np.any(weights <= 0):
+            raise ValueError("unit weights must be positive")
+        if np.all(weights == weights[0]):
+            weights = None
+    weighted_values = None if weights is None else values * weights
     rng = np.random.default_rng(seed)
     # Bound temporary memory independently of the requested bootstrap count.
     means = np.empty(bootstrap_samples)
     for start in range(0, bootstrap_samples, 256):
         stop = min(start + 256, bootstrap_samples)
         indices = rng.integers(len(values), size=(stop - start, len(values)))
-        means[start:stop] = values[indices].mean(axis=1)
+        if weights is None:
+            means[start:stop] = values[indices].mean(axis=1)
+        else:
+            means[start:stop] = weighted_values[indices].sum(axis=1) / weights[indices].sum(axis=1)
     low, high = np.quantile(means, [0.025, 0.975])
     return {
-        "mean": float(values.mean()),
+        "mean": float(values.mean() if weights is None else weighted_values.sum() / weights.sum()),
         "ci_low": float(low),
         "ci_high": float(high),
         "median": float(np.median(values)),

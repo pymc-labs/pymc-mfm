@@ -10,8 +10,9 @@ Evaluation keeps joint-router and graph-conditional decoder readouts separate.
 Checkpoint selection minimizes the held-out query energy score of
 ``TrainingConfig.selection_head`` (the conditional decoder by default) and
 also gates that head's context energy score. Missing, non-finite, partially
-defined, or out-of-bounds gate metrics block promotion, as does any held-out
-metric of the head with non-finite worlds; all remain visible in the records.
+defined, or out-of-bounds gate metrics block promotion, as does any legacy
+held-out metric of the head with non-finite worlds. Additive simultaneous
+coverage never changes promotion; its unavailable reasons remain recorded.
 """
 
 from __future__ import annotations
@@ -81,6 +82,11 @@ SELECTION_READOUT = {
 _VACUOUS_LEAKAGE = "no_inactive_channels"
 #: Undefined-reason prefix of a metric that dropped non-finite worlds or slots.
 _NONFINITE_REASON = "nonfinite_in_"
+# Additive joint-coverage diagnostics must not extend the legacy selection guard.
+_NONFINITE_EXCLUDED_SUFFIXES = (
+    "/timeavg_contribution_simcov80_live",
+    "/timeavg_control_contribution_simcov80_live",
+)
 
 
 class TrainingError(RuntimeError):
@@ -205,11 +211,13 @@ def _select_checkpoint(
     :data:`~pymc_mfm.training.evaluation.METRIC_BOUNDS`; the head's padded-channel
     leakage must also be at most zero, and passes vacuously when no world has a
     padded channel. Missing, non-finite, partially defined, or out-of-bounds gate
-    metrics block promotion with a recorded reason. A held-out metric of the head
-    that dropped non-finite worlds, gated or not, also blocks promotion:
+    metrics block promotion with a recorded reason. A legacy held-out metric of
+    the head that dropped non-finite worlds, gated or not, also blocks promotion:
     ``nonfinite_keys`` maps each such key to its ``nonfinite_in_*`` reason, and
-    ``gates_passing`` requires it to be empty. Other out-of-bounds metrics are
-    listed under ``bounds_violations``. The terminal checkpoint remains available.
+    ``gates_passing`` requires it to be empty. The additive simultaneous-coverage
+    metrics are excluded from this guard, preserving checkpoint selection.
+    Other out-of-bounds metrics are listed under ``bounds_violations``. The
+    terminal checkpoint remains available.
     """
     keys = selection_metrics(head)
 
@@ -244,7 +252,9 @@ def _select_checkpoint(
     nonfinite_keys = {
         key: reason
         for key, reason in undefined.items()
-        if key.startswith(prefix) and reason.startswith(_NONFINITE_REASON)
+        if key.startswith(prefix)
+        and reason.startswith(_NONFINITE_REASON)
+        and not key.endswith(_NONFINITE_EXCLUDED_SUFFIXES)
     }
     monitor = flat.get(keys.monitor)
     gates_passing = not nonfinite_keys and all(entry["passing"] for entry in gates.values())
@@ -507,6 +517,7 @@ def _train_run(
                 "nonfinite_block": {
                     "prefix": f"holdout/{training.selection_head}/",
                     "reason_prefix": _NONFINITE_REASON,
+                    "excluded_suffixes": list(_NONFINITE_EXCLUDED_SUFFIXES),
                 },
                 "readout": SELECTION_READOUT[training.selection_head],
                 "terminal_checkpoint": "checkpoint_last.pt",
@@ -602,6 +613,20 @@ def _train_run(
         return entry
 
     def record_diagnostics(step: int, checkpoint: Mapping[str, Any]) -> None:
+        if not diagnostic_inputs:
+            return
+        from pymc_mfm.diagnostics.coverage import evaluation_coverage_intervals
+
+        coverage_snapshots = []
+        for record in evaluation_records:
+            path = tables_dir / f"step_{int(record['step']):09d}.json"
+            tables = json.loads(path.read_text()) if path.is_file() else None
+            coverage_snapshots.append(
+                {
+                    "step": record["step"],
+                    "coverage_intervals": evaluation_coverage_intervals(record, tables),
+                }
+            )
         for index, (result, truth, graph_truth, observed) in enumerate(diagnostic_inputs):
             provenance = {
                 **result.provenance,
@@ -635,6 +660,7 @@ def _train_run(
                         observed=observed,
                         training_records=training_records,
                         evaluation_records=evaluation_records,
+                        coverage_intervals=coverage_snapshots,
                         strict=False,
                     )
                 run["diagnostics"].append(
@@ -697,6 +723,7 @@ def _train_run(
             device=resolved_device,
             leg="holdout",
             result_sink=result_sink,
+            per_world=True,
         )
         seen_count = min(training.eval_worlds, len(first_seen))
         if seen_count:
@@ -709,6 +736,7 @@ def _train_run(
                 device=resolved_device,
                 leg="seen",
                 result_sink=result_sink,
+                per_world=True,
             )
         flat: dict[str, float | None] = {}
         for record in legs.values():
@@ -718,9 +746,12 @@ def _train_run(
             for leg, record in legs.items()
             for key, reason in record["undefined"].items()
         }
-        # Stratified tables are per-world-table artifacts: they are written with
-        # the evaluation tables, not into evaluations.jsonl, checkpoints or events.
+        from pymc_mfm.diagnostics.coverage import coverage_evidence
+
+        # Per-effect strata and coverage/cell evidence stay in evaluation-table
+        # artifacts, never evaluations.jsonl, checkpoints or evaluation events.
         strata = {leg: values.pop("strata") for leg, values in legs.items()}
+        coverage = {leg: coverage_evidence(values.pop("per_world")) for leg, values in legs.items()}
         for leg, values in legs.items():
             values["rows"] = holdout_rows if leg == "holdout" else list(first_seen)[:seen_count]
         selection = _select_checkpoint(
@@ -735,15 +766,20 @@ def _train_run(
             "flat": flat,
             "selection": selection,
         }
-        # The tables file lands before its evaluations.jsonl line, so every
-        # recorded evaluation has its reliability, CORP, threshold and strata tables.
+        # Tables land before the evaluation line, including report-only coverage
+        # evidence for bootstrap intervals without replaying model inference.
         tables_dir.mkdir(exist_ok=True)
         _write_json(
             tables_dir / f"step_{step:09d}.json",
             {
                 "step": step,
                 "legs": {
-                    leg: {**values["tables"], "strata": strata[leg]} for leg, values in legs.items()
+                    leg: {
+                        **values["tables"],
+                        "strata": strata[leg],
+                        "coverage": coverage[leg],
+                    }
+                    for leg, values in legs.items()
                 },
             },
         )

@@ -266,7 +266,7 @@ def test_out_of_bounds_metrics_outside_the_gates_are_listed_without_blocking(hea
 
 
 @pytest.mark.parametrize("head", HEADS)
-def test_nonfinite_worlds_in_any_holdout_metric_of_the_selected_head_block_promotion(head):
+def test_nonfinite_worlds_in_legacy_holdout_metrics_of_selected_head_block_promotion(head):
     nonfinite = {
         f"holdout/{head}/context/contribution_scaled_mae": "nonfinite_in_2_worlds",
         f"holdout/{head}/query/contribution_draw_lag1": "nonfinite_in_1_worlds",
@@ -278,6 +278,32 @@ def test_nonfinite_worlds_in_any_holdout_metric_of_the_selected_head_block_promo
     assert selection["nonfinite_keys"] == nonfinite
     assert selection["gates_passing"] is False and selection["promoted"] is False
     assert selection["best_value"] == 2.0 and selection["best_step"] == 4
+
+
+@pytest.mark.parametrize("head", HEADS)
+def test_simultaneous_nonfinite_diagnostics_do_not_change_checkpoint_promotion(head):
+    flat = selection_flat(head)
+    undefined = {
+        f"holdout/{head}/{window}/{name}": "nonfinite_in_1_worlds"
+        for window in ("query", "context")
+        for name in (
+            "timeavg_contribution_simcov80_live",
+            "timeavg_control_contribution_simcov80_live",
+        )
+    }
+    flat.update(dict.fromkeys(undefined))
+    selection = _select_checkpoint(flat, undefined, best_value=2.0, best_step=4, step=8, head=head)
+    assert all(entry["passing"] for entry in selection["gates"].values())
+    assert selection["nonfinite_keys"] == {}
+    assert selection["gates_passing"] is True and selection["promoted"] is True
+    assert selection["best_value"] == 1.0 and selection["best_step"] == 8
+
+    legacy = f"holdout/{head}/query/contribution_draw_lag1"
+    undefined[legacy] = "nonfinite_in_1_worlds"
+    blocked = _select_checkpoint(flat, undefined, best_value=2.0, best_step=4, step=8, head=head)
+    assert blocked["nonfinite_keys"] == {legacy: "nonfinite_in_1_worlds"}
+    assert blocked["gates_passing"] is False and blocked["promoted"] is False
+    assert blocked["best_value"] == 2.0 and blocked["best_step"] == 4
 
 
 @pytest.mark.parametrize("head", HEADS)
@@ -359,7 +385,30 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
         for leg, values in event["legs"].items():
             # The per-effect strata tables are written only beside the edge tables.
             strata = written["legs"][leg].pop("strata")
+            coverage = written["legs"][leg].pop("coverage")
             assert "strata" not in values
+            assert "per_world" not in values and "coverage_intervals" not in values
+            for entry in coverage:
+                assert set(entry) == {
+                    "corpus_index",
+                    "row",
+                    "cell_id",
+                    "values",
+                    "weights",
+                    "undefined",
+                }
+                assert entry["cell_id"] == int(corpus["cell_id"][entry["row"]])
+                assert "conditional/query/decomposition_energy_score" not in entry["values"]
+                assert "conditional/query/timeavg_contribution_simcov80_live" in entry["values"]
+            for key in coverage[0]["values"]:
+                defined = [
+                    entry["values"][key] for entry in coverage if entry["values"][key] is not None
+                ]
+                expected = math.fsum(defined) / len(defined) if defined else None
+                if expected is None:
+                    assert event["flat"][f"{leg}/{key}"] is None
+                else:
+                    assert event["flat"][f"{leg}/{key}"] == pytest.approx(expected)
             assert written["legs"][leg] == values["tables"]
             assert {head: set(windows) for head, windows in strata.items()} == {
                 head: {"query", "context"} for head in ("joint", "conditional")
@@ -379,6 +428,8 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
     reloaded, payload = load_checkpoint(tmp_path / "run" / "checkpoint_last.pt")
     assert payload["step"] == 4 and payload["kind"] == "last"
     assert payload["evaluation"]["step"] == 4 and payload["run"]["run_id"] == run["run_id"]
+    assert "coverage_intervals" not in json.dumps(payload["evaluation"])
+    assert '"per_world"' not in json.dumps(payload["evaluation"])
     exported = from_pretrained(tmp_path / "run" / "model")
     for name, parameter in result.model.state_dict().items():
         torch.testing.assert_close(reloaded.state_dict()[name], parameter, rtol=0, atol=0)

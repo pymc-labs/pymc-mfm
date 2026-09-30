@@ -386,7 +386,7 @@ or interrupted batches.
 | `objective_trace.json` | the first update's executed objective trace (all terms, weights, structure-family normalization) |
 | `metrics.jsonl` | one record at update 1 and every `log_every` updates: `loss`, `flow_loss`, `context_flow_loss`, `graph_conditional_flow_loss`, `graph_conditional_context_flow_loss`, `task_loss`, `struct_loss`, `lr`, pre-clip `grad_norm`, `grad_clipped`, epoch, consumed rows, batch context length, timings and throughput |
 | `evaluations.jsonl` | one record per evaluation event with the `holdout` and `seen` legs, a flat `{leg}/{head}/{window}/{metric}` view and the selection decision |
-| `evaluation_tables/step_<N:09d>.json` (e.g. `step_000006250.json`) | per-edge-family reliability tables (the non-empty rows of 10 equal-width probability bins), CORP tables (the blocks of the isotonic fit of edge truth on probability; empty for a family with one truth class) and threshold tables (0.1, 0.25, 0.5, 0.75, 0.9) for the structure head and the joint router, and the per-effect `strata` tables of each decomposition head and window (only here: not in `evaluations.jsonl`, checkpoints or MLflow), written before the matching `evaluations.jsonl` line |
+| `evaluation_tables/step_<N:09d>.json` (e.g. `step_000006250.json`) | per-edge-family reliability tables (the non-empty rows of 10 equal-width probability bins), CORP tables (the blocks of the isotonic fit of edge truth on probability; empty for a family with one truth class) and threshold tables (0.1, 0.25, 0.5, 0.75, 0.9) for the structure head and the joint router; per-effect `strata` tables of each decomposition head/window; and coverage-only per-world evidence under `legs.<leg>.coverage`, with values, weights, undefined reasons and corpus/cell identity. Strata and per-world coverage evidence are only here, not in `evaluations.jsonl`, checkpoints or MLflow scalars. Written before the matching `evaluations.jsonl` line |
 | `corpus_support.json` | context-outcome mean and standard deviation of each world (`"<corpus>:<row>"`, both splits), at most 5,000 evenly spaced worlds, with the total in `n_worlds` and kept worlds with an empty or non-finite context, or with overflowing statistics, in `skipped`; written at the start and never logged to MLflow |
 | `checkpoint_last.pt`, `checkpoint_best.pt`, `checkpoint_step_<N>.pt` | atomic training checkpoints (`load_checkpoint`): `config`, `state_dict`, training configuration, run identity and provenance, consumption, the accompanying evaluation record and selection |
 | `model/` | complete terminal safetensors/JSON model export; training checkpoint and exported tensor hashes remain distinct |
@@ -421,7 +421,7 @@ both windows. `latent_sales_r2` and closure compare natural units against
 | Graph-gated live total coverage | `attribution_live_{media,control}_conditional_cov80`: central 80% coverage of each truly live slot's signed window-total contribution, using only that head/window's draws with the slot's direct `cy`/`zb` edge on |
 | Per-draw closure | `closure_draw_rel_err` (mean over draws), `closure_draw_q90_rel_err` |
 | Temporal coherence | `contribution_truth_lag1`, `contribution_draw_lag1`, `contribution_lag1_tracking_abs_error`, `contribution_truth_error_residual_lag1`, `contribution_posterior_centered_residual_lag1`, `contribution_adjacent_draw_correlation` |
-| Window totals | `timeavg_contribution_cov80` (all, `_live`, `_dead` channels), `contribution_cumulative_energy_score`, `latent_sales_r2` |
+| Window totals | `timeavg_contribution_cov80` (all, `_live`, `_dead` channels), `timeavg_{contribution,control_contribution}_simcov80_live` (one joint-live event per family/world), `contribution_cumulative_energy_score`, `latent_sales_r2` |
 | Padding | `contribution_padding_leakage_scaled_mae` (padded slots only; distinct from dead-effect leakage) |
 
 Graph-gated live coverage first sums each draw and the truth over the window,
@@ -439,6 +439,25 @@ At small gate-on draw counts, linear sample quantiles have substantially less
 than nominal expected coverage even under a calibrated posterior (with two
 uniform draws the expected central 10th-to-90th interval coverage is 0.8/3).
 Use the randomized-rank PIT card for a formal finite-draw calibration check.
+
+**Simultaneous live coverage.** `training.metrics.simultaneous_coverage` reduces
+each `(S, T, E)` effect family to window means, centers each effect at its
+posterior mean and divides deviations by its posterior SD (`ddof=0`). The
+80th percentile of the per-draw maximum absolute standardized deviation sets
+the joint band; coverage is 1 only if every truth-live total lies inside it.
+Studentization prevents the largest-scale channel setting every band's width.
+Window means and totals give the same event. Media and controls are scored
+separately, using graph truth (`cy`/`zb`) and excluding padded/dead effects;
+this is not the graph-gated coverage that conditions draws on an edge being on.
+Both new keys have `world` aggregation, probability bounds and dimensionless
+units. Fewer than two live effects, any zero posterior SD or nonfinite live
+inputs give `null` with `fewer_than_two_live_effects`, `zero_posterior_sd` or
+`nonfinite`. Finite-draw quantiles give approximately, not exactly, nominal
+coverage under exchangeability. In contrast, comparisons' `all_covered` asks
+whether all live components lie in their own pointwise intervals: it has no
+fixed joint nominal level and can fall as the number of live effects grows.
+The one-result metric `window_totals/simultaneous_cov80` and the existing
+`diag.plot.window_totals()` show the channel event beside pointwise shares.
 
 `structure_head` and `joint_router/edge` report `log_score`, `brier`, `auroc`,
 `auprc`, `ece`, the CORP decomposition `brier = mcb - dsc + unc`
@@ -482,14 +501,47 @@ first, and edge scores pool active slots across worlds.
 undefined for a world are dropped and named in `undefined` with their reason; a
 metric undefined everywhere is `null`, never zero. Each leg also records
 `metric_worlds` (worlds behind every metric) and `tables`, and
-`evaluate_rows(..., per_world=True)` adds per-world values and slot weights.
-These stay in the JSON records and are not logged as MLflow metrics. Nonfinite
-active edge probabilities make the pooled predictive scores `null` with the
+`evaluate_rows(..., per_world=True)` adds per-world values, slot weights and
+`cell_id` (or `None` without usable generator-cell metadata). These structured
+values are not logged as MLflow scalars. Training retains only coverage evidence
+in the tables artifact and removes the full per-world payload from records.
+Nonfinite active edge probabilities make the pooled predictive scores `null` with the
 affected-slot count; truth counts, prevalence and `unc` remain available.
 Nonfinite graph draws are marked unavailable rather than thresholded into
 apparently valid binary graphs. Held-out − seen gaps, share MAEs and mean
 AUROC/ECE are report-only (`TrainingRun.derived_metrics()` and the diagnostic
 reports).
+
+**Coverage uncertainty is report-only.**
+`run.derived_metrics(seed=0, bootstrap_samples=2000)` adds
+`coverage_intervals[leg][key]` to each evaluation event. It reads the saved
+coverage evidence without loading a model or corpus, groups by
+`(corpus_index, cell_id)` and reuses the comparison bootstrap to resample whole
+generator cells. Each replicate divides the resampled sum of world values by
+the resampled number of scored worlds, preserving the recorded equal-world
+mean even when cell sizes differ. Slot weights contribute only denominator
+metadata (`n_slots`, the sum of recorded weights; simultaneous events have
+weight 1). Evidence includes `mean`, `ci_low`, `ci_high`, `n_worlds`, `n_cells`,
+`n_slots`, dropped-world reasons, seed and bootstrap count. Bounds are 95%
+percentile intervals, not posterior bands or a formal calibration test;
+identical observed values can give zero-width intervals.
+
+An interval needs at least two scored cells. Missing/invalid cell identity
+gives `missing_cell_identity`; one cell gives `fewer_than_two_cells`. Their
+finite point estimates remain available, with no invented independence.
+Old tables/reports without coverage evidence are `not_recorded`, not zero.
+Saved evidence must also match the event's recorded rows, scored-world counts
+and finite point estimate when available (allowing floating-point roundoff).
+An incomplete population has unavailable bounds with `incomplete_world_evidence`;
+a differing mean gives `inconsistent_recorded_mean`. The observed evidence
+remains visible, but cannot supply an interval for the recorded point estimate.
+Diagnostic training reports freeze these structured intervals separately in
+`evidence.json`, `diagnostics.json`, the manifest and HTML. To attach them
+explicitly, pass `coverage_intervals=run.derived_metrics()` to `build_report`
+or `result.diagnostics(...)`. Saved reports rerender without replaying
+inference. Intervals never enter scalar `metrics`, MLflow histories or
+checkpoint selection; the new simultaneous **point estimates** are ordinary
+evaluation metrics.
 
 Checkpoint selection follows `TrainingConfig.selection_head` (the conditional
 decoder by default). It minimizes `holdout/{head}/query/decomposition_energy_score`.
@@ -498,12 +550,14 @@ Promotion also requires the same head's context energy score
 score and the head's padded-channel leakage (which must be zero) to be finite,
 fully defined and within `METRIC_BOUNDS`, with a 1e-12 slack for rounding; the
 leakage gate passes vacuously when no held-out world has padded channels, and
-says so. An out-of-bounds gate blocks promotion as `metric_outside_bounds`. Any
-held-out metric of the selected head that dropped worlds with non-finite inputs
-(draws or truth, `nonfinite_in_<n>_worlds`) also blocks promotion, gated or
-not, and is listed in `selection.nonfinite_keys`; out-of-bounds values of other
-metrics are listed in `selection.bounds_violations`. `run.json`'s
-`selection_policy` records the gates, bounds and slack it applied.
+says so. An out-of-bounds gate blocks promotion as `metric_outside_bounds`. A
+legacy held-out metric of the selected head that dropped worlds with non-finite
+inputs or intermediates (`nonfinite_in_<n>_worlds`) also blocks promotion, gated
+or not, and is listed in `selection.nonfinite_keys`. The two additive simultaneous
+coverage families are excluded from this legacy guard: their unavailable
+reasons remain recorded, but do not change checkpoint selection. Out-of-bounds
+values of other metrics are listed in `selection.bounds_violations`. `run.json`'s
+`selection_policy` records the gates, bounds, slack and excluded suffixes it applied.
 `checkpoint_best.pt` is written only on improvement with all gates passing, and
 the terminal checkpoint remains available.
 
@@ -814,7 +868,7 @@ diag.metrics, diag.statuses  # computed once and cached on `diag`
 diag.plot.recovery()
 diag.plot.calibration("pit")  # or "ecdf", "coverage"
 diag.plot.attribution()  # live/dead effects: CRPS, bias, MAE, leakage
-diag.plot.window_totals()  # window-mean 80% coverage (live/dead), latent-total fit
+diag.plot.window_totals()  # pointwise live/dead shares, joint-live event, latent-total fit
 diag.plot.cumulative()  # running channel totals vs truth, cumulative energy score
 diag.plot.temporal()  # lag-1 and residual autocorrelation per family
 diag.plot.reliability()  # CORP isotonic fit of graph truth on router edge frequency
@@ -837,7 +891,7 @@ run.plot.corpus()  # run.json corpus summary
 run.plot.corpus_support()  # corpus_support.json world cloud: context mean vs std
 run.plot.strata("coverage", by="active_channels")  # recorded strata table, last evaluation
 run.plot.strata("signed_residual", by="true_size_bin", head="joint", window="context")
-run.derived_metrics()  # held-out minus seen gaps, mean AUROC/ECE
+run.derived_metrics()  # held-out minus seen gaps, mean AUROC/ECE, cell-cluster coverage intervals
 
 comparison = Comparison({"A": result_a, "B": result_b}, truth=truth, live=live)
 comparison.plot.performance()

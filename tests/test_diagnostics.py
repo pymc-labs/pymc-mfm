@@ -812,6 +812,12 @@ def test_window_totals_cover_window_means_and_score_running_totals():
     assert metrics["timeavg/channel/cov80"] == 0.5
     assert metrics["timeavg/channel/cov80_live"] == 1.0
     assert metrics["timeavg/channel/cov80_dead"] == 0.0
+    simultaneous = "window_totals/simultaneous_cov80"
+    assert metrics[simultaneous] is None
+    assert report["statuses"][f"metric/{simultaneous}"] == {
+        "status": "unavailable",
+        "reason": "fewer_than_two_live_effects",
+    }
     channels = report["arrays"]["window_totals"]["channels"]
     covered = {entry["name"]: entry["covered"] for entry in channels}
     assert covered == {"channel:a": True, "channel:b": False}
@@ -834,6 +840,214 @@ def test_window_totals_cover_window_means_and_score_running_totals():
     assert metrics["closure/latent_relative_error"] == pytest.approx(
         np.mean(np.array([2, 1, 0.5, 0.5]) / observed)
     )
+
+
+JOINT_COVERAGE_DRAWS = {
+    "baseline": [[10, 10]] * 4,
+    "channel:a": [[-1, -1], [-1, -1], [1, 1], [1, 1]],
+    "channel:b": [[-100, -100], [100, 100], [-100, -100], [100, 100]],
+}
+JOINT_COVERAGE_TRUTH = {"baseline": [10, 10], "channel:a": [2, 2], "channel:b": [1, 1]}
+
+
+@pytest.mark.parametrize(
+    ("a_truth", "joint", "pointwise_live"),
+    [(2.0, 0.0, 0.5), (1.0, 1.0, 1.0)],
+)
+def test_simultaneous_window_coverage_is_the_studentized_live_family_event(
+    a_truth, joint, pointwise_live
+):
+    from pymc_mfm.training.metrics import simultaneous_coverage
+
+    result = effect_world(JOINT_COVERAGE_DRAWS, scale=None)
+    truth = effect_truth({**JOINT_COVERAGE_TRUTH, "channel:a": [a_truth, a_truth]}, 2)
+    report = compute_diagnostics(result, truth=truth, graph_truth=[1, 1, 1])
+    name = "window_totals/simultaneous_cov80"
+    # Draw time means are the four corners (+/-1, +/-100), so population SDs
+    # are (1, 100) and every draw's standardized maximum is exactly 1.
+    # Truth (2, 1) misses jointly despite the broad second-channel interval;
+    # (1, 1) sits on the inclusive first-channel boundary and is covered.
+    assert report["metrics"][name] == joint
+    assert report["metrics"]["timeavg/channel/cov80_live"] == pointwise_live
+    assert (
+        report["metrics"][name],
+        report["statuses"][f"metric/{name}"]["reason"],
+    ) == simultaneous_coverage(result.components[..., [1, 2]], truth[:, [1, 2]])
+    assert report["statuses"][f"metric/{name}"]["status"] == "ok"
+    assert report["metric_units"][name] == "dimensionless"
+    assert "timeavg/channel/simcov80_live" not in report["metrics"]
+
+
+def test_simultaneous_window_coverage_excludes_dead_and_padded_channels():
+    base = effect_world(JOINT_COVERAGE_DRAWS, scale=None)
+    extra = np.zeros((*base.components.shape[:2], 2))
+    extra[..., 0] = 10000
+    result = replace(
+        base,
+        components=np.concatenate((base.components, extra), axis=-1),
+        graphs=np.column_stack((base.graphs, np.zeros((base.n_samples, 2), dtype=int))),
+        component_names=(*base.component_names, "channel:dead", "channel:padding"),
+        component_families=(*base.component_families, "channel", "channel"),
+        component_mask=np.r_[base.component_mask, True, False],
+        edge_names=(*base.edge_names, "cy:channel:dead->sales", "cy:channel:padding->sales"),
+        edge_mask=np.r_[base.edge_mask, True, False],
+        channel_names=(*base.channel_names, "dead", "padding"),
+        provenance={
+            **base.provenance,
+            "edge_endpoints": [
+                *base.provenance["edge_endpoints"],
+                ["channel:dead", "sales"],
+                ["channel:padding", "sales"],
+            ],
+            "edge_families": [*base.provenance["edge_families"], "cy", "cy"],
+        },
+    )
+    truth = np.column_stack(
+        (
+            effect_truth({**JOINT_COVERAGE_TRUTH, "channel:a": [1, 1], "channel:b": [0, 0]}, 2),
+            np.zeros((2, 2)),
+        )
+    )
+    report = compute_diagnostics(result, truth=truth, graph_truth=[1, 1, 1, 0, 0])
+    name = "window_totals/simultaneous_cov80"
+    # b is live even though its time-mean truth is zero. Dead and padded
+    # channels have zero posterior SD and must not invalidate the live event.
+    assert report["metrics"][name] == 1.0
+    assert report["metrics"]["timeavg/channel/cov80_live"] == 1.0
+    assert report["metrics"]["timeavg/channel/cov80_dead"] == 0.0
+    assert report["metrics"]["timeavg/channel/cov80"] == pytest.approx(2 / 3)
+    assert [entry["name"] for entry in report["arrays"]["window_totals"]["channels"]] == [
+        "channel:a",
+        "channel:b",
+        "channel:dead",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("graph_truth", "truth_supplied", "constant_effect", "reason"),
+    [
+        pytest.param([0, 0, 1], True, False, "fewer_than_two_live_effects", id="no-live"),
+        pytest.param([1, 1, 1], True, True, "zero_posterior_sd", id="constant-live"),
+        pytest.param(None, True, False, "graph truth not supplied", id="no-graph-truth"),
+        pytest.param([1, 1, 1], False, False, "simulation truth not supplied", id="no-truth"),
+    ],
+)
+def test_simultaneous_window_coverage_preserves_unavailable_statuses(
+    graph_truth, truth_supplied, constant_effect, reason
+):
+    draws = {
+        **JOINT_COVERAGE_DRAWS,
+        **({"channel:b": [[0, 0]] * 4} if constant_effect else {}),
+    }
+    report = compute_diagnostics(
+        effect_world(draws, scale=None),
+        truth=effect_truth(JOINT_COVERAGE_TRUTH, 2) if truth_supplied else None,
+        graph_truth=graph_truth,
+    )
+    name = "window_totals/simultaneous_cov80"
+    assert report["metrics"][name] is None
+    assert report["metric_units"][name] == "dimensionless"
+    assert report["statuses"][f"metric/{name}"] == {"status": "unavailable", "reason": reason}
+    assert report["panels"]["window_totals"]["status"] == (
+        "ok" if truth_supplied else "unavailable"
+    )
+
+
+def test_window_totals_panel_displays_joint_miss_beside_pointwise_share():
+    pytest.importorskip("matplotlib")
+    from pymc_mfm.plotting.panels import plot_window_totals
+
+    report = compute_diagnostics(
+        effect_world(JOINT_COVERAGE_DRAWS, scale=None),
+        truth=effect_truth(JOINT_COVERAGE_TRUTH, 2),
+        graph_truth=[1, 1, 1],
+    )
+    figure = plot_window_totals(report)
+    figure.canvas.draw()
+    rates = figure.axes[1]
+    bars = {bar.get_gid(): bar.get_height() for bar in rates.patches}
+    assert bars == {
+        "timeavg/channel/cov80": 0.5,
+        "timeavg/channel/cov80_live": 0.5,
+        "window_totals/simultaneous_cov80": 0.0,
+    }
+    nominal = next(line for line in rates.lines if len(line.get_ydata()) == 2)
+    np.testing.assert_array_equal(nominal.get_ydata(), [0.8, 0.8])
+
+
+@pytest.mark.parametrize(
+    ("graph_truth", "constant_effect", "reason"),
+    [
+        pytest.param([1, 0, 1], False, "fewer_than_two_live_effects", id="one-live"),
+        pytest.param([1, 1, 1], True, "zero_posterior_sd", id="constant-live"),
+        pytest.param(None, False, "graph truth not supplied", id="no-graph-truth"),
+    ],
+)
+def test_window_totals_panel_marks_joint_unavailability_with_its_reason(
+    graph_truth, constant_effect, reason
+):
+    pytest.importorskip("matplotlib")
+    from pymc_mfm.plotting.panels import plot_window_totals
+
+    draws = {
+        **JOINT_COVERAGE_DRAWS,
+        **({"channel:b": [[0, 0]] * 4} if constant_effect else {}),
+    }
+    report = compute_diagnostics(
+        effect_world(draws, scale=None),
+        truth=effect_truth(JOINT_COVERAGE_TRUTH, 2),
+        graph_truth=graph_truth,
+    )
+    figure = plot_window_totals(report)
+    figure.canvas.draw()
+    rates = figure.axes[1]
+    assert "window_totals/simultaneous_cov80" not in {bar.get_gid() for bar in rates.patches}
+    joint_na = next(text for text in rates.texts if text.get_position()[0] == 3)
+    assert joint_na.get_text() == "n/a"
+    legend = "".join(text.get_text().replace("\n", "") for text in rates.get_legend().get_texts())
+    assert reason in legend
+
+
+def test_legacy_window_totals_summary_retains_pointwise_bars_without_rescoring(
+    tmp_path, monkeypatch
+):
+    pytest.importorskip("matplotlib")
+    from pymc_mfm.diagnostics import core
+    from pymc_mfm.plotting.panels import plot_window_totals
+    from pymc_mfm.training import metrics as scoring
+
+    summary = compute_diagnostics(
+        effect_world(TEMPORAL_DRAWS),
+        truth=effect_truth(TEMPORAL_TRUTH, 4),
+        graph_truth=[1, 0, 1],
+    )
+    name = "window_totals/simultaneous_cov80"
+    del summary["metrics"][name]
+    del summary["metric_units"][name]
+    del summary["statuses"][f"metric/{name}"]
+    saved = tmp_path / "summary.json"
+    saved.write_text(json.dumps(summary, allow_nan=False))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("legacy summaries must not be rescored")
+
+    monkeypatch.setattr(core, "compute_diagnostics", forbidden)
+    monkeypatch.setattr(scoring, "time_average_scores", forbidden)
+    monkeypatch.setattr(scoring, "simultaneous_coverage", forbidden)
+    stored = json.loads(saved.read_text())
+    figure = plot_window_totals(stored)
+    figure.canvas.draw()
+    rates = figure.axes[1]
+    assert {bar.get_gid(): bar.get_height() for bar in rates.patches} == {
+        "timeavg/channel/cov80": 0.5,
+        "timeavg/channel/cov80_live": 1.0,
+        "timeavg/channel/cov80_dead": 0.0,
+    }
+    joint_na = next(text for text in rates.texts if text.get_position()[0] == 3)
+    assert joint_na.get_text() == "n/a"
+    legend = " ".join(text.get_text() for text in rates.get_legend().get_texts())
+    assert "not recorded" in " ".join(legend.split())
+    assert name not in stored["metrics"]
 
 
 def test_share_errors_divide_group_totals_by_the_outcome_magnitude():

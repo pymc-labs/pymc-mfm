@@ -162,6 +162,19 @@ def _human_report(manifest, root):
         + escape(json.dumps(manifest["statuses"], indent=2))
         + "</pre></details>"
     )
+    if manifest["kind"] == "conditional_diagnostic_report":
+        intervals = manifest.get("coverage_intervals", ())
+        sections.append("<h2>Report-only coverage intervals</h2>")
+        if intervals:
+            sections.append(
+                "<p>95% percentile intervals resample whole corpus/cell pairs. "
+                "The estimand is the equal-world coverage mean; slot counts are metadata, "
+                "not bootstrap weights. Unavailable intervals are not numerical zero.</p><pre>"
+                + escape(json.dumps(intervals, indent=2))
+                + "</pre>"
+            )
+        else:
+            sections.append("<p class='unavailable'>Coverage interval evidence not recorded.</p>")
     if conditional_sbc:
         sections.append(
             "<p>Full per-family and per-entity PIT evidence, skip reasons and "
@@ -207,6 +220,7 @@ def _finish(summary, root, provenance, *, strict, source_manifest=None):
         "statuses": dict(summary["statuses"]),
         "panels": {name: dict(record) for name, record in summary["panels"].items()},
         "qualifications": summary["qualifications"],
+        "coverage_intervals": json_safe(summary.get("coverage_intervals", ())),
         "artifacts": [],
         "evidence": {
             "result": "result",
@@ -304,17 +318,28 @@ def _finish(summary, root, provenance, *, strict, source_manifest=None):
     return manifest
 
 
-def _report_evidence(truth, graph_truth, observed, training_records, evaluation_records, reference):
+def _report_evidence(
+    truth,
+    graph_truth,
+    observed,
+    training_records,
+    evaluation_records,
+    reference,
+    coverage_intervals=(),
+):
     """Caller evidence normalized exactly as a report persists and scores it.
 
     Arrays are frozen copies: a caller reusing its array after scoring cannot
     change the evidence a later ``Diagnostics.report`` saves.
+    Report-only coverage intervals are a separate strict-JSON snapshot, never
+    scalar metrics or evaluation records.
     """
     records = json_safe(
         {
             "training_records": list(training_records),
             "evaluation_records": list(evaluation_records),
             "reference": reference,
+            "coverage_intervals": coverage_intervals,
         }
     )
     optional_arrays = {}
@@ -332,7 +357,7 @@ def _report_evidence(truth, graph_truth, observed, training_records, evaluation_
 
 
 def _score(result, records, optional_arrays):
-    return compute_diagnostics(
+    summary = compute_diagnostics(
         result,
         truth=optional_arrays.get("truth"),
         graph_truth=optional_arrays.get("graph_truth"),
@@ -341,6 +366,8 @@ def _score(result, records, optional_arrays):
         evaluation_records=records["evaluation_records"],
         reference=records["reference"],
     )
+    summary["coverage_intervals"] = json_safe(records.get("coverage_intervals", ()))
+    return summary
 
 
 def _write_report(result, root, records, optional_arrays, summary, *, strict):
@@ -361,6 +388,7 @@ def build_report(
     observed=None,
     training_records=(),
     evaluation_records=(),
+    coverage_intervals=(),
     reference=None,
     strict=True,
 ):
@@ -372,9 +400,19 @@ def build_report(
     strict mode. Truth/observation arrays stay separate from inference results.
     ``result.diagnostics(...).report(out_dir)`` writes the same files from its
     already computed values.
+    ``coverage_intervals`` is already computed report-only evidence (for
+    example step/coverage_intervals records from ``TrainingRun.derived_metrics``).
+    Its strict-JSON snapshot is frozen in evidence, summary and manifest, not
+    added to scalar metrics. Rerendering keeps those values without a bootstrap.
     """
     records, optional_arrays = _report_evidence(
-        truth, graph_truth, observed, training_records, evaluation_records, reference
+        truth,
+        graph_truth,
+        observed,
+        training_records,
+        evaluation_records,
+        reference,
+        coverage_intervals,
     )
     root = _output(out_dir)
     try:
@@ -384,6 +422,7 @@ def build_report(
         summary = {
             "format_version": FORMAT_VERSION,
             "metrics": {},
+            "coverage_intervals": json_safe(records["coverage_intervals"]),
             "metric_units": {},
             "arrays": {},
             "statuses": {"scoring": {"status": "failed", "reason": reason}},
@@ -488,6 +527,12 @@ def render_report(saved_path, out_dir, *, strict=True):
         raise ValueError("report dimensions disagree with saved result")
     if manifest.get("metrics") != summary["metrics"]:
         raise ValueError("report metrics disagree with stored diagnostic values")
+    intervals = summary.get("coverage_intervals", [])
+    if manifest.get("coverage_intervals", []) != intervals:
+        raise ValueError("report coverage intervals disagree with stored diagnostic values")
+    records = json.loads((source / "evidence.json").read_text(encoding="utf-8"))
+    if records.get("coverage_intervals", []) != intervals:
+        raise ValueError("report coverage intervals disagree with stored evidence")
     root = _output(out_dir)
     for relative in _INPUT_FILES:
         destination = root / relative

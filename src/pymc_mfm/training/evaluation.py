@@ -91,6 +91,7 @@ _CONDITIONAL_COVERAGE_METRICS = tuple(
 )
 _TEMPORAL_METRICS = tuple(f"contribution_{key}" for key in metrics.TEMPORAL_KEYS)
 _TIME_AVERAGE_METRICS = tuple(f"timeavg_contribution_{key}" for key in metrics.TIME_AVERAGE_KEYS)
+_CONTROL_SIMULTANEOUS_METRIC = "timeavg_control_contribution_simcov80_live"
 DECOMPOSITION_METRICS: tuple[str, ...] = (
     *(f"{family}_{stat}" for family in _FAMILIES for stat in _FAMILY_STATS),
     "contribution_padding_leakage_scaled_mae",
@@ -100,6 +101,7 @@ DECOMPOSITION_METRICS: tuple[str, ...] = (
     *_CONDITIONAL_COVERAGE_METRICS,
     *_TEMPORAL_METRICS,
     *_TIME_AVERAGE_METRICS,
+    _CONTROL_SIMULTANEOUS_METRIC,
 )
 _EDGE_SCORES = (
     "log_score",
@@ -133,7 +135,7 @@ SLOT_METRICS = frozenset(
         "contribution_padding_leakage_scaled_mae",
         *_CONDITIONAL_COVERAGE_METRICS,
         *_TEMPORAL_METRICS,
-        *_TIME_AVERAGE_METRICS,
+        *(name for name in _TIME_AVERAGE_METRICS if not name.endswith("_simcov80_live")),
     }
 )
 
@@ -167,6 +169,7 @@ METRIC_BOUNDS: dict[str, tuple[float, float]] = {
     "contribution_posterior_centered_residual_lag1": _CORRELATION,
     "contribution_adjacent_draw_correlation": _CORRELATION,
     **dict.fromkeys(_TIME_AVERAGE_METRICS, _PROBABILITY),
+    _CONTROL_SIMULTANEOUS_METRIC: _PROBABILITY,
     "log_score": _NONNEGATIVE,
     "brier": _PROBABILITY,
     "auroc": _PROBABILITY,
@@ -221,6 +224,7 @@ METRIC_UNITS: dict[str, str] = {
     **dict.fromkeys(_CONDITIONAL_COVERAGE_METRICS, "dimensionless"),
     **dict.fromkeys(_TEMPORAL_METRICS, "dimensionless"),
     **dict.fromkeys(_TIME_AVERAGE_METRICS, "dimensionless"),
+    _CONTROL_SIMULTANEOUS_METRIC: "dimensionless",
     "log_score": "nats",
     **dict.fromkeys(
         (
@@ -714,6 +718,14 @@ def _score_decomposition(
         None if graph_m is None else graph_m[:, active_m],
     )
 
+    live_controls = live_m[active_m] != 0
+    world.score(
+        _CONTROL_SIMULTANEOUS_METRIC,
+        metrics.simultaneous_coverage(
+            pred_controls[..., live_controls], true_controls[:, live_controls]
+        ),
+    )
+
     if n_channels:
         world.update(metrics.temporal_scores(pred_contrib, true_contrib, prefix="contribution_"))
         world.update(
@@ -750,6 +762,24 @@ def _effect_layout(
     slots = np.r_[layout.slices["cy"].start + channels, layout.slices["zb"].start + controls]
     names = [f"channel:channel_{i}" for i in channels] + [f"control:control_{i}" for i in controls]
     return columns, slots, names, ["channel"] * channels.size + ["control"] * controls.size
+
+
+def _cell_identity(corpus: Mapping[str, Any], row: int) -> int | None:
+    """A usable generator-cell ID, never an invented independence unit."""
+    source = corpus.get("cell_id")
+    if np.ma.is_masked(source):
+        return None
+    if isinstance(source, Sequence) and any(
+        not isinstance(value, Integral) or isinstance(value, (bool, np.bool_)) for value in source
+    ):
+        return None
+    try:
+        ids = np.asarray(source)
+    except (TypeError, ValueError):
+        return None
+    if ids.shape != (len(corpus["outcome_raw"]),) or ids.dtype.kind not in "iu":
+        return None
+    return int(ids[row])
 
 
 def evaluate_rows(
@@ -803,10 +833,11 @@ def evaluate_rows(
       nonzero absolute true totals, the same for both heads and any model on
       these worlds;
     * ``per_world`` (only with ``per_world=True``), in evaluation order:
-      ``[{corpus_index, row, values, weights, undefined, effects}]`` with every
+      ``[{corpus_index, row, cell_id, values, weights, undefined, effects}]`` with every
       per-world key's value (``None`` when undefined), its slot weight (``0``
       when undefined), its reason, and ``effects[head][window]``, the world's
-      :func:`pymc_mfm.diagnostics.effect_rows` behind ``strata``.
+      :func:`pymc_mfm.diagnostics.effect_rows` behind ``strata``. ``cell_id``
+      is ``None`` when usable generator-cell metadata is absent.
 
     Metric keys are fixed (:data:`DECOMPOSITION_METRICS`, :data:`EDGE_METRICS`,
     :data:`GRAPH_METRICS`, :data:`COUNT_METRICS`); :func:`metric_aggregation`
@@ -1010,6 +1041,7 @@ def _score_batch(
             else {
                 "corpus_index": int(corpus_index),
                 "row": int(row),
+                "cell_id": _cell_identity(corpus, row),
                 "values": {},
                 "weights": {},
                 "undefined": {},

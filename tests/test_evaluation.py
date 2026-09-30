@@ -130,7 +130,12 @@ def test_perfect_decomposition_scores_zero_and_closes_on_corpus_outcome(corpus, 
             assert reason == "constant_series", key
         else:  # this world may lack live or dead channels/controls
             assert key.startswith(("attribution_", "timeavg_")), key
-            assert reason in {"no_live_effects", "no_dead_effects"}, key
+            assert reason in {
+                "no_live_effects",
+                "no_dead_effects",
+                "fewer_than_two_live_effects",
+                "zero_posterior_sd",
+            }, key
     for key, value in world.values.items():
         if key.endswith("_cov80") or key.startswith("timeavg_"):
             assert value == 1.0, key
@@ -142,6 +147,40 @@ def test_perfect_decomposition_scores_zero_and_closes_on_corpus_outcome(corpus, 
             assert value == pytest.approx(world.values["contribution_truth_lag1"], abs=1e-12)
         else:
             assert value == pytest.approx(0.0, abs=1e-12), key
+
+
+def test_simultaneous_window_coverage_scores_live_media_and_controls_not_padding():
+    draws = np.array([[-1, -100], [-1, 100], [1, -100], [1, 100]])[:, None, :]
+    pred, truth = np.zeros((4, 2, 11)), np.zeros((2, 11))
+    pred[..., 1:3] = draws
+    pred[..., 4:6] = -draws
+    truth[:, 1:3] = (2.0, 1.0)
+    # Unused padded effects cannot contaminate either joint event.
+    pred[..., [3, 6]] = np.nan
+    scored = _score_decomposition(
+        pred,
+        truth,
+        np.array([True, True, False]),
+        np.array([True, True, False]),
+        np.ones(3),
+        np.ones(3),
+        np.ones(2),
+        np.zeros(2),
+        1.0,
+    )
+    media, control = (
+        "timeavg_contribution_simcov80_live",
+        "timeavg_control_contribution_simcov80_live",
+    )
+    assert scored.values[media] == 0.0
+    assert scored.values[control] == 1.0
+    assert scored.weights[media] == scored.weights[control] == 1
+    assert scored.values["timeavg_contribution_cov80_live"] == 0.5
+    aggregation = metric_aggregation()
+    for name in (media, control):
+        assert aggregation[f"conditional/query/{name}"] == "world"
+        assert METRIC_BOUNDS[name] == (0.0, 1.0)
+        assert METRIC_UNITS[name] == "dimensionless"
 
 
 def test_conditional_window_coverage_uses_only_aligned_gate_on_draws():
@@ -276,6 +315,8 @@ def test_joint_and_conditional_are_distinct_and_populated(record):
         "no_negative_slots",
         "no_live_effects",
         "no_dead_effects",
+        "fewer_than_two_live_effects",
+        "zero_posterior_sd",
         "constant_series",
         "needs_2_active_nodes",
         "needs_2_active_slots",
@@ -660,12 +701,54 @@ def test_per_world_values_reproduce_the_leg_aggregates(model, corpus, holdout, r
             assert (entry["weights"][key] > 0) == defined, key
             assert (key in entry["undefined"]) == (not defined), key
     for entry in entries:
+        assert entry["cell_id"] == int(corpus["cell_id"][entry["row"]])
         n_channels = int(corpus["treatment_active_mask"][entry["row"]].sum())
         assert entry["weights"]["joint/query/contribution_crps"] == n_channels
         assert entry["weights"]["joint/query/contribution_padding_leakage_scaled_mae"] == (
             corpus["treatment_active_mask"].shape[1] - n_channels
         )
         assert entry["weights"]["joint/query/decomposition_energy_score"] == 1
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        "missing",
+        "null",
+        "nan",
+        "wrong_shape",
+        "boolean",
+        "mixed_boolean",
+        "wrapped_boolean",
+        "masked",
+    ],
+)
+def test_unusable_cell_metadata_preserves_evaluation_without_inventing_cells(
+    model, corpus, holdout, metadata
+):
+    changed = dict(corpus)
+    n_worlds = len(corpus["outcome_raw"])
+    if metadata == "missing":
+        changed.pop("cell_id")
+    else:
+        changed["cell_id"] = {
+            "null": None,
+            "nan": np.full(n_worlds, np.nan),
+            "wrong_shape": np.zeros((n_worlds, 1), dtype=int),
+            "boolean": np.zeros(n_worlds, dtype=bool),
+            "mixed_boolean": [0, True, *range(2, n_worlds)],
+            "wrapped_boolean": [0, np.array(True), *range(2, n_worlds)],
+            "masked": np.ma.array(corpus["cell_id"], mask=np.arange(n_worlds) == 0),
+        }[metadata]
+    options = dict(
+        n_samples=3, seed=17, device="cpu", leg="holdout", heads=("joint",), per_world=True
+    )
+    before = evaluate_rows(model, [corpus], holdout[:1], **options)
+    after = evaluate_rows(model, [changed], holdout[:1], **options)
+    assert after["heads"] == before["heads"]
+    assert after["per_world"][0]["values"] == before["per_world"][0]["values"]
+    assert after["per_world"][0]["cell_id"] is None
+    json.dumps(after, allow_nan=False)
 
 
 QUERY_SHIFTS = (1.0, 3.0)

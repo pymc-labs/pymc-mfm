@@ -324,8 +324,115 @@ def test_time_average_coverage_uses_the_interval_of_draw_time_means():
     world = metrics.time_average_scores(draws, truth, np.array([1, 0]), prefix="t_")
     assert world.values == {"t_cov80": 0.5, "t_cov80_live": 1.0, "t_cov80_dead": 0.0}
     assert world.weights == {"t_cov80": 2, "t_cov80_live": 1, "t_cov80_dead": 1}
+    assert world.undefined == {"t_simcov80_live": "fewer_than_two_live_effects"}
     only_live = metrics.time_average_scores(draws, truth, np.array([1, 1]))
-    assert only_live.undefined == {"cov80_dead": "no_dead_effects"}
+    assert only_live.undefined == {
+        "cov80_dead": "no_dead_effects",
+        "simcov80_live": "zero_posterior_sd",
+    }
+
+
+def test_simultaneous_coverage_studentizes_each_effect_and_includes_the_boundary():
+    draws = np.array([[-1, -100], [-1, 100], [1, -100], [1, 100]])[:, None, :]
+    # A raw-deviation band of radius 100 would wrongly contain this truth.
+    truth = np.array([[2.0, 1.0]])
+    assert metrics.simultaneous_coverage(draws, truth) == (0.0, None)
+    assert metrics.simultaneous_coverage(draws, [[0.0, 0.0]]) == (1.0, None)
+    assert metrics.simultaneous_coverage(draws, [[1.0, 100.0]]) == (1.0, None)
+    # One escaping effect must miss even when mean/L2 discrepancies are inside.
+    assert metrics.simultaneous_coverage(draws, [[0.0, 120.0]]) == (0.0, None)
+    assert metrics.simultaneous_coverage(draws[..., ::-1], [[120.0, 0.0]]) == (0.0, None)
+    rescale = np.array([-3.0, 0.001])
+    assert metrics.simultaneous_coverage(draws * rescale, truth * rescale) == (0.0, None)
+    extreme_units = np.array([1e-200, -1e150])
+    assert metrics.simultaneous_coverage(draws * extreme_units, truth * extreme_units) == (
+        0.0,
+        None,
+    )
+    # Draw-dependent temporal cancellation must happen before the joint event.
+    temporal = np.repeat(draws, 2, axis=1)
+    temporal[:, 0, 0] *= 11
+    temporal[:, 1, 0] *= -9
+    assert metrics.simultaneous_coverage(temporal, np.repeat(truth, 2, axis=0)) == (0.0, None)
+
+
+def test_simultaneous_coverage_centers_draws_and_interpolates_the_requested_quantile():
+    draws = np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [10.0, 10.0]])[:, None, :]
+    # Center 2.5; the linear .8 quantile gives a raw half-width of 4.5.
+    assert metrics.simultaneous_coverage(draws, [[6.0, 6.0]]) == (1.0, None)
+    assert metrics.simultaneous_coverage(draws, [[8.0, 8.0]]) == (0.0, None)
+    assert metrics.simultaneous_coverage(draws, [[6.0, 6.0]], level=0.5) == (0.0, None)
+    assert metrics.simultaneous_coverage(draws, [[8.0, 8.0]], level=0.9) == (1.0, None)
+
+
+def test_simultaneous_coverage_filters_dead_effects_before_scoring():
+    live_draws = np.array([[-1, -100], [-1, 100], [1, -100], [1, 100]])[:, None, :]
+    draws = np.concatenate((live_draws, np.full((4, 1, 1), np.nan)), axis=-1)
+    truth = np.array([[0.0, 0.0, np.nan]])
+    world = metrics.time_average_scores(draws, truth, np.array([1, 1, 0]))
+    assert world.values == {"simcov80_live": 1.0}
+    assert world.weights == {"simcov80_live": 1}
+    assert {world.undefined[key] for key in ("cov80", "cov80_live", "cov80_dead")} == {"nonfinite"}
+    assert metrics.time_average_scores(live_draws, truth[:, :2], None).undefined == {
+        "cov80_live": "missing_graph_truth",
+        "cov80_dead": "missing_graph_truth",
+        "simcov80_live": "missing_graph_truth",
+    }
+
+
+@pytest.mark.parametrize("effects", [0, 1])
+def test_simultaneous_coverage_needs_two_live_effects(effects):
+    assert metrics.simultaneous_coverage(np.ones((3, 2, effects)), np.zeros((2, effects))) == (
+        None,
+        "fewer_than_two_live_effects",
+    )
+
+
+def test_simultaneous_coverage_reports_degenerate_and_nonfinite_totals():
+    draws = np.array([[-1.0, 0.0], [1.0, 0.0]])[:, None, :]
+    assert metrics.simultaneous_coverage(draws, [[0.0, 0.0]]) == (None, "zero_posterior_sd")
+    assert metrics.simultaneous_coverage(draws[:1], [[0.0, 0.0]]) == (None, "zero_posterior_sd")
+    repeated = np.full((3, 1, 2), 0.1)
+    assert metrics.simultaneous_coverage(repeated, [[0.1, 0.1]]) == (None, "zero_posterior_sd")
+    narrow = np.array([[-1.0, -1.0], [0.0, 0.0], [1.0, 1.0]])[:, None, :] * 1e-100
+    assert metrics.simultaneous_coverage(narrow, [[0.0, 0.0]]) == (1.0, None)
+    assert metrics.simultaneous_coverage(narrow * 1e-100, [[0.0, 0.0]]) == (1.0, None)
+    assert metrics.simultaneous_coverage(draws, [[np.inf, 0.0]]) == (None, "nonfinite")
+    draws[0, 0, 1] = np.nan
+    assert metrics.simultaneous_coverage(draws, [[0.0, 0.0]]) == (None, "nonfinite")
+    assert metrics.simultaneous_coverage(np.full((2, 3, 2), 1e308), np.zeros((3, 2))) == (
+        None,
+        "nonfinite",
+    )
+    for level in (0.0, 1.0, np.nan, np.inf):
+        with pytest.raises(ValueError, match="level"):
+            metrics.simultaneous_coverage(np.zeros((2, 1, 2)), [[0.0, 0.0]], level)
+    with pytest.raises(ValueError, match="nonempty time"):
+        metrics.simultaneous_coverage(np.zeros((2, 0, 2)), np.zeros((0, 2)))
+    with pytest.raises(ValueError, match="3-D draws"):
+        metrics.simultaneous_coverage(np.zeros((2, 2)), np.zeros(2))
+
+
+def test_exchangeable_truth_has_nominal_joint_coverage_unlike_all_pointwise_covered():
+    rng = np.random.default_rng(27)
+    n_worlds, n_draws = 1500, 401
+    draws = rng.normal(size=(n_worlds, n_draws, 15))
+    truth = rng.normal(size=(n_worlds, 15))
+    low, high = np.quantile(draws, (0.1, 0.9), axis=1)
+    pointwise = (low <= truth) & (truth <= high)
+    all_covered = []
+    for channels in range(2, 16):
+        simultaneous = [
+            metrics.simultaneous_coverage(x[:, None, :channels], y[None, :channels])[0]
+            for x, y in zip(draws, truth, strict=True)
+        ]
+        # Monte Carlo uncertainty plus finite posterior quantile/SD estimation.
+        assert np.mean(simultaneous) == pytest.approx(0.8, abs=0.045), channels
+        # This is comparisons.score_record's all_covered event, not a joint 80% band.
+        all_covered.append(float(pointwise[:, :channels].all(axis=1).mean()))
+    assert all_covered[0] == pytest.approx(0.8**2, abs=0.05)
+    assert all_covered[-1] < 0.08
+    assert all(a >= b for a, b in zip(all_covered, all_covered[1:], strict=False))
 
 
 def test_cumulative_energy_score_scores_running_totals():
