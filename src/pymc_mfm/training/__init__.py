@@ -1,5 +1,6 @@
 """Canonical training: corpus consumption, optimization, evaluation, checkpoints."""
 
+from .archive import archive_identity, evaluate_into_archive
 from .checkpoint import load_checkpoint, save_checkpoint
 from .compatibility import check_recorded_evaluation
 from .config import TrainingConfig
@@ -24,7 +25,9 @@ __all__ = [
     "TrainingError",
     "TrainingObserver",
     "TrainingResult",
+    "archive_identity",
     "check_recorded_evaluation",
+    "evaluate_into_archive",
     "evaluate_rows",
     "flatten_evaluation",
     "load_checkpoint",

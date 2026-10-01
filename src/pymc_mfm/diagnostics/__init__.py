@@ -7,6 +7,14 @@ from .accessors import (
     TrainingPlots,
     TrainingRun,
 )
+from .archive import (
+    WINDOW_TOTAL_FAMILIES,
+    ArchiveEntry,
+    ArchiveIntegrityError,
+    EvaluationArchive,
+    EvaluationArchiveWriter,
+    family_window_totals,
+)
 from .calibration import (
     calibration_summary,
     compute_rank,
@@ -44,6 +52,8 @@ from .structure import (
 from .uncertainty import paired_graph_uncertainty
 
 __all__ = [
+    "ArchiveEntry",
+    "ArchiveIntegrityError",
     "CalibrationPlots",
     "CalibrationReport",
     "Comparison",
@@ -51,11 +61,14 @@ __all__ = [
     "DiagnosticError",
     "Diagnostics",
     "DiagnosticsPlots",
+    "EvaluationArchive",
+    "EvaluationArchiveWriter",
     "PANEL_NAMES",
     "STRATA_AXES",
     "ResultPlots",
     "TrainingPlots",
     "TrainingRun",
+    "WINDOW_TOTAL_FAMILIES",
     "build_report",
     "calibration_summary",
     "conditional_sbc_report",
@@ -65,6 +78,7 @@ __all__ = [
     "compute_rank",
     "coverage_from_ranks",
     "factorized_set_diagnostics",
+    "family_window_totals",
     "graph_support_diagnostics",
     "misclassification_summary",
     "paired_graph_uncertainty",

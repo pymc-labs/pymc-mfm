@@ -390,6 +390,28 @@ or interrupted batches.
 | `corpus_support.json` | context-outcome mean and standard deviation of each world (`"<corpus>:<row>"`, both splits), at most 5,000 evenly spaced worlds, with the total in `n_worlds` and kept worlds with an empty or non-finite context, or with overflowing statistics, in `skipped`; written at the start and never logged to MLflow |
 | `checkpoint_last.pt`, `checkpoint_best.pt`, `checkpoint_step_<N>.pt` | atomic training checkpoints (`load_checkpoint`): `config`, `state_dict`, training configuration, run identity and provenance, consumption, the accompanying evaluation record and selection |
 | `model/` | complete terminal safetensors/JSON model export; training checkpoint and exported tensor hashes remain distinct |
+| `archives/step_<N:09d>/` | only with `train(holdout_archives=...)` / `--holdout-archives`: the held-out leg's existing conditional captures of a promoting (`"best"`) and/or the final (`"terminal"`) evaluation event as an evaluation archive (see Evaluation archives below), referenced from the `run.json` `diagnostics` (recipe `holdout_evaluation_archive`) and, for the terminal checkpoint, from the exported bundle's provenance |
+
+Holdout archives are disabled by default, and then nothing in the run changes.
+`train(..., holdout_archives=("best", "terminal"))` (CLI
+`--holdout-archives best,terminal`; either kind may be given alone) keeps the
+held-out leg of every evaluation event that promotes `checkpoint_best.pt`
+(`"best"`) and of the final event (`"terminal"`), at most one archive per
+event. Archives reuse the draws the evaluation already made: draws, scores,
+selection, weights and random streams are unchanged. As with diagnostics, the
+evaluation records of events that can be archived (every event with `"best"`,
+the final event with `"terminal"` alone) gain `legs.holdout.result_capture`;
+`run.json` gains `evaluation_policy.holdout_archives` and one `diagnostics`
+entry per archive with its `path`, `kinds`, manifest file `sha256`,
+`archive_sha256`, `state_sha256`, the event's `checkpoint_sha256` and, at a
+promotion, `best_checkpoint_sha256`. A best-only archive names the
+`checkpoint_best.pt` of its step, which a later promotion overwrites
+(`state_sha256` keeps identifying the weights), except at the final step, where
+every archive names that step's `checkpoint_last.pt`, the exported bundle's
+source checkpoint. A configuration that cannot be archived, such as the same
+corpus passed twice, fails the run before training. An archive that fails at an
+event is recorded (`status: "failed"`, `error_type`), and training continues.
+Archives are never uploaded to MLflow.
 
 A nonfinite loss or gradient norm at a logging update fails the run with the
 reason in `run.json`; interrupted runs are recorded as `interrupted`. Nothing
@@ -760,6 +782,243 @@ walks through `result.plot`, `result.diagnostics(...)` with generating truth, an
 `tests/test_examples.py` executes it headless. Graphviz is optional; the
 standard DAG renderer uses matplotlib and declares alternate-renderer
 availability rather than silently skipping a panel.
+
+### Evaluation archives
+
+Cross-world reports need the draws of many worlds at once.
+`pymc_mfm.diagnostics.EvaluationArchive` keeps the conditional captures that
+`evaluate_rows` passes to its `result_sink`, saved and hash-bound, so
+`sbc_report`, `conditional_sbc_report` and `strata_summary` read saved
+evaluator draws without any model call. Recomputing a report from an archive
+therefore does not depend on seeds, devices or thread counts, unlike rerunning
+inference (see Reproducibility).
+
+```bash
+uv sync --locked --extra generation --extra diagnostics
+```
+
+```python
+from pymc_mfm.data.recipes import load_corpora, provenance
+from pymc_mfm.diagnostics import (
+    EvaluationArchive,
+    conditional_sbc_report,
+    sbc_report,
+    strata_summary,
+)
+from pymc_mfm.inference import from_pretrained
+from pymc_mfm.training import evaluate_into_archive
+
+loaded = load_corpora(["corpora/evaluation/shard_540000.npz"])
+corpora = [item.corpus for item in loaded]
+rows = [(0, row) for row in range(loaded[0].n_worlds)]
+path, records = evaluate_into_archive(
+    from_pretrained("runs/A-seed31/model"),
+    corpora,
+    rows,
+    "artifacts/archives/A-eval-540000",
+    n_samples=128,
+    seed=616162,
+    leg="all",
+    worlds_per_call=4,
+    corpus_provenance=[provenance(item) for item in loaded],
+)
+archive = EvaluationArchive.load(path)  # verifies every hash, shape and identity first
+card = conditional_sbc_report(**archive.conditional_sbc_inputs("query"))
+sbc = sbc_report(**archive.sbc_inputs("query"), simulations=1000)
+table = strata_summary(archive.effect_rows("query"))
+```
+
+`evaluate_into_archive` takes the target directory and the arguments of
+`archive_identity`, which derives the archive's identity from the model, the
+corpora and the request. It checks both before any inference, runs exactly the
+`evaluate_rows` calls the identity declares with the archive writer as their
+`result_sink`, and returns the published path and the `evaluate_rows` record of
+each call. It makes one call unless `worlds_per_call` is set; here each call
+evaluates at most 4 worlds, call `k` with seed `seed + k`, and 616162 is the
+trainer's held-out draw seed (`TrainingConfig().eval_seed + 1`). The
+`provenance` records give each corpus its file digest and, from a prior sidecar
+bound to that file, its generator seed and prior hash. The CLI evaluates at
+most 4 worlds per call by default:
+
+```bash
+uv run --locked --extra generation python -m pymc_mfm.training evaluate \
+  --model runs/A-seed31/model --corpus corpora/evaluation/shard_540000.npz \
+  --split all --worlds-per-call 4 --out-dir artifacts/archives/A-eval-540000
+```
+
+`--model` is a bundle directory or a training checkpoint file such as
+`runs/A-seed31/checkpoint_best.pt`, whose file SHA-256, step and profile then
+complete the model identity. `--split holdout` (the default) selects the
+`is_val == 1` rows of every `--corpus`, `--split all` every row, in corpus
+order; repeated `--world SEED:ROW` instead selects rows of the corpora with
+those verified generator seeds, in the given order. `--n-samples` (default 128),
+`--seed` (default 616162), `--heads` (default `joint,conditional`; it must
+include `conditional`), `--leg` (default: the `--split` name, or `selected` with
+`--world`) and `--device` (default `cpu`) complete the request, so this call
+declares the same evaluation as the Python example. Bad arguments, world
+selections and identities are usage errors (exit status 2), and a target that
+is not new or empty raises `FileExistsError`, all before any inference; a
+corpus or model that fails to load raises as in the training CLI. On
+success the command verifies the archive with `EvaluationArchive.load` and
+prints a JSON summary.
+
+```text
+<archive>/
+  manifest.json              strict JSON (json_bytes): format_version, kind, identity, entries, archive_sha256
+  entries/
+    0000/                    one world window, in archive order; IS a DecompositionResult directory
+      result.json            DecompositionResult.save metadata (format_version 2, arrays_sha256, metadata_sha256)
+      arrays.npz             components [S,T,D], graphs [S,L], component_mask [D], edge_mask [L], time [T]
+      truth.npz              truth [T,D], graph_truth [L], observed [T]; float64; no pickles
+    0001/
+    ...
+```
+
+`manifest.json` (format 1) is strict JSON with sorted keys and
+`allow_nan=False`, holding exactly the keys above. Each entry records the
+SHA-256 and size of its three files, and `archive_sha256` digests the rest of
+the manifest. The identity has three blocks: `model` (`state_sha256` of the
+evaluated weights, `config_sha256` and, for a loaded bundle, its
+`bundle_sha256`, source checkpoint, step and profile), `corpora` (per corpus its
+input digest, file digest, generator `shard_seed`, `data_origin` and verified
+`prior_sha256`; never paths) and `evaluation`: the worlds `(corpus_index, row)`
+with their `cell_id`, context length and encoded-input digest, the settings, and
+the call plan `calls: [{"worlds": [...], "seed": ...}]`, consecutive blocks of
+the worlds, each declared as one `evaluate_rows` call, with consecutive seeds.
+Archive order is the order in which those calls feed their sink: call by call;
+inside a call, worlds sorted stably by context length (their batch order), each
+world's `query` window followed by its `context` window. A world's id is
+`shard:<seed>/row:<row>` when its corpus declares a generator seed and
+`corpus:<index>/row:<row>` otherwise, and its cell is `(label, cell_id)` with
+that `shard:<seed>` or `corpus:<index>` label. `dataset_sha256` digests the
+input digests of the corpora the worlds come from, and `prior` lists their
+verified generator prior hashes (`None` unless each has one). An archive
+declares at most 4,096 worlds and 4,096 corpora, which keeps `manifest.json`
+below ≈7.5 MiB, under the reader's 8 MiB limit.
+
+`EvaluationArchive.create(out_dir, identity)` returns the writer that
+`evaluate_into_archive` uses. Its `add` is a `result_sink`. It accepts an
+evaluator capture of a declared world only when the capture's encoded inputs
+and context length are that world's, its seed is the seed of that world's call,
+its leg, `n_samples`, mode, units, head and model configuration are the
+declared ones, its edge provenance and evidence are well formed, and it comes
+later in archive order than the previous capture. It writes the capture to a
+hidden staging directory beside the target and reads it back through the reader
+before accepting it. Captures record neither the `heads` they were sampled
+with, nor the weights, nor which worlds shared an `evaluate_rows` call, so `add`
+cannot check the declared `heads`, `state_sha256` or call partition: a writer
+filled by hand must receive exactly the declared calls of the declared model.
+`close` needs every declared world window, re-checks every staged file against
+what `add` recorded, and publishes with one `os.replace`, so nothing appears at
+the target before; as a context manager the writer closes on success and aborts
+on an exception, leaving nothing behind, and a writer that is never closed
+removes its staging directory when it is garbage collected or the interpreter
+exits (in the process that created it, never in a forked child). The target
+must be a new or empty directory, checked before any inference
+(`FileExistsError` otherwise, also for a symlink, the current directory or one
+of its parents, a parent the staging directory cannot be created in, a name the
+filesystem cannot create, a path too long for the archive's files, or a mount
+point).
+
+`EvaluationArchive.load(path)` verifies the whole archive before returning it.
+It reads each file once through one bounded reader, at its recorded size and
+without blocking, and refuses symlinked archive files and entry directories;
+every byte used is size- and hash-checked against the manifest. Every hash,
+manifest field, cross-check and shape is checked on those same bytes before
+anything is used, one entry in memory at a time, and a failure raises
+`ArchiveIntegrityError` (a `ValueError`) naming the file: its `path` is relative
+to the archive, such as `entries/0003/truth.npz`, and its message states the
+problem, such as `SHA-256 or size differs from manifest.json`. A path that holds
+no archive manifest raises `FileNotFoundError`. Reads re-verify every entry they
+read. A symlink to an archive directory can be loaded, and an archive is
+published where the OS resolves the target path, so
+`writer.path == EvaluationArchive.load(writer.path).path`. This is integrity,
+not authenticity: a rewrite that also re-signs the manifest consistently is
+caught only where it breaks a cross-check, so compare `archive_sha256` to pin an
+archive (training runs record the manifest file's SHA-256 in `run.json`).
+Replaying runs `evaluate_rows` once per call of
+`archive.identity["evaluation"]["calls"]`, in order, on that call's worlds
+(their `corpus_index` and `row`), with `seed=call["seed"]` and the declared
+`n_samples`, `heads` and `leg`. For an archive written by
+`evaluate_into_archive`, the trainer or the CLI, which run exactly those calls
+with the declared model, this reproduces the archived draws bit for bit on CPU
+with the same thread count, libraries and hardware; on accelerators, kernel
+nondeterminism changes low-order bits (up to 7.4e-4 on MPS in a probe). A
+hand-filled archive replays only if exactly those calls of that model filled it.
+
+Records are the `(result, truth, graph_truth, observed)` tuples the evaluator
+passed to its sink: iteration, `records(window)` and `record(index)` yield them
+in archive order, re-verified, and `entries` describes each one (`world_id`,
+`cell`, `call`, `seed`, `context_length`, ...). Every archived world therefore
+also feeds `result.diagnostics(truth=truth, graph_truth=graph_truth,
+observed=observed)`. The converters take one window, `"query"` or `"context"`,
+never pool windows and call no model. `effect_rows(window)` returns
+`result_effect_rows` of every world of the window, with `world` set to its
+archive world id, for `strata_summary`. `sbc_inputs(window)` returns the keyword
+arguments of `sbc_report` with one statistic per world and quantity: the window
+total of the active components of each family in `WINDOW_TOTAL_FAMILIES`
+(`baseline`, `channel`, `control`, `latent`, `indirect`; see
+`family_window_totals`). `conditional_sbc_inputs(window)` returns those of
+`conditional_sbc_report`, whose report equals the one built from every record of
+the window. Both SBC converters keep one world per generator cell, the first in
+archive order (`independent_entries(window)`): earlier calls first, then shorter
+context windows, then the requested order, so declare one world per cell to
+choose which. They need at least two cells and a prior: `archive.prior` when
+every referenced corpus records a verified generator prior, otherwise pass
+`prior=...`. Their provenance declares `independent_worlds`, passes
+`dataset_sha256` as `data_sha256` and records `archive_sha256`, the model's
+`state_sha256` and `checkpoint_sha256`, the settings and the call seeds.
+`effect_rows` and `strata_summary`
+import the training metrics at call time; loading, reads and the SBC converters
+import no training code, and scipy is needed only inside the SBC reports. The
+training-prior shift of the B bundle on `SHARD_PLANS["evaluation"]` cells noted
+above applies to archive SBC too.
+
+| draws S | window (T) | `arrays.npz` | `result.json` | `truth.npz` |
+| --- | --- | --- | --- | --- |
+| 32 | query (26) | 68 kB | 69 kB | ≈3 kB |
+| 32 | context (78) | 196 kB | 69 kB | ≈7 kB |
+| 128 | query (26) | 265 kB | 69 kB | ≈3 kB |
+| 128 | context (78) | 772 kB | 69 kB | ≈7 kB |
+
+These are the files of one world window at A/B geometry (K=15, M=6, J=1: D=26
+components, L=373 edge slots, 104 weeks), measured with an untrained model;
+trained draws and other worlds compress differently. The draws take
+`S × (T_window × D + L) × 8` bytes raw, of which deflate keeps ≈25–40%, and
+`result.json` is ≈69 kB regardless of S. A world takes ≈0.42 MB at S=32 and
+≈1.19 MB at S=128, so at S=128 16 worlds take ≈19 MB, 320 worlds ≈380 MB and
+the 1,280 worlds of `SHARD_PLANS["evaluation"]` ≈1.5 GB.
+
+Inference memory, not archive size, limits a call. `evaluate_rows` puts every
+requested world of one context length into one batch, and on CPU the A/B
+architecture with the default heads peaks at ≈1.7 GB RSS per world in a batch
+at context 52 and ≈3 GB at context 78, almost independent of the number of
+draws. Batches and calls run one after another, so `worlds_per_call=N` bounds a
+call's peak at ≈0.2 GB + 3 GB × N on 104-week shards: ≈12 GB for the CLI
+default of 4. Wall time on CPU is ≈0.4–0.6 s per world and draw (128 worlds ×
+128 draws ≈2 h). `load` verifies and decodes at ≈7 s/GB (≈10 s for 1.5 GB), each
+converter re-verifies what it reads at the same rate, and writing decodes each
+entry once as a self-check and hashes it once more before publishing (≈0.5 s/GB).
+Verification and iteration hold one world window in memory;
+`conditional_sbc_inputs` holds the independent worlds of one window (e.g. 320
+cells × 128 draws × 78 weeks × 26 components ≈665 MB of components plus ≈120 MB
+of graph draws, ≈790 MB raw for context). Keep
+archives under `artifacts/` or `runs/`: `*.npz` is git-ignored everywhere, but
+the JSON files only inside ignored directories such as these.
+
+Archives hold simulated worlds with their generating truth. `add` accepts only
+results whose encoded inputs equal a declared corpus world. Build identities
+with `archive_identity` (or use the trainer, `evaluate_into_archive` or the
+CLI), never by hand; results of `decompose` on observed data then cannot enter
+an archive with truth. The manifest holds hashes, counts, seeds and context
+lengths (no paths, arrays or credentials), but the entries hold draws, truth and
+input summaries, so treat an archive like its corpora. Archives whose identity
+comes from `archive_identity` (the trainer, `evaluate_into_archive` and the
+CLI), and the SBC cards built from them, are marked non-sensitive only when
+every referenced corpus has a hash-bound synthetic sidecar. This is stricter
+than the per-world training reports, which trust the caller's `data_origin`.
+`load` cannot verify a `prior_sha256`, so a hand-built identity is trusted as
+written. The library never uploads archives.
 
 ### Plot accessors
 

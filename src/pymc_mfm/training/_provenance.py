@@ -147,6 +147,38 @@ def corpus_identity(corpus: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def verified_prior_sha256(record: Mapping[str, Any]) -> str | None:
+    """Hash of a corpus record's generator prior when its sidecar is bound to the corpus file.
+
+    ``record`` is a run's corpus record, e.g. :func:`pymc_mfm.data.recipes.provenance`.
+    The hash exists only when the record claims ``data_origin == "synthetic"``,
+    its ``prior_sidecar`` is a dict with a dict ``prior``, and its ``sha256`` is a
+    full lowercase SHA-256 equal to the sidecar's ``corpus_sha256``; otherwise
+    the result is ``None``. It is the SHA-256 of the compact key-sorted JSON of
+    ``{"prior": sidecar["prior"], "generator_version":
+    sidecar.get("pymc_generator_version")}``, the value :func:`export_lineage`
+    records under ``prior.config.corpus_prior_hashes``.
+    """
+    sidecar = record.get("prior_sidecar")
+    source_digest = record.get("sha256")
+    if not (
+        record.get("data_origin") == "synthetic"
+        and isinstance(sidecar, dict)
+        and isinstance(sidecar.get("prior"), dict)
+        and isinstance(source_digest, str)
+        and re.fullmatch(r"[a-f0-9]{64}", source_digest)
+        and sidecar.get("corpus_sha256") == source_digest
+    ):
+        return None
+    prior_record = {
+        "prior": sidecar["prior"],
+        "generator_version": sidecar.get("pymc_generator_version"),
+    }
+    return hashlib.sha256(
+        json.dumps(prior_record, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def export_lineage(run: Mapping[str, Any], checkpoint_sha256: str) -> dict[str, Any]:
     """Project safe, explicit data/prior/report identities into a model bundle."""
     data = []
@@ -176,21 +208,9 @@ def export_lineage(run: Mapping[str, Any], checkpoint_sha256: str) -> dict[str, 
                     "status": "caller_recorded_source_file",
                 }
             )
-        sidecar = corpus.get("prior_sidecar")
-        if (
-            corpus.get("data_origin") == "synthetic"
-            and isinstance(sidecar, dict)
-            and isinstance(sidecar.get("prior"), dict)
-            and valid_source_digest
-            and sidecar.get("corpus_sha256") == source_digest
-        ):
-            prior_record = {
-                "prior": sidecar["prior"],
-                "generator_version": sidecar.get("pymc_generator_version"),
-            }
-            priors[f"corpus_{index}"] = hashlib.sha256(
-                json.dumps(prior_record, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest()
+        digest = verified_prior_sha256(corpus)
+        if digest is not None:
+            priors[f"corpus_{index}"] = digest
     prior = {"status": "not_recorded"}
     if priors:
         prior = {

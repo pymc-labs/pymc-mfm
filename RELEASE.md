@@ -60,6 +60,7 @@ approved or published release.
   - Checkpoint gates validate `METRIC_BOUNDS` and include the selected head's context energy score; a held-out metric of that head with non-finite worlds blocks promotion (`selection.nonfinite_keys`).
   - `check_recorded_evaluation` reproduces a bundle's recorded training evaluation within stated tolerances.
   - MPS evaluation no longer converts tensors to zeros.
+  - Evaluation archives (`pymc_mfm.diagnostics.EvaluationArchive`) keep the evaluator's conditional captures for cross-world reports. `EvaluationArchive.create(out_dir, identity)` returns a writer whose `add` is a `result_sink` and whose `close` publishes atomically. The layout (`manifest.json` plus one saved `DecompositionResult` directory and `truth.npz` per world window) and its strict manifest declare the model, the corpora and the evaluation, including the call plan with consecutive seeds, and fix the archive order. `EvaluationArchive.load` reads every file once through a bounded reader that refuses symlinked archive files and entry directories, size- and hash-checks every byte it decodes before use, and names the offending file in `ArchiveIntegrityError`. Reads yield `(result, truth, graph_truth, observed)` 4-tuples in capture order, and converters feed `strata_summary` (every world), `sbc_report` (family window totals) and `conditional_sbc_report` (both with one world per generator cell), all without a model call. `archive_identity`, `evaluate_into_archive(worlds_per_call=...)` and `python -m pymc_mfm.training evaluate` (4 worlds per call by default) build and write archives, and `train(holdout_archives=...)` / `--holdout-archives` archives a run's held-out evaluations. Only results whose inputs equal a declared corpus world are accepted, and identities from `archive_identity` are marked synthetic only with a hash-bound sidecar (hand-built identities are trusted as written). `DecompositionResult.load` is split into private steps so that archives decode the bytes they hashed; `load`'s behaviour is unchanged (no user action).
 - **Plot suite.**
   - Figures no longer use pyplot and carry a PNG representation for notebooks. Result, diagnostics and comparison figures state head, window, mode, units and draw count; run evaluation figures state units, scope, legs, draws and head labels.
   - New report panels: attribution, window totals, cumulative contribution, temporal coherence, edge reliability, graph statistics (every `joint_router/graph` statistic as `graph/<key>`, the truth-free ones also without graph truth), cycle check (complete graph plus cc/zz cycle and two-cycle rates) and input support. `run.plot.corpus()` plots the corpus summary and `run.plot.corpus_support()` the world-level context support.
@@ -145,7 +146,9 @@ generator cells, not repeated worlds or posterior draws counted as new rank
 replicates. Missing inputs or insufficient eligible ranks are unavailable or not
 applicable, not zero scores or successful calibration checks. One-world rank
 screening, conditional-SBC non-rejection and finite graph-mixture variance are
-not calibration guarantees or out-of-distribution claims.
+not calibration guarantees or out-of-distribution claims. Archive SBC declares
+independence for the first world of each generator cell of distinct corpora,
+and archive hashes detect changes, not who made them.
 
 ## Training resources and small workflow
 
