@@ -36,8 +36,9 @@ decomposition, and auxiliary structure prediction.
 Base runtime dependencies are NumPy, PyTorch, safetensors and packaging.
 Base inference does not import generation, plotting, tracking, or Hub clients.
 Install `[diagnostics]` for the complete numerical/plotting suite, `[hub]` for
-remote artifact transport, `[training]` for diagnostics and MLflow, and
-`[generation]` for public `pymc-generator`. The `dev` group supplies pytest and Ruff.
+remote artifact transport, `[training]` for diagnostics and MLflow, `[arviz]`
+for ArviZ DataTree export (xarray), and `[generation]` for public
+`pymc-generator`. The `dev` group supplies pytest and Ruff.
 
 Model weights, corpora, and generated experiment outputs are external artifacts,
 not bundled with the library. Supply a known local model directory or an explicit
@@ -1020,6 +1021,237 @@ than the per-world training reports, which trust the caller's `data_origin`.
 `load` cannot verify a `prior_sha256`, so a hand-built identity is trusted as
 written. The library never uploads archives.
 
+### ArviZ DataTree export
+
+`result.to_datatree()` and `archive.to_datatree(window)` export draws as an
+ArviZ `xarray.DataTree`, for ArviZ summaries and plots and for comparisons with
+PyMC or PyMC-Marketing fits of the same world.
+
+```bash
+uv sync --locked --extra arviz
+```
+
+With pip, install `pymc-mfm[arviz]`. The extra is `arviz-stats[xarray]`
+(arviz-base, arviz-stats, xarray); without it both methods raise an
+`ImportError` naming it. The export imports xarray and arviz-base when called;
+`import pymc_mfm`, `decompose` and `import pymc_mfm.diagnostics` never do, and
+`[diagnostics]` does not install xarray. (Where xarray is installed, SBC reports
+load it too, through arviz-stats' own package import.) ArviZ plots also need
+`arviz-plots` and matplotlib, which `[arviz]` does not install.
+
+```python
+import arviz_stats
+
+tree = saved.to_datatree()  # takes observed=, truth=, graph_truth= like result.diagnostics
+arviz_stats.summary(tree, kind="stats")  # mean, sd and 89% ETI of each posterior value
+
+archive_tree = archive.to_datatree("query")  # every world of one window
+```
+
+| Result tree | Variables | Dimensions | From |
+| --- | --- | --- | --- |
+| `posterior` | `components` | `chain`, `draw`, `time`, `component` | `result.components` |
+| `posterior` | `graph` | `chain`, `draw`, `edge` | `result.graphs` |
+| `constant_data` | `component_family` | `component` | `result.component_families` |
+| `constant_data` | `edge_family`, `edge_source`, `edge_target` | `edge` | provenance `edge_families`, `edge_endpoints` |
+| `observed_data` | `outcome` | `time` | `observed=` |
+| `truth` | `components` | `time`, `component` | `truth=` |
+| `truth` | `graph` | `edge` | `graph_truth=` |
+
+`chain` is `[0]` and `draw` is `0` to `S-1`; `time` holds the result's `time`
+labels, and `component` and `edge` its active `component_names` and
+`edge_names`. Padded slots, exactly zero in every draw by contract, are left out
+rather than exported as zeros, and every exported draw is the result's own value
+(draws keep their stored dtype in native byte order, except that boolean draws,
+float16 draws and float32 component draws widen exactly to float64 to avoid
+underflow or overflow in ArviZ summaries). Labels
+containing NUL characters are refused, since NumPy text coordinates would drop
+them. The edge constants exist when provenance records them, as `decompose`
+and evaluator captures do. Evidence follows the rules of `result.diagnostics(...)`
+(full-width `truth[time, component]` that is zero on padded components, binary
+`graph_truth[edge]` inside `edge_mask`, `observed[time]`) and is stored as
+float64 on the active slots. Only the caller's `observed` enters
+`observed_data`; synthetic truth goes to the separate `truth` group, present
+only when supplied, and never mixes with observations.
+
+| Archive tree | Variables | Dimensions |
+| --- | --- | --- |
+| `posterior` | `components` | `chain`, `draw`, `world`, `time`, `component` |
+| `posterior` | `graph` | `chain`, `draw`, `world_edge` |
+| `observed_data` | `outcome` | `world`, `time` |
+| `truth` | `components` | `world`, `time`, `component` |
+| `truth` | `graph` | `world_edge` |
+| `constant_data` | `corpus_index`, `row`, `cell_id`, `context_length`, `call`, `seed`, `cell`, `independent`, `data_sha256`, `sales_scale`, `metadata_sha256` | `world` |
+| `constant_data` | `component_family` | `component` |
+| `constant_data` | `edge_world`, `edge_name`, `edge_family`, `edge_source`, `edge_target` | `world_edge` |
+
+`world` holds the window's world ids in archive order and `time` the sorted
+union of the worlds' time labels, which are absolute row labels. Mixed numeric
+time dtypes retain exact labels: if no inferred native dtype preserves them,
+the coordinate uses Python-number objects rather than rounding large integers.
+Mixed Boolean/numeric time labels also use object coordinates so each world's
+original scalar labels and numeric label vectors remain usable with `.sel(time=...)`.
+Python-equal labels such as `True` and `1` share one coordinate represented by
+the numeric value, regardless of world order. Boolean arrays are selection
+masks in xarray, not vectors of labels.
+`component` holds every label active in at least one world, in slot order (baseline,
+channels, controls, latent, indirect); a label must have the same family in
+every world (the export refuses otherwise). `world_edge` holds one
+`<world_id>|<edge name>` entry per active edge of each world, world by world in
+slot order, instead of an `edge` axis padded across worlds; `edge_world` and
+`edge_name` hold its two parts. `cell` is the generator cell
+`<label>/cell:<cell_id>`, `independent` marks `independent_entries(window)`, and
+`data_sha256`, `sales_scale` and `metadata_sha256` come from each world's
+result; `seed` is uint64 when a call seed exceeds the int64 range. The export
+reads and re-verifies the window's entries once, like `records(window)`, and
+calls no model.
+
+In the archive tree `NaN` marks a time label or a component that a world does
+not have (a shorter window, a padded or absent slot), never a zero effect, in
+`posterior`, `observed_data` and `truth` alike. Sums over `time` or `component`
+must skip it without turning an all-`NaN` slice into zero, so pass
+`min_count=1`. Per draw and world, the channel window total is:
+
+```python
+is_channel = archive_tree.constant_data["component_family"] == "channel"
+draws = archive_tree.posterior["components"].where(is_channel)
+totals = draws.sum(("time", "component"), min_count=1)  # [chain, draw, world]
+```
+
+Without `min_count=1`, `draws.sum("time")` would report a component that a world
+does not have as a zero total. ArviZ summaries of the archive tree show those
+cells as `NaN` rows.
+
+Each tree sets its attributes on the root and again on `posterior`, as flat
+text and numbers (never `None`: keys that are not recorded are left out),
+beside ArviZ's `created_at`, `creation_library*` and `inference_library`
+(`pymc_mfm`) with its version. A result tree records `window`, `mode`, `units`,
+`n_samples`, `context_length`, the `metadata_sha256` that `result.save` writes
+to `result.json` and, when its provenance records them, `sales_scale`,
+`state_sha256`, `data_sha256` and `graph_source`. An archive tree records
+`window`, `mode`, `units`, `n_samples`, `leg`, `archive_sha256`,
+`dataset_sha256`, the model's `state_sha256` and `config_sha256`, and its
+`checkpoint_sha256`, `bundle_sha256`, `profile` and `source_step` when the
+identity has them. Both state what the draws are: `graph_draws` (router graph
+draws, one per component draw, under `model_average`; under `map` and `fixed`
+one hypothesis repeated in every draw, not posterior samples), `sampling`,
+`mcmc_diagnostics="not_applicable"` and `marginal_windows`. `created_at`
+differs between exports of the same draws, so compare trees with `equals`, not
+`identical`.
+
+The draws are one chain of independent amortized conditional draws, not a
+Markov chain. R-hat is undefined (`NaN` with one chain); ESS and MCSE describe
+only the Monte Carlo noise of these
+draws, not the amortization error, that is how far the amortized posterior is
+from the world's exact posterior. Use `kind="stats"`; the `r_hat`, `ess_*` and
+`mcse_*` columns of `kind="all"` or `"diagnostics"` are not convergence or
+accuracy evidence.
+
+A tree holds one window. Context and query are separate marginals, so their
+trees stay separate: never concatenate their `time` axes into a joint horizon
+or stack them along `draw`. `archive.to_datatree` requires a window for the
+same reason.
+
+The export is a one-way view, not a second persistence path: `result.save` and
+evaluation archives stay the hash-bound evidence, MFM never reads a tree back,
+and no MFM score takes one as input. `.nc` files are git-ignored and are not
+evidence; writing netCDF (`tree.to_netcdf`) needs a backend (netCDF4, or
+h5netcdf with h5py) that the extra does not install.
+
+`archive.to_datatree` holds the whole window in memory. `posterior.components`
+is dense: `S × W × T_union × D_union × 8` bytes for `S` draws, `W` worlds,
+`T_union` time labels and `D_union` components (320 worlds × 128 draws × 78
+context weeks × 26 components ≈665 MB), and the export peaks at about that plus
+the compact per-world slices it collects first. For large archives, export
+world by world:
+
+```python
+for result, truth, graph_truth, observed in archive.records("query"):
+    world = result.to_datatree(truth=truth, graph_truth=graph_truth, observed=observed)
+    world_summary = arviz_stats.summary(world, kind="stats")  # one world in memory
+```
+
+Channel window totals can be set beside an MCMC reference of the same world in
+the same natural units. PyMC-Marketing's `channel_contribution_original_scale`
+(of an identity-link MMM, after
+`mmm.add_original_scale_contribution_variable(var=["channel_contribution"])`)
+has dimensions `chain, draw, date, channel` in the outcome's original units;
+pass the MMM's channel labels to `decompose` as `channel_names`. Both must
+condition on the same information: MFM sees context outcomes only, so fit the
+MMM on the context rows, and compare a context export with its in-sample
+contributions (`idata.posterior`) and a query export with its out-of-sample
+contributions under the query spend, never with a fit that saw query outcomes.
+MFM `time` holds row labels (or the labels passed as `decompose(time=...)`), not
+the reference's `date` values, so the snippet selects the exported rows of the
+reference by position: `reference` must start at MFM row 0, cover the exported
+window and keep separate `chain` and `draw` dimensions, e.g. for a query export
+`mmm.sample_posterior_predictive(X, var_names=["channel_contribution_original_scale"],
+combined=False, extend_idata=False)["channel_contribution_original_scale"]` with
+`X` the rows 0 to the end of the query window (arviz-plots and matplotlib are
+installed separately):
+
+```python
+import arviz_plots as azp
+import xarray as xr
+
+reference = idata.posterior["channel_contribution_original_scale"]  # context export
+start = tree.attrs["context_length"] if tree.attrs["window"] == "query" else 0
+rows = slice(start, start + tree.posterior.sizes["time"])
+assert reference.sizes["date"] >= rows.stop, "the reference does not cover this window"
+channels = [name for name in tree.posterior["component"].values if name.startswith("channel:")]
+names = [name.removeprefix("channel:") for name in channels]
+mfm = (
+    tree.posterior["components"]
+    .sel(component=channels)
+    .assign_coords(component=names)
+    .rename(component="channel")
+    .sum("time", min_count=1)
+)
+mcmc = reference.isel(date=rows).sel(channel=names).sum("date", min_count=1)
+forest = azp.plot_forest(
+    {
+        label: xr.DataTree.from_dict({"posterior": totals.to_dataset(name="channel_total")})
+        for label, totals in (("MFM", mfm), ("MCMC", mcmc))
+    },
+    var_names=["channel_total"],
+    combined=True,
+    backend="matplotlib",
+    stats={
+        "trunk": {"skipna": True},
+        "twig": {"skipna": True},
+        "point_estimate": {"skipna": True},
+    },
+)
+forest.add_legend("model")
+```
+
+The plotting collection outer-aligns the models' sample coordinates, so its
+statistics must skip alignment NaNs when chain or draw counts differ. This
+keeps each model's own samples; it does not pool their draws. The forest sets
+two models' posteriors of the same totals side by side, not a calibration check
+of either.
+
+`arviz_plots.plot_ppc_pava` draws the PAV (isotonic) calibration curve of
+binary outcomes on their predicted probability: across the worlds of an
+archive window, each active pair's graph truth on its router edge frequency. It
+reads `posterior_predictive` and `observed_data`, so build a separate plotting
+tree; the export itself never puts truth in `observed_data`:
+
+```python
+reliability = xr.DataTree.from_dict(
+    {
+        "posterior_predictive": archive_tree.posterior["graph"].to_dataset(),
+        "observed_data": archive_tree.truth["graph"].to_dataset(),
+    }
+)
+azp.plot_ppc_pava(reliability, var_names=["graph"], backend="matplotlib")
+```
+
+The curve pools every edge family and needs `model_average` graph draws, which
+archives always hold; a result exported with `graph_truth=` works the same way
+on its `edge` axis. `diag.plot.reliability()` draws MFM's own CORP curve for
+one world.
+
 ### Plot accessors
 
 Plotting hangs off the objects you already have. Accessing `.plot` imports
@@ -1487,10 +1719,13 @@ uv build
 uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
 ```
 
-The script uses locked dependencies in three fresh environments, executes the
+The script uses locked dependencies in four fresh environments, executes the
 sdist workflow with isolated imports, loads its model with only the base wheel,
-and renders the saved output with only the diagnostics extra. Import origins and
-absence of training/Hub/plotting dependencies in the relevant lanes are checked.
+renders the saved output with only the diagnostics extra, and exports both saved
+windows as ArviZ trees and summarizes them with only the arviz extra. Import
+origins and absence of training/Hub/plotting dependencies in the relevant lanes
+are checked; the base and diagnostics lanes have no xarray or arviz-base, and
+their `to_datatree()` raises the `ImportError` naming `pymc-mfm[arviz]`.
 The checks use generated synthetic data and local artifacts; they require no
 external checkpoints, service credentials, MCMC, long training run or registry writes.
 

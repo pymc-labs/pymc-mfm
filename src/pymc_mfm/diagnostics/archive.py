@@ -94,7 +94,7 @@ import weakref
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -106,9 +106,12 @@ from pymc_mfm.inference._artifact_schema import (
     parse_json,
     validate_profile,
 )
-from pymc_mfm.inference.result import DecompositionResult, _require_text
+from pymc_mfm.inference.result import DecompositionResult, _checked_evidence, _require_text
 
 from .strata import result_effect_rows
+
+if TYPE_CHECKING:
+    from xarray import DataTree
 
 ARCHIVE_FORMAT_VERSION = 1
 ARCHIVE_KIND = "evaluation_archive"
@@ -683,46 +686,6 @@ def _capture_world(
     return world
 
 
-def _evidence(
-    result: DecompositionResult, truth, graph_truth, observed, *, stored: bool
-) -> dict[str, np.ndarray]:
-    """Checked float64 evidence of one capture, by the evidence rules of ``compute_diagnostics``.
-
-    ``truth`` ``[T,D]``, ``graph_truth`` ``[L]`` and ``observed`` ``[T]`` align with
-    ``result``. Supplied arrays must be real and are copied to float64; ``stored`` ones
-    (decoded from ``truth.npz``) must already be exactly float64 and are kept as they are.
-    """
-    _, times, width = result.components.shape
-    shapes = {
-        "truth": (times, width),
-        "graph_truth": (result.graphs.shape[1],),
-        "observed": (times,),
-    }
-    evidence = {}
-    for name, value in zip(_EVIDENCE, (truth, graph_truth, observed), strict=True):
-        if stored:
-            array = value
-            if array.dtype != np.float64:
-                raise ValueError(f"{name} must be float64, got {array.dtype}")
-        else:
-            array = np.asarray(value)
-            if array.dtype.kind not in "biuf":
-                raise ValueError(f"{name} must be a real array")
-            array = np.array(array, dtype=np.float64, copy=True)
-        if array.shape != shapes[name]:
-            raise ValueError(f"{name} has shape {array.shape}; the result needs {shapes[name]}")
-        if not np.isfinite(array).all():
-            raise ValueError(f"{name} must be finite")
-        evidence[name] = array
-    if not np.isin(evidence["graph_truth"], (0, 1)).all():
-        raise ValueError("graph_truth must be binary")
-    if np.any(evidence["truth"][:, ~result.component_mask]):
-        raise ValueError("truth is nonzero on padded components")
-    if np.any(evidence["graph_truth"][~result.edge_mask]):
-        raise ValueError("graph_truth has edges outside the active support")
-    return evidence
-
-
 def _problem(exc: Exception) -> str:
     """An exception as a problem description; a plain ``ValueError`` reads as it is."""
     return str(exc) if type(exc) is ValueError else f"{type(exc).__name__}: {exc}"
@@ -778,7 +741,7 @@ def _decode_entry(
             if sorted(stored.files) != sorted(_EVIDENCE):
                 raise ValueError(f"must hold exactly {sorted(_EVIDENCE)}")
             arrays = [stored[name] for name in _EVIDENCE]
-        evidence = _evidence(result, *arrays, stored=True)
+        evidence = _checked_evidence(result, *arrays, stored=True)
     except Exception as exc:
         raise _EntryError("truth.npz", _problem(exc)) from exc
     for array in evidence.values():
@@ -1168,7 +1131,7 @@ class EvaluationArchiveWriter:
                 f"{previous['corpus_index']} row {previous['row']} {last_window}); evaluate "
                 "the declared calls in order with exactly their declared rows"
             )
-        evidence = _evidence(result, truth, graph_truth, observed, stored=False)
+        evidence = _checked_evidence(result, truth, graph_truth, observed, stored=False)
         index = len(self._entries)
         folder = self._staging / "entries" / f"{index:04d}"
         try:
@@ -1565,3 +1528,20 @@ class EvaluationArchive:
             "cell_ids": [entry.cell for entry in selected],
             "provenance": provenance,
         }
+
+    def to_datatree(self, window: str) -> DataTree:
+        """Every world of ``window`` as one ArviZ ``xarray.DataTree``; needs ``pymc-mfm[arviz]``.
+
+        Export only: the archive stays the evidence and MFM never reads a tree back. A
+        ``world`` dimension in archive order (coordinate: the world ids) joins the
+        worlds' draws, truth and observations on the union of their time labels and
+        active components; ``NaN`` marks a time label or component a world does not
+        have. Active edges are compacted to ``world_edge`` pairs (``<world_id>|<edge>``).
+        One tree per window: context and query are separate marginals. Reads and
+        re-verifies the window's entries once and holds the window in memory.
+        This call imports xarray and arviz-base lazily.
+        """
+        _check_window(window)
+        from pymc_mfm.inference._datatree import archive_datatree
+
+        return archive_datatree(self, window)

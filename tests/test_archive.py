@@ -21,7 +21,7 @@ from typing import Any, NamedTuple
 import numpy as np
 import pytest
 import torch
-from conftest import make_synthetic_corpus
+from conftest import make_synthetic_corpus, needs_arviz
 from test_diagnostics import make_result
 from test_inference import observed
 from test_result_persistence import nested
@@ -394,6 +394,23 @@ def built(world, tmp_path_factory):
     return archives
 
 
+@pytest.fixture(scope="module")
+def mixed(world, tmp_path_factory):
+    """One archive of two geometries: three channels over 12 weeks, five over 14 weeks.
+
+    Corpus 0 rows 8 and 0, then rows 0 and 2 of generator seed 2's five-channel corpus,
+    whose channel_3 no three-channel world has a slot for.
+    """
+    model, corpora = world
+    sources = [corpora[0], make_synthetic_corpus(seed=2, k=5, n_weeks=14, context_lengths=(7,))]
+    identity = identity_for(model, sources, [0, 2], [(0, 8), (1, 0), (0, 0), (1, 2)])
+    root = tmp_path_factory.mktemp("mixed")
+    with torch.random.fork_rng(devices=[]):
+        with EvaluationArchive.create(root / "archive", identity) as writer:
+            capture(model, sources, identity, writer)
+    return EvaluationArchive.load(writer.path)
+
+
 @pytest.mark.parametrize("name", ARCHIVES)
 def test_loaded_records_equal_the_in_memory_captures_in_archive_order(built, world, name):
     archive, captured, identity = built[name]
@@ -616,6 +633,430 @@ def test_sbc_provenance_names_the_referenced_dataset_model_and_prior(built, worl
         provenance = convert("query", prior="described")["provenance"]
         assert provenance["prior"] == "described"
         assert provenance["synthetic_training_evaluation"] is False
+
+
+def label_grids(records, times, components):
+    """Draws ``[1, S, world, time, component]``, truth and observations of ``records`` by label.
+
+    Each value sits at its world's time and component labels; every other cell is NaN.
+    """
+    draws = np.full((1, records[0][0].n_samples, len(records), len(times), len(components)), np.nan)
+    truths = np.full(draws.shape[2:], np.nan)
+    outcomes = np.full(draws.shape[2:4], np.nan)
+    for w, (result, truth, _, observations) in enumerate(records):
+        for t, label in enumerate(result.time.tolist()):
+            row = times.index(label)
+            outcomes[w, row] = observations[t]
+            for d in np.flatnonzero(result.component_mask):
+                column = components.index(result.component_names[d])
+                draws[0, :, w, row, column] = result.components[:, t, d]
+                truths[w, row, column] = truth[t, d]
+    return draws, truths, outcomes
+
+
+@needs_arviz
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (np.array([False]), np.array([True])),
+        (np.array([True]), np.array([2])),
+        (np.array([True]), np.array([2.5])),
+        (np.array([True]), np.array([1])),
+        (np.array([1]), np.array([True])),
+        (np.array([False]), np.array([0])),
+        (np.array([0]), np.array([False])),
+    ],
+    ids=[
+        "both-boolean",
+        "boolean-integer",
+        "boolean-float",
+        "shared-label",
+        "shared-reversed",
+        "shared-zero",
+        "shared-zero-reversed",
+    ],
+)
+def test_original_boolean_and_numeric_archive_labels_select_their_evidence_rows(
+    world, tmp_path, left, right
+):
+    from arviz_stats import summary
+
+    model, _ = world
+    corpora = [make_synthetic_corpus(n_weeks=7, context_lengths=(6,))]
+    identity = identity_for(model, corpora, [0], [(0, 8), (0, 9)], n_samples=5)
+    captured = []
+    for result, truth, graph_truth, observations in capture(model, corpora, identity):
+        if result.window == "query":
+            result = replace(result, time=left if result.provenance["row"] == 8 else right)
+        captured.append((result, truth, graph_truth, observations))
+    archive = write_archive(tmp_path / "archive", identity, captured)
+    tree = archive.to_datatree("query")
+    for entry in archive.entries:
+        if entry.window != "query":
+            continue
+        result, truth, _, observations = archive.record(entry.index)
+        selection = {"world": entry.world_id, "time": result.time.tolist()[0]}
+        np.testing.assert_array_equal(
+            tree["posterior"]["components"].sel(selection).values[0],
+            result.components[:, 0][:, result.component_mask],
+        )
+        np.testing.assert_array_equal(
+            tree["truth"]["components"].sel(selection).values, truth[0, result.component_mask]
+        )
+        assert tree["observed_data"]["outcome"].sel(selection).item() == observations[0]
+        if result.time.dtype.kind != "b":
+            vector = {"world": entry.world_id, "time": result.time}
+            np.testing.assert_array_equal(
+                tree["posterior"]["components"].sel(vector).values[0],
+                result.components[..., result.component_mask],
+            )
+            np.testing.assert_array_equal(
+                tree["truth"]["components"].sel(vector).values, truth[:, result.component_mask]
+            )
+            np.testing.assert_array_equal(
+                tree["observed_data"]["outcome"].sel(vector).values, observations
+            )
+    sizes = tree["posterior"].sizes
+    assert len(summary(tree, kind="stats")) == (
+        sizes["world"] * sizes["time"] * sizes["component"] + sizes["world_edge"]
+    )
+
+
+@needs_arviz
+@pytest.mark.parametrize("window", WINDOWS)
+@pytest.mark.parametrize("boolean_first", [True, False])
+def test_shared_two_label_numeric_vectors_select_rows_in_either_world_order(
+    world, tmp_path, window, boolean_first
+):
+    model, _ = world
+    corpora = [make_synthetic_corpus(n_weeks=4, context_lengths=(2,))]
+    identity = identity_for(model, corpora, [0], [(0, 8), (0, 9)], n_samples=5)
+    captured = []
+    for result, truth, graph_truth, observations in capture(model, corpora, identity):
+        boolean_world = (result.provenance["row"] == 8) == boolean_first
+        labels = np.array([False, True]) if boolean_world else np.array([0, 1])
+        captured.append((replace(result, time=labels), truth, graph_truth, observations))
+    archive = write_archive(tmp_path / "archive", identity, captured)
+    tree = archive.to_datatree(window)
+    for entry in archive.entries:
+        if entry.window != window:
+            continue
+        result, truth, _, observations = archive.record(entry.index)
+        if result.time.dtype.kind == "b":
+            continue  # Boolean arrays are masks in xarray, not vectors of label selectors.
+        selection = {"world": entry.world_id, "time": result.time}
+        np.testing.assert_array_equal(
+            tree["posterior"]["components"].sel(selection).values[0],
+            result.components[..., result.component_mask],
+        )
+        np.testing.assert_array_equal(
+            tree["truth"]["components"].sel(selection).values, truth[:, result.component_mask]
+        )
+        np.testing.assert_array_equal(
+            tree["observed_data"]["outcome"].sel(selection).values, observations
+        )
+
+
+@needs_arviz
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (np.arange(6, dtype=np.int64) + 2**53, np.arange(6) + 0.25),
+        (np.arange(6, dtype=np.int64) * 4 + 2**53 + 1, np.arange(6) + 0.25),
+        (np.arange(6, dtype=np.uint64) + 2**63, np.arange(6) + 0.25),
+        (np.arange(6, dtype=np.int64) - 6, np.arange(6, dtype=np.uint64) + 2**63),
+        (np.arange(6, dtype=np.int64) * 2 + 2**53, np.arange(6) + 0.25),
+    ],
+    ids=[
+        "integer-float-collision",
+        "rounding-only",
+        "unsigned-float",
+        "signed-unsigned",
+        "lossless",
+    ],
+)
+def test_an_archive_preserves_exact_mixed_numeric_time_labels_and_every_row(
+    world, tmp_path, left, right
+):
+    from arviz_stats import summary
+
+    model, corpora = world
+    identity = identity_for(model, corpora[:1], [0], [(0, 8), (0, 9)], n_samples=5)
+    captured = []
+    for result, truth, graph_truth, observations in capture(model, corpora[:1], identity):
+        if result.window == "query":
+            labels = left if result.provenance["row"] == 8 else right
+            assert result.time.shape == labels.shape
+            result = replace(result, time=labels)
+        captured.append((result, truth, graph_truth, observations))
+    archive = write_archive(tmp_path / "archive", identity, captured)
+    records = list(archive.records("query"))
+    times = sorted({label for result, *_ in records for label in result.time.tolist()})
+    tree = archive.to_datatree("query")
+    posterior = tree["posterior"]
+    # Python numeric equality detects rounding that NumPy cross-dtype comparison can hide.
+    assert posterior["time"].values.tolist() == times
+    components = posterior["component"].values.tolist()
+    draws, truths, outcomes = label_grids(records, times, components)
+    np.testing.assert_array_equal(posterior["components"].values, draws)
+    np.testing.assert_array_equal(tree["truth"]["components"].values, truths)
+    np.testing.assert_array_equal(tree["observed_data"]["outcome"].values, outcomes)
+    sizes = posterior.sizes
+    assert len(summary(tree, kind="stats")) == (
+        sizes["world"] * len(times) * len(components) + sizes["world_edge"]
+    )
+
+
+@needs_arviz
+@pytest.mark.parametrize(
+    ("name", "introduced"),
+    [("archived", set()), ("mixed", {"channel:channel_3"})],
+    ids=["one geometry", "mixed geometries"],
+)
+def test_an_archive_tree_places_every_world_value_at_its_labels(built, mixed, name, introduced):
+    from arviz_stats import summary
+
+    archive = {"archived": built["archived"].archive, "mixed": mixed}[name]
+    for window in WINDOWS:
+        entries = [entry for entry in archive.entries if entry.window == window]
+        records = [archive.record(entry.index) for entry in entries]
+        results = [result for result, *_ in records]
+        active = [
+            {label for label, keep in zip(r.component_names, r.component_mask) if keep}
+            for r in results
+        ]
+        times = sorted(set().union(*(result.time.tolist() for result in results)))
+        widest = max(results, key=lambda result: len(result.component_names))
+        # Preconditions: the first world pads a component a later world has, a later world
+        # may bring a label the first has no slot for, and a world lacks some time labels.
+        first, later = set(results[0].component_names), set().union(*active[1:])
+        assert (first - active[0]) & later
+        assert later - first == introduced
+        assert any(len(result.time) < len(times) for result in results)
+        assert all(set(r.component_names) <= set(widest.component_names) for r in results)
+
+        tree = archive.to_datatree(window)
+        posterior, constants = tree["posterior"], tree["constant_data"]
+        assert tree.attrs["window"] == posterior.attrs["window"] == window
+        assert posterior["world"].values.tolist() == [entry.world_id for entry in entries]
+        assert posterior["chain"].values.tolist() == [0]
+        assert posterior["draw"].values.tolist() == list(
+            range(archive.identity["evaluation"]["n_samples"])
+        )
+        assert posterior["time"].values.tolist() == times
+        # The labels active in any world, in slot order: that of the widest world's slots.
+        union = set().union(*active)
+        components = posterior["component"].values.tolist()
+        assert components == [label for label in widest.component_names if label in union]
+        families = {
+            label: family
+            for result in results
+            for label, family in zip(result.component_names, result.component_families)
+        }
+        assert constants["component_family"].values.tolist() == [families[c] for c in components]
+        draws, truths, outcomes = label_grids(records, times, components)
+        assert posterior["components"].dims == ("chain", "draw", "world", "time", "component")
+        np.testing.assert_array_equal(posterior["components"].values, draws)
+        assert tree["truth"]["components"].dims == ("world", "time", "component")
+        assert tree["observed_data"]["outcome"].dims == ("world", "time")
+        np.testing.assert_array_equal(tree["truth"]["components"].values, truths)
+        np.testing.assert_array_equal(tree["observed_data"]["outcome"].values, outcomes)
+
+        # One (world, edge) pair per active edge, world by world in archive order.
+        pairs = [
+            (entry.world_id, result, graph_truth, slot)
+            for entry, (result, _, graph_truth, _) in zip(entries, records, strict=True)
+            for slot in np.flatnonzero(result.edge_mask)
+        ]
+        assert posterior["world_edge"].values.tolist() == [
+            f"{world_id}|{result.edge_names[slot]}" for world_id, result, _, slot in pairs
+        ]
+        np.testing.assert_array_equal(
+            posterior["graph"].values[0],
+            np.stack([result.graphs[:, slot] for _, result, _, slot in pairs], axis=1),
+        )
+        assert tree["truth"]["graph"].dims == ("world_edge",)
+        np.testing.assert_array_equal(
+            tree["truth"]["graph"].values, [graph_truth[slot] for _, _, graph_truth, slot in pairs]
+        )
+        keys = ("edge_world", "edge_name", "edge_family", "edge_source", "edge_target")
+        assert list(zip(*(constants[key].values.tolist() for key in keys), strict=True)) == [
+            (
+                world_id,
+                result.edge_names[slot],
+                result.provenance["edge_families"][slot],
+                *result.provenance["edge_endpoints"][slot],
+            )
+            for world_id, result, _, slot in pairs
+        ]
+
+        # Per-world constants follow the world axis, not the declared world order.
+        keys = ("corpus_index", "row", "cell_id", "context_length", "call", "seed", "data_sha256")
+        assert {key: constants[key].values.tolist() for key in keys} == {
+            key: [getattr(entry, key) for entry in entries] for key in keys
+        }
+        assert constants["cell"].values.tolist() == [
+            f"{label}/cell:{cell_id}" for label, cell_id in (entry.cell for entry in entries)
+        ]
+        assert constants["sales_scale"].values.tolist() == [
+            result.provenance["sales_scale"] for result in results
+        ]
+        assert constants["metadata_sha256"].values.tolist() == [
+            json.loads((entry.path / "result.json").read_text())["metadata_sha256"]
+            for entry in entries
+        ]
+        independent = constants["world"].values[constants["independent"].values].tolist()
+        assert independent == [entry.world_id for entry in archive.independent_entries(window)]
+
+        # A summary row per cell and pair; NaN exactly where a world lacks the cell.
+        table = summary(tree, kind="stats")
+        assert len(table) == draws[0, 0].size + len(pairs)
+        assert table["mean"].isna().sum() == np.isnan(draws[0, 0]).sum()
+
+
+def _families_swapped(captured):
+    """Captures whose second world's query names channel_0 a control, control_0 a channel."""
+    result, *evidence = captured[2]
+    names, families = result.component_names, list(result.component_families)
+    channel, control = names.index("channel:channel_0"), names.index("control:control_0")
+    families[channel], families[control] = families[control], families[channel]
+    edited = replace(result, component_families=tuple(families))
+    return [*captured[:2], (edited, *evidence), *captured[3:]]
+
+
+def _components_padded(captured):
+    """Captures with every component padded: zero draws and truth."""
+    return [
+        (
+            replace(
+                result,
+                components=np.zeros_like(result.components),
+                component_mask=np.zeros_like(result.component_mask),
+            ),
+            np.zeros_like(truth),
+            graph_truth,
+            observations,
+        )
+        for result, truth, graph_truth, observations in captured
+    ]
+
+
+def _edges_padded(captured):
+    """Captures with every edge padded: zero graphs and graph truth."""
+    return [
+        (
+            replace(
+                result,
+                graphs=np.zeros_like(result.graphs),
+                edge_mask=np.zeros_like(result.edge_mask),
+            ),
+            truth,
+            np.zeros_like(graph_truth),
+            observations,
+        )
+        for result, truth, graph_truth, observations in captured
+    ]
+
+
+#: Hand-edited captures whose query window the export refuses: (edit, message).
+REFUSED_WINDOWS = {
+    "a label of two families": (
+        _families_swapped,
+        "component 'channel:channel_0' is 'channel' in one world and 'control' in "
+        "shard:530001/row:9",
+    ),
+    "no active component": (
+        _components_padded,
+        "DataTree export needs at least one active component",
+    ),
+}
+
+
+@needs_arviz
+@pytest.mark.parametrize("case", REFUSED_WINDOWS)
+def test_an_archive_tree_refuses_a_window_it_cannot_label(built, tmp_path, case):
+    edit, message = REFUSED_WINDOWS[case]
+    archived = built["archived"]
+    archive = write_archive(tmp_path / "archive", archived.identity, edit(archived.captured))
+    with pytest.raises(ValueError, match=re.escape(message)):
+        archive.to_datatree("query")
+
+
+@needs_arviz
+def test_an_archive_window_without_active_edges_exports_no_pair_axis(built, tmp_path):
+    from arviz_stats import summary
+
+    archived = built["archived"]
+    captured = _edges_padded(archived.captured)
+    tree = write_archive(tmp_path / "archive", archived.identity, captured).to_datatree("query")
+    assert all("world_edge" not in tree[group].dims for group in tree.children)
+    assert set(tree["posterior"].data_vars) == set(tree["truth"].data_vars) == {"components"}
+    assert not [name for name in tree["constant_data"].data_vars if name.startswith("edge_")]
+    sizes = tree["posterior"].sizes
+    assert len(summary(tree, kind="stats")) == sizes["world"] * sizes["time"] * sizes["component"]
+
+
+@needs_arviz
+@pytest.mark.parametrize("first", [2**63 - 1, -2], ids=["straddling 2**63", "negative"])
+def test_archive_tree_calls_and_seeds_equal_the_declared_calls_exactly(world, tmp_path, first):
+    model, corpora = world
+    rows = [(0, 8), (1, 10)]  # one world per call: calls 0 and 1, seeds first and first + 1
+    identity = identity_for(model, corpora, [0, 1], rows, seed=first, worlds_per_call=1)
+    with EvaluationArchive.create(tmp_path / "archive", identity) as writer:
+        capture(model, corpora, identity, writer)
+    archive = EvaluationArchive.load(writer.path)
+    entries = [entry for entry in archive.entries if entry.window == "query"]
+    constants = archive.to_datatree("query")["constant_data"]
+    seeds = constants["seed"].values.tolist()
+    assert seeds == [entry.seed for entry in entries] == [first, first + 1]
+    assert constants["call"].values.tolist() == [entry.call for entry in entries] == [0, 1]
+
+
+@needs_arviz
+def test_archive_tree_attributes_name_the_archive_and_only_the_recorded_model_keys(built, tmp_path):
+    archived = built["archived"]
+    identity = copy.deepcopy(archived.identity)
+    identity["model"].update(
+        checkpoint_sha256=None, bundle_sha256="3" * 64, profile="tiny", source_step=7
+    )
+    bundled = write_archive(tmp_path / "bundled", identity, archived.captured)
+    optional = ("checkpoint_sha256", "bundle_sha256", "profile", "source_step")
+    for archive, recorded in (
+        (archived.archive, {"checkpoint_sha256": "2" * 64}),
+        (bundled, {"bundle_sha256": "3" * 64, "profile": "tiny", "source_step": 7}),
+    ):
+        expected = {
+            "window": "context",
+            "mode": "model_average",
+            "units": "outcome",
+            "n_samples": 8,
+            "leg": "evaluation",
+            "archive_sha256": archive.archive_sha256,
+            "dataset_sha256": archive.dataset_sha256,
+            "state_sha256": "1" * 64,
+            "config_sha256": identity["model"]["config_sha256"],
+            "mcmc_diagnostics": "not_applicable",
+        }
+        tree = archive.to_datatree("context")
+        for attrs in (tree.attrs, tree["posterior"].attrs):
+            assert expected.items() <= attrs.items()
+            # Model keys present exactly when recorded: an unrecorded key is absent, never None.
+            assert {key: attrs[key] for key in optional if key in attrs} == recorded
+
+
+@pytest.mark.parametrize(
+    "hidden",
+    [("xarray", "arviz_base"), ("arviz_base",)],
+    ids=["base install", "xarray without arviz-base"],
+)
+def test_an_archive_export_without_the_arviz_extra_names_the_extra(built, monkeypatch, hidden):
+    # Import the export module anew with the extra hidden: its own imports must not need it.
+    monkeypatch.delitem(sys.modules, "pymc_mfm.inference._datatree", raising=False)
+    monkeypatch.setattr(sys.modules["pymc_mfm.inference"], "_datatree", None, raising=False)
+    for name in hidden:
+        monkeypatch.setitem(sys.modules, name, None)
+    with pytest.raises(ImportError, match=re.escape("pymc-mfm[arviz]")):
+        built["archived"].archive.to_datatree("query")
 
 
 def _first(ctx, writer):
@@ -2150,7 +2591,14 @@ def test_load_needs_an_archive_directory(built, tmp_path):
 
 @pytest.mark.parametrize(
     "method",
-    ("records", "independent_entries", "effect_rows", "sbc_inputs", "conditional_sbc_inputs"),
+    (
+        "records",
+        "independent_entries",
+        "effect_rows",
+        "sbc_inputs",
+        "conditional_sbc_inputs",
+        "to_datatree",
+    ),
 )
 def test_reader_methods_take_only_a_known_window(built, method):
     with pytest.raises(ValueError, match=re.escape("window must be 'query' or 'context'")):
@@ -2194,13 +2642,16 @@ def test_files_changed_after_load_fail_on_read_before_rows_are_returned(built, t
     archive = EvaluationArchive.load(root)
     changed = archive.independent_entries("query")[1]
     flip(changed.path / "truth.npz")
-    for read in (
+    reads = [
         lambda: archive.effect_rows("query"),
         lambda: archive.sbc_inputs("query"),
         lambda: archive.conditional_sbc_inputs("query"),
         lambda: list(archive.records()),
         lambda: list(archive),
-    ):
+    ]
+    if all(importlib.util.find_spec(name) is not None for name in ("xarray", "arviz_base")):
+        reads.append(lambda: archive.to_datatree("query"))
+    for read in reads:
         with pytest.raises(ArchiveIntegrityError, match=re.escape(DIFFERS)) as caught:
             read()
         assert caught.value.path == f"entries/{changed.index:04d}/truth.npz"
