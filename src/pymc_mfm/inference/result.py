@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import tempfile
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 import numpy as np
 import torch
@@ -288,15 +289,13 @@ class DecompositionResult:
             staged.rename(path)
         return path
 
-    @classmethod
-    def load(cls, path: str | Path) -> DecompositionResult:
-        """Load verified, non-executable saved evidence without inference.
+    @staticmethod
+    def _checked_payload(payload: object) -> dict:
+        """The ``result.json`` checks of :meth:`load`, with its messages.
 
-        Arrays and metadata (labels, units, provenance) are both hash-bound, so
-        an edited ``result.json`` is rejected instead of relabeling the draws.
+        An object, ``format_version`` 2 (checked before the key set), the exact
+        key set. Returns ``payload`` itself.
         """
-        path = Path(path)
-        payload = json.loads((path / "result.json").read_text())
         if not isinstance(payload, dict):
             raise ValueError("invalid result metadata fields")
         version = payload.get("format_version")
@@ -307,9 +306,22 @@ class DecompositionResult:
             )
         if set(payload) != _PAYLOAD_KEYS:
             raise ValueError("invalid result metadata fields")
-        arrays_path = path / "arrays.npz"
-        with arrays_path.open("rb") as handle:
-            digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        return payload
+
+    @classmethod
+    def _from_saved(cls, payload: dict, arrays: bytes | BinaryIO) -> DecompositionResult:
+        """Build a result from a checked payload and its ``arrays.npz``, as :meth:`load` does.
+
+        ``arrays`` is the file's bytes or the file itself, open at its start. In
+        :meth:`load`'s order and with its messages: the checksum of exactly that
+        content, the metadata checksum and fields, then the array members, decoded
+        from the same content. A file is streamed, never held in memory whole.
+        """
+        if isinstance(arrays, bytes):
+            digest, stream = hashlib.sha256(arrays).hexdigest(), io.BytesIO(arrays)
+        else:
+            digest, stream = hashlib.file_digest(arrays, "sha256").hexdigest(), arrays
+            stream.seek(0)
         if digest != payload["arrays_sha256"]:
             raise ValueError("result array checksum mismatch")
         metadata = payload["metadata"]
@@ -321,10 +333,22 @@ class DecompositionResult:
         expected = {item.name for item in fields(cls) if item.init} - set(_ARRAY_FIELDS)
         if set(metadata) != expected:
             raise ValueError("incomplete or unknown result metadata")
-        with np.load(arrays_path, allow_pickle=False) as arrays:
-            if set(arrays.files) != set(_ARRAY_FIELDS):
+        with np.load(stream, allow_pickle=False) as stored:
+            if set(stored.files) != set(_ARRAY_FIELDS):
                 raise ValueError("incomplete or unknown result arrays")
-            return cls(**metadata, **{key: arrays[key] for key in _ARRAY_FIELDS})
+            return cls(**metadata, **{key: stored[key] for key in _ARRAY_FIELDS})
+
+    @classmethod
+    def load(cls, path: str | Path) -> DecompositionResult:
+        """Load verified, non-executable saved evidence without inference.
+
+        Arrays and metadata (labels, units, provenance) are both hash-bound, so
+        an edited ``result.json`` is rejected instead of relabeling the draws.
+        """
+        path = Path(path)
+        payload = cls._checked_payload(json.loads((path / "result.json").read_text()))
+        with (path / "arrays.npz").open("rb") as handle:
+            return cls._from_saved(payload, handle)
 
 
 def result_from_batch(

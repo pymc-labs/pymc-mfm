@@ -70,10 +70,7 @@ def test_checkpoint_roundtrip_preserves_conditional_draws_and_dtype(model, batch
     torch.manual_seed(20)
     actual, loaded_graphs = loaded.sample_disentangled(batch, 3)
     assert actual.dtype == torch.float64
-    # Every tensor is asserted bitwise below. Continuous outputs of the
-    # deserialized instance differ by 1 ULP on x86 Linux kernels, so draws,
-    # loss and gradients use float64 tolerance; discrete graphs stay exact.
-    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
     torch.testing.assert_close(loaded_graphs, graphs, rtol=0, atol=0)
     torch.manual_seed(21)
     expected_loss = model.loss(batch)
@@ -81,7 +78,9 @@ def test_checkpoint_roundtrip_preserves_conditional_draws_and_dtype(model, batch
     torch.manual_seed(21)
     actual_loss = loaded.loss(batch)
     actual_loss.backward()
-    torch.testing.assert_close(actual_loss, expected_loss)
+    torch.testing.assert_close(actual_loss, expected_loss, rtol=0, atol=0)
+    # Multithreaded CPU backward kernels may reduce in a different order in each
+    # pass, so gradients use float64 tolerance; draws, loss and tensors are exact.
     for original, restored in zip(model.parameters(), loaded.parameters(), strict=True):
         torch.testing.assert_close(restored.grad, original.grad)
     assert loaded.config == model.config
