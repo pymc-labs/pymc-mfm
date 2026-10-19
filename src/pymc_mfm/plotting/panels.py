@@ -1214,6 +1214,230 @@ def plot_reliability(summary, *, kind="corp", ax=None):
     return fig
 
 
+#: Cell values :func:`plot_strata_table` draws, with their axis labels.
+STRATA_METRICS = {
+    "coverage": "Window totals inside their central 80% interval",
+    "crps": "Window-total CRPS",
+    "signed_residual": "Signed residual (posterior mean − truth)",
+    "abs_residual": "Absolute residual |posterior mean − truth|",
+}
+#: What each stratification axis groups effects by.
+_STRATA_AXIS_LABELS = {
+    "true_size_bin": "true size bin (|true window total|)",
+    "predicted_size_bin": "predicted size bin (|posterior-mean window total|)",
+    "edge_probability_bin": "direct-edge frequency bin",
+    "active_channels": "active channels in the world",
+    "live_channels": "truly live channels in the world",
+}
+#: Views of :func:`plot_residual_by_magnitude`: the size its bins take.
+RESIDUAL_AXES = ("true", "predicted")
+
+
+def _stratum_tick(cell, by):
+    """A size bin's bounds, or the stratum name of any other axis."""
+    if by not in ("true_size_bin", "predicted_size_bin"):
+        return cell["stratum"]
+    if cell["stratum"] == "zero":
+        return "0"
+    if cell["upper"] is None:
+        return f"> {cell['lower']:.3g}"
+    return f"({cell['lower']:.3g}, {cell['upper']:.3g}]"
+
+
+def _row_residuals(ax, rows, table, by, metric, strata, offsets, width):
+    """Each effect's residual at its stratum, ordered by size within it; hollow if uncovered."""
+    from pymc_mfm.diagnostics.strata import row_strata, scored
+
+    position = {stratum: index for index, stratum in enumerate(strata)}
+    size = "mean" if by == "predicted_size_bin" else "truth"
+    places = row_strata(rows, by, cuts=table["cuts"])
+    for family, offset in offsets.items():
+        groups = {}
+        for row, place in zip(rows, places, strict=True):
+            if row["family"] == family and place is not None and scored(row):
+                groups.setdefault(place, []).append(row)
+        points = {True: ([], []), False: ([], [])}
+        for place, members in groups.items():
+            members.sort(key=lambda row: abs(row[size]))
+            shifts = np.linspace(-0.35, 0.35, len(members)) * width if len(members) > 1 else [0.0]
+            for row, shift in zip(members, shifts, strict=True):
+                residual = row["mean"] - row["truth"]
+                x, y = points[row["low"] <= row["truth"] <= row["high"]]
+                x.append(position[place] + offset + shift)
+                y.append(abs(residual) if metric == "abs_residual" else residual)
+        color = COLORS[family]
+        for covered, (x, y) in points.items():
+            if not x:
+                continue
+            ax.scatter(
+                x,
+                y,
+                s=9,
+                color=color if covered else "none",
+                edgecolors=color,
+                linewidths=0.6,
+                alpha=0.35,
+                gid=f"strata/rows/{family}/{'covered' if covered else 'uncovered'}",
+                label=f"{family} effects, {'inside' if covered else 'outside'} their 80% interval",
+            )
+
+
+def plot_strata_table(
+    table, *, metric="coverage", by="true_size_bin", rows=None, header=None, ax=None
+):
+    """One cell value per stratum of ``by`` and family, from a strata summary.
+
+    ``table`` is a :func:`pymc_mfm.diagnostics.strata_summary`, as the
+    evaluator records it (``evaluation_tables/step_<N>.json``) or diagnostics
+    compute it. ``metric`` is a key of :data:`STRATA_METRICS`; the signed
+    residual adds each stratum's 10%–90% residual range and median, and ``n=``
+    counts the scored effects behind each value. A stratum
+    without a value is marked ``n/a`` at the bottom, never drawn as zero. With
+    ``rows`` (the summary's :func:`pymc_mfm.diagnostics.effect_rows`), a
+    residual metric also shows every effect, ordered by size within its
+    stratum and hollow when its interval misses the truth. ``header`` states
+    what the table describes.
+    """
+    if metric not in STRATA_METRICS:
+        raise ValueError(f"strata metric must be one of {tuple(STRATA_METRICS)}, got {metric!r}")
+    if by not in table["by"]:
+        raise ValueError(f"strata by must be one of {tuple(table['by'])}, got {by!r}")
+    families = table["by"][by]
+    strata = [cell["stratum"] for cell in next(iter(families.values()))["cells"]]
+    if not strata:
+        raise ValueError(f"no {by} strata: no effect has a value on this axis")
+    fig, ax, owned = _single(ax, width=10, row_height=5)
+    width, shifts = _bar_offsets(len(families))
+    offsets = dict(zip(families, shifts, strict=True))
+    residual = metric in ("signed_residual", "abs_residual")
+    if rows is not None and residual:
+        _row_residuals(ax, rows, table, by, metric, strata, offsets, width)
+    reasons = {}
+    for family, record in families.items():
+        color, offset = COLORS[family], offsets[family]
+        drawn = [
+            (index, cell) for index, cell in enumerate(record["cells"]) if cell[metric] is not None
+        ]
+        for index, cell in enumerate(record["cells"]):
+            if cell[metric] is None:
+                reasons.setdefault(cell["reason"], []).append(index + offset)
+        x = [index + offset for index, _ in drawn]
+        y = [cell[metric] for _, cell in drawn]
+        placed = sum(cell["n_effects"] for cell in record["cells"])
+        unplaced = sum(entry["n_effects"] for entry in record["excluded"])
+        label = f"{family}: {placed} {'effect' if placed == 1 else 'effects'}"
+        if unplaced:
+            label += f" ({unplaced} without a {by} stratum)"
+        if metric == "signed_residual" and drawn:
+            median = np.asarray([cell["residual_median"] for _, cell in drawn])
+            ax.errorbar(
+                x,
+                median,
+                yerr=[
+                    median - [cell["residual_q10"] for _, cell in drawn],
+                    np.asarray([cell["residual_q90"] for _, cell in drawn]) - median,
+                ],
+                fmt="_",
+                color=color,
+                markersize=10,
+                capsize=3,
+                linewidth=1.2,
+                gid=f"strata/range/{family}",
+            )
+        ax.plot(x, y, "o", color=color, markersize=6, gid=f"strata/{family}", label=label)
+        # Counts sit in a band along the top, clear of the markers and effect points.
+        for (_, cell), position in zip(drawn, x, strict=True):
+            ax.text(
+                position,
+                0.99,
+                f"n={cell['n_scored']}",
+                transform=ax.get_xaxis_transform(),
+                ha="center",
+                va="top",
+                fontsize=6,
+                color=color,
+            )
+    for reason, positions in reasons.items():
+        for x in positions:
+            ax.text(
+                x,
+                0.02,
+                "n/a",
+                transform=ax.get_xaxis_transform(),
+                rotation=90,
+                ha="center",
+                va="bottom",
+                fontsize=7,
+                color="#777777",
+            )
+        ax.plot([], [], " ", label=f"n/a: {reason}")
+    if metric == "coverage":
+        ax.axhline(0.8, color="black", linestyle="--", linewidth=1, label="Nominal 80%")
+        ax.set_ylim(-0.02, 1.08)
+    else:
+        if metric == "signed_residual":
+            ax.axhline(0.0, color="black", linewidth=0.8)
+        # Room for the count band above and the n/a marks below the values.
+        low, high = ax.get_ylim()
+        ax.set_ylim(low - 0.08 * (high - low), high + 0.08 * (high - low))
+    unit = "" if metric == "coverage" else f" ({table['unit']})"
+    ticks = [_stratum_tick(cell, by) for cell in next(iter(families.values()))["cells"]]
+    ax.set_xticks(range(len(strata)), ticks, fontsize=8, rotation=20 if len(strata) > 6 else 0)
+    ax.set(
+        xlim=(-0.6, len(strata) - 0.4),
+        xlabel=_STRATA_AXIS_LABELS[by].capitalize(),
+        ylabel=f"{STRATA_METRICS[metric]}{unit}",
+    )
+    ax.legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1))
+    detail = f"per-effect window totals · units: {table['unit']} · {table['interval']}"
+    if by in ("true_size_bin", "predicted_size_bin"):
+        cuts = ", ".join(f"{cut:.3g}" for cut in table["cuts"]) or "none"
+        detail += f" · size cuts {cuts}; the same cuts bin true and predicted size"
+    if metric == "signed_residual":
+        detail += " · dot: mean · bar: median, 10%–90% of effects"
+    _title(
+        fig,
+        ax,
+        header,
+        f"{STRATA_METRICS[metric]} by {_STRATA_AXIS_LABELS[by]}",
+        owned,
+        detail=detail,
+    )
+    return fig
+
+
+def plot_strata(summary, *, metric="coverage", by="true_size_bin", ax=None):
+    """:func:`plot_strata_table` of one result's effects, from its diagnostic summary.
+
+    The summary's cuts come from this world's effects; residual metrics also
+    show each effect. Needs simulation truth and the result's ``sales_scale``.
+    """
+    data = summary["arrays"].get("strata")
+    if data is None:
+        raise ValueError("stratified readouts require simulation truth and sales_scale provenance")
+    return plot_strata_table(
+        data["table"],
+        metric=metric,
+        by=by,
+        rows=data["rows"],
+        header=_labels(summary["metadata"]),
+        ax=ax,
+    )
+
+
+def plot_residual_by_magnitude(summary, *, axis="true", ax=None):
+    """Signed window-total residual (posterior mean − truth) against effect size.
+
+    ``axis="true"`` bins effects by true size and ``"predicted"`` by posterior
+    mean size, with the same cuts: each bin's residual mean, median and
+    10%–90% range, and every effect ordered by size within its bin. Residuals
+    are in ``sales_scale`` units and not divided by the truth.
+    """
+    if axis not in RESIDUAL_AXES:
+        raise ValueError(f"residual axis must be one of {RESIDUAL_AXES}, got {axis!r}")
+    return plot_strata(summary, metric="signed_residual", by=f"{axis}_size_bin", ax=ax)
+
+
 def plot_zero_atoms(summary, *, ax=None):
     entries = _components(summary, tuple(COLORS))
     fig, ax, owned = _single(ax, width=11, row_height=max(4, len(entries) * 0.3))
@@ -1648,6 +1872,9 @@ def plot_panel(name, summary):
         "window_totals": plot_window_totals,
         "cumulative": plot_cumulative,
         "temporal": plot_temporal,
+        "residual_true_size": lambda data: plot_residual_by_magnitude(data, axis="true"),
+        "residual_predicted_size": lambda data: plot_residual_by_magnitude(data, axis="predicted"),
+        "strata": plot_strata,
         "structure_heatmap": plot_structure_heatmap,
         "dag_recovery": plot_dag,
         "dag_posterior": plot_graph_posterior,
