@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import math
+import platform
+import sys
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from numbers import Integral
@@ -30,7 +34,11 @@ _TRAJECTORY_FEATURE_VERSION = 5
 _FLOW_SAMPLE_CHUNK = 16
 #: State rows (draws × tasks × weeks × live coordinates) per sampling velocity evaluation.
 #: It bounds memory; unlike the noise chunk above it never changes a draw.
-_FLOW_SAMPLE_ROWS = 2**16
+_FLOW_SAMPLE_ROWS = 2**15
+# Apple's BLAS (Accelerate) runs matrix products on a separate matrix unit. On Apple
+# silicon, transporting a few batches at once overlaps one batch's products with the
+# others' elementwise work and Python overhead. In-flight memory scales with the count.
+_SAMPLE_BATCH_WORKERS = 4 if sys.platform == "darwin" and platform.machine() == "arm64" else 1
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
@@ -87,6 +95,26 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
     return int(value)
+
+
+def _map_batches[T](fn: Callable[[int], T], starts: Sequence[int], device: torch.device) -> list[T]:
+    """Return ``[fn(start) for start in starts]``, several batches at a time where that helps.
+
+    Batches share no state and draw no randomness, so the schedule never changes a
+    result. Grad mode is thread-local and is carried into the worker threads, which
+    never outnumber ``torch.get_num_threads()``.
+    """
+    workers = min(_SAMPLE_BATCH_WORKERS, torch.get_num_threads(), len(starts))
+    if workers < 2 or device.type != "cpu":
+        return [fn(start) for start in starts]
+    grad_enabled = torch.is_grad_enabled()
+
+    def run(start: int) -> T:
+        with torch.set_grad_enabled(grad_enabled):
+            return fn(start)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(run, starts))
 
 
 class JointFlowHead(nn.Module):
@@ -824,10 +852,13 @@ class JointFlowHead(nn.Module):
             width = live.index.numel()
         batch = max(1, _FLOW_SAMPLE_ROWS // (math.prod(lead) * width))
         x = torch.cat(
-            [
-                flow(x[start : start + batch], trajectory_latent[start : start + batch])
-                for start in range(0, s, batch)
-            ]
+            _map_batches(
+                lambda start: flow(
+                    x[start : start + batch], trajectory_latent[start : start + batch]
+                ),
+                range(0, s, batch),
+                x.device,
+            )
         )
         if weight is not None:
             n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls

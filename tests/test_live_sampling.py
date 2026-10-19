@@ -4,11 +4,15 @@ A coordinate masked in every task is projected to zero after each Euler step, so
 the sampler never evaluates its velocity. On every coordinate it does evaluate,
 the velocity must equal the trained ``JointFlowHead.velocity`` up to float64
 round-off; otherwise seeded draws would silently leave the trained sampler.
+Noise is drawn per chunk of draws; how draws are then batched for transport, and
+whether batches run concurrently, must not change any draw.
 """
 
 import pytest
 import torch
 
+import pymc_mfm.model.flow as flow
+import pymc_mfm.model.model as model_module
 from pymc_mfm.model.flow import _LiveVelocity
 from pymc_mfm.model.graph import EdgeSlotLayout
 
@@ -91,3 +95,37 @@ def test_decoder_live_velocity_matches_the_trained_velocity(model64, batch64, gr
     n_dec = model64.conditional_head.state_dim(layout.K, layout.M)
     mask = model64._conditioned_state_mask(state_mask[..., :n_dec], graph, layout)
     _assert_live_velocity_matches(model64.conditional_head, weekly, channels, controls, mask)
+
+
+def _draws(model, batch, monkeypatch, *, rows, workers, window):
+    monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS", rows)
+    monkeypatch.setattr(model_module, "_FLOW_SAMPLE_ROWS", rows)
+    monkeypatch.setattr(flow, "_SAMPLE_BATCH_WORKERS", workers)
+    torch.manual_seed(41)
+    # 19 draws cross the 16-draw noise chunk.
+    return model.sample_disentangled(batch, 19, window=window)
+
+
+@pytest.mark.parametrize("window", ["query", "context"])
+def test_transport_batches_and_their_schedule_never_change_a_draw(
+    model64, batch64, monkeypatch, window
+):
+    threads = torch.get_num_threads()
+    torch.set_num_threads(max(threads, 4))
+    try:
+        whole, whole_graphs = _draws(
+            model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
+        )
+        # A one-row budget transports every draw in its own batch.
+        serial, serial_graphs = _draws(
+            model64, batch64, monkeypatch, rows=1, workers=1, window=window
+        )
+        concurrent, concurrent_graphs = _draws(
+            model64, batch64, monkeypatch, rows=1, workers=4, window=window
+        )
+    finally:
+        torch.set_num_threads(threads)
+    assert torch.equal(serial_graphs, whole_graphs)
+    torch.testing.assert_close(serial, whole, **ROUND_OFF)
+    assert torch.equal(concurrent_graphs, serial_graphs)
+    assert torch.equal(concurrent, serial)

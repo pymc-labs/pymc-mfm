@@ -15,6 +15,7 @@ from .flow import (
     DEFAULT_N_SAMPLES,
     JointFlowHead,
     _edge_slot_layout,
+    _map_batches,
     _sample_count,
 )
 from .graph import (
@@ -528,8 +529,8 @@ class MFM(nn.Module):
         keys = torch.cat([task.unsqueeze(-1).to(flat_graphs.dtype), flat_graphs], dim=-1)
         live_width = int((masks != 0).reshape(-1, n_dec).any(dim=0).sum())
         batch = max(1, _FLOW_SAMPLE_ROWS // (b * t * live_width))
-        chunks = []
-        for start in range(0, s, batch):
+
+        def decode(start: int) -> Tensor:
             n = min(start + batch, s) - start
             rows = slice(start * b, (start + n) * b)
             distinct, inverse = torch.unique(keys[rows], dim=0, return_inverse=True)
@@ -550,18 +551,17 @@ class MFM(nn.Module):
             x, trajectory_latent = head._mix_noise(
                 white[:, rows], latents[:, rows], conditioned.weekly
             )
-            chunks.append(
-                head._transport(
-                    x,
-                    trajectory_latent,
-                    conditioned.weekly,
-                    conditioned.channels,
-                    conditioned.controls,
-                    masks[rows],
-                    apply_zero_atom=True,
-                ).reshape(n, b, t, n_dec)
-            )
-        sampled = torch.cat(chunks, dim=0)
+            return head._transport(
+                x,
+                trajectory_latent,
+                conditioned.weekly,
+                conditioned.channels,
+                conditioned.controls,
+                masks[rows],
+                apply_zero_atom=True,
+            ).reshape(n, b, t, n_dec)
+
+        sampled = torch.cat(_map_batches(decode, range(0, s, batch), weekly.device), dim=0)
         for gate, contribution_slice, edge_slice in self.head.zero_atom_gate_slices(
             layout.K, layout.M
         ):
