@@ -431,7 +431,11 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
             "config_sha256": manifest["files"]["config.json"]["sha256"],
         }:
             raise ValueError("safetensors metadata disagree with the configuration identity")
-        state = {name: stream.get_tensor(name) for name in stream.keys()}
+        # assign=True keeps these tensors as the weights. get_tensor views the file
+        # buffer at its byte offsets, not at the allocator's 64-byte alignment, and
+        # x86 BLAS kernels round unaligned operands differently: a bundle would not
+        # reproduce the saved model's outputs bit for bit. Own fresh allocations.
+        state = {name: stream.get_tensor(name).clone() for name in stream.keys()}
     model = _canonical_model(config)
     catalog = _validate_state(model, state, specs=manifest["tensors"])
     model.load_state_dict(state, strict=True, assign=True)

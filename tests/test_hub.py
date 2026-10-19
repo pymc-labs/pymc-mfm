@@ -41,9 +41,7 @@ def _assert_same_draws(original, restored, batch):
     expected, expected_graphs = original.sample_disentangled(batch, 2)
     torch.manual_seed(19)
     actual, actual_graphs = restored.sample_disentangled(batch, 2)
-    # Deserialized tensors can take a different x86 kernel path than freshly
-    # built ones (1 ULP); tensors are compared bit-for-bit elsewhere.
-    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
     torch.testing.assert_close(actual_graphs, expected_graphs, rtol=0, atol=0)
 
 
