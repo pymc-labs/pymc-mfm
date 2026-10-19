@@ -175,7 +175,7 @@ def _finish(summary, root, provenance, *, strict, source_manifest=None):
         "provenance": json_safe(provenance),
         "dimensions": {
             "window": metadata["window"],
-            "head": "conditional",
+            "head": provenance.get("head", "conditional"),
             "mode": metadata["mode"],
             "units": metadata["units"],
             "data_split": provenance.get("data_split"),
@@ -291,6 +291,54 @@ def _finish(summary, root, provenance, *, strict, source_manifest=None):
     return manifest
 
 
+def _report_evidence(truth, graph_truth, observed, training_records, evaluation_records, reference):
+    """Caller evidence normalized exactly as a report persists and scores it.
+
+    Arrays are frozen copies: a caller reusing its array after scoring cannot
+    change the evidence a later ``Diagnostics.report`` saves.
+    """
+    records = json_safe(
+        {
+            "training_records": list(training_records),
+            "evaluation_records": list(evaluation_records),
+            "reference": reference,
+        }
+    )
+    optional_arrays = {}
+    for name, value in (("truth", truth), ("graph_truth", graph_truth), ("observed", observed)):
+        if value is not None:
+            array = np.array(value, copy=True)
+            array.setflags(write=False)
+            optional_arrays[name] = array
+    if any(
+        value.dtype.kind not in "biuf" or not np.isfinite(value).all()
+        for value in optional_arrays.values()
+    ):
+        raise ValueError("truth/graph_truth/observed must be finite real arrays")
+    return records, optional_arrays
+
+
+def _score(result, records, optional_arrays):
+    return compute_diagnostics(
+        result,
+        truth=optional_arrays.get("truth"),
+        graph_truth=optional_arrays.get("graph_truth"),
+        observed=optional_arrays.get("observed"),
+        training_records=records["training_records"],
+        evaluation_records=records["evaluation_records"],
+        reference=records["reference"],
+    )
+
+
+def _write_report(result, root, records, optional_arrays, summary, *, strict):
+    """Persist evidence with an already computed summary; never rescores."""
+    result.save(root / "result")
+    _write_json(root / "evidence.json", records)
+    np.savez_compressed(root / "evidence.npz", **optional_arrays)
+    _write_json(root / "diagnostics.json", summary)
+    return _finish(summary, root, result.provenance, strict=strict)
+
+
 def build_report(
     result: DecompositionResult,
     out_dir,
@@ -309,38 +357,15 @@ def build_report(
     Missing truth/reference is an expected unavailable state. Actual scoring or
     rendering failures are persisted and raise :class:`DiagnosticError` in
     strict mode. Truth/observation arrays stay separate from inference results.
+    ``result.diagnostics(...).report(out_dir)`` writes the same files from its
+    already computed values.
     """
-    records = json_safe(
-        {
-            "training_records": list(training_records),
-            "evaluation_records": list(evaluation_records),
-            "reference": reference,
-        }
+    records, optional_arrays = _report_evidence(
+        truth, graph_truth, observed, training_records, evaluation_records, reference
     )
-    optional_arrays = {
-        name: np.asarray(value)
-        for name, value in (("truth", truth), ("graph_truth", graph_truth), ("observed", observed))
-        if value is not None
-    }
-    if any(
-        value.dtype.kind not in "biuf" or not np.isfinite(value).all()
-        for value in optional_arrays.values()
-    ):
-        raise ValueError("truth/graph_truth/observed must be finite real arrays")
     root = _output(out_dir)
-    result.save(root / "result")
-    _write_json(root / "evidence.json", records)
-    np.savez_compressed(root / "evidence.npz", **optional_arrays)
     try:
-        summary = compute_diagnostics(
-            result,
-            truth=truth,
-            graph_truth=graph_truth,
-            observed=observed,
-            training_records=records["training_records"],
-            evaluation_records=records["evaluation_records"],
-            reference=records["reference"],
-        )
+        summary = _score(result, records, optional_arrays)
     except Exception as exc:
         reason = f"{type(exc).__name__}: {exc}"
         summary = {
@@ -359,6 +384,7 @@ def build_report(
             "scoring_error": reason,
             "metadata": {
                 "time": result.time.tolist(),
+                "head": result.provenance.get("head", "conditional"),
                 "window": result.window,
                 "mode": result.mode,
                 "units": result.units,
@@ -367,8 +393,7 @@ def build_report(
                 "edge_names": list(result.edge_names),
             },
         }
-    _write_json(root / "diagnostics.json", summary)
-    return _finish(summary, root, result.provenance, strict=strict)
+    return _write_report(result, root, records, optional_arrays, summary, strict=strict)
 
 
 def render_report(saved_path, out_dir, *, strict=True):
@@ -429,7 +454,7 @@ def render_report(saved_path, out_dir, *, strict=True):
         raise ValueError("computed diagnostic geometry disagrees with saved result")
     expected_dimensions = {
         "window": saved_result.window,
-        "head": "conditional",
+        "head": saved_result.provenance.get("head", "conditional"),
         "mode": saved_result.mode,
         "units": saved_result.units,
         "data_split": saved_result.provenance.get("data_split"),

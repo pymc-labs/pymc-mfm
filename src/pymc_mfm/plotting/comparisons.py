@@ -1,27 +1,76 @@
 """Readable comparison figures drawn only from stored numerical summaries.
 
+Figures use the non-pyplot ``Figure``/Agg-canvas path of :mod:`.panels`, so
+they are never registered with pyplot and never change backend state.
 Matplotlib is imported on demand. Rendering never invokes an inference model,
-generator, or reference sampler.
+generator, or reference sampler. Each figure states the head, window, mode,
+units and draw count of the evidence it draws, where they apply.
 """
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
 
-
-def _pyplot():
-    import matplotlib.pyplot as plt
-
-    return plt
+from .panels import _figure, _labels
 
 
-def _finish(fig, title, *, note=None):
-    fig.suptitle(title, fontsize=13)
+def _records(summary, window, methods):
+    """Saved records behind the plotted ``(case, method)`` rows of one window."""
+    return [
+        record
+        for record in summary["records"]
+        if record["window"] == window and (record["case"], record["method"]) in methods
+    ]
+
+
+def _dimensions(records, window, *, metric=None):
+    """Label line of the saved records drawn; values that differ are listed per method.
+
+    Model records without a recorded head carry conditional draws, the only
+    head a ``DecompositionResult`` holds. ``metric`` selects the table units of
+    that scalar metric; otherwise the records' outcome units are stated.
+    """
+    from pymc_mfm.diagnostics.comparisons import _metric_units
+
+    labels = defaultdict(lambda: (set(), set(), set(), set()))
+    for record in records:
+        head, mode, units, draws = labels[record["method"]]
+        head.add(
+            str(record["provenance"].get("head", "conditional"))
+            if record["kind"] == "model"
+            else "reference"
+        )
+        mode.add(record["mode"])
+        units.add(record["units"] if metric is None else _metric_units(metric, record["units"]))
+        draws.add(record["n_samples"])
+
+    def describe(index):
+        distinct = set().union(*(label[index] for label in labels.values()))
+        if len(distinct) == 1:
+            return str(distinct.pop())
+        return ", ".join(
+            f"{method} {'/'.join(map(str, sorted(label[index])))}"
+            for method, label in labels.items()
+        )
+
+    return _labels(
+        {
+            "head": describe(0),
+            "window": window,
+            "mode": describe(1),
+            "units": describe(2),
+            "n_samples": describe(3),
+        }
+    )
+
+
+def _finish(fig, title, dimensions, *, note=None):
+    fig.suptitle(f"{title}\n{dimensions}", fontsize=12, wrap=True)
     handles, labels = [], []
     for ax in fig.axes:
-        ax.spines[["top", "right"]].set_visible(False)
         ax.grid(alpha=0.18)
         found, names = ax.get_legend_handles_labels()
         for handle, name in zip(found, names, strict=True):
@@ -29,19 +78,14 @@ def _finish(fig, title, *, note=None):
                 handles.append(handle)
                 labels.append(name)
     if handles:
-        fig.legend(
-            handles, labels, loc="lower center", ncol=min(4, len(labels)), fontsize=9, frameon=False
-        )
+        fig.legend(handles, labels, loc="outside right center", fontsize=9, frameon=False)
     if note:
-        fig.text(0.01, 0.005, note, fontsize=8, va="bottom", wrap=True)
-    fig.tight_layout(rect=(0, 0.1 if note else 0.07, 1, 0.96))
+        fig.supxlabel(note, x=0.01, ha="left", fontsize=8, wrap=True)
     return fig
 
 
 def _reference_note(summary):
-    if summary.get("reference_fit_summary") or any(
-        row.get("reference_health") is not None for row in summary.get("records", ())
-    ):
+    if any(row["reference_health"] is not None for row in summary["records"]):
         return (
             " References are approximate; failures and incomplete fit "
             "diagnostics remain included. See reference fit-health panel."
@@ -64,9 +108,8 @@ def _aggregate_figure(
     families = list(dict.fromkeys(row["family"] for row in rows))
     cases = list(dict.fromkeys(row["case"] for row in rows))
     methods = list(dict.fromkeys(row["method"] for row in rows))
-    plt = _pyplot()
-    fig, axes = plt.subplots(
-        1, len(families), figsize=(5 * len(families), max(4, 0.7 * len(cases) + 2)), squeeze=False
+    fig, axes = _figure(
+        1, len(families), width=5 * len(families), row_height=max(4, 0.7 * len(cases) + 2)
     )
     offsets = np.linspace(-0.3, 0.3, len(methods)) if len(methods) > 1 else [0]
     for ax, family in zip(axes[0], families, strict=True):
@@ -98,7 +141,13 @@ def _aggregate_figure(
             "not intervals over training seeds."
         )
     )
-    return _finish(fig, f"{title} — {window}", note=note + _reference_note(summary))
+    records = _records(summary, window, {(row["case"], row["method"]) for row in rows})
+    return _finish(
+        fig,
+        title,
+        _dimensions(records, window, metric=metric),
+        note=note + _reference_note(summary),
+    )
 
 
 def plot_performance(summary, *, window="query"):
@@ -249,16 +298,15 @@ def plot_graph_count_recovery(summary, *, family, window="query"):
     )
 
 
-def _paired_figure(rows, title, *, window, label_keys, note=""):
+def _paired_figure(summary, rows, title, *, window, label_keys, note=""):
     rows = [row for row in rows if row["window"] == window]
     if not rows:
         raise ValueError(f"No saved paired evidence for {window}")
     families = list(dict.fromkeys(row["family"] for row in rows))
-    plt = _pyplot()
     height = max(
         4, max(sum(row["family"] == family for row in rows) for family in families) * 0.4 + 2
     )
-    fig, axes = plt.subplots(1, len(families), figsize=(5 * len(families), height), squeeze=False)
+    fig, axes = _figure(1, len(families), width=5 * len(families), row_height=height)
     for ax, family in zip(axes[0], families, strict=True):
         selected = [row for row in rows if row["family"] == family]
         for index, row in enumerate(selected):
@@ -272,9 +320,15 @@ def _paired_figure(rows, title, *, window, label_keys, note=""):
         ax.invert_yaxis()
         ax.set_xlabel("Paired CRPS difference / outcome scale")
         ax.set_title(family)
+    methods = {
+        (row["case"], method)
+        for row in rows
+        for method in ((row["first"], row["second"]) if "first" in row else (row["method"],))
+    }
     return _finish(
         fig,
-        f"{title} — {window}",
+        title,
+        _dimensions(_records(summary, window, methods), window, metric=rows[0]["metric"]),
         note="Paired within world; intervals bootstrap worlds, never individual components." + note,
     )
 
@@ -282,6 +336,7 @@ def _paired_figure(rows, title, *, window, label_keys, note=""):
 def plot_ab_comparison(summary, *, window="query"):
     rows = [row for row in summary["paired"] if row.get("kind") == "method_comparison"]
     return _paired_figure(
+        summary,
         rows,
         "Method comparison: second minus first",
         window=window,
@@ -293,6 +348,7 @@ def plot_ab_comparison(summary, *, window="query"):
 def plot_oracle_comparison(summary, *, window="query"):
     rows = [row for row in summary["paired"] if row.get("kind") == "oracle_comparison"]
     return _paired_figure(
+        summary,
         rows,
         "Method minus privileged approximate oracle — normalized CRPS",
         window=window,
@@ -304,6 +360,7 @@ def plot_oracle_comparison(summary, *, window="query"):
 def plot_graph_averaging(summary, *, window="query"):
     rows = [row for row in summary["paired"] if row.get("kind") == "graph_averaging"]
     return _paired_figure(
+        summary,
         rows,
         "Model average minus graph view (negative favors averaging)",
         window=window,
@@ -313,6 +370,7 @@ def plot_graph_averaging(summary, *, window="query"):
 
 def plot_matched_omission(summary, *, window="query"):
     return _paired_figure(
+        summary,
         summary["omission_summary"],
         "Matched omission: after minus before on retained identities",
         window=window,
@@ -332,10 +390,9 @@ def plot_world_comparison(summary, *, case, world, window="query", projection="t
     if not records:
         raise ValueError("No saved records match the requested world and window")
     names = ["Latent total"] + [row["name"] for row in records[0]["components"]]
-    plt = _pyplot()
     ncols = min(3, len(names))
     nrows = (len(names) + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3 * nrows + 1), squeeze=False)
+    fig, axes = _figure(nrows, ncols, width=5 * ncols, row_height=3 + 1 / nrows)
     for ax, name in zip(axes.flat, names):
         for method_index, record in enumerate(records):
             component = (
@@ -398,7 +455,10 @@ def plot_world_comparison(summary, *, case, world, window="query", projection="t
     if warnings:
         note += " Reference health warning: " + ", ".join(warnings)
     return _finish(
-        fig, f"{case} · world {world} · {window} · {projection.replace('_', ' ')}", note=note
+        fig,
+        f"{case} · world {world} · {projection.replace('_', ' ')}",
+        _dimensions(records, window),
+        note=note,
     )
 
 
@@ -406,17 +466,12 @@ def plot_reference_comparison(summary):
     """Render the reference report hook's saved values and explicit health warning."""
     arrays = summary["arrays"]
     names = arrays["names"]
-    plt = _pyplot()
     ncols = min(3, len(names))
-    fig, axes = plt.subplots(
-        (len(names) + ncols - 1) // ncols,
-        ncols,
-        squeeze=False,
-        figsize=(5 * ncols, 3 * ((len(names) + ncols - 1) // ncols) + 1),
-    )
+    nrows = (len(names) + ncols - 1) // ncols
+    fig, axes = _figure(nrows, ncols, width=5 * ncols, row_height=3 + 1 / nrows)
     for i, (ax, name) in enumerate(zip(axes.flat, names)):
         for source, color, label in (
-            ("model", "C0", "Conditional model"),
+            ("model", "C0", f"{summary['head'].capitalize()} model"),
             ("reference", "C1", summary["label"]),
         ):
             values = arrays[source]
@@ -438,7 +493,20 @@ def plot_reference_comparison(summary):
         "recorded thresholds met" if health["healthy"] is True else "; ".join(health["reasons"])
     )
     return _finish(
-        fig, "Saved conditional/reference comparison — equal-tailed 80% intervals", note=note
+        fig,
+        "Saved model/reference comparison — equal-tailed 80% intervals",
+        _labels(
+            {
+                "head": summary["head"],
+                "window": summary["window"],
+                "mode": summary["mode"],
+                "units": summary["units"],
+                "n_samples": (
+                    f"{summary['n_samples']} model / {summary['reference_n_samples']} reference"
+                ),
+            }
+        ),
+        note=note,
     )
 
 
@@ -448,32 +516,11 @@ def plot_reference_health(summary, *, window="query"):
         for row in summary["records"]
         if row["window"] == window and row["reference_health"] is not None
     ]
-    if not rows and summary.get("reference_fit_summary"):
-        diagnostics = summary["reference_fit_summary"]
-        world_count = summary["source_summary"]["population"]["worlds_per_case"]
-        rows = [
-            {
-                "case": case,
-                "world": "all",
-                "method": method,
-                "reference_health": {
-                    "healthy": count == world_count,
-                    "reasons": [
-                        f"{count}/{world_count} fits meet thresholds; "
-                        f"maximum R-hat {detail['max_rhat_by_case'][case]['max']:.3f}; "
-                        f"{detail['divergences_by_case'][case]['n_worlds_any']}"
-                        " worlds with divergences"
-                    ],
-                },
-            }
-            for method, detail in diagnostics.items()
-            for case, count in detail.get("healthy_worlds_by_case", {}).items()
-        ]
     if not rows:
         raise ValueError("No saved reference fit-health evidence")
     labels = [f"{row['case']} / {row['world']} / {row['method']}" for row in rows]
-    plt = _pyplot()
-    fig, ax = plt.subplots(figsize=(11, max(3, len(rows) * 0.35)))
+    fig, axes = _figure(width=11, row_height=max(3, len(rows) * 0.35))
+    ax = axes[0, 0]
     for index, row in enumerate(rows):
         health = row["reference_health"]
         ax.text(
@@ -490,7 +537,8 @@ def plot_reference_health(summary, *, window="query"):
     ax.set_ylim(len(rows) - 0.5, -0.5)
     return _finish(
         fig,
-        f"Reference fit health — {window}",
+        "Reference fit health",
+        _dimensions(rows, window),
         note=(
             "Unhealthy/incomplete fits are retained in every comparison, not "
             "silently dropped or rerun."
@@ -502,9 +550,7 @@ def render_comparisons(summary, out_dir):
     """Save every applicable comparison panel; missing evidence is an explicit status."""
     root = Path(out_dir)
     root.mkdir(parents=True, exist_ok=True)
-    windows = list(
-        dict.fromkeys(row["window"] for row in (*summary["records"], *summary["aggregate"]))
-    )
+    windows = list(dict.fromkeys(row["window"] for row in summary["records"]))
     panels = []
     functions = (
         ("performance", plot_performance, "crps"),
@@ -546,7 +592,7 @@ def render_comparisons(summary, out_dir):
             panels.append({"name": name, "status": "available", "path": path.name})
         finally:
             if figure is not None:
-                _pyplot().close(figure)
+                figure.clear()
 
     for window in windows:
         for name, function, metric in functions:
@@ -600,7 +646,7 @@ def render_comparisons(summary, out_dir):
                         "reason": "Required verified paired evidence not supplied",
                     }
                 )
-        if summary.get("reference_fit_summary") or any(
+        if any(
             row["window"] == window and row["reference_health"] is not None
             for row in summary["records"]
         ):
@@ -618,24 +664,18 @@ def render_comparisons(summary, out_dir):
                     summary, case=case, world=world, window=window, projection=projection
                 ),
             )
-    if not keys:
-        panels.append(
-            {
-                "name": "world_trajectories",
-                "status": "unavailable",
-                "reason": "Derived aggregate evidence contains no full per-world trajectories",
-            }
-        )
     return panels
 
 
-def plot_posterior_sbc(summary):
-    """Render saved posterior-SBC ranks, ECDFs and coverage without new sampling."""
+def plot_posterior_sbc(summary, *, metadata=None):
+    """Render saved posterior-SBC ranks, ECDFs and coverage without new sampling.
+
+    ``metadata`` of a diagnostics summary adds the diagnosed result's labels.
+    """
     names = list(summary["ranks"])
     if not names:
         raise ValueError("No saved posterior-SBC quantities")
-    plt = _pyplot()
-    fig, axes = plt.subplots(len(names), 3, figsize=(13, 3.2 * len(names) + 1), squeeze=False)
+    fig, axes = _figure(len(names), 3, width=13, row_height=3.2 + 1 / len(names))
     bins = np.arange(summary["n_post_samples"] + 2) - 0.5
     for row, name in zip(axes, names, strict=True):
         row[0].hist(summary["ranks"][name], bins=bins, color="C0", alpha=0.8)
@@ -658,17 +698,34 @@ def plot_posterior_sbc(summary):
         )
         row[2].plot([0, 1], [0, 1], "--", color="black")
         row[2].set(xlabel="Nominal mass", ylabel="Observed coverage", xlim=(0, 1), ylim=(0, 1))
+    counts = (
+        f"{summary['n_post_samples']} posterior draws per replication · "
+        f"{summary['n_replications']} replications"
+    )
+    if metadata is None:
+        provenance = summary["provenance"]
+        parts = [f"{provenance.get('head', 'conditional')} head"]
+        parts += [f"{provenance[key]} {key}" for key in ("window", "mode") if provenance.get(key)]
+        dimensions = " · ".join([*parts, counts])
+    else:
+        dimensions = f"{_labels(metadata)}\n{counts}"
     return _finish(
-        fig, "Posterior-SBC — saved conditional-updating experiment", note=summary["qualification"]
+        fig,
+        "Posterior-SBC — saved conditional-updating experiment",
+        dimensions,
+        note=summary["qualification"],
     )
 
 
-def plot_c2st(summary):
-    """Render frozen world-held-out classifier predictions and paired statistics."""
+def plot_c2st(summary, *, metadata=None):
+    """Render frozen world-held-out classifier predictions and paired statistics.
+
+    ``metadata`` of a diagnostics summary adds the diagnosed result's labels.
+    """
     labels = np.asarray(summary["labels"])
     probabilities = np.asarray(summary["probabilities"])
-    plt = _pyplot()
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    fig, axes = _figure(1, 3, width=13, row_height=4)
+    axes = axes[0]
     for label, name in ((0, "Reference"), (1, "Conditional model")):
         axes[0].hist(
             probabilities[labels == label], bins=np.linspace(0, 1, 11), alpha=0.5, label=name
@@ -691,7 +748,16 @@ def plot_c2st(summary):
     )
     axes[2].axhline(np.log(2), color="black", linestyle="--", label="Chance log loss")
     axes[2].set_ylabel("Nats")
-    return _finish(fig, f"Saved C2ST — {summary['classifier']}", note=summary["qualification"])
+    worlds = (
+        f"vs reference · {summary['n_test_worlds']} held-out worlds · "
+        f"{summary['n_training_worlds']} training worlds"
+    )
+    return _finish(
+        fig,
+        f"Saved C2ST — {summary['classifier']}",
+        f"conditional head {worlds}" if metadata is None else f"{_labels(metadata)}\n{worlds}",
+        note=summary["qualification"],
+    )
 
 
 def plot_input_support(summary):
@@ -699,8 +765,7 @@ def plot_input_support(summary):
     rows = summary["inputs"]
     if not rows:
         raise ValueError("No raw input support descriptors")
-    plt = _pyplot()
-    fig, axes = plt.subplots(1, 2, figsize=(11, max(4, 0.4 * len(rows) + 2)), squeeze=False)
+    fig, axes = _figure(1, 2, width=11, row_height=max(4, 0.4 * len(rows) + 2))
     for axis, statistic in zip(axes[0], ("mean", "std"), strict=True):
         for index, row in enumerate(rows):
             for j, window in enumerate(("context", "query")):
@@ -715,18 +780,42 @@ def plot_input_support(summary):
         axis.set_yticks(range(len(rows)), labels=[row["name"] for row in rows])
         axis.set_xlabel(f"Raw input {statistic}")
         axis.invert_yaxis()
-    return _finish(fig, "Raw input support — location and scale", note=summary["qualification"])
+    windows = [
+        f"{window} window: {rows[0][window]['count']} time points"
+        for window in ("context", "query")
+        if rows[0][window] is not None
+    ]
+    return _finish(
+        fig,
+        "Raw input support — location and scale",
+        " · ".join([*windows, "units: raw input"]),
+        note=summary["qualification"],
+    )
 
 
 def plot_corpus_support(summary):
-    """Plot the original mean/std world cloud and both marginal distributions."""
+    """Plot the original mean/std world cloud and both marginal distributions.
+
+    ``n_worlds`` beyond the listed and ``skipped`` worlds means an evenly spaced
+    subset; the header states the counts and how many kept worlds were unusable.
+    Without a usable world, ``ValueError`` states how many were skipped and why.
+    """
     worlds = summary["worlds"]
     if not worlds:
+        skipped = summary.get("skipped") or {}
+        if skipped:
+            reasons = ", ".join(
+                f"{reason} ({count})" for reason, count in Counter(skipped.values()).items()
+            )
+            raise ValueError(
+                f"No usable world-level support descriptors: all {len(skipped)} kept worlds "
+                f"were skipped ({reasons})"
+            )
         raise ValueError("No saved world-level support descriptors")
     means = [world["mean"] for world in worlds]
     stds = [world["std"] for world in worlds]
-    plt = _pyplot()
-    fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+    fig, axes = _figure(1, 3, width=13, row_height=4)
+    axes = axes[0]
     axes[0].scatter(means, stds, alpha=0.65)
     axes[0].set(xlabel="Context outcome mean", ylabel="Context outcome standard deviation")
     bins = min(30, max(1, int(np.sqrt(len(worlds)))))
@@ -734,6 +823,16 @@ def plot_corpus_support(summary):
     axes[1].set(xlabel="Context outcome mean", ylabel="Worlds")
     axes[2].hist(stds, bins=bins, color="C1", alpha=0.8)
     axes[2].set(xlabel="Context outcome standard deviation", ylabel="Worlds")
+    total = summary.get("n_worlds", len(worlds))
+    skipped = len(summary.get("skipped", {}))
+    shown = f"{len(worlds)} worlds" if total == len(worlds) else f"{len(worlds)} of {total} worlds"
+    if len(worlds) + skipped < total:
+        shown += ", evenly spaced"
+    if skipped:
+        shown += f", {skipped} skipped (unusable context)"
     return _finish(
-        fig, "Saved corpus support — world-level location and scale", note=summary["qualification"]
+        fig,
+        "Saved corpus support — world-level location and scale",
+        f"context window · units: outcome · {shown}",
+        note=summary["qualification"],
     )

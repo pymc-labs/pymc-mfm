@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from functools import lru_cache
+from numbers import Integral
 
 import torch
 import torch.nn.functional as F
@@ -12,7 +13,7 @@ from torch import Tensor, nn
 
 from .config import ModelConfig
 from .graph import N_NODE_TYPES, STRUCT_EDGE_KEYS, EdgeSlotLayout
-from .ode import _validate_ode_method, integrate_flow
+from .ode import integrate_flow
 
 DECOMPOSITION_FIXED_TARGETS = (
     "confounder_contribution_total",
@@ -27,6 +28,16 @@ _TRAJECTORY_RANK = 4
 _TRAJECTORY_CONSTANT_LOADING_SCALE = 3.5
 _TRAJECTORY_FEATURE_VERSION = 5
 _FLOW_SAMPLE_CHUNK = 16
+
+# Fixed architecture numerics shared by A/B and every new training.
+#: Fourier frequencies of the flow-time embedding; they set layer input widths.
+FLOW_N_FREQ = 2
+#: Uniform Euler steps of the sampling grid.
+FLOW_STEPS_SAMPLE = 16
+#: Base-noise variance share of the rank-four trajectory component.
+FLOW_TRAJECTORY_CORRELATION = 0.98
+#: Draws per sampling call when ``n_samples`` is omitted.
+DEFAULT_N_SAMPLES = 32
 
 
 @dataclass(frozen=True)
@@ -54,10 +65,10 @@ ZERO_ATOM_GATES: tuple[ZeroAtomGate, ...] = (
 )
 
 
-def _fourier_time(t: Tensor, n_freq: int = 8) -> Tensor:
-    """Map scalar t in [0,1] to [t, sin(2^k pi t), cos(2^k pi t)]."""
+def _fourier_time(t: Tensor) -> Tensor:
+    """Map scalar t in [0,1] to [t, sin(2^k pi t), cos(2^k pi t)] for k < FLOW_N_FREQ."""
     t = t.unsqueeze(-1)
-    freqs = (2.0 ** torch.arange(n_freq, device=t.device, dtype=t.dtype)) * torch.pi
+    freqs = (2.0 ** torch.arange(FLOW_N_FREQ, device=t.device, dtype=t.dtype)) * torch.pi
     ang = t * freqs
     return torch.cat([t, torch.sin(ang), torch.cos(ang)], dim=-1)
 
@@ -66,6 +77,13 @@ def _fourier_time(t: Tensor, n_freq: int = 8) -> Tensor:
 def _edge_slot_layout(n_channels: int, n_controls: int, n_demand: int) -> EdgeSlotLayout:
     """Cache immutable edge geometry used by every velocity evaluation."""
     return EdgeSlotLayout(n_channels, n_controls, n_demand)
+
+
+def _sample_count(value: object, name: str = "n_samples") -> int:
+    """Validate a draw count: a positive integer, never a bool or a fraction."""
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise ValueError(f"{name} must be a positive integer")
+    return int(value)
 
 
 class JointFlowHead(nn.Module):
@@ -81,16 +99,11 @@ class JointFlowHead(nn.Module):
     def __init__(self, config: ModelConfig, *, graph_router: bool):
         super().__init__()
         self.graph_router = graph_router
-        self.ode_method = _validate_ode_method(config.flow_ode_method)
-        self.n_freq = config.flow_n_freq
-        self.n_steps_sample = config.flow_steps_sample
-        self.mc_samples = config.flow_mc_samples
         self.n_controls = config.n_controls
         self.n_demand = config.n_demand
-        self.trajectory_correlation = config.flow_trajectory_correlation
         d_model = d_channel = config.d_model
         hidden = config.flow_hidden
-        t_dim = 1 + 2 * self.n_freq
+        t_dim = 1 + 2 * FLOW_N_FREQ
         entity_edge_state = int(graph_router)
 
         self.trajectory_state_proj = nn.Linear(2, _TRAJECTORY_EMBED_DIM)
@@ -297,7 +310,7 @@ class JointFlowHead(nn.Module):
             torch.linalg.vector_norm((x_entity - entity_mean) * entity_active, dim=-1, keepdim=True)
             / entity_count.sqrt()
         )
-        te = _fourier_time(t, self.n_freq)
+        te = _fourier_time(t)
         base_parts = [x_base, te, weekly_repr, entity_mean, entity_std]
         base_parts.append(trajectory_context[..., 0, :])
         v_base = self.base_net(torch.cat(base_parts, dim=-1))
@@ -490,7 +503,7 @@ class JointFlowHead(nn.Module):
             ) from error
         loadings = self._trajectory_loadings(weekly_repr)
         latent = torch.matmul(loadings, z.transpose(-1, -2))
-        rho = self.trajectory_correlation
+        rho = FLOW_TRAJECTORY_CORRELATION
         x0 = math.sqrt(rho) * latent + math.sqrt(1.0 - rho) * white
         return x0, latent
 
@@ -705,16 +718,16 @@ class JointFlowHead(nn.Module):
         self,
         weekly_repr: Tensor,
         channel_repr: Tensor,
-        n_samples: int | None = None,
+        n_samples: int = DEFAULT_N_SAMPLES,
         control_repr: Tensor | None = None,
         state_mask: Tensor | None = None,
         apply_zero_atom: bool = True,
     ) -> Tensor:
-        """Draw decomposition trajectories and, for the router, full graph states."""
-        method = _validate_ode_method(self.ode_method)
-        s = self.mc_samples if n_samples is None else int(n_samples)
-        if s < 1:
-            raise ValueError(f"n_samples must be >= 1, got {s}")
+        """Draw decomposition trajectories and, for the router, full graph states.
+
+        Each draw integrates ``FLOW_STEPS_SAMPLE`` uniform Euler steps.
+        """
+        s = _sample_count(n_samples)
         c = channel_repr.shape[-2]
         d = self.state_dim(c, control_repr.shape[-2] if control_repr is not None else None)
         if self.graph_router and s > _FLOW_SAMPLE_CHUNK:
@@ -764,8 +777,7 @@ class JointFlowHead(nn.Module):
         x = integrate_flow(
             x,
             drift,
-            self._time_grid(self.n_steps_sample),
-            method=method,
+            self._time_grid(FLOW_STEPS_SAMPLE),
             project=project if weight is not None else None,
         )
         if weight is not None:

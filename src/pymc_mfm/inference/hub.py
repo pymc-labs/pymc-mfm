@@ -2,20 +2,58 @@
 
 from __future__ import annotations
 
+import json
+import math
 import re
+import secrets
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
 
 from pymc_mfm.model.model import MFM
 
-from ._artifact_schema import BUNDLE_FILES, json_bytes, validate_profile
+from ._artifact_schema import (
+    BUNDLE_FILES,
+    RECORDED_OUTPUTS_FILE,
+    json_bytes,
+    parse_json,
+    recorded_outputs_bytes,
+    recorded_outputs_metadata,
+    validate_profile,
+)
 from .checkpoint import _load_local, _read_manifest, save_pretrained
+
+if TYPE_CHECKING:
+    from pymc_mfm.data.recipes import ShardPlan
 
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 _LICENSE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,79}\Z")
+_PROFILE_MANIFEST = re.compile(r"profiles/([^/]+)/manifest\.json")
+_CARD_TAGS = ("marketing-mix-modeling", "graph-conditional", "safetensors")
+#: Profile-recipe fields shown in a card's training-corpus table.
+_CORPUS_FIELDS = (
+    "n_time_steps",
+    "query_frac",
+    "p_long_horizon",
+    "val_cell_frac",
+    "n_treatments",
+    "n_treatments_active_range",
+    "n_covariates",
+    "n_covariates_active_range",
+    "n_latent",
+    "n_latent_active_range",
+    "edge_budget",
+    "l_max",
+    "carryover_family_probs",
+    "carryover_alpha_range",
+    "saturation_family_probs",
+    "confounding_strength_range",
+    "rw_baseline_std_range",
+    "rw_outcome_std_range",
+)
 
 
 class HubArtifactError(RuntimeError):
@@ -261,27 +299,35 @@ def list_profiles(
     return profiles
 
 
-def _model_card(metadata: dict, *, repo_id: str, profile: str | None, license: str, hub) -> str:
-    card_data = hub.ModelCardData(
-        license=license,
-        library_name="pymc-mfm",
-        tags=["marketing-mix-modeling", "graph-conditional", "safetensors"],
+def _cell(value: object) -> str:
+    """An exact JSON rendering that cannot break a Markdown table row."""
+    return json.dumps(value, sort_keys=True, separators=(", ", ": ")).replace("|", "\\|")
+
+
+def _table(header: tuple[str, ...], rows) -> str:
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines.extend("| " + " | ".join(row) + " |" for row in rows)
+    return "\n".join(lines)
+
+
+def _front_matter(license: str) -> str:
+    tags = [f"- {tag}" for tag in _CARD_TAGS]
+    return "\n".join(
+        ["---", f"license: {json.dumps(license)}", "library_name: pymc-mfm", "tags:", *tags, "---"]
     )
-    provenance = metadata["provenance"]
-    profile_argument = "" if profile is None else f", profile={profile!r}"
-    text = f"""---
-{card_data.to_yaml()}
----
-# Marketing Foundation Model
 
-A complete trainable graph-conditional MFM artifact, including the shared
-encoder, joint graph router, auxiliary structure head, graph conditioner,
-and conditional decomposition decoder. A/B and new checkpoints are artifact
-profiles of this same architecture, not alternative model implementations.
 
-## Install and load
+def _load_snippet(repo_id: str | None, profile: str | None) -> str:
+    argument = "" if profile is None else f", profile={profile!r}"
+    if repo_id is None:
+        return f"""```python
+from pymc_mfm import from_pretrained
 
-```sh
+# A local copy or `hf download` directory of the published repository.
+model = from_pretrained("<downloaded directory>"{argument})
+```"""
+    key = "." if profile is None else profile
+    return f"""```sh
 pip install 'pymc-mfm[hub]'
 ```
 
@@ -290,9 +336,157 @@ from pymc_mfm import from_pretrained, list_profiles
 
 # Use the full immutable commit returned by publication or profile discovery.
 profiles = list_profiles({repo_id!r})
-revision = next(iter(profiles.values()))["revision"]
-model = from_pretrained({repo_id!r}, revision=revision{profile_argument})
-```
+revision = profiles[{key!r}]["revision"]
+model = from_pretrained({repo_id!r}, revision=revision{argument})
+```"""
+
+
+def _architecture_section(metadata: Mapping) -> str:
+    parameters = sum(
+        math.prod(entry["shape"])
+        for entry in metadata["manifest"]["tensors"]
+        if entry["kind"] == "parameter"
+    )
+    rows = [
+        ("architecture", metadata["architecture"]),
+        *(
+            (f"model_config.{name}", value)
+            for name, value in metadata["model_config"].items()
+            if name != "format_version"
+        ),
+        ("parameters", parameters),
+        *((f"inference.{name}", value) for name, value in metadata["inference"].items()),
+    ]
+    return _table(("field", "value"), [(name, _cell(value)) for name, value in rows])
+
+
+def _training_plan(name: object) -> ShardPlan | None:
+    """The ``SHARD_PLANS`` profile training plan that ``corpus_plan`` names, if any."""
+    if name is None:
+        return None
+    from pymc_mfm.data.recipes import SHARD_PLANS
+
+    names = sorted(key for key, plan in SHARD_PLANS.items() if plan.profile.name == key)
+    if not isinstance(name, str) or name not in names:
+        raise ValueError(f"corpus_plan must name a profile training plan: {', '.join(names)}")
+    return SHARD_PLANS[name]
+
+
+def _check_plan_worlds(plan: ShardPlan | None, evaluation: Mapping | None) -> None:
+    """Refuse a training plan whose shards do not hold the recorded evaluation worlds."""
+    if plan is None or evaluation is None:
+        return
+    seeds = {plan.seed(shard) for shard in range(plan.n_shards)}
+    rows = plan.n_cells * plan.draws_per_cell
+    if any(
+        world["shard_seed"] not in seeds or world["row"] >= rows for world in evaluation["worlds"]
+    ):
+        raise ValueError(
+            f"the recorded training_evaluation worlds are not rows of plan {plan.name!r}'s shards"
+        )
+
+
+def _corpus_section(plan: ShardPlan | None) -> str:
+    if plan is None:
+        return (
+            "No shard plan was named when this card was rendered, so the training corpus\n"
+            "is identified only by the provenance data references below."
+        )
+    from pymc_mfm.data.recipes import recipe_for
+
+    payload = recipe_for(plan.profile).payload
+    rows = [
+        ("plan.name", plan.name),
+        ("plan.n_shards", plan.n_shards),
+        ("plan.first_seed", plan.first_seed),
+        ("plan.last_seed", plan.seed(plan.n_shards - 1)),
+        ("plan.seed_stride", plan.seed_stride),
+        ("plan.n_cells", plan.n_cells),
+        ("plan.draws_per_cell", plan.draws_per_cell),
+        ("plan.worlds", plan.worlds),
+        *((f"prior.{field}", payload[field]) for field in _CORPUS_FIELDS),
+    ]
+    return f"""The maintainer who rendered this card named MFM's shard plan
+`{plan.name}` as the training corpus. Shard `i` is one generator call with seed
+`plan.first_seed + i * plan.seed_stride`; regenerate it into directory `<dir>` with
+`python -m pymc_mfm.data generate --profile {plan.name} --shard <i> --out <dir>`.
+The generator marks a `prior.val_cell_frac` share of cells as held out
+(`is_val`). The table lists the prior settings that bound the training domain;
+the complete prior is `recipe_for(plan.profile).payload` with
+`plan = SHARD_PLANS[{plan.name!r}]` from `pymc_mfm.data.recipes`.
+
+{_table(("field", "value"), [(name, _cell(value)) for name, value in rows])}"""
+
+
+def _evaluation_section(record: Mapping | None) -> str:
+    if record is None:
+        return "No training evaluation is recorded in this bundle's provenance."
+    protocol = [
+        (f"training_evaluation.{name}", _cell(record[name]))
+        for name in (
+            "source",
+            "step",
+            "leg",
+            "head",
+            "eval_seed",
+            "n_worlds",
+            "n_samples",
+            "flow_steps",
+            "worlds",
+        )
+    ]
+    metrics = [
+        (name, _cell(value), record["aggregation"][name])
+        for name, value in sorted(record["metrics"].items())
+    ]
+    head = (
+        ""
+        if record["head"] == "conditional"
+        else f"\nThe scored head is `{record['head']}`, so these values do not describe the\n"
+        "conditional decoder that `decompose` samples.\n"
+    )
+    return f"""Values recorded by the producing training run, stored as the provenance key
+`training_evaluation` in `config.json`. Loading checks their structure, never
+their values; `null` marks a metric that was undefined. Aggregation `world`
+averages worlds equally; `slot` averages each world's channel or control slots,
+then the worlds equally; `slot_pooled` pools the channel or control slots of all
+worlds, weighting each slot rather than each world equally; `pooled_edges`
+scores the pooled edge slots of all worlds once.
+{head}
+{_table(("field", "value"), protocol)}
+
+{_table(("metric", "value", "aggregation"), metrics)}"""
+
+
+def _license_section(license: str) -> str:
+    return f"""Artifact license: `{license}`, supplied explicitly by the maintainer who rendered
+this card. It is not inferred from the code license."""
+
+
+def _bundle_card(
+    metadata: Mapping, *, license: str, repo_id: str | None, plan: ShardPlan | None
+) -> str:
+    profile = metadata["profile"]
+    provenance = dict(metadata["provenance"])
+    evaluation = provenance.pop("training_evaluation", None)
+    _check_plan_worlds(plan, evaluation)
+    title = "" if profile is None else f": profile {profile}"
+    return f"""{_front_matter(license)}
+# Marketing Foundation Model{title}
+
+A complete trainable graph-conditional MFM artifact, including the shared
+encoder, joint graph router, auxiliary structure head, graph conditioner,
+and conditional decomposition decoder. Profiles are artifacts of this same
+fixed architecture trained on different corpora, not alternative model
+implementations.
+
+## Architecture
+
+{_architecture_section(metadata)}
+
+## Install and load
+
+{_load_snippet(repo_id, profile)}
 
 ## Task, units, and domain
 
@@ -305,18 +499,26 @@ Inference supports graph averaging, an empirical full-graph mode, or a supplied
 fixed graph. Masked nodes have no active incident edges. The ordered feature,
 target, graph, numerical, and normalization contracts are in `config.json`.
 The architecture is count-agnostic over media/control inputs; artifact-specific
-training support is described only by the explicit provenance below.
+training support is described only by the corpus and provenance below.
+
+## Training corpus
+
+{_corpus_section(plan)}
+
+## Recorded training evaluation
+
+{_evaluation_section(evaluation)}
 
 ## Provenance and evidence
 
-This commit exports profile {profile!r}. Each bundle records original checkpoint
-identity separately from exported safetensors and configuration hashes in its
-manifest. Producing tracking IDs, prior configuration, data identities, and
-saved diagnostic references are included only when explicitly supplied.
-No empirical calibration, out-of-domain validity, or conditional performance
-is implied by export. Missing diagnostic references mean evidence was not
-provided, not that an evaluation passed. Joint-router metrics must not be
-interpreted as conditional-decoder evidence.
+Each bundle records original checkpoint identity separately from exported
+safetensors and configuration hashes in its manifest. Producing tracking IDs,
+prior configuration, data identities, and saved diagnostic references are
+included only when explicitly supplied. No empirical calibration,
+out-of-domain validity, or conditional performance is implied by export.
+Missing diagnostic references mean evidence was not provided, not that an
+evaluation passed. Joint-router metrics must not be interpreted as
+conditional-decoder evidence.
 
 ```json
 {json_bytes(provenance).decode().rstrip()}
@@ -327,16 +529,103 @@ interpreted as conditional-decoder evidence.
 Only safetensors and strict JSON metadata are loaded; no remote code or
 executable object payload is needed. Model bundles preserve trainable state
 but contain no optimizer/RNG resume state, observations, or training corpora.
+An optional `recorded_outputs.json` beside the bundle holds one synthetic
+world's inputs and the expected `decompose` outputs used to check an install.
 Discover profiles with `list_profiles`; standard `hf download` directories use
 the identical local loader. This package does not provide Transformers
-AutoModel registration, hosted inference, or inference widgets.
+AutoModel registration, hosted inference, or inference widgets. The weights
+were fitted only to synthetic worlds of the training corpus above; accuracy
+for other horizons, entity or live-effect counts, response families,
+confounding or noise levels is not established.
 
 ## License
 
-The publishing maintainer explicitly supplied `{license}` as the approved
-artifact license. This declaration does not infer rights from a code license.
+{_license_section(license)}
 """
-    return hub.ModelCard(text).content
+
+
+def _collection_card(profiles: list[str], *, license: str, repo_id: str | None) -> str:
+    rows = [(name, f"[profiles/{name}/README.md](profiles/{name}/README.md)") for name in profiles]
+    return f"""{_front_matter(license)}
+# Marketing Foundation Model collection
+
+Every profile below is an artifact of the same fixed graph-conditional MFM
+architecture, trained on its own corpus. Each profile's model card describes its
+architecture, training corpus, recorded training evaluation, provenance and
+limitations.
+
+## Profiles
+
+{_table(("profile", "model card"), rows)}
+
+## Install and load
+
+{_load_snippet(repo_id, profiles[0])}
+
+## License
+
+{_license_section(license)}
+"""
+
+
+def write_model_cards(
+    path: str | Path,
+    *,
+    license: str,
+    repo_id: str | None = None,
+    corpus_plan: str | None = None,
+) -> list[Path]:
+    """Render the model cards of a local bundle or collection, e.g. before publication.
+
+    Each ``profiles/<name>/`` bundle receives its own ``README.md`` and the root
+    ``README.md`` indexes every profile; a lone root bundle's card is the root
+    ``README.md``. A root bundle beside ``profiles/`` is refused, since its card
+    and the index would both be the root ``README.md``. ``license`` is explicit,
+    nonempty text, which may state that no license has been selected yet;
+    ``push_to_hub`` renders and publishes its own cards and accepts only approved
+    identifiers. ``corpus_plan`` names the ``SHARD_PLANS`` training plan (``A`` or
+    ``B``) that the one bundle in ``path`` was trained on, which its card then
+    describes; a card never infers its corpus from the profile label, and a plan
+    whose shards do not hold every world of the bundle's recorded
+    ``training_evaluation`` is refused. To describe the corpora of a collection,
+    pass each ``profiles/<name>`` directory with its own plan. Every described
+    bundle is validated by the local loader before any card is written. Each card
+    is written to a sibling temporary file renamed onto its target, so a symlinked
+    ``README.md``, as in a Hub cache snapshot, is replaced rather than written
+    through into a blob other revisions share.
+    ``repo_id`` (validated with the ``hub`` extra) selects Hub loading
+    instructions; no Hub request is made. Returns the written paths.
+    """
+    if not isinstance(license, str) or not license.strip():
+        raise ValueError("model cards require an explicit license text")
+    plan = _training_plan(corpus_plan)
+    if repo_id is not None:
+        repo_id = _repo_id(repo_id)
+    root = Path(path).expanduser()
+    entries = list_profiles(root)
+    profiles = sorted(name for name in entries if name != ".")
+    if profiles and "." in entries:
+        raise ValueError("a directory cannot hold both a root bundle and profiles/<name>/ bundles")
+    if plan is not None and len(entries) > 1:
+        raise ValueError("corpus_plan describes one bundle; pass each profiles/<name> directory")
+
+    def card(name: str) -> str:
+        metadata = _load_local(root / entries[name]["path"]).artifact_metadata
+        return _bundle_card(metadata, license=license, repo_id=repo_id, plan=plan)
+
+    cards = {root / "profiles" / name / "README.md": card(name) for name in profiles}
+    cards[root / "README.md"] = (
+        _collection_card(profiles, license=license, repo_id=repo_id) if profiles else card(".")
+    )
+    token = secrets.token_hex(4)
+    for target, text in cards.items():
+        temporary = target.with_name(f".{target.name}.{token}.tmp")
+        try:
+            temporary.write_text(text, encoding="utf-8")
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return list(cards)
 
 
 def push_to_hub(
@@ -349,8 +638,10 @@ def push_to_hub(
     provenance: Mapping | None = None,
     profile: str | None = None,
     license: str | None = None,
+    recorded_outputs: str | Path | None = None,
+    corpus_plan: str | None = None,
 ):
-    """Explicitly publish one complete bundle and model card in a single commit.
+    """Explicitly publish one complete bundle and its model cards in a single commit.
 
     Supplying ``license`` attests that the maintainer approved that artifact
     license; no license is inferred or approved by this function. Missing
@@ -361,6 +652,23 @@ def push_to_hub(
     Only freshly generated allowlisted files are committed, never a caller's
     working directory. The returned official CommitInfo contains the immutable
     ``oid`` to use for reproducible retrieval. No import/training/load publishes.
+
+    A profile's card is ``profiles/<name>/README.md``. The root ``README.md``
+    indexes every profile already published plus this one, so publishing a
+    profile never rewrites another profile's card. A repository holds either
+    ``profiles/<name>/`` bundles or one root bundle, whose card is the root
+    ``README.md``; publishing a profile beside a root bundle, or a root bundle
+    beside profiles, is refused before any commit. ``corpus_plan`` names the
+    ``SHARD_PLANS`` training plan (``A`` or ``B``) the model was trained on, which
+    the card then describes, provided its shards hold every world of the recorded
+    ``training_evaluation``; without it the card identifies the corpus only by
+    provenance, never by the profile label. ``recorded_outputs`` names the JSON
+    sidecar of synthetic inputs and expected outputs for this artifact. It must
+    name the same profile, source checkpoint and weights (``state_sha256``, as
+    recorded by ``from_pretrained``), have the bundle's control and latent widths
+    and pass the strict sidecar schema; its canonical serialization is uploaded as
+    ``recorded_outputs.json`` beside the bundle files. Republishing a profile
+    without a sidecar deletes its previous one in the same commit.
     """
     if (
         not isinstance(license, str)
@@ -369,6 +677,13 @@ def push_to_hub(
     ):
         raise ValueError("publishing requires an explicitly approved artifact license identifier")
     profile = validate_profile(profile)
+    plan = _training_plan(corpus_plan)
+    recorded = None
+    if recorded_outputs is not None:
+        recorded_outputs = Path(recorded_outputs).expanduser()
+        if not recorded_outputs.is_file():
+            raise FileNotFoundError("recorded_outputs must name an existing JSON file")
+        recorded = parse_json(recorded_outputs.read_bytes())
     hub = _hub()
     repo_id = _repo_id(repo_id)
     if type(private) is not bool:
@@ -377,25 +692,33 @@ def push_to_hub(
         bundle = save_pretrained(
             model, Path(temporary) / "bundle", provenance=provenance, profile=profile
         )
-        # The exporter validates the complete model and metadata before any remote action.
-        from ._artifact_schema import read_json
-
-        metadata = read_json(bundle / "config.json")
+        # The exported files must load exactly as they will be published.
+        exported = _load_local(bundle)
+        metadata = exported.artifact_metadata
         profile = metadata["profile"]
         prefix = "" if profile is None else f"profiles/{profile}/"
-        card = _model_card(metadata, repo_id=repo_id, profile=profile, license=license, hub=hub)
+        sidecar = None
+        if recorded is not None:
+            sidecar = recorded_outputs_bytes(
+                recorded_outputs_metadata(
+                    recorded,
+                    profile=profile,
+                    provenance=metadata["provenance"],
+                    state_sha256=metadata["state_sha256"],
+                    model_config=exported.config,
+                )
+            )
+        bundle_card = hub.ModelCard(
+            _bundle_card(metadata, license=license, repo_id=repo_id, plan=plan)
+        ).content
         operations = [
             hub.CommitOperationAdd(path_in_repo=f"{prefix}{name}", path_or_fileobj=bundle / name)
             for name in BUNDLE_FILES
         ]
-        operations.append(
-            hub.CommitOperationAdd(path_in_repo="README.md", path_or_fileobj=card.encode("utf-8"))
-        )
-        if profile is not None:
+        sidecar_path = f"{prefix}{RECORDED_OUTPUTS_FILE}"
+        if sidecar is not None:
             operations.append(
-                hub.CommitOperationAdd(
-                    path_in_repo=f"{prefix}README.md", path_or_fileobj=card.encode("utf-8")
-                )
+                hub.CommitOperationAdd(path_in_repo=sidecar_path, path_or_fileobj=sidecar)
             )
         api = hub.HfApi(token=token)
         _transport(
@@ -408,17 +731,38 @@ def push_to_hub(
             if isinstance(card_data, Mapping)
             else getattr(card_data, "license", None)
         )
-        existing_artifacts = any(
-            sibling.rfilename == "manifest.json"
-            or re.fullmatch(r"profiles/[^/]+/manifest\.json", sibling.rfilename)
-            for sibling in (getattr(info, "siblings", None) or ())
-        )
+        files = {sibling.rfilename for sibling in (getattr(info, "siblings", None) or ())}
+        published = {match.group(1) for match in map(_PROFILE_MANIFEST.fullmatch, files) if match}
         if existing_license is not None and existing_license != license:
             raise ValueError("publication cannot replace the existing repository license")
-        if existing_artifacts and existing_license is None:
+        if (published or "manifest.json" in files) and existing_license is None:
             raise ValueError(
                 "existing artifacts need explicit repository license metadata before publication"
             )
+        profiles = sorted(published | ({profile} if profile is not None else set()))
+        if profiles and (profile is None or "manifest.json" in files):
+            # The root bundle's card and the profile index would both be README.md.
+            raise ValueError(
+                "a repository cannot hold both a root bundle and profiles/<name>/ bundles"
+            )
+        if sidecar is None and sidecar_path in files:
+            operations.append(hub.CommitOperationDelete(path_in_repo=sidecar_path))
+        if profile is not None:
+            operations.append(
+                hub.CommitOperationAdd(
+                    path_in_repo=f"{prefix}README.md", path_or_fileobj=bundle_card.encode("utf-8")
+                )
+            )
+        root_card = (
+            hub.ModelCard(_collection_card(profiles, license=license, repo_id=repo_id)).content
+            if profiles
+            else bundle_card
+        )
+        operations.append(
+            hub.CommitOperationAdd(
+                path_in_repo="README.md", path_or_fileobj=root_card.encode("utf-8")
+            )
+        )
         return _transport(
             api.create_commit,
             repo_id=repo_id,

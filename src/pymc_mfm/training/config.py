@@ -1,15 +1,16 @@
-"""Training configuration: update budget, optimizer, schedule, and cadence.
+"""Training configuration: update budget, optimizer, objective, schedule, and cadence.
 
 ``TrainingConfig()`` defines the canonical full run: 62,500 AdamW updates of
 64 worlds, a peak learning rate of 2.8e-3 after 3,125 warmup updates, cosine
-decay to zero, weight decay 0.01, global gradient clipping at 1.0, evaluation
-every 6,250 updates on 16 held-out worlds with 128 draws, milestones at 25,000
-and 50,000, and seed 31. Corpus selection does not alter this execution
-contract.
+decay to zero, weight decay 0.01, global gradient clipping at 1.0, the A/B
+loss weights (the :class:`~pymc_mfm.model.config.LossWeights` defaults),
+evaluation every 6,250 updates on 16 held-out worlds with 128 draws,
+milestones at 25,000 and 50,000, and seed 31. Corpus selection does not alter
+this execution contract.
 
-Architecture is configured by :class:`pymc_mfm.model.config.ModelConfig`;
-paths, device, and corpus selection are arguments to
-:func:`pymc_mfm.training.train`.
+Architecture size and geometry are configured by
+:class:`pymc_mfm.model.config.ModelConfig`; paths, device, and corpus selection
+are arguments to :func:`pymc_mfm.training.train`.
 """
 
 from __future__ import annotations
@@ -19,8 +20,12 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
 from typing import ClassVar, Self
 
+from pymc_mfm.model.config import LossWeights
+
 CANONICAL_STEPS = 62_500
 CANONICAL_BATCH_SIZE = 64
+SELECTION_HEADS = ("conditional", "joint")
+_LOSS_WEIGHT_FIELDS = tuple(field.name for field in fields(LossWeights))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -38,11 +43,19 @@ class TrainingConfig:
     warmup_steps: int = 3_125
     weight_decay: float = 0.01
     grad_clip: float = 1.0
+    #: Objective coefficients passed to the model as :attr:`loss_weights`.
+    struct_weight: float = 1.0
+    struct_cy_weight: float = 1.0
+    graph_conditional_weight: float = 1.0
+    context_decomposition_weight: float = 0.5
+    context_graph_weight: float = 0.1
     seed: int = 31
     eval_every: int = 6_250
     eval_worlds: int = 16
     eval_samples: int = 128
     eval_seed: int = 616_161
+    #: Head whose held-out query readout selects checkpoints.
+    selection_head: str = "conditional"
     log_every: int = 100
     milestone_steps: tuple[int, ...] = (25_000, 50_000)
     prefetch_batches: int = 4
@@ -77,8 +90,13 @@ class TrainingConfig:
         ):
             raise ValueError("weight_decay must be finite and non-negative")
         object.__setattr__(self, "weight_decay", float(self.weight_decay))
+        # LossWeights is the one validation path for the objective coefficients.
+        for name, value in self.loss_weights.to_dict().items():
+            object.__setattr__(self, name, value)
         if self.lr_schedule not in ("constant", "cosine"):
             raise ValueError("lr_schedule must be 'constant' or 'cosine'")
+        if self.selection_head not in SELECTION_HEADS:
+            raise ValueError(f"selection_head must be one of {SELECTION_HEADS}")
         # The held-out energy score that selects checkpoints needs two draws.
         if type(self.eval_samples) is not int or self.eval_samples < 2:
             raise ValueError("eval_samples must be an integer >= 2")
@@ -97,6 +115,11 @@ class TrainingConfig:
         if self.steps == CANONICAL_STEPS and self.batch_size == CANONICAL_BATCH_SIZE:
             return "canonical"
         return "reduced"
+
+    @property
+    def loss_weights(self) -> LossWeights:
+        """The objective coefficients this run passes to ``MFM.loss_terms``."""
+        return LossWeights(**{name: getattr(self, name) for name in _LOSS_WEIGHT_FIELDS})
 
     def learning_rate(self, step: int) -> float:
         """Return the learning rate for a 1-indexed update before it runs.

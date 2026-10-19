@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import tarfile
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -20,7 +21,13 @@ def run(*command: str, cwd: Path, env: dict[str, str]) -> None:
     subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
-def check_archive(path: Path) -> None:
+def sdist_allowlist(root: Path) -> set[str]:
+    """The top-level entries the sdist may contain, read from the build configuration."""
+    config = tomllib.loads((root / "pyproject.toml").read_text())
+    return set(config["tool"]["hatch"]["build"]["targets"]["sdist"]["only-include"])
+
+
+def check_archive(path: Path, allowed_top_level: set[str]) -> None:
     if path.suffix == ".whl":
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
@@ -36,7 +43,6 @@ def check_archive(path: Path) -> None:
             "__pycache__",
             "artifacts",
             "runs",
-            "latest_model",
             "mlruns",
         }, name
         assert not any(part == ".env" or part.startswith(".env.") for part in parts), name
@@ -51,6 +57,8 @@ def check_archive(path: Path) -> None:
         }, name
         if path.suffix == ".whl":
             assert parts[0] == "pymc_mfm" or parts[0].endswith(".dist-info"), name
+        else:
+            assert len(parts) > 1 and parts[1] in allowed_top_level | {"PKG-INFO"}, name
 
 
 def main() -> None:
@@ -63,8 +71,9 @@ def main() -> None:
     wheels = list((root / "dist").glob("*.whl"))
     sdists = list((root / "dist").glob("*.tar.gz"))
     assert len(wheels) == len(sdists) == 1, "Build into a clean dist directory"
+    allowed_top_level = sdist_allowlist(root)
     for artifact in (*wheels, *sdists):
-        check_archive(artifact)
+        check_archive(artifact, allowed_top_level)
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
     env.pop("MLFLOW_TRACKING_URI", None)

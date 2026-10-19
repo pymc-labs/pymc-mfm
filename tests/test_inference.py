@@ -1,6 +1,7 @@
 """The observation boundary uses no synthetic labels and preserves result identity."""
 
 import json
+import warnings
 from dataclasses import replace
 
 import numpy as np
@@ -238,6 +239,22 @@ def test_supplied_graph_is_validated_before_float32_rounding(model, synthetic_co
             decompose(model, observed(synthetic_corpus), n_samples=3, mode="fixed", graph=supplied)
 
 
+def test_a_results_own_read_only_graph_is_a_valid_fixed_hypothesis(model, synthetic_corpus):
+    inputs = observed(synthetic_corpus)
+    drawn = decompose(model, inputs, n_samples=3)
+    assert not drawn.graphs.flags.writeable
+    # PyTorch warns about non-writable arrays once per process unless told otherwise.
+    previous = torch.is_warn_always_enabled()
+    torch.set_warn_always(True)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            fixed = decompose(model, inputs, n_samples=3, mode="fixed", graph=drawn.graphs[0])
+    finally:
+        torch.set_warn_always(previous)
+    np.testing.assert_array_equal(fixed.graphs, np.tile(drawn.graphs[0], (3, 1)))
+
+
 @pytest.mark.parametrize(
     ("mode", "supply_graph", "router_samples"),
     [
@@ -335,6 +352,30 @@ def test_identical_and_supplemental_annotations_preserve_loaded_evidence(
         assert replay.provenance[key] == value
 
 
+def test_results_name_but_do_not_copy_the_bundles_recorded_evaluation(
+    model, synthetic_corpus, tmp_path
+):
+    from test_checkpoint import _training_evaluation
+
+    source = {"source_checkpoint_sha256": "a" * 64, "training_evaluation": _training_evaluation()}
+    loaded = from_pretrained(
+        save_pretrained(model, tmp_path / "model", provenance=source, profile="A")
+    )
+    plain = decompose(loaded, observed(synthetic_corpus), n_samples=3)
+    # Echoing the model's own identity back is consistent, not a conflict.
+    echoed = decompose(
+        loaded,
+        observed(synthetic_corpus),
+        n_samples=3,
+        provenance={**loaded.provenance, "artifact": loaded.artifact_metadata},
+    )
+    for result in (plain, echoed):
+        saved = (result.save(tmp_path / f"result-{id(result)}") / "result.json").read_text()
+        assert "training_evaluation" not in saved
+        assert result.provenance["source_checkpoint_sha256"] == "a" * 64
+        assert result.provenance["bundle_sha256"] == loaded.provenance["bundle_sha256"]
+
+
 def test_unsigned_decreasing_time_cannot_overflow_validation(model, synthetic_corpus):
     inputs = observed(synthetic_corpus)
     time = np.arange(len(inputs["spend"]), dtype=np.uint64)[::-1]
@@ -351,6 +392,12 @@ def test_modal_result_retains_actual_router_bank_size(model, synthetic_corpus):
     )
     assert result.provenance["inference_config"]["router_samples"] == 7
     assert result.provenance["inference_config"]["n_samples"] == result.n_samples
+
+
+def test_omitted_draw_count_is_the_ab_default_and_fractions_are_rejected(model, synthetic_corpus):
+    assert decompose(model, observed(synthetic_corpus)).n_samples == 32
+    with pytest.raises(ValueError):
+        decompose(model, observed(synthetic_corpus), n_samples=2.5)
 
 
 def test_bfloat16_evidence_preserves_sample_values(model, synthetic_corpus):

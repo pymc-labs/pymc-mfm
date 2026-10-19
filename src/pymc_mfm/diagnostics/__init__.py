@@ -1,5 +1,12 @@
 """Numerical diagnostics, calibration, and evaluation metrics."""
 
+from .accessors import (
+    Diagnostics,
+    DiagnosticsPlots,
+    ResultPlots,
+    TrainingPlots,
+    TrainingRun,
+)
 from .calibration import (
     calibration_summary,
     compute_rank,
@@ -8,7 +15,13 @@ from .calibration import (
     rank_uniformity_stats,
     sbc_report,
 )
-from .core import PANEL_NAMES, compute_diagnostics
+from .comparison_accessors import (
+    CalibrationPlots,
+    CalibrationReport,
+    Comparison,
+    ComparisonPlots,
+)
+from .core import PANEL_NAMES, compute_diagnostics, record_series
 from .report import DiagnosticError, build_report, render_report, write_calibration_report
 from .structure import (
     cardinality_decode,
@@ -20,8 +33,17 @@ from .structure import (
 from .uncertainty import paired_graph_uncertainty
 
 __all__ = [
+    "CalibrationPlots",
+    "CalibrationReport",
+    "Comparison",
+    "ComparisonPlots",
     "DiagnosticError",
+    "Diagnostics",
+    "DiagnosticsPlots",
     "PANEL_NAMES",
+    "ResultPlots",
+    "TrainingPlots",
+    "TrainingRun",
     "build_report",
     "calibration_summary",
     "cardinality_decode",
@@ -34,6 +56,7 @@ __all__ = [
     "randomized_ranks",
     "randomized_set_pit",
     "rank_uniformity_stats",
+    "record_series",
     "render_report",
     "sbc_report",
     "set_reliability",

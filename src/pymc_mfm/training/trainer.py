@@ -7,9 +7,11 @@ after a completed training loop. It records every active loss, evaluation,
 selection decision, and checkpoint identity locally.
 
 Evaluation keeps joint-router and graph-conditional decoder readouts separate.
-Checkpoint selection uses the held-out joint-query readout; it is explicitly
-not a conditional-decoder quality claim. Missing, non-finite, or partially
-defined gate metrics block promotion and remain visible in the records.
+Checkpoint selection minimizes the held-out query energy score of
+``TrainingConfig.selection_head`` (the conditional decoder by default) and
+also gates that head's context energy score. Missing, non-finite, partially
+defined, or out-of-bounds gate metrics block promotion, as does any held-out
+metric of the head with non-finite worlds; all remain visible in the records.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from pymc_mfm.inference.checkpoint import save_pretrained
+from pymc_mfm.inference.checkpoint import _export_environment, save_pretrained
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM, objective_trace_to_jsonable
@@ -41,13 +43,16 @@ from pymc_mfm.training._provenance import (
 from pymc_mfm.training.checkpoint import file_sha256, save_checkpoint
 from pymc_mfm.training.config import TrainingConfig
 from pymc_mfm.training.evaluation import (
-    GATE_METRICS,
-    MONITOR_METRIC,
+    BOUNDS_SLACK,
     evaluate_rows,
     flatten_evaluation,
+    metric_bounds,
+    selection_metrics,
+    within_bounds,
 )
 from pymc_mfm.training.observer import TrainingObserver
 from pymc_mfm.training.stream import CorpusStream, PrefetchingStream
+from pymc_mfm.training.summary import corpus_summary, corpus_support, parameter_counts
 from pymc_mfm.training.tracking import (
     MlflowTrainingObserver,
     TrackingConfig,
@@ -65,9 +70,17 @@ LOSS_TERMS = (
     "task_loss",
     "struct_loss",
 )
-SELECTION_READOUT = (
-    "joint router head on the held-out query window; not a conditional-decoder quality claim"
-)
+#: What the selection monitor measures, per ``TrainingConfig.selection_head``.
+SELECTION_READOUT = {
+    "conditional": "graph-conditional decoder (model_average) on the held-out query window",
+    "joint": (
+        "joint router head on the held-out query window; not a conditional-decoder quality claim"
+    ),
+}
+#: Undefined reason under which the leakage gate passes: no world has a padded channel.
+_VACUOUS_LEAKAGE = "no_inactive_channels"
+#: Undefined-reason prefix of a metric that dropped non-finite worlds or slots.
+_NONFINITE_REASON = "nonfinite_in_"
 
 
 class TrainingError(RuntimeError):
@@ -87,6 +100,15 @@ class TrainingResult:
     @property
     def final_step(self) -> int:
         return int(self.run["final_step"])
+
+    def records(self):
+        """This run's recorded history, a :class:`pymc_mfm.diagnostics.TrainingRun`.
+
+        Read from ``run_dir``; the model is not used.
+        """
+        from pymc_mfm.diagnostics.accessors import TrainingRun
+
+        return TrainingRun.load(self.run_dir)
 
 
 def resolve_device(device: str | torch.device) -> torch.device:
@@ -161,52 +183,89 @@ def _finite(value: float | None) -> bool:
     return isinstance(value, (int, float)) and math.isfinite(value)
 
 
+def _bounds_record(key: str) -> list[float | None]:
+    """JSON form of :func:`metric_bounds`; an infinite bound is ``None``."""
+    return [bound if math.isfinite(bound) else None for bound in metric_bounds(key)]
+
+
 def _select_checkpoint(
     flat: Mapping[str, float | None],
     undefined: Mapping[str, str],
     best_value: float | None,
     best_step: int | None,
     step: int,
+    *,
+    head: str,
 ) -> dict[str, Any]:
     """Promote only when every gate passes and the monitor improves.
 
-    The held-out joint-query energy score and auxiliary ``cy`` log score must
-    be finite, and padded-channel leakage must be zero. Missing, non-finite,
-    or partially defined gate metrics block promotion with a recorded reason;
-    the terminal checkpoint remains available.
+    ``head`` is ``TrainingConfig.selection_head``. Its held-out query energy
+    score (the minimized monitor), its context energy score and the auxiliary
+    ``cy`` log score must be finite, fully defined and within
+    :data:`~pymc_mfm.training.evaluation.METRIC_BOUNDS`; the head's padded-channel
+    leakage must also be at most zero, and passes vacuously when no world has a
+    padded channel. Missing, non-finite, partially defined, or out-of-bounds gate
+    metrics block promotion with a recorded reason. A held-out metric of the head
+    that dropped non-finite worlds, gated or not, also blocks promotion:
+    ``nonfinite_keys`` maps each such key to its ``nonfinite_in_*`` reason, and
+    ``gates_passing`` requires it to be empty. Other out-of-bounds metrics are
+    listed under ``bounds_violations``. The terminal checkpoint remains available.
     """
+    keys = selection_metrics(head)
 
-    def gate(key: str, threshold: float | None = None) -> dict[str, Any]:
+    def gate(key: str, threshold: float | None = None, vacuous: str | None = None):
         value = flat.get(key)
-        if key in undefined:
+        if vacuous is not None and undefined.get(key) == vacuous:
+            reason = f"vacuous:{vacuous}"
+        elif key in undefined:
             reason = f"metric_partially_defined:{undefined[key]}"
         elif not _finite(value):
             reason = "metric_missing_or_nonfinite"
+        elif not within_bounds(key, value):
+            reason = "metric_outside_bounds"
         elif threshold is not None and value > threshold:
             reason = "threshold_not_met"
         else:
             reason = None
-        return {"value": value, "passing": reason is None, "reason": reason}
+        return {
+            "value": value,
+            "passing": reason is None or reason.startswith("vacuous:"),
+            "reason": reason,
+            "bounds": _bounds_record(key),
+        }
 
-    log_score_key, leakage_key = GATE_METRICS
     gates = {
-        MONITOR_METRIC: gate(MONITOR_METRIC),
-        log_score_key: gate(log_score_key),
-        leakage_key: gate(leakage_key, threshold=0.0),
+        keys.monitor: gate(keys.monitor),
+        keys.context_gate: gate(keys.context_gate),
+        keys.structure_gate: gate(keys.structure_gate),
+        keys.leakage_gate: gate(keys.leakage_gate, threshold=0.0, vacuous=_VACUOUS_LEAKAGE),
     }
-    monitor = flat.get(MONITOR_METRIC)
-    gates_passing = all(entry["passing"] for entry in gates.values())
+    prefix = f"holdout/{head}/"
+    nonfinite_keys = {
+        key: reason
+        for key, reason in undefined.items()
+        if key.startswith(prefix) and reason.startswith(_NONFINITE_REASON)
+    }
+    monitor = flat.get(keys.monitor)
+    gates_passing = not nonfinite_keys and all(entry["passing"] for entry in gates.values())
     improved = gates_passing and (best_value is None or monitor < best_value)
     return {
-        "monitor": MONITOR_METRIC,
+        "head": head,
+        "monitor": keys.monitor,
         "direction": "min",
         "value": monitor,
         "gates": gates,
+        "nonfinite_keys": nonfinite_keys,
         "gates_passing": gates_passing,
+        "bounds_violations": [
+            {"metric": key, "value": value, "bounds": _bounds_record(key)}
+            for key, value in flat.items()
+            if key not in gates and _finite(value) and not within_bounds(key, value)
+        ],
         "promoted": improved,
         "best_step": step if improved else best_step,
         "best_value": monitor if improved else best_value,
-        "readout": SELECTION_READOUT,
+        "readout": SELECTION_READOUT[head],
         "terminal_checkpoint": "checkpoint_last.pt",
     }
 
@@ -229,13 +288,17 @@ def train(
     Numerical configuration, optimizer updates and evaluation sampling do not
     depend on tracking. The lifecycle starts before device/model/stream setup,
     so failed initialization is also an identified, honestly finalized run.
-    The terminal model is a safe directory bundle at ``out_dir / "model"``.
+    The terminal model is a safe directory bundle at ``out_dir / "model"``. An
+    environment that export would refuse (``save_pretrained``: package versions
+    outside this release's ``COMPATIBILITY``, or not release versions) is refused
+    before anything is written.
     """
     training = TrainingConfig() if training is None else training
     tracking = TrackingConfig() if tracking is None else tracking
     out_dir = Path(out_dir)
     if (out_dir / "run.json").exists():
         raise FileExistsError(f"{out_dir} already holds a training run")
+    _export_environment()
     out_dir.mkdir(parents=True, exist_ok=True)
     started = datetime.now(UTC)
     run: dict[str, Any] = {
@@ -317,7 +380,9 @@ def _train_run(
     (rewritten at the end with the final status), ``objective_trace.json``
     (the first update's executed objective), ``metrics.jsonl`` (one record per
     ``log_every`` updates and at update 1), ``evaluations.jsonl`` (one record
-    per evaluation event), ``checkpoint_last.pt``/``checkpoint_best.pt``/
+    per evaluation event), ``evaluation_tables/step_<9d>.json`` (each event's
+    reliability and threshold tables, written before its ``evaluations.jsonl``
+    line), ``checkpoint_last.pt``/``checkpoint_best.pt``/
     ``checkpoint_step_<N>.pt`` and, on completion, ``model`` in the
     :func:`pymc_mfm.inference.checkpoint.save_pretrained` directory format
     holding the terminal weights.
@@ -374,6 +439,8 @@ def _train_run(
     )
     parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
     parameter_count = sum(parameter.numel() for parameter in parameters)
+    loss_weights = training.loss_weights
+    selection_keys = selection_metrics(training.selection_head)
 
     run.update(
         {
@@ -390,20 +457,18 @@ def _train_run(
                 "grad_clip_norm": training.grad_clip,
             },
             "objective_weights": {
-                "struct_weight": model_config.struct_weight,
-                "struct_cy_weight": model_config.struct_cy_weight,
-                "graph_conditional_weight": model_config.graph_conditional_weight,
-                "context_decomposition_weight": model_config.context_decomposition_weight,
-                "context_graph_weight": model_config.context_graph_weight,
+                **loss_weights.to_dict(),
                 "graph_conditional_context_weight": (
-                    model_config.graph_conditional_weight
-                    * model_config.context_decomposition_weight
+                    loss_weights.graph_conditional_weight
+                    * loss_weights.context_decomposition_weight
                 ),
             },
             "geometry": geometry,
             "parameter_count": parameter_count,
             "total_parameter_count": sum(parameter.numel() for parameter in model.parameters()),
+            "parameter_counts": parameter_counts(model),
             "corpus": evidence_value(provenance),
+            "corpus_summary": corpus_summary(corpora),
             "consumption_budget": {
                 "steps": training.steps,
                 "batch_size": training.batch_size,
@@ -420,10 +485,6 @@ def _train_run(
                 "samples": training.eval_samples,
                 "seed": training.eval_seed,
                 "legs": ["holdout", "seen"],
-                "prior_shift": {
-                    "status": "not_applicable",
-                    "reason": "no prior-shift corpus supplied",
-                },
                 "diagnostics": {
                     "enabled": tracker.config.enabled and tracker.config.diagnostics,
                     "cadence": "each evaluation event, all existing conditional world/window draws",
@@ -434,10 +495,19 @@ def _train_run(
                 },
             },
             "selection_policy": {
-                "monitor": MONITOR_METRIC,
+                "head": training.selection_head,
+                "monitor": selection_keys.monitor,
                 "direction": "min",
-                "gates": [MONITOR_METRIC, *GATE_METRICS],
-                "readout": SELECTION_READOUT,
+                "gates": list(selection_keys),
+                "bounds": {key: _bounds_record(key) for key in selection_keys},
+                "bounds_slack": BOUNDS_SLACK,
+                "leakage_threshold": 0.0,
+                "vacuous": {selection_keys.leakage_gate: _VACUOUS_LEAKAGE},
+                "nonfinite_block": {
+                    "prefix": f"holdout/{training.selection_head}/",
+                    "reason_prefix": _NONFINITE_REASON,
+                },
+                "readout": SELECTION_READOUT[training.selection_head],
                 "terminal_checkpoint": "checkpoint_last.pt",
             },
             "checkpoints": [],
@@ -446,11 +516,13 @@ def _train_run(
         }
     )
     _write_json(out_dir / "run.json", run)
+    _write_json(out_dir / "corpus_support.json", corpus_support(corpora))
     tracker.on_run_config(run)
     event_observers = (tracker, *observers)
 
     metrics_path = out_dir / "metrics.jsonl"
     evaluations_path = out_dir / "evaluations.jsonl"
+    tables_dir = out_dir / "evaluation_tables"
     source = None
     best_value: float | None = None
     best_step: int | None = None
@@ -647,7 +719,9 @@ def _train_run(
         }
         for leg, values in legs.items():
             values["rows"] = holdout_rows if leg == "holdout" else list(first_seen)[:seen_count]
-        selection = _select_checkpoint(flat, undefined, best_value, best_step, step)
+        selection = _select_checkpoint(
+            flat, undefined, best_value, best_step, step, head=training.selection_head
+        )
         record = {
             "step": step,
             "epoch": consumed["epoch"],
@@ -657,6 +731,13 @@ def _train_run(
             "flat": flat,
             "selection": selection,
         }
+        # The tables file lands before its evaluations.jsonl line, so every
+        # recorded evaluation has its reliability and threshold tables.
+        tables_dir.mkdir(exist_ok=True)
+        _write_json(
+            tables_dir / f"step_{step:09d}.json",
+            {"step": step, "legs": {leg: values["tables"] for leg, values in legs.items()}},
+        )
         with evaluations_path.open("a") as handle:
             handle.write(json.dumps(record, allow_nan=False) + "\n")
         evaluation_records.append(record)
@@ -693,12 +774,12 @@ def _train_run(
                     group["lr"] = lr
                 step_start = time.perf_counter()
                 if step == 1:
-                    terms, trace = model.loss_terms(batch, return_trace=True)
+                    terms, trace = model.loss_terms(batch, weights=loss_weights, return_trace=True)
                     _write_json(
                         out_dir / "objective_trace.json", objective_trace_to_jsonable(trace)
                     )
                 else:
-                    terms = model.loss_terms(batch)
+                    terms = model.loss_terms(batch, weights=loss_weights)
                 optimizer.zero_grad(set_to_none=True)
                 terms["loss"].backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(parameters, training.grad_clip)
@@ -730,16 +811,11 @@ def _train_run(
                         "lr": lr,
                         **dict(zip(LOSS_TERMS, losses, strict=True)),
                         "objective_weights": run["objective_weights"],
+                        # Weights are strictly positive, so the raw term is always recoverable.
                         "struct_loss_raw": (
-                            losses[LOSS_TERMS.index("struct_loss")] / model_config.struct_weight
-                            if model_config.struct_weight
-                            else None
+                            losses[LOSS_TERMS.index("struct_loss")] / loss_weights.struct_weight
                         ),
-                        "struct_loss_raw_status": (
-                            "reconstructed_from_weighted_term"
-                            if model_config.struct_weight
-                            else "inactive_zero_weight"
-                        ),
+                        "struct_loss_raw_status": "reconstructed_from_weighted_term",
                         "grad_norm": grad_norm_value,
                         "grad_clipped": grad_norm_value > training.grad_clip,
                         "batch_context_length": provenance_record.context_length,

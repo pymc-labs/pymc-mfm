@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
-import platform
 import shutil
 import tempfile
 from collections.abc import Mapping
@@ -11,7 +11,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 import torch
-from packaging.specifiers import SpecifierSet
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from safetensors import safe_open
 from safetensors.torch import save_file
 
@@ -24,13 +24,15 @@ from ._artifact_schema import (
     COMPATIBILITY,
     FORMAT_VERSION,
     SHA256_PATTERN,
+    _release_version,
     digest_bytes,
     exact_keys,
     file_record,
     inference_metadata,
     json_bytes,
-    producer_metadata,
+    normalized_version,
     provenance_metadata,
+    python_version,
     read_json,
     semantic_schema,
     validate_profile,
@@ -54,6 +56,11 @@ _CONFIG_KEYS = frozenset(
 _MANIFEST_KEYS = frozenset(
     {"format_version", "architecture", "profile", "files", "tensors", "bundle_sha256"}
 )
+_PRODUCER_KEYS = frozenset({"pymc-mfm", "numpy", "torch", "safetensors"})
+_COMPATIBILITY_KEYS = _PRODUCER_KEYS | {"python"}
+#: Recorded compatibility ranges hold only these bounds; loading enforces the lower ones.
+_RANGE_OPERATORS = frozenset({">=", ">", "<", "<="})
+_LOWER_BOUNDS = frozenset({">=", ">"})
 
 
 def _canonical_model(config: ModelConfig) -> MFM:
@@ -107,6 +114,19 @@ def _validate_state(
     return catalog
 
 
+def _state_sha256(state: Mapping[str, torch.Tensor], catalog: list[dict]) -> str:
+    """Digest of the weights: catalog-ordered name, dtype, shape and tensor bytes.
+
+    Unlike a safetensors file hash, it does not depend on how the file was written.
+    """
+    digest = hashlib.sha256()
+    for entry in catalog:
+        tensor = state[entry["name"]].detach().cpu().contiguous()
+        digest.update(json_bytes([entry["name"], str(tensor.dtype), list(tensor.shape)]))
+        digest.update(tensor.reshape(-1).view(torch.uint8).numpy())
+    return digest.hexdigest()
+
+
 def _validate_runtime(model: MFM, reference: MFM) -> None:
     """Fail rather than silently serialize a modified, unconstructable module tree."""
     actual_modules = dict(model.named_modules())
@@ -120,17 +140,7 @@ def _validate_runtime(model: MFM, reference: MFM) -> None:
     for module_name in ("encoder", "head", "conditional_head"):
         actual = actual_modules[module_name]
         expected = expected_modules[module_name]
-        for attribute in (
-            "config",
-            "ode_method",
-            "n_steps_sample",
-            "mc_samples",
-            "n_controls",
-            "n_demand",
-            "trajectory_correlation",
-            "n_freq",
-            "graph_router",
-        ):
+        for attribute in ("config", "n_controls", "n_demand", "graph_router"):
             if hasattr(expected, attribute) and getattr(actual, attribute) != getattr(
                 expected, attribute
             ):
@@ -141,6 +151,87 @@ def _validate_runtime(model: MFM, reference: MFM) -> None:
         raise ValueError("save_pretrained requires all canonical parameters")
     if len({id(value) for value in actual_parameters.values()}) != len(actual_parameters):
         raise ValueError("save_pretrained cannot change canonical parameter sharing")
+
+
+def _check_environment() -> dict[str, str]:
+    """Installed package versions, refused outside this release's ``COMPATIBILITY``.
+
+    The installed release decides what it supports; a later release can relax it.
+    """
+    installed = {
+        name: python_version() if name == "python" else version(name)
+        for name in COMPATIBILITY.keys() | _COMPATIBILITY_KEYS
+    }
+    for name, supported in COMPATIBILITY.items():
+        if not SpecifierSet(supported).contains(installed[name], prereleases=True):
+            raise ValueError(
+                f"installed {name} {installed[name]} is outside this release's "
+                f"supported range {supported}"
+            )
+    return installed
+
+
+def _check_compatibility(
+    compatibility: object, producer: object, installed: Mapping[str, str]
+) -> None:
+    """Refuse an artifact whose recorded environment the ``installed`` one cannot serve.
+
+    ``installed`` has passed ``_check_environment``: this release's ``COMPATIBILITY``,
+    which a later release can relax. Installed versions must also satisfy every
+    lower bound the artifact records. The recorded upper bounds state the producing
+    release's tested range and are not enforced, so no published artifact becomes
+    permanently unloadable. The recorded ranges use only ``>=``, ``>``, ``<`` and
+    ``<=`` bounds, and the producer versions are release versions inside them
+    (``_artifact_schema._release_version``: torch alone may carry a build label).
+    """
+    producer = exact_keys(producer, _PRODUCER_KEYS, "artifact producer")
+    compatibility = exact_keys(compatibility, _COMPATIBILITY_KEYS, "artifact compatibility")
+    for name, requirement in compatibility.items():
+        try:
+            recorded = SpecifierSet(requirement) if isinstance(requirement, str) else None
+        except InvalidSpecifier:
+            recorded = None
+        if not recorded or any(bound.operator not in _RANGE_OPERATORS for bound in recorded):
+            raise ValueError(
+                f"artifact compatibility {name} must be a nonempty range of >=, >, <, <= bounds"
+            )
+        if any(
+            bound.operator in _LOWER_BOUNDS
+            and not bound.contains(installed[name], prereleases=True)
+            for bound in recorded
+        ):
+            raise ValueError(
+                f"installed {name} {installed[name]} is below the artifact's minimum {requirement}"
+            )
+        if name in producer and not (
+            _release_version(producer[name], build=name == "torch")
+            and recorded.contains(producer[name], prereleases=True)
+        ):
+            raise ValueError(
+                f"artifact producer {name} {producer[name]!r} must be a release version "
+                "within its compatibility"
+            )
+
+
+def _export_environment() -> tuple[dict[str, str], dict[str, str]]:
+    """The compatibility and producer versions that an export here records.
+
+    The installed versions must satisfy this release's ``COMPATIBILITY`` and, as
+    packaging normalizes them, be release versions (``_release_version``: torch alone
+    may carry a build label). Loading the export here then passes
+    ``_check_compatibility``: it records ``COMPATIBILITY`` and producer versions
+    inside it. ``save_pretrained`` runs it, and ``train`` runs it before training, so
+    its terminal export is never refused for the environment.
+    """
+    installed = _check_environment()
+    producer = {name: normalized_version(installed[name]) for name in sorted(_PRODUCER_KEYS)}
+    for name, number in producer.items():
+        if not _release_version(number, build=name == "torch"):
+            label = "a build label" if name == "torch" else "a local label"
+            raise ValueError(
+                f"installed {name} {installed[name]} carries {label} this release cannot record"
+            )
+    return dict(COMPATIBILITY), producer
 
 
 def save_pretrained(
@@ -162,10 +253,20 @@ def save_pretrained(
     A nonempty destination is never overwritten (including Hub snapshots).
     Only whitelisted, caller-approved metadata is accepted as provenance.
     Annotations on a loaded model must preserve its existing source/run identity.
-    Stop concurrent model updates before exporting.
+    Loading keeps the weights' digest in ``model.artifact_metadata`` (and shows it
+    as ``model.provenance["state_sha256"]``); once the weights differ from it,
+    e.g. after a dtype cast or an edit, the model is another artifact. It then
+    inherits neither the loaded provenance nor the loaded profile, so
+    ``provenance`` must be passed explicitly (``{}`` records none) and only an
+    explicit ``profile`` labels it. The installed environment must satisfy this
+    release's ``COMPATIBILITY`` and its package versions must be release versions,
+    torch's with at most a build label (see ``_export_environment``), so that the
+    export loads where it was written. Stop concurrent model updates before
+    exporting.
     """
     if type(model) is not MFM:
         raise ValueError("save_pretrained accepts only the canonical MFM architecture")
+    compatibility, producer = _export_environment()
     config = ModelConfig.from_dict(model.config.to_dict())
     reference = _canonical_model(config)
     _validate_runtime(model, reference)
@@ -178,8 +279,18 @@ def save_pretrained(
     # Exercise custom semantic-buffer checks without copying into initialized weights.
     reference.load_state_dict(state, strict=True, assign=True)
     previous = getattr(model, "artifact_metadata", {})
-    previous_provenance = previous.get("provenance", {})
-    if provenance is not None:
+    loaded_state = previous.get("state_sha256")
+    if loaded_state is not None and _state_sha256(state, catalog) != loaded_state:
+        # The loaded source, run and evaluation records and the profile label
+        # describe the loaded weights, not these.
+        if provenance is None and previous["provenance"].get("status") == "recorded":
+            raise ValueError(
+                "the weights changed since loading, so the loaded provenance no longer "
+                "describes them; pass provenance explicitly ({} records none)"
+            )
+        previous = {}
+    elif provenance is not None:
+        previous_provenance = previous.get("provenance", {})
         supplied = provenance_metadata(provenance)
         for key in provenance:
             if (
@@ -188,16 +299,17 @@ def save_pretrained(
                 and supplied[key] != previous_provenance[key]
             ):
                 raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
-        source = getattr(model, "provenance", {}).get("checkpoint_sha256")
-        if (
-            source is not None
-            and "source_checkpoint_sha256" in supplied
-            and supplied["source_checkpoint_sha256"] != source
-        ):
-            raise ValueError("source_checkpoint_sha256 conflicts with the loaded checkpoint")
+        if previous:
+            # Without a recorded source, the loaded checkpoint is the exported file.
+            source = previous_provenance.get(
+                "source_checkpoint_sha256",
+                previous["manifest"]["files"]["model.safetensors"]["sha256"],
+            )
+            if supplied.get("source_checkpoint_sha256", source) != source:
+                raise ValueError("source_checkpoint_sha256 conflicts with the loaded checkpoint")
         provenance = {**previous_provenance, **supplied} if provenance else previous_provenance
     else:
-        provenance = previous_provenance or None
+        provenance = previous.get("provenance") or None
     if profile is None:
         profile = previous.get("profile")
     elif previous.get("profile") is not None and profile != previous["profile"]:
@@ -208,9 +320,9 @@ def save_pretrained(
         "architecture": ARCHITECTURE,
         "model_config": config.to_dict(),
         "schemas": semantic_schema(config),
-        "inference": inference_metadata(config),
-        "compatibility": dict(COMPATIBILITY),
-        "producer": producer_metadata(),
+        "inference": inference_metadata(),
+        "compatibility": compatibility,
+        "producer": producer,
         "provenance": provenance_metadata(provenance),
         "profile": profile,
         "training_resume": False,
@@ -295,10 +407,11 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
     ):
         raise ValueError("unsupported artifact configuration or architecture")
     config = ModelConfig.from_dict(metadata["model_config"])
+    # The architecture is fixed: a changed schema or inference contract changes what
+    # the weights mean, so it rejects every bundle recorded under the previous one.
     for key, expected in (
         ("schemas", semantic_schema(config)),
-        ("inference", inference_metadata(config)),
-        ("compatibility", COMPATIBILITY),
+        ("inference", inference_metadata()),
     ):
         if json_bytes(metadata[key]) != json_bytes(expected):
             raise ValueError(f"artifact {key} do not match the canonical contract")
@@ -310,22 +423,7 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
         metadata["provenance"]
     ):
         raise ValueError("artifact provenance is incomplete")
-    producer = exact_keys(
-        metadata["producer"], {"pymc-mfm", "numpy", "torch", "safetensors"}, "artifact producer"
-    )
-    for name, requirement in COMPATIBILITY.items():
-        installed = platform.python_version() if name == "python" else version(name)
-        if not SpecifierSet(requirement).contains(installed, prereleases=True):
-            raise ValueError(
-                f"installed {name} does not satisfy artifact compatibility {requirement}"
-            )
-        if name != "python" and (
-            not isinstance(producer[name], str)
-            or not SpecifierSet(requirement).contains(producer[name], prereleases=True)
-        ):
-            raise ValueError(
-                f"artifact producer {name} does not satisfy its compatibility contract"
-            )
+    _check_compatibility(metadata["compatibility"], metadata["producer"], _check_environment())
     with safe_open(str(path / "model.safetensors"), framework="pt", device="cpu") as stream:
         if stream.metadata() != {
             "format": "pt",
@@ -341,7 +439,10 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
     for entry in catalog:
         if entry["kind"] == "parameter":
             parameters[entry["name"]].requires_grad_(entry["requires_grad"])
-    model.artifact_metadata = {**metadata, "manifest": manifest}
+    state_sha256 = _state_sha256(state, catalog)
+    # Beside the provenance an export inherits, where editing model.provenance
+    # cannot hide that the weights have changed since loading.
+    model.artifact_metadata = {**metadata, "manifest": manifest, "state_sha256": state_sha256}
     exported = manifest["files"]["model.safetensors"]["sha256"]
     model.provenance = {
         **metadata["provenance"],
@@ -349,5 +450,6 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
         "checkpoint_sha256": metadata["provenance"].get("source_checkpoint_sha256", exported),
         "exported_checkpoint_sha256": exported,
         "bundle_sha256": manifest["bundle_sha256"],
+        "state_sha256": state_sha256,
     }
     return model.to(device).eval()

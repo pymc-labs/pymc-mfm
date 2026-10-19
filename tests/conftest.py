@@ -106,9 +106,6 @@ def model():
             n_heads=2,
             d_ff=16,
             flow_hidden=16,
-            flow_n_freq=1,
-            flow_steps_sample=2,
-            flow_mc_samples=3,
             n_controls=2,
             n_demand=2,
         )

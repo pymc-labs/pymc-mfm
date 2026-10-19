@@ -12,18 +12,19 @@ from pymc_mfm.inference import from_pretrained
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
 from pymc_mfm.training import (
-    MONITOR_METRIC,
     TrackingConfig,
     TrainingConfig,
     TrainingError,
     TrainingObserver,
     load_checkpoint,
+    selection_metrics,
     train,
 )
 from pymc_mfm.training import trainer as trainer_module
-from pymc_mfm.training.evaluation import GATE_METRICS
 from pymc_mfm.training.stream import CorpusStream
 from pymc_mfm.training.trainer import LOSS_TERMS, _select_checkpoint
+
+HEADS = ("conditional", "joint")
 
 TINY = ModelConfig(
     d_model=8,
@@ -31,9 +32,6 @@ TINY = ModelConfig(
     n_heads=2,
     d_ff=16,
     flow_hidden=16,
-    flow_n_freq=1,
-    flow_steps_sample=2,
-    flow_mc_samples=3,
     n_controls=2,
     n_demand=2,
 )
@@ -116,6 +114,9 @@ def test_recorded_ab_contract_defines_canonical_budget_and_schedule():
         {"grad_clip": True},
         {"weight_decay": True},
         {"weight_decay": False},
+        {"graph_conditional_weight": 0.0},
+        {"context_graph_weight": float("nan")},
+        {"selection_head": "structure_head"},
     ],
 )
 def test_config_rejects_invalid_training_values(overrides):
@@ -123,52 +124,177 @@ def test_config_rejects_invalid_training_values(overrides):
         TrainingConfig(**overrides)
 
 
+def selection_flat(head: str) -> dict[str, float]:
+    """Passing gates for ``head``; the other head's own gates would fail."""
+    keys = selection_metrics(head)
+    other = selection_metrics(next(name for name in HEADS if name != head))
+    return {
+        keys.monitor: 1.0,
+        keys.context_gate: 1.5,
+        keys.structure_gate: 0.2,
+        keys.leakage_gate: 0.0,
+        other.monitor: float("nan"),
+        other.context_gate: float("nan"),
+        other.leakage_gate: 0.5,
+    }
+
+
+@pytest.mark.parametrize("head", HEADS)
 @pytest.mark.parametrize(
-    ("key", "value", "undefined_reason"),
+    ("gate", "value", "undefined_reason", "reason"),
     [
-        pytest.param(MONITOR_METRIC, None, None, id="missing-monitor"),
-        pytest.param(MONITOR_METRIC, float("nan"), None, id="nonfinite-monitor"),
-        pytest.param(GATE_METRICS[0], float("inf"), None, id="nonfinite-structure"),
-        pytest.param(GATE_METRICS[0], 0.2, "nonfinite_in_1_worlds", id="partial-structure"),
-        pytest.param(GATE_METRICS[1], 0.0, "nonfinite_in_1_worlds", id="partial-leakage"),
-        pytest.param(GATE_METRICS[1], 0.1, None, id="nonzero-leakage"),
+        pytest.param("monitor", None, None, "metric_missing_or_nonfinite", id="missing-monitor"),
+        pytest.param(
+            "monitor", float("nan"), None, "metric_missing_or_nonfinite", id="nonfinite-monitor"
+        ),
+        pytest.param("monitor", -0.1, None, "metric_outside_bounds", id="negative-monitor"),
+        pytest.param(
+            "context_gate",
+            float("inf"),
+            None,
+            "metric_missing_or_nonfinite",
+            id="nonfinite-context",
+        ),
+        pytest.param("context_gate", -0.1, None, "metric_outside_bounds", id="negative-context"),
+        pytest.param(
+            "context_gate",
+            1.5,
+            "nonfinite_in_1_worlds",
+            "metric_partially_defined:nonfinite_in_1_worlds",
+            id="partial-context",
+        ),
+        pytest.param(
+            "structure_gate",
+            float("inf"),
+            None,
+            "metric_missing_or_nonfinite",
+            id="nonfinite-structure",
+        ),
+        pytest.param(
+            "structure_gate", -0.5, None, "metric_outside_bounds", id="negative-log-score"
+        ),
+        pytest.param(
+            "structure_gate",
+            0.2,
+            "nonfinite_in_1_worlds",
+            "metric_partially_defined:nonfinite_in_1_worlds",
+            id="partial-structure",
+        ),
+        pytest.param(
+            "leakage_gate",
+            0.0,
+            "nonfinite_in_1_worlds",
+            "metric_partially_defined:nonfinite_in_1_worlds",
+            id="partial-leakage",
+        ),
+        pytest.param("leakage_gate", 0.1, None, "threshold_not_met", id="nonzero-leakage"),
+        pytest.param("leakage_gate", 1e-12, None, "threshold_not_met", id="leakage-above-zero"),
+        pytest.param("leakage_gate", -1e-6, None, "metric_outside_bounds", id="negative-leakage"),
     ],
 )
-def test_checkpoint_gate_failure_keeps_previous_best(key, value, undefined_reason):
-    flat = {MONITOR_METRIC: 1.0, GATE_METRICS[0]: 0.2, GATE_METRICS[1]: 0.0}
+def test_checkpoint_gate_failure_keeps_previous_best(head, gate, value, undefined_reason, reason):
+    key = getattr(selection_metrics(head), gate)
+    flat = selection_flat(head)
     if value is None:
         del flat[key]
     else:
         flat[key] = value
     undefined = {} if undefined_reason is None else {key: undefined_reason}
 
-    selection = _select_checkpoint(flat, undefined, best_value=2.0, best_step=4, step=8)
+    selection = _select_checkpoint(flat, undefined, best_value=2.0, best_step=4, step=8, head=head)
 
     assert selection["gates"][key]["passing"] is False
-    assert selection["gates"][key]["reason"]
-    assert all(gate["passing"] for name, gate in selection["gates"].items() if name != key)
+    assert selection["gates"][key]["reason"] == reason
+    assert all(entry["passing"] for name, entry in selection["gates"].items() if name != key)
     assert selection["gates_passing"] is False
     assert selection["promoted"] is False
     assert selection["best_value"] == 2.0 and selection["best_step"] == 4
+    assert selection["bounds_violations"] == []
 
 
-def test_checkpoint_promotion_requires_clean_gates_and_strict_improvement():
-    flat = {MONITOR_METRIC: 1.0, GATE_METRICS[0]: 0.2, GATE_METRICS[1]: 0.0}
-    selection = _select_checkpoint(flat, {}, best_value=None, best_step=None, step=2)
+@pytest.mark.parametrize("head", HEADS)
+def test_checkpoint_promotion_requires_clean_gates_and_strict_improvement(head):
+    keys = selection_metrics(head)
+    flat = selection_flat(head)
+    selection = _select_checkpoint(flat, {}, best_value=None, best_step=None, step=2, head=head)
+    assert selection["head"] == head and selection["monitor"] == keys.monitor
     assert selection["promoted"] is True
     assert selection["best_value"] == 1.0 and selection["best_step"] == 2
 
-    flat[MONITOR_METRIC] = 0.5
-    improved = _select_checkpoint(flat, {}, best_value=1.0, best_step=2, step=4)
+    # Leakage round-off inside the bounds slack is still zero leakage.
+    flat[keys.monitor], flat[keys.leakage_gate] = 0.5, -1e-12
+    improved = _select_checkpoint(flat, {}, best_value=1.0, best_step=2, step=4, head=head)
     assert improved["promoted"] is True
     assert improved["best_value"] == 0.5 and improved["best_step"] == 4
 
     for value in (0.5, 0.75):
-        flat[MONITOR_METRIC] = value
-        selection = _select_checkpoint(flat, {}, best_value=0.5, best_step=4, step=6)
+        flat[keys.monitor] = value
+        selection = _select_checkpoint(flat, {}, best_value=0.5, best_step=4, step=6, head=head)
         assert selection["gates_passing"] is True
         assert selection["promoted"] is False
         assert selection["best_value"] == 0.5 and selection["best_step"] == 4
+
+
+@pytest.mark.parametrize("head", HEADS)
+def test_leakage_gate_passes_vacuously_only_without_padded_channels(head):
+    keys = selection_metrics(head)
+    flat = selection_flat(head)
+    del flat[keys.leakage_gate]
+    vacuous = _select_checkpoint(
+        flat, {keys.leakage_gate: "no_inactive_channels"}, None, None, step=2, head=head
+    )
+    gate = vacuous["gates"][keys.leakage_gate]
+    assert gate["passing"] is True and gate["reason"] == "vacuous:no_inactive_channels"
+    assert vacuous["promoted"] is True
+    unscored = _select_checkpoint(
+        flat, {keys.leakage_gate: "no_scored_worlds"}, None, None, step=2, head=head
+    )
+    assert unscored["gates"][keys.leakage_gate]["passing"] is False
+    assert unscored["promoted"] is False
+
+
+@pytest.mark.parametrize("head", HEADS)
+def test_out_of_bounds_metrics_outside_the_gates_are_listed_without_blocking(head):
+    flat = selection_flat(head)
+    flat["seen/joint_router/graph/exact_recovery"] = 1.5
+    flat["holdout/joint/context/closure_rel_err"] = -1e-13  # round-off within the slack
+    selection = _select_checkpoint(flat, {}, best_value=None, best_step=None, step=2, head=head)
+    assert selection["promoted"] is True
+    assert selection["bounds_violations"] == [
+        {"metric": "seen/joint_router/graph/exact_recovery", "value": 1.5, "bounds": [0.0, 1.0]}
+    ]
+
+
+@pytest.mark.parametrize("head", HEADS)
+def test_nonfinite_worlds_in_any_holdout_metric_of_the_selected_head_block_promotion(head):
+    nonfinite = {
+        f"holdout/{head}/context/contribution_scaled_mae": "nonfinite_in_2_worlds",
+        f"holdout/{head}/query/contribution_draw_lag1": "nonfinite_in_1_worlds",
+    }
+    selection = _select_checkpoint(
+        selection_flat(head), nonfinite, best_value=2.0, best_step=4, step=8, head=head
+    )
+    assert all(entry["passing"] for entry in selection["gates"].values())
+    assert selection["nonfinite_keys"] == nonfinite
+    assert selection["gates_passing"] is False and selection["promoted"] is False
+    assert selection["best_value"] == 2.0 and selection["best_step"] == 4
+
+
+@pytest.mark.parametrize("head", HEADS)
+def test_other_head_nonfinite_worlds_and_other_undefined_reasons_do_not_block(head):
+    other = next(name for name in HEADS if name != head)
+    undefined = {
+        f"holdout/{other}/context/decomposition_energy_score": "nonfinite_in_2_worlds",
+        # The joint router is not the joint head, whatever the key prefix shares.
+        "holdout/joint_router/edge/cy/log_score": "nonfinite_in_3_slots",
+        f"holdout/{head}/context/attribution_dead_media_leakage_scaled_mae": "no_dead_effects",
+        f"holdout/{head}/query/contribution_truth_lag1": "constant_series",
+    }
+    selection = _select_checkpoint(
+        selection_flat(head), undefined, best_value=None, best_step=None, step=2, head=head
+    )
+    assert selection["nonfinite_keys"] == {}
+    assert selection["gates_passing"] is True and selection["promoted"] is True
 
 
 def test_reduced_run_records_everything_and_reloads(tmp_path):
@@ -215,12 +341,21 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
         if line
     ]
     assert [event["step"] for event in events] == [2, 4]
+    monitor = selection_metrics("conditional").monitor
+    assert run["selection_policy"]["head"] == "conditional"
+    assert run["selection_policy"]["monitor"] == monitor
     for event in events:
         assert set(event["legs"]) == {"holdout", "seen"}
         for leg in event["legs"].values():
             assert set(leg["heads"]) == {"joint", "conditional", "structure_head", "joint_router"}
-        assert MONITOR_METRIC in event["flat"]
-        assert event["selection"]["monitor"] == MONITOR_METRIC
+        assert monitor in event["flat"]
+        assert event["selection"]["monitor"] == monitor
+        assert set(event["selection"]["gates"]) == set(run["selection_policy"]["gates"])
+        tables = tmp_path / "run" / "evaluation_tables" / f"step_{event['step']:09d}.json"
+        assert json.loads(tables.read_text()) == {
+            "step": event["step"],
+            "legs": {leg: values["tables"] for leg, values in event["legs"].items()},
+        }
     assert events[0]["selection"]["promoted"] is True
 
     files = {entry["file"]: entry for entry in run["checkpoints"]}
@@ -298,9 +433,9 @@ def test_nonfinite_loss_fails_the_run_without_a_finished_record(tmp_path, monkey
     original = MFM.loss_terms
     calls = {"n": 0}
 
-    def poisoned(self, batch, *, return_trace=False):
+    def poisoned(self, batch, *, weights, return_trace=False):
         calls["n"] += 1
-        result = original(self, batch, return_trace=return_trace)
+        result = original(self, batch, weights=weights, return_trace=return_trace)
         if calls["n"] == 2:
             terms = result[0] if return_trace else result
             terms["loss"] = terms["loss"] * float("nan")
@@ -337,12 +472,12 @@ def test_loss_failure_counts_only_completed_updates_with_prefetch(
     failure = exception_type("loss computation stopped")
     calls = 0
 
-    def fail_third_loss(self, batch, *, return_trace=False):
+    def fail_third_loss(self, batch, *, weights, return_trace=False):
         nonlocal calls
         calls += 1
         if calls == 3:
             raise failure
-        return original(self, batch, return_trace=return_trace)
+        return original(self, batch, weights=weights, return_trace=return_trace)
 
     monkeypatch.setattr(MFM, "loss_terms", fail_third_loss)
     with pytest.raises(exception_type) as exc_info:
@@ -435,46 +570,136 @@ def test_startup_observer_failure_records_failed_run_without_consumption(tmp_pat
     assert not (tmp_path / "run" / "model").exists()
 
 
+def train_one_evaluation(tmp_path, head: str):
+    """One update and one evaluation of two held-out worlds, selected on ``head``."""
+    result = train(
+        [make_synthetic_corpus(n_cells=4, draws_per_cell=1, context_lengths=(6,))],
+        tracking=TrackingConfig(enabled=False),
+        out_dir=tmp_path / "run",
+        model_config=TINY,
+        training=reduced(
+            steps=1, eval_every=1, eval_samples=2, milestone_steps=(), selection_head=head
+        ),
+        device="cpu",
+    )
+    return result, json.loads((tmp_path / "run" / "evaluations.jsonl").read_text())
+
+
+@pytest.mark.parametrize("head", HEADS)
 def test_partial_holdout_prediction_blocks_best_checkpoint_but_finishes_training(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, head
 ):
-    corpus = make_synthetic_corpus(n_cells=4, draws_per_cell=1, context_lengths=(6,))
-    original = MFM.predict
+    # The first query draws of the selected head are the holdout leg's first world set.
+    method = "predict" if head == "joint" else "sample_disentangled"
+    original = getattr(MFM, method)
     poisoned = False
 
-    def partial_prediction(self, batch, n_samples=None, *, return_structure=False):
+    def partial_prediction(self, batch, n_samples, **kwargs):
         nonlocal poisoned
-        result = original(self, batch, n_samples, return_structure=return_structure)
-        if not poisoned:
-            draws = result[0] if return_structure else result
+        result = original(self, batch, n_samples, **kwargs)
+        if not poisoned and kwargs.get("window", "query") == "query":
+            draws = result[0] if isinstance(result, tuple) else result
             draws[:, 0, :, 0] = float("nan")
             poisoned = True
         return result
 
-    monkeypatch.setattr(MFM, "predict", partial_prediction)
-    result = train(
-        [corpus],
-        tracking=TrackingConfig(enabled=False),
-        out_dir=tmp_path / "run",
-        model_config=TINY,
-        training=reduced(steps=1, eval_every=1, eval_samples=2, milestone_steps=()),
-        device="cpu",
-    )
+    monkeypatch.setattr(MFM, method, partial_prediction)
+    result, evaluation = train_one_evaluation(tmp_path, head)
 
-    evaluation = json.loads((tmp_path / "run" / "evaluations.jsonl").read_text())
+    keys = selection_metrics(head)
     holdout = evaluation["legs"]["holdout"]
     assert holdout["n_worlds"] == 2
-    assert math.isfinite(evaluation["flat"][MONITOR_METRIC])
-    metric = MONITOR_METRIC.removeprefix("holdout/")
-    assert holdout["undefined"][metric] == "nonfinite_in_1_worlds"
+    assert math.isfinite(evaluation["flat"][keys.monitor])
+    assert holdout["undefined"][keys.monitor.removeprefix("holdout/")] == "nonfinite_in_1_worlds"
     selection = evaluation["selection"]
-    assert selection["gates"][MONITOR_METRIC]["passing"] is False
-    assert all(selection["gates"][key]["passing"] for key in GATE_METRICS)
+    assert selection["gates"][keys.monitor]["passing"] is False
+    assert selection["gates"][keys.structure_gate]["passing"] is True
+    assert selection["gates"][keys.leakage_gate]["passing"] is True
     assert selection["promoted"] is False
     assert result.status == "finished" and result.run["best"] is None
     assert (tmp_path / "run" / "checkpoint_last.pt").exists()
     assert (tmp_path / "run" / "model").is_dir()
     assert not (tmp_path / "run" / "checkpoint_best.pt").exists()
+
+
+def poison_context_draws(monkeypatch, head: str, worlds, value: float) -> None:
+    """Set ``head``'s context draws of ``worlds`` in every evaluated batch to ``value``."""
+    method = "sample_context" if head == "joint" else "sample_disentangled"
+    original = getattr(MFM, method)
+
+    def poisoned(self, batch, n_samples, **kwargs):
+        draws, structure = original(self, batch, n_samples, **kwargs)
+        if kwargs.get("window", "context") == "context":
+            draws[:, worlds] = value
+        return draws, structure
+
+    monkeypatch.setattr(MFM, method, poisoned)
+
+
+@pytest.mark.parametrize("head", HEADS)
+@pytest.mark.parametrize(
+    ("worlds", "value", "reason"),
+    [
+        pytest.param(slice(None), float("inf"), "nonfinite_in_2_worlds", id="inf-every-world"),
+        pytest.param(0, float("nan"), "nonfinite_in_1_worlds", id="nan-one-world"),
+    ],
+)
+def test_nonfinite_context_draws_of_the_selected_head_block_the_best_checkpoint(
+    tmp_path, monkeypatch, head, worlds, value, reason
+):
+    poison_context_draws(monkeypatch, head, worlds, value)
+    result, evaluation = train_one_evaluation(tmp_path, head)
+
+    selection = evaluation["selection"]
+    assert selection["promoted"] is False
+    keys = selection_metrics(head)
+    assert selection["gates"][keys.context_gate]["reason"] == f"metric_partially_defined:{reason}"
+    assert all(
+        entry["passing"] for key, entry in selection["gates"].items() if key != keys.context_gate
+    )
+    assert selection["nonfinite_keys"][keys.context_gate] == reason
+    assert all(key.startswith(f"holdout/{head}/context/") for key in selection["nonfinite_keys"])
+    assert result.status == "finished" and result.run["best"] is None
+    assert not (tmp_path / "run" / "checkpoint_best.pt").exists()
+
+
+@pytest.mark.parametrize("head", HEADS)
+def test_nonfinite_context_draws_of_the_other_head_do_not_block_promotion(
+    tmp_path, monkeypatch, head
+):
+    other = next(name for name in HEADS if name != head)
+    poison_context_draws(monkeypatch, other, slice(None), float("nan"))
+    result, evaluation = train_one_evaluation(tmp_path, head)
+
+    context = selection_metrics(other).context_gate.removeprefix("holdout/")
+    assert evaluation["legs"]["holdout"]["undefined"][context] == "nonfinite_in_2_worlds"
+    assert evaluation["selection"]["nonfinite_keys"] == {}
+    assert evaluation["selection"]["promoted"] is True
+    assert result.run["best"]["step"] == 1
+    assert (tmp_path / "run" / "checkpoint_best.pt").exists()
+
+
+def test_evaluation_tables_are_written_before_the_evaluation_line(tmp_path, monkeypatch):
+    original = trainer_module._write_json
+    failure = OSError("tables not writable")
+
+    def fail_tables(path, payload):
+        if path.parent.name == "evaluation_tables":
+            raise failure
+        original(path, payload)
+
+    monkeypatch.setattr(trainer_module, "_write_json", fail_tables)
+    with pytest.raises(OSError) as exc_info:
+        train(
+            [make_synthetic_corpus()],
+            tracking=TrackingConfig(enabled=False),
+            out_dir=tmp_path / "run",
+            model_config=TINY,
+            training=reduced(steps=1, eval_every=1, eval_samples=2, milestone_steps=()),
+            device="cpu",
+        )
+    assert exc_info.value is failure
+    assert not (tmp_path / "run" / "evaluations.jsonl").exists()
 
 
 def test_multi_corpus_training_evaluates_all_available_holdout_and_seen_identities(
@@ -610,6 +835,86 @@ def test_run_directory_and_geometry_are_guarded(tmp_path):
             model_config=ModelConfig(n_controls=3, n_demand=2),
             training=reduced(),
         )
+
+
+def _pretend_torch(monkeypatch, label):
+    """Make loading, export and training see torch ``label`` installed."""
+    import pymc_mfm.inference.checkpoint as checkpoint
+
+    installed = checkpoint.version
+    monkeypatch.setattr(
+        checkpoint, "version", lambda name: label if name == "torch" else installed(name)
+    )
+
+
+@pytest.mark.parametrize(
+    "torch_version",
+    [
+        "3.0.0",
+        "2.12.0+example.host",
+        "2.12.0+exampleuser",
+        "2.7.1+cpu.example",
+        "2.7.1+rocm7.0.0.git56b79e",
+        "2.9.0a0+git522898",
+        "2.7.1+rocm7.0.0.gitbuildhost",
+    ],
+    ids=[
+        "outside_the_supported_range",
+        "not_a_release_version",
+        "name_that_is_no_commit",
+        "unknown_suffix_on_a_build",
+        "build_commit_too_short",
+        "commit_too_short",
+        "git_suffix_that_is_no_commit",
+    ],
+)
+def test_an_unsupported_environment_is_refused_before_the_run_starts(
+    tmp_path, monkeypatch, torch_version
+):
+    _pretend_torch(monkeypatch, torch_version)
+    with pytest.raises(ValueError):
+        train(
+            [make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=8)],
+            tracking=TrackingConfig(enabled=False),
+            out_dir=tmp_path / "run",
+            model_config=TINY,
+            training=reduced(steps=1, eval_every=1, milestone_steps=()),
+            device="cpu",
+        )
+    # Not after training, where the terminal export would refuse it: nothing is written.
+    assert not (tmp_path / "run").exists()
+
+
+#: Installed torch builds whose runs export and reload, and the torch version their
+#: bundles record: NVIDIA NGC and source builds carry their commit as a local label,
+#: the CPU cxx11-ABI and AMD ROCm wheels a suffix after the build.
+TORCH_BUILDS = {
+    "ngc": ("2.8.0a0+5228986c39", "2.8.0a0+5228986c39"),
+    "ngc_release": ("2.8.0a0+5228986c39.nv25.05", "2.8.0a0+5228986c39.nv25.5"),
+    "source": ("2.9.0a0+git5228986", "2.9.0a0+git5228986"),
+    "cuda_wheel": ("2.8.0+cu128", "2.8.0+cu128"),
+    "cpu_cxx11_abi_wheel": ("2.7.1+cpu.cxx11.abi", "2.7.1+cpu.cxx11.abi"),
+    "amd_rocm_wheel": ("2.7.1+rocm7.0.0.git56b79e13", "2.7.1+rocm7.0.0.git56b79e13"),
+    "amd_rocm_lw_wheel": ("2.6.0+rocm7.0.0.lw.git2e48b21f", "2.6.0+rocm7.0.0.lw.git2e48b21f"),
+}
+
+
+@pytest.mark.parametrize("installed,recorded", TORCH_BUILDS.values(), ids=TORCH_BUILDS.keys())
+def test_torch_builds_train_export_and_reload(tmp_path, monkeypatch, installed, recorded):
+    _pretend_torch(monkeypatch, installed)
+    result = train(
+        [make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=8)],
+        tracking=TrackingConfig(enabled=False),
+        out_dir=tmp_path / "run",
+        model_config=TINY,
+        training=reduced(steps=1, eval_every=1, milestone_steps=()),
+        device="cpu",
+    )
+    exported = from_pretrained(result.run_dir / "model")
+    assert exported.artifact_metadata["producer"]["torch"] == recorded
+    # A standard installation loads it too.
+    monkeypatch.undo()
+    from_pretrained(result.run_dir / "model")
 
 
 def test_checkpoint_loader_rejects_foreign_payloads(tmp_path):

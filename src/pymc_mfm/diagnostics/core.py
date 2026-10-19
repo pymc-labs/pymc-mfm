@@ -22,11 +22,19 @@ PANEL_NAMES = (
     "indirect_sources",
     "controls",
     "recovery_scatter",
+    "attribution",
+    "window_totals",
+    "cumulative",
+    "temporal",
     "structure_heatmap",
     "dag_recovery",
     "dag_posterior",
     "graph_cardinality",
+    "graph_statistics",
+    "cycles",
+    "reliability",
     "support",
+    "input_support",
     "zero_atoms",
     "graph_uncertainty",
     "calibration_pit",
@@ -40,6 +48,14 @@ PANEL_NAMES = (
     "c2st",
 )
 FAMILIES = ("baseline", "channel", "control", "latent", "indirect")
+#: Effects scored live/dead, as ``(effect, component family, direct edge family)``:
+#: media is live through a ``cy`` edge, a control through a ``zb`` edge.
+ATTRIBUTION_EFFECTS = (("media", "channel", "cy"), ("control", "control", "zb"))
+#: Trajectory families scored for temporal coherence; ``latent_total`` is the
+#: sum of every active component (the latent outcome).
+TEMPORAL_FAMILIES = ("baseline", "channel", "control", "latent_total", "indirect")
+#: Per-family ``graph_support`` metrics that count edges; the others are masses or rates.
+_SUPPORT_COUNTS = ("mean_count", "modal_count", "true_count", "count_mae")
 
 
 def json_safe(value):
@@ -154,32 +170,90 @@ def _score(target, samples, truth, metrics, units, scale):
         np.var(samples.mean(axis=0)) / truth_variance if truth_variance else None,
         reason=None if truth_variance else "constant truth; trajectory variance ratio undefined",
     )
+    r2, reason = scoring.r2(samples.mean(axis=0), truth)
     metrics.add(
         f"{target}/r2",
-        1 - np.mean(error**2) / truth_variance if truth_variance else None,
-        reason=None if truth_variance else "constant truth; R-squared undefined",
+        r2,
+        reason="constant truth; R-squared undefined" if reason == "constant_series" else reason,
     )
 
 
-def _cycle(graph, endpoints):
-    adjacency = {}
-    indegree = {}
-    for keep, (source, target) in zip(graph, endpoints, strict=True):
-        if not keep:
-            continue
-        adjacency.setdefault(source, []).append(target)
-        indegree.setdefault(source, 0)
-        indegree[target] = indegree.get(target, 0) + 1
-    ready = [node for node, degree in indegree.items() if degree == 0]
-    visited = 0
-    while ready:
-        node = ready.pop()
-        visited += 1
-        for target in adjacency.get(node, ()):
-            indegree[target] -= 1
-            if indegree[target] == 0:
-                ready.append(target)
-    return visited != len(indegree)
+def _add_scores(metrics, world, keys, *, unit="dimensionless", unlabeled=None):
+    """Add one world's :mod:`pymc_mfm.training.metrics` scores of ``keys``.
+
+    Undefined keys keep the scorer's reason; ``unlabeled`` states why live/dead
+    labels are absent in place of the scorer's ``missing_graph_truth``.
+    """
+    for key in keys:
+        value = world.values.get(key)
+        reason = None if value is not None else world.undefined[key]
+        if reason == "missing_graph_truth" and unlabeled is not None:
+            reason = unlabeled
+        metrics.add(key, value, unit=unit, reason=reason)
+
+
+def _effect_labels(names, indices, edge, graph_truth, edge_active, endpoints, edge_families):
+    """Graph-truth labels (1 live, 0 dead) of present effects, read from their direct edges.
+
+    Returns ``(labels, None)``, or ``(None, reason)`` when graph truth, the edge
+    metadata or an effect's unique active ``edge`` slot is missing. Zero-valued
+    component truth is never read as a causal label.
+    """
+    if graph_truth is None:
+        return None, "graph truth not supplied"
+    if endpoints is None or edge_families is None:
+        return None, "edge endpoint/family metadata absent"
+    labels = []
+    for index in indices:
+        slots = [
+            slot
+            for slot, (family, pair) in enumerate(zip(edge_families, endpoints, strict=True))
+            if family == edge and pair[0] == names[index] and edge_active[slot]
+        ]
+        if len(slots) != 1:
+            return None, f"{names[index]} has no unique active {edge} edge"
+        labels.append(int(graph_truth[slots[0]]))
+    return np.asarray(labels, dtype=int), None
+
+
+def _cyclic_graphs(graphs, endpoints):
+    """Whether each complete graph over the ``endpoints`` slots contains a directed cycle."""
+    from pymc_mfm.training import metrics as scoring
+
+    flags = []
+    for adjacency in scoring.adjacency_draws(graphs, endpoints):
+        rate, _ = scoring.cycle_rate(adjacency[None])
+        flags.append(bool(rate))  # fewer than two nodes cannot form a cycle
+    return flags
+
+
+def _graph_scores(draws, truth, families, endpoints, metrics):
+    """The evaluator's whole-graph statistics (``joint_router/graph``) as ``graph/<key>``.
+
+    :func:`pymc_mfm.training.metrics.graph_scores` of the active-slot draws
+    ``(S, L)`` in the evaluator's units, with the ``cc``/``zz`` cycle blocks
+    built like the evaluator's from the slots' edge ``families`` and
+    ``(source, target)`` ``endpoints``. Without graph truth (``truth=None``)
+    only the truth-free keys (entropy, distinct graphs, edge co-moments and
+    cycle rates) have values; the cycle rates also need the edge metadata.
+    """
+    from pymc_mfm.model.graph import SQUARE_EDGE_TYPES
+    from pymc_mfm.training import metrics as scoring
+    from pymc_mfm.training.evaluation import GRAPH_METRICS, METRIC_UNITS
+
+    blocks = (
+        {}
+        if families is None or endpoints is None
+        else scoring.adjacency_blocks(draws, families, endpoints, SQUARE_EDGE_TYPES)
+    )
+    world = scoring.graph_scores(draws, truth, blocks, prefix="graph/")
+    for key in GRAPH_METRICS:
+        name = f"graph/{key}"
+        if name not in world.values and name not in world.undefined:  # cycle rates
+            world.skip(name, "edge endpoint/family metadata absent")
+        _add_scores(
+            metrics, world, [name], unit=METRIC_UNITS[key], unlabeled="graph truth not supplied"
+        )
 
 
 def _numeric_leaves(record, prefix=""):
@@ -191,7 +265,20 @@ def _numeric_leaves(record, prefix=""):
             yield name, value
 
 
-def _record_series(records, kind, metrics):
+def _nonfinite(value):
+    """A NaN or infinite float; integers of any size and booleans are finite."""
+    return isinstance(value, (float, np.inexact)) and not np.isfinite(value)
+
+
+def record_series(records: Sequence[Mapping[str, Any]], kind: str = "training") -> dict:
+    """Scalar trajectories from training or evaluation records.
+
+    Numeric, boolean and null leaves of nested mappings become series named
+    by their ``/``-joined path; strings and lists are skipped. Either every
+    record has a strictly increasing ``step`` or none has one, in which case
+    the record index is the coordinate. Null values stay recorded gaps.
+    """
+    records = list(records)
     lines = {}
     steps = []
     if not all(isinstance(record, Mapping) for record in records):
@@ -202,7 +289,7 @@ def _record_series(records, kind, metrics):
     coordinate = "step" if has_steps and all(has_steps) else "record_index"
     for index, record in enumerate(records):
         step = record.get("step", index)
-        if isinstance(step, bool) or not isinstance(step, (int, float)) or not np.isfinite(step):
+        if isinstance(step, bool) or not isinstance(step, (int, float)) or _nonfinite(step):
             raise ValueError(f"{kind} record step must be finite")
         if steps and step <= steps[-1]:
             raise ValueError(f"{kind} records must have strictly increasing steps")
@@ -210,7 +297,7 @@ def _record_series(records, kind, metrics):
         for name, value in _numeric_leaves(record):
             if name == "step":
                 continue
-            if value is not None and not np.isfinite(value):
+            if _nonfinite(value):
                 raise ValueError(f"{kind} record {step}/{name} is nonfinite")
             entry = (
                 {"step": step, "value": value}
@@ -222,17 +309,223 @@ def _record_series(records, kind, metrics):
                 }
             )
             lines.setdefault(name, []).append(entry)
-            metrics.add(
-                f"{kind}/{coordinate}/{step}/{quote(name, safe='/')}",
-                value,
-                reason=None if value is not None else "recorded undefined measurement",
-                unit="as_recorded",
-            )
     return {
         "steps": steps if coordinate == "step" else None,
         "coordinate": coordinate,
         "series": lines,
         "records": json_safe(records),
+    }
+
+
+_INPUT_STATISTICS = ("n", "mean", "std", "min", "max")
+
+
+def _input_support(result, active):
+    """Raw spend/control location and scale per active entity, as recorded at inference.
+
+    ``decompose`` and the evaluator's result capture record these statistics
+    under the same keys, only for native-unit observations; encoded inputs
+    have no raw scale, so ``None`` marks the panel unavailable.
+    """
+    recorded = result.provenance.get("input_support")
+    if not isinstance(recorded, Mapping) or not any(
+        f"ctx_{key}_raw" in recorded for key in ("spend", "controls")
+    ):
+        return None
+    families = np.asarray(result.component_families)
+    names = np.asarray(result.component_names)
+    rows = []
+    for family, key in (("channel", "spend"), ("control", "controls")):
+        entities = names[families == family]
+        windows = {}
+        for window in ("ctx", "qry"):
+            statistics = recorded.get(f"{window}_{key}_raw")
+            if statistics is None:
+                continue
+            if not isinstance(statistics, Mapping) or any(
+                name not in statistics for name in _INPUT_STATISTICS
+            ):
+                raise ValueError(f"input_support {window}_{key}_raw lacks {_INPUT_STATISTICS}")
+            if any(
+                np.shape(statistics[name]) != (len(entities),) for name in _INPUT_STATISTICS[1:]
+            ):
+                raise ValueError(f"input_support {window}_{key}_raw must align with {family} names")
+            windows[window] = statistics
+        if "ctx" not in windows:
+            continue
+        for index, (name, keep) in enumerate(zip(entities, active[families == family])):
+            if not keep:
+                continue
+            row = {"name": str(name)}
+            for window, label in (("ctx", "context"), ("qry", "query")):
+                statistics = windows.get(window)
+                row[label] = (
+                    None
+                    if statistics is None
+                    else {
+                        "count": statistics["n"],
+                        **{stat: statistics[stat][index] for stat in _INPUT_STATISTICS[1:]},
+                    }
+                )
+            rows.append(row)
+    return {
+        "inputs": rows,
+        "source": "input_support statistics recorded at inference (native input units)",
+        "qualification": (
+            "Raw input location and scale recorded at inference; no generator draws, "
+            "inferred truth or out-of-distribution pass/fail claim."
+        ),
+    }
+
+
+def _attribution(names, families, active, samples, truth, scale, effect_labels, metrics):
+    """Live/dead attribution of each effect family, in sales-scale units like the evaluator.
+
+    Metrics ``attribution/{live,dead}_{effect}/<key>`` come from
+    :func:`pymc_mfm.training.metrics.attribution_scores`; the array holds every
+    effect's own scores, whose means over effects are those world values.
+    Returns ``(array, None)``, or ``(None, reason)`` when no effect is scored.
+    """
+    from pymc_mfm.training import metrics as scoring
+
+    effects = {}
+    for effect, family, edge in ATTRIBUTION_EFFECTS:
+        indices = np.flatnonzero((families == family) & active)
+        if truth is None:
+            live, reason = None, "simulation truth not supplied"
+        elif scale is None:
+            live, reason = None, "sales_scale provenance absent"
+        elif not indices.size:
+            live, reason = None, f"no active {family} components"
+        else:
+            live, reason = effect_labels[edge]
+        live_prefix, dead_prefix = f"attribution/live_{effect}/", f"attribution/dead_{effect}/"
+        keys = [
+            *(live_prefix + key for key in scoring.LIVE_ATTRIBUTION_KEYS),
+            *(dead_prefix + key for key in scoring.DEAD_ATTRIBUTION_KEYS),
+        ]
+        entries = []
+        if reason is not None:
+            for key in keys:
+                metrics.add(key, None, unit="sales_scale", reason=reason)
+        else:
+            draws, target = samples[..., indices] / scale, truth[:, indices] / scale
+            world = scoring.attribution_scores(
+                draws, target, live, live_prefix=live_prefix, dead_prefix=dead_prefix
+            )
+            _add_scores(metrics, world, keys, unit="sales_scale")
+            for position, (index, label) in enumerate(zip(indices, live, strict=True)):
+                own = draws[..., [position]], target[:, [position]]
+                stats = scoring.attribution_stats(*own) if label else scoring.leakage_stats(*own)
+                entries.append(
+                    {"name": names[index], "index": int(index), "live": bool(label), **stats}
+                )
+        effects[effect] = {"edge": edge, "reason": reason, "effects": entries}
+    if not any(record["effects"] for record in effects.values()):
+        return None, "; ".join(dict.fromkeys(record["reason"] for record in effects.values()))
+    return {"unit": "sales_scale", "sales_scale": scale, "effects": effects}, None
+
+
+def _window_totals(names, channels, samples, truth, labels, scale, metrics):
+    """Window-level channel totals: time-average coverage and running-total energy score.
+
+    ``labels`` is the ``(live, reason)`` pair of the channels' ``cy`` labels.
+    Returns the window-total and cumulative arrays, or ``(None, None, reason)``.
+    """
+    from pymc_mfm.training import metrics as scoring
+
+    coverage_keys = [f"timeavg/channel/{key}" for key in scoring.TIME_AVERAGE_KEYS]
+    energy_key = "cumulative/channel/energy_score"
+    if truth is None or not channels.size:
+        reason = (
+            "simulation truth not supplied" if truth is None else "no active channel components"
+        )
+        for key in coverage_keys:
+            metrics.add(key, None, reason=reason)
+        metrics.add(energy_key, None, unit="sales_scale", reason=reason)
+        return None, None, reason
+    live, unlabeled = labels
+    draws, target = samples[..., channels], truth[:, channels]
+    world = scoring.time_average_scores(draws, target, live, prefix="timeavg/channel/")
+    _add_scores(metrics, world, coverage_keys, unlabeled=unlabeled)
+    if scale is None:
+        metrics.add(energy_key, None, unit="sales_scale", reason="sales_scale provenance absent")
+    else:
+        value, reason = scoring.cumulative_energy_score(draws / scale, target / scale)
+        metrics.add(energy_key, value, unit="sales_scale", reason=reason)
+    live = [None] * channels.size if live is None else [bool(label) for label in live]
+    totals, running = [], []
+    for position, (index, label) in enumerate(zip(channels, live, strict=True)):
+        entry = {"name": names[index], "index": int(index), "live": label}
+        covered = scoring.time_average_coverage(draws[..., [position]], target[:, [position]])
+        totals.append({**entry, "covered": bool(covered)})
+        cumulative = _series(np.cumsum(samples[..., index], axis=1), np.cumsum(truth[:, index]))
+        running.append({**entry, **cumulative})
+    return {"channels": totals}, {"channels": running}, None
+
+
+def _temporal(names, families, active, samples, truth, latent, latent_truth, metrics):
+    """Temporal coherence of each trajectory family, and of each of its slots.
+
+    Metrics ``temporal/<family>/<key>`` average the family's defined slots
+    (:func:`pymc_mfm.training.metrics.temporal_scores`). Returns ``(array,
+    None)``, or ``(None, reason)`` without truth or when no score is defined.
+    """
+    from pymc_mfm.training import metrics as scoring
+
+    if truth is None:
+        for family in TEMPORAL_FAMILIES:
+            for key in scoring.TEMPORAL_KEYS:
+                name = f"temporal/{family}/{key}"
+                metrics.add(name, None, reason="simulation truth not supplied")
+        return None, "simulation truth not supplied"
+    records, reasons, defined = [], set(), False
+    for family in TEMPORAL_FAMILIES:
+        prefix = f"temporal/{family}/"
+        keys = [prefix + key for key in scoring.TEMPORAL_KEYS]
+        if family == "latent_total":
+            slots, draws, target = ["latent total"], latent[..., None], latent_truth[:, None]
+        else:
+            group = (families == family) & active
+            slots = [names[index] for index in np.flatnonzero(group)]
+            draws, target = samples[..., group], truth[:, group]
+        if not slots:
+            for key in keys:
+                metrics.add(key, None, reason=f"no active {family} components")
+            continue
+        world = scoring.temporal_scores(draws, target, prefix=prefix)
+        _add_scores(metrics, world, keys)
+        defined = defined or bool(world.values)
+        reasons.update(world.undefined.values())
+        entries = []
+        for position, name in enumerate(slots):
+            own = scoring.temporal_scores(draws[..., [position]], target[:, [position]])
+            values = {key: own.values.get(key) for key in scoring.TEMPORAL_KEYS}
+            entries.append({"name": name, "values": values, "undefined": own.undefined})
+        records.append({"family": family, "slots": entries})
+    if not defined:
+        return None, "no temporal score is defined: " + ", ".join(sorted(reasons))
+    return {"families": records}, None
+
+
+def _reliability(probabilities, truth, families, label):
+    """Reliability tables of active-edge frequencies against graph truth, pooled and per family."""
+    from pymc_mfm.training import metrics as scoring
+
+    def table(keep):
+        return {
+            "rows": scoring.reliability_table(probabilities[keep], truth[keep]),
+            "n": int(keep.sum()),
+            "n_pos": int(truth[keep].sum()),
+        }
+
+    return {
+        "pooled": table(np.ones(truth.size, dtype=bool)),
+        "families": {}
+        if families is None
+        else {family: table(families == family) for family in dict.fromkeys(families.tolist())},
+        "bins": scoring.RELIABILITY_BINS,
+        "label": label,
     }
 
 
@@ -252,6 +545,23 @@ def compute_diagnostics(
     scalar quantity masks are applied before recovery/uncertainty statistics.
     Natural observation residuals are not labeled latent closure or noise draws.
     Expected unavailable panels are explicit; malformed evidence raises.
+
+    The world's live/dead attribution (``attribution/*``, sales-scale units),
+    per-draw closure, temporal coherence per trajectory family (``temporal/*``),
+    time-average coverage (``timeavg/*``), running-total energy score
+    (``cumulative/*``), R² and edge reliability are scored by the evaluator's
+    rules in :mod:`pymc_mfm.training.metrics`; ``share/*`` errors are
+    report-only. Live and dead come from graph truth on each effect's direct
+    ``cy``/``zb`` edge.
+
+    Whole-graph statistics ``graph/<key>`` for every key of the evaluator's
+    ``joint_router/graph`` score the active slots the evaluator's way; the
+    truth-free ones (entropy, distinct graphs, edge co-moments, ``cc``/``zz``
+    two-cycle and cycle rates) need no graph truth. ``graph/cyclic_draw_fraction``
+    is the draw mass whose complete graph (every edge family) has a directed
+    cycle, not a per-family rate. ``uncertainty/n_unique_graphs`` counts the
+    groups of the paired variance decomposition: one group even without active
+    edges, where ``graph/n_distinct`` is undefined.
     """
     from pymc_mfm.training import metrics as scoring
 
@@ -364,16 +674,40 @@ def compute_diagnostics(
         "definition": "Sum of active latent components; excludes observation noise",
     }
     _score("latent_total", latent, latent_truth, metrics, result.units, scale)
-    metrics.add(
-        "closure/latent_relative_error",
-        None
-        if latent_truth is None
-        else np.mean(
-            np.abs(latent.mean(0) - latent_truth)
-            / np.maximum(np.abs(observed if observed is not None else latent_truth), 1e-6)
-        ),
-        reason=None if latent_truth is not None else "latent truth not supplied",
+    # Closure against the structural outcome (latent truth); relative errors
+    # divide by the observations when supplied, else by the structural outcome.
+    sales = None if latent_truth is None else (latent_truth if observed is None else observed)
+    closure_keys = (
+        ("closure_rel_err", "closure/latent_relative_error"),
+        ("closure_draw_rel_err", "closure/draw_relative_error"),
+        ("closure_draw_q90_rel_err", "closure/draw_q90_relative_error"),
     )
+    closure = (
+        None if latent_truth is None else scoring.latent_sales_scores(latent, latent_truth, sales)
+    )
+    for key, name in closure_keys:
+        if closure is None:
+            metrics.add(name, None, reason="latent truth not supplied")
+        else:
+            metrics.add(name, closure.values.get(key), reason=closure.undefined.get(key))
+    # Report-only share errors: a group total's posterior-mean error relative to
+    # the outcome magnitude, over indirect sources, all declared control slots
+    # (padded ones are zero) and the present controls.
+    for key, group in (
+        ("indirect_share_mae", active & (labels == "indirect")),
+        ("control_share_mae", labels == "control"),
+        ("active_control_share_mae", active & (labels == "control")),
+    ):
+        if truth is None:
+            metrics.add(f"share/{key}", None, reason="simulation truth not supplied")
+        elif not group.any():
+            metrics.add(f"share/{key}", None, reason="no components in this group")
+        else:
+            error = samples[..., group].sum(axis=-1).mean(axis=0) - truth[:, group].sum(axis=-1)
+            metrics.add(
+                f"share/{key}",
+                np.mean(np.abs(error) / np.maximum(np.abs(sales), scoring.CLOSURE_EPS)),
+            )
     metrics.add(
         "observation/latent_mean_absolute_residual",
         None if observed is None else np.abs(observed - latent.mean(0)).mean(),
@@ -408,6 +742,9 @@ def compute_diagnostics(
             "Finite/mask checks are not evidence of in-distribution or causal validity."
         ),
     }
+    arrays["input_support"] = _input_support(result, active)
+    if arrays["input_support"] is None:
+        unavailable("input_support", "raw spend/control observations not recorded in input_support")
 
     paired = paired_graph_uncertainty(graph_draws[:, edge_active], samples[..., active])
     arrays["uncertainty"] = paired
@@ -420,7 +757,8 @@ def compute_diagnostics(
         "rare_draw_mass",
         "n_singleton_groups",
     ):
-        metrics.add(f"uncertainty/{name}", paired[name])
+        unit = "count" if name.startswith("n_") else "dimensionless"
+        metrics.add(f"uncertainty/{name}", paired[name], unit=unit)
     for name in ("total_variance", "within_graph_variance", "between_graph_variance"):
         metrics.add(f"uncertainty/{name}_mean", np.mean(paired[name]), unit=f"({result.units})^2")
     metrics.add(
@@ -428,6 +766,13 @@ def compute_diagnostics(
         np.abs(paired["variance_closure_error"]).max(),
         unit=f"({result.units})^2",
     )
+    # The uncertainty panel draws these latent-total series, not per-component means.
+    for name in ("total_variance", "within_graph_variance", "between_graph_variance"):
+        metrics.add(
+            f"uncertainty/latent_total/{name}_mean",
+            np.mean(total_paired[name]),
+            unit=f"({result.units})^2",
+        )
     aggregate_names = [family for family in FAMILIES if ((labels == family) & active).any()]
     aggregates = np.stack(
         [
@@ -480,7 +825,11 @@ def compute_diagnostics(
         for name, value in arrays["graph_support"]["metrics"].items():
             status = arrays["graph_support"]["statuses"][name]
             metrics.add(
-                f"graph_support/{name}", value, status=status["status"], reason=status["reason"]
+                f"graph_support/{name}",
+                value,
+                unit="count" if name.rsplit("/", 1)[-1] in _SUPPORT_COUNTS else "dimensionless",
+                status=status["status"],
+                reason=status["reason"],
             )
     records = []
     for index, name in enumerate(result.edge_names):
@@ -521,21 +870,33 @@ def compute_diagnostics(
         "label": graph_label,
     }
     if not records:
-        unavailable("structure_heatmap", "no active graph edges")
-        unavailable("dag_recovery", "no active graph edges")
+        # Every whole-graph statistic is undefined (no_active_slots) without an active edge.
+        for name in ("structure_heatmap", "dag_recovery", "graph_statistics"):
+            unavailable(name, "no active graph edges")
     elif endpoints is None:
         unavailable("dag_recovery", "edge endpoint metadata absent; topology cannot be inferred")
     metrics.add("graph/cardinality_mean", cardinalities.mean(), unit="count")
     metrics.add("graph/cardinality_sd", cardinalities.std(), unit="count")
-    frequencies = np.asarray([record["frequency"] for record in frequency])
-    metrics.add("graph/empirical_entropy", -np.sum(frequencies * np.log(frequencies)), unit="nats")
-    if endpoints is None:
+    active_endpoints = (
+        None
+        if endpoints is None
+        else [pair for pair, keep in zip(endpoints, edge_active, strict=True) if keep]
+    )
+    _graph_scores(
+        graph_draws[:, edge_active],
+        truth_active,
+        None if edge_families is None else np.asarray(edge_families)[edge_active],
+        active_endpoints,
+        metrics,
+    )
+    if active_endpoints is None:
         metrics.add("graph/cyclic_draw_fraction", None, reason="edge endpoint metadata absent")
+        unavailable("cycles", "edge endpoint metadata absent; directed cycles cannot be checked")
     else:
-        active_endpoints = [pair for pair, keep in zip(endpoints, edge_active, strict=True) if keep]
-        cyclic_mass = sum(
-            record["frequency"] for record in frequency if _cycle(record["graph"], active_endpoints)
-        )
+        cyclic = _cyclic_graphs([record["graph"] for record in frequency], active_endpoints)
+        for record, flag in zip(frequency, cyclic, strict=True):
+            record["cyclic"] = flag
+        cyclic_mass = sum(record["frequency"] for record in frequency if record["cyclic"])
         metrics.add("graph/cyclic_draw_fraction", cyclic_mass)
     for key, function in (
         ("brier", scoring.brier),
@@ -548,16 +909,16 @@ def compute_diagnostics(
         metrics.add(
             f"graph/{key}",
             value,
+            unit="nats" if key == "log_score" else "dimensionless",
             reason=None
             if value is not None
             else ("both truth classes required" if valid else "active graph truth unavailable"),
         )
     if truth_active is not None:
-        mismatch = np.abs(graph_draws[:, edge_active] - truth_active)
-        metrics.add("graph/shd_mean", mismatch.sum(axis=1).mean(), unit="count")
-        metrics.add("graph/exact_recovery", np.all(mismatch == 0, axis=1).mean())
         metrics.add(
-            "graph/cardinality_absolute_error", np.abs(cardinalities - truth_active.sum()).mean()
+            "graph/cardinality_absolute_error",
+            np.abs(cardinalities - truth_active.sum()).mean(),
+            unit="count",
         )
         live = truth_active == 1
         dead = ~live
@@ -572,49 +933,68 @@ def compute_diagnostics(
             )
         for record in frequency:
             record["is_truth"] = bool(np.array_equal(record["graph"], truth_active))
+            record["shd"] = int(np.abs(np.asarray(record["graph"]) - truth_active).sum())
     else:
         for key in (
-            "shd_mean",
-            "exact_recovery",
             "cardinality_absolute_error",
             "false_exclusion_mass",
             "false_inclusion_mass",
         ):
-            metrics.add(f"graph/{key}", None, reason="graph truth not supplied")
+            metrics.add(
+                f"graph/{key}",
+                None,
+                unit="count" if key == "cardinality_absolute_error" else "dimensionless",
+                reason="graph truth not supplied",
+            )
 
-    # Live/dead groups use graph labels, never zero-valued effects as causal labels.
-    if endpoints is not None and edge_families is not None and graph_truth is not None:
-        for family, direct_edge in (("channel", "cy"), ("control", "zb")):
-            for live_label, live_value in (("live", 1), ("dead", 0)):
-                indices = []
-                for component in components:
-                    if not component["active"] or component["family"] != family:
-                        continue
-                    matches = [
-                        i
-                        for i, (edge_family, pair) in enumerate(zip(edge_families, endpoints))
-                        if edge_family == direct_edge
-                        and pair[0] == component["name"]
-                        and edge_active[i]
-                    ]
-                    if len(matches) == 1 and graph_truth[matches[0]] == live_value:
-                        indices.append(component["index"])
-                key = f"attribution/{family}/{live_label}"
-                if indices and truth is not None:
-                    _score(
-                        key, samples[..., indices], truth[:, indices], metrics, result.units, scale
-                    )
-                    metrics.add(
-                        f"{key}/draw_absolute_mean",
-                        np.abs(samples[..., indices]).mean(),
-                        unit=result.units,
-                    )
-                else:
-                    metrics.add(
-                        f"{key}/mae",
-                        None,
-                        reason="no applicable graph-labeled effects or component truth",
-                    )
+    # Live/dead labels come from graph truth on each effect's direct edge.
+    effect_labels = {
+        edge: _effect_labels(
+            result.component_names,
+            np.flatnonzero((labels == family) & active),
+            edge,
+            graph_truth,
+            edge_active,
+            endpoints,
+            edge_families,
+        )
+        for _, family, edge in ATTRIBUTION_EFFECTS
+    }
+    arrays["attribution"], reason = _attribution(
+        result.component_names, labels, active, samples, truth, scale, effect_labels, metrics
+    )
+    if reason is not None:
+        unavailable("attribution", reason)
+    arrays["window_totals"], arrays["cumulative"], reason = _window_totals(
+        result.component_names,
+        np.flatnonzero((labels == "channel") & active),
+        samples,
+        truth,
+        effect_labels["cy"],
+        scale,
+        metrics,
+    )
+    if reason is not None:
+        unavailable("window_totals", reason)
+        unavailable("cumulative", reason)
+    arrays["temporal"], reason = _temporal(
+        result.component_names, labels, active, samples, truth, latent, latent_truth, metrics
+    )
+    if reason is not None:
+        unavailable("temporal", reason)
+    if truth_active is None or not active_prob.size:
+        arrays["reliability"] = None
+        unavailable(
+            "reliability",
+            "graph truth not supplied" if truth_active is None else "no active graph edges",
+        )
+    else:
+        arrays["reliability"] = _reliability(
+            active_prob,
+            truth_active,
+            None if edge_families is None else np.asarray(edge_families, dtype=object)[edge_active],
+            graph_label,
+        )
     arrays["set_posterior"] = {}
     cardinalities_by_family = result.provenance.get("set_cardinalities")
     if cardinalities_by_family is None:
@@ -674,6 +1054,7 @@ def compute_diagnostics(
                 metrics.add(
                     f"calibration/{family}/{key}",
                     summary[key],
+                    unit="count" if key == "n_ranks" else "dimensionless",
                     status="screening_only" if summary[key] is not None else "unavailable",
                     reason=SCREENING_QUALIFICATION,
                 )
@@ -698,11 +1079,20 @@ def compute_diagnostics(
         for panel in ("calibration_pit", "calibration_ecdf", "coverage"):
             panels[panel] = {"status": "screening_only", "reason": SCREENING_QUALIFICATION}
     arrays["calibration"] = calibration
-    arrays["training"] = _record_series(training_records, "training", metrics)
-    arrays["evaluation"] = _record_series(evaluation_records, "evaluation", metrics)
-    if not training_records:
+    for kind, supplied in (("training", training_records), ("evaluation", evaluation_records)):
+        arrays[kind] = recorded = record_series(supplied, kind)
+        coordinate = recorded["coordinate"]
+        for name, rows in recorded["series"].items():
+            for row in rows:
+                metrics.add(
+                    f"{kind}/{coordinate}/{row[coordinate]}/{quote(name, safe='/')}",
+                    row["value"],
+                    reason=None if row["value"] is not None else "recorded undefined measurement",
+                    unit="as_recorded",
+                )
+    if not arrays["training"]["records"]:
         unavailable("training", "training records not supplied")
-    if not evaluation_records:
+    if not arrays["evaluation"]["records"]:
         unavailable("evaluation", "checkpoint evaluation records not supplied")
     if reference is None:
         unavailable("reference_comparison", "reference draws and fit-health evidence not supplied")
@@ -751,6 +1141,9 @@ def compute_diagnostics(
             "dag_recovery",
             "dag_posterior",
             "graph_cardinality",
+            "graph_statistics",
+            "cycles",
+            "reliability",
             "set_posterior",
         ):
             if panels[name]["status"] != "unavailable":
@@ -803,6 +1196,7 @@ def compute_diagnostics(
             "arrays": arrays,
             "metadata": {
                 "time": result.time.tolist(),
+                "head": result.provenance.get("head", "conditional"),
                 "window": result.window,
                 "mode": result.mode,
                 "units": result.units,

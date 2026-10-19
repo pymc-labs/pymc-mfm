@@ -9,18 +9,21 @@ import torch
 from conftest import make_synthetic_corpus
 
 from pymc_mfm.data.corpus import corpus_batch
-from pymc_mfm.model.graph import STRUCT_EDGE_KEYS
+from pymc_mfm.model.graph import STRUCT_EDGE_KEYS, EdgeSlotLayout
 from pymc_mfm.training import evaluation, metrics
 from pymc_mfm.training.evaluation import (
+    COUNT_METRICS,
     DECOMPOSITION_METRICS,
     EDGE_METRICS,
-    GATE_METRICS,
     GRAPH_METRICS,
-    MONITOR_METRIC,
-    _MeanAccumulator,
+    METRIC_BOUNDS,
+    METRIC_UNITS,
     _score_decomposition,
     evaluate_rows,
     flatten_evaluation,
+    metric_aggregation,
+    selection_metrics,
+    within_bounds,
 )
 
 
@@ -101,25 +104,40 @@ def test_perfect_decomposition_scores_zero_and_closes_on_corpus_outcome(corpus, 
     batch = corpus_batch(corpus, [row])
     truth = batch["targets_z"][0].double().numpy()
     n_context = batch["context_targets_z"].shape[1]
-    acc = _MeanAccumulator(DECOMPOSITION_METRICS)
-    _score_decomposition(
-        acc,
+    world = _score_decomposition(
         np.repeat(truth[None], 3, axis=0),
         truth,
         batch["active_c_mask"][0].bool().numpy(),
         batch["active_m_mask"][0].bool().numpy(),
+        batch["g_cy"][0].numpy(),
+        batch["g_zb"][0].numpy(),
         np.asarray(corpus["outcome_raw"][row], dtype=np.float64)[n_context:],
         np.asarray(corpus["outcome_noise"][row], dtype=np.float64)[n_context:],
         float(batch["sales_scale"][0]),
     )
-    undefined = {}
-    values = acc.finalize("joint/query", undefined)
-    assert undefined == {}
-    for key, value in values.items():
-        if key.endswith("_cov80"):
+    # Identical draws leave residual and across-draw correlations without variation.
+    constant = {
+        "contribution_truth_error_residual_lag1",
+        "contribution_posterior_centered_residual_lag1",
+        "contribution_adjacent_draw_correlation",
+    }
+    assert set(world.values) | set(world.undefined) == set(DECOMPOSITION_METRICS)
+    assert constant <= set(world.undefined)
+    for key, reason in world.undefined.items():
+        if key in constant:
+            assert reason == "constant_series", key
+        else:  # this world may lack live or dead channels/controls
+            assert key.startswith(("attribution_", "timeavg_")), key
+            assert reason in {"no_live_effects", "no_dead_effects"}, key
+    for key, value in world.values.items():
+        if key.endswith("_cov80") or key.startswith("timeavg_"):
             assert value == 1.0, key
-        elif key == "closure_rel_err":
-            assert value == pytest.approx(0.0, abs=1e-5)
+        elif key.startswith("closure_"):
+            assert value == pytest.approx(0.0, abs=1e-5), key
+        elif key == "latent_sales_r2":
+            assert value == pytest.approx(1.0, abs=1e-6)
+        elif key in ("contribution_truth_lag1", "contribution_draw_lag1"):
+            assert value == pytest.approx(world.values["contribution_truth_lag1"], abs=1e-12)
         else:
             assert value == pytest.approx(0.0, abs=1e-12), key
 
@@ -141,6 +159,26 @@ def test_record_has_the_four_heads_with_fixed_keys(record, holdout):
         assert set(heads["structure_head"][et]) == set(EDGE_METRICS)
         assert set(heads["joint_router"]["edge"][et]) == set(EDGE_METRICS)
     assert set(heads["joint_router"]["graph"]) == set(GRAPH_METRICS)
+    assert set(record["counts"]) == set(COUNT_METRICS)
+    assert record["counts"]["worlds"] == len(holdout)
+    per_world_keys = {
+        key for key, kind in metric_aggregation().items() if kind != "pooled_edges"
+    } - {"counts/worlds"}
+    assert set(record["metric_worlds"]) == per_world_keys
+    assert "per_world" not in record
+    # Tables describe the same pooled active slots as the edge scores.
+    for readout, scores in (
+        ("structure_head", heads["structure_head"]),
+        ("joint_router", heads["joint_router"]["edge"]),
+    ):
+        assert set(record["tables"][readout]) == set(STRUCT_EDGE_KEYS)
+        for et, tables in record["tables"][readout].items():
+            n, n_pos = scores[et]["n"], scores[et]["n_pos"]
+            assert sum(row["count"] for row in tables["reliability"]) == n
+            assert len(tables["thresholds"]) == (len(metrics.THRESHOLDS) if n else 0)
+            for row in tables["thresholds"]:
+                assert row["tp"] + row["fn"] == n_pos
+                assert row["tp"] + row["fp"] + row["tn"] + row["fn"] == n
 
 
 def test_joint_and_conditional_are_distinct_and_populated(record):
@@ -157,8 +195,19 @@ def test_joint_and_conditional_are_distinct_and_populated(record):
     graph = record["heads"]["joint_router"]["graph"]
     assert graph["shd_mean"] >= 0.0
     assert 0.0 <= graph["exact_recovery"] <= 1.0
+    # Finite draws leave only data-dependent reasons, never a non-finite world.
+    data_reasons = {
+        "one_class",
+        "no_active_slots",
+        "no_negative_slots",
+        "no_live_effects",
+        "no_dead_effects",
+        "constant_series",
+        "needs_2_active_nodes",
+        "needs_2_active_slots",
+    }
     for key, reason in record["undefined"].items():
-        assert reason in {"one_class", "no_active_slots"}, (key, reason)
+        assert reason in data_reasons, (key, reason)
 
 
 def test_single_draw_marks_energy_scores_undefined(model, corpus, holdout):
@@ -243,20 +292,63 @@ def test_evaluation_leaves_rng_and_training_flag_untouched(
     assert model.training is training
 
 
-def test_flatten_uses_slashes_and_names_monitor_and_gates(record):
+def test_flatten_uses_slashes_and_names_selection_keys(record):
     flat = flatten_evaluation(record)
-    assert MONITOR_METRIC in flat
-    assert math.isfinite(flat[MONITOR_METRIC])
-    for gate in GATE_METRICS:
-        assert gate in flat
-    assert all(key.startswith("holdout/") for key in flat)
+    assert set(flat) == {f"holdout/{key}" for key in metric_aggregation()}
+    for head in ("conditional", "joint"):
+        keys = selection_metrics(head)
+        assert math.isfinite(flat[keys.monitor]) and math.isfinite(flat[keys.context_gate])
+        assert keys.structure_gate in flat and keys.leakage_gate in flat
     assert all(value is None or isinstance(value, float) for value in flat.values())
     n_cy = record["heads"]["structure_head"]["cy"]["n"]
     assert flat["holdout/structure_head/cy/n"] == float(n_cy)
-    assert "holdout/joint_router/graph/shd_mean" in flat
-    assert "holdout/joint_router/edge/cy/auroc" in flat
+    assert flat["holdout/counts/worlds"] == float(record["n_worlds"])
     for key, reason in record["undefined"].items():
         assert flat[f"holdout/{key}"] is None, (key, reason)
+
+
+def test_metric_bounds_name_exactly_the_evaluated_metrics_and_hold(record):
+    flat = flatten_evaluation(record)
+    assert {key.rsplit("/", 1)[-1] for key in flat} == set(METRIC_BOUNDS)
+    outside = {
+        key: value
+        for key, value in flat.items()
+        if value is not None and not within_bounds(key, value)
+    }
+    assert outside == {}
+
+
+def test_metric_units_name_every_metric_and_scale_like_their_scores(corpus, holdout):
+    assert set(METRIC_UNITS) == set(METRIC_BOUNDS)
+    assert set(METRIC_UNITS.values()) <= {"sales_scale", "nats", "count", "dimensionless"}
+    # Scaling z-space draws and truth, with the natural outcome and noise, by 3
+    # multiplies every sales_scale score by 3 and leaves the other scores unchanged.
+    _, row = holdout[0]
+    batch = corpus_batch(corpus, [row])
+    truth = batch["targets_z"][0].double().numpy()
+    draws = truth + np.random.default_rng(5).normal(scale=0.3, size=(6, *truth.shape))
+    n_context = batch["context_targets_z"].shape[1]
+    masks = [batch[key][0].numpy() for key in ("active_c_mask", "active_m_mask", "g_cy", "g_zb")]
+    masks[:2] = [mask.astype(bool) for mask in masks[:2]]
+    outcome, noise = (
+        np.asarray(corpus[key][row], dtype=np.float64)[n_context:]
+        for key in ("outcome_raw", "outcome_noise")
+    )
+    scale = float(batch["sales_scale"][0])
+    base = _score_decomposition(draws, truth, *masks, outcome, noise, scale)
+    scaled = _score_decomposition(3 * draws, 3 * truth, *masks, 3 * outcome, 3 * noise, scale)
+    assert scaled.values.keys() == base.values.keys()
+    assert {METRIC_UNITS[key] for key in base.values} == {"sales_scale", "dimensionless"}
+    for key, value in base.values.items():
+        factor = 3 if METRIC_UNITS[key] == "sales_scale" else 1
+        assert scaled.values[key] == pytest.approx(factor * value, rel=1e-9, abs=1e-12), key
+
+
+def test_metric_units_refuse_a_metric_this_release_does_not_define():
+    flat = "holdout/conditional/query/{}"
+    assert evaluation.metric_units(flat.format("decomposition_energy_score")) == "sales_scale"
+    with pytest.raises(ValueError, match="some_new_score"):
+        evaluation.metric_units(flat.format("some_new_score"))
 
 
 def test_record_is_json_serializable_without_nan(record):
@@ -299,9 +391,10 @@ def test_nonfinite_auxiliary_probabilities_keep_truth_counts_but_no_scores(
         model, [corpus], holdout[:1], n_samples=2, seed=1, device="cpu", leg="holdout"
     )
     edge = record["heads"]["structure_head"]["cy"]
-    for metric in ("log_score", "brier", "auroc", "ece"):
+    for metric in ("log_score", "brier", "auroc", "auprc", "ece", "null_fpr"):
         assert edge[metric] is None
         assert record["undefined"][f"structure_head/cy/{metric}"] == "nonfinite_in_1_slots"
+    assert record["tables"]["structure_head"]["cy"] == {"reliability": [], "thresholds": []}
     batch = corpus_batch(corpus, [holdout[0][1]])
     active = batch["active_c_mask"].bool()
     truth = batch["g_cy"][active]
@@ -333,3 +426,354 @@ def test_nonfinite_router_draws_are_not_scored_as_binary_graphs(
     assert record["undefined"]["joint_router/edge/cy/log_score"] == "nonfinite_in_1_slots"
     assert math.isfinite(record["heads"]["joint"]["query"]["decomposition_energy_score"])
     json.dumps(record, allow_nan=False)
+
+
+def test_heads_selector_samples_only_the_selected_heads(
+    model, corpus, holdout, record, monkeypatch
+):
+    calls = []
+    for name in ("predict", "sample_context", "sample_disentangled"):
+        original = getattr(model, name)
+
+        def spy(*args, _name=name, _original=original, **kwargs):
+            calls.append(_name)
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(model, name, spy)
+
+    def run(heads, **kwargs):
+        return evaluate_rows(
+            model,
+            [corpus],
+            holdout,
+            n_samples=4,
+            seed=1,
+            device="cpu",
+            leg="holdout",
+            heads=heads,
+            **kwargs,
+        )
+
+    joint = run(("joint",))
+    assert "sample_disentangled" not in calls
+    assert set(joint["heads"]) == {"joint", "structure_head", "joint_router"}
+    assert set(joint["labels"]) == set(joint["heads"])
+    assert set(flatten_evaluation(joint)) == {
+        f"holdout/{key}" for key in metric_aggregation(("joint",))
+    }
+    # The structure pass and the counts do not depend on the draws.
+    assert joint["heads"]["structure_head"] == record["heads"]["structure_head"]
+    assert joint["counts"] == record["counts"]
+
+    calls.clear()
+    conditional = run(("conditional",))
+    assert "sample_context" not in calls and "predict" in calls  # the router needs joint draws
+    assert set(conditional["heads"]) == {"conditional", "structure_head", "joint_router"}
+
+    for heads in ((), ("joint", "joint"), ("router",), "joint"):
+        with pytest.raises(ValueError):
+            run(heads)
+    with pytest.raises(ValueError):
+        run(("joint",), result_sink=lambda *args: None)
+
+
+def test_captured_results_describe_the_corpus_raw_inputs_of_each_window(model, corpus, holdout):
+    captured = []
+    evaluate_rows(
+        model,
+        [corpus],
+        holdout[:1],
+        n_samples=2,
+        seed=1,
+        device="cpu",
+        leg="holdout",
+        result_sink=lambda result, *evidence: captured.append(result),
+    )
+    _, row = holdout[0]
+    context = int(corpus["support_mask"][row].sum())
+    expected = [
+        (f"{family}:{family}_{index}", np.asarray(values[:, index], dtype=np.float64))
+        for family, values, mask in (
+            ("channel", corpus["treatment_raw"][row], corpus["treatment_active_mask"][row]),
+            ("control", corpus["covariates"][row], corpus["covariate_active_mask"][row]),
+        )
+        for index in np.flatnonzero(mask)
+    ]
+    assert sorted(result.window for result in captured) == ["context", "query"]
+    for result in captured:
+        summary = result.diagnostics().summary
+        assert summary["panels"]["input_support"]["status"] == "ok", result.window
+        rows = summary["arrays"]["input_support"]["inputs"]
+        assert [entry["name"] for entry in rows] == [name for name, _ in expected]
+        for entry, (_, series) in zip(rows, expected, strict=True):
+            for window, values in (("context", series[:context]), ("query", series[context:])):
+                assert entry[window] == pytest.approx(
+                    {
+                        "count": len(values),
+                        "mean": values.mean(),
+                        "std": values.std(),
+                        "min": values.min(),
+                        "max": values.max(),
+                    }
+                ), (entry["name"], window)
+
+
+def test_per_world_values_reproduce_the_leg_aggregates(model, corpus, holdout, record):
+    detailed = evaluate_rows(
+        model, [corpus], holdout, n_samples=4, seed=1, device="cpu", leg="holdout", per_world=True
+    )
+    entries = detailed.pop("per_world")
+    assert detailed == record  # opting in changes neither draws nor scores
+    assert sorted((entry["corpus_index"], entry["row"]) for entry in entries) == sorted(holdout)
+    flat = flatten_evaluation(record)
+    for key, count in record["metric_worlds"].items():
+        values = [entry["values"][key] for entry in entries if entry["values"][key] is not None]
+        assert len(values) == count, key
+        if values:
+            assert np.mean(values) == pytest.approx(flat[f"holdout/{key}"], rel=1e-12), key
+        else:
+            assert flat[f"holdout/{key}"] is None, key
+        for entry in entries:
+            defined = entry["values"][key] is not None
+            assert (entry["weights"][key] > 0) == defined, key
+            assert (key in entry["undefined"]) == (not defined), key
+    for entry in entries:
+        n_channels = int(corpus["treatment_active_mask"][entry["row"]].sum())
+        assert entry["weights"]["joint/query/contribution_crps"] == n_channels
+        assert entry["weights"]["joint/query/contribution_padding_leakage_scaled_mae"] == (
+            corpus["treatment_active_mask"].shape[1] - n_channels
+        )
+        assert entry["weights"]["joint/query/decomposition_energy_score"] == 1
+
+
+QUERY_SHIFTS = (1.0, 3.0)
+CONTEXT_SHIFTS = (-1.0, 3.0)
+
+
+def _live_dead_corpus():
+    """Two held-out worlds: A with only live channels and dead controls, B the reverse."""
+    corpus = make_synthetic_corpus(n_cells=4, draws_per_cell=1, context_lengths=(6,))
+    layout = EdgeSlotLayout(3, 2, 2)
+    graph = corpus["g"].copy()
+    world_a, world_b = (int(row) for row in np.flatnonzero(corpus["is_val"] == 1))
+    for row, media, control in ((world_a, 1, 0), (world_b, 0, 1)):
+        graph[row, layout.slices["cy"]] = media * corpus["treatment_active_mask"][row]
+        graph[row, layout.slices["zb"]] = control * corpus["covariate_active_mask"][row]
+    corpus["g"] = graph
+    return corpus, [(0, world_a), (0, world_b)]
+
+
+def _stub_joint_draws(model, monkeypatch, *, zz_cycle=False):
+    """Two joint draws per window: ``truth + shift_s + 0.5 (-1)^t`` in every column.
+
+    Draws are float64, so the shifts are exact. Query router draws are the true
+    graph and the true graph with every present channel's ``cy`` edge flipped;
+    with ``zz_cycle`` the second draw also links every present control pair both ways.
+    """
+
+    def decomposition(truth, shifts):
+        truth = truth.double()
+        wiggle = 0.5 - (torch.arange(truth.shape[1]) % 2).double()
+        shift = torch.tensor(shifts, dtype=torch.float64)
+        return truth[None] + shift[:, None, None, None] + wiggle[None, None, :, None]
+
+    def graph_flow(batch, n_weeks):
+        layout = EdgeSlotLayout(3, 2, 2)
+        truth = layout.pack({et: batch[f"g_{et}"] for et in STRUCT_EDGE_KEYS})
+        flipped = truth.clone()
+        cy = layout.slices["cy"]
+        flipped[:, cy] = torch.where(batch["active_c_mask"] > 0, 1 - truth[:, cy], truth[:, cy])
+        if zz_cycle:
+            # Two controls have exactly two zz slots: z0 -> z1 and z1 -> z0.
+            both = (batch["active_m_mask"] > 0).all(dim=-1, keepdim=True)
+            zz = layout.slices["zz"]
+            flipped[:, zz] = torch.where(both, torch.ones_like(truth[:, zz]), truth[:, zz])
+        return (2 * torch.stack([truth, flipped]) - 1)[:, :, None].expand(-1, -1, n_weeks, -1)
+
+    def predict(batch, n_samples, return_structure=False):
+        truth = batch["targets_z"]
+        return decomposition(truth, QUERY_SHIFTS), graph_flow(batch, truth.shape[1])
+
+    def sample_context(batch, n_samples, return_structure=False):
+        truth = batch["context_targets_z"]
+        return decomposition(truth, CONTEXT_SHIFTS), graph_flow(batch, truth.shape[1])
+
+    monkeypatch.setattr(model, "predict", predict)
+    monkeypatch.setattr(model, "sample_context", sample_context)
+
+
+def _cumulative_energy(shifts, n_weeks):
+    # Running errors shift_s * t + cumsum(wiggle) in every present channel; the
+    # channel count cancels from the dimension-normalized score.
+    weeks = np.arange(1, n_weeks + 1)
+    wiggle = np.cumsum(0.5 - np.arange(n_weeks) % 2)
+    truth_term = np.mean([np.linalg.norm(shift * weeks + wiggle) for shift in shifts])
+    pair_term = abs(shifts[1] - shifts[0]) * np.linalg.norm(weeks) / 2
+    return (truth_term - pair_term) / np.sqrt(n_weeks)
+
+
+def test_stub_draws_score_live_and_dead_effects_in_their_worlds(model, monkeypatch):
+    corpus, rows = _live_dead_corpus()
+    _stub_joint_draws(model, monkeypatch)
+    record = evaluate_rows(
+        model,
+        [corpus],
+        rows,
+        n_samples=2,
+        seed=0,
+        device="cpu",
+        leg="holdout",
+        heads=("joint",),
+        per_world=True,
+    )
+    query = record["heads"]["joint"]["query"]
+    context = record["heads"]["joint"]["context"]
+    # Query errors are 1 or 3 (+/- 0.5 by week); context errors -1 or 3.
+    expected = {
+        "query": {
+            "crps": 1.5,
+            "mean_bias": 2.0,
+            "mean_abs_error": 2.0,
+            "demeaned_rmse": 0.5,
+            "leakage_scaled_mae": 2.0,
+            "draw_leakage_scaled_mae": 2.0,
+        },
+        "context": {
+            "crps": 1.0,
+            "mean_bias": 1.0,
+            "mean_abs_error": 1.0,
+            "demeaned_rmse": 0.5,
+            "leakage_scaled_mae": 1.0,
+            "draw_leakage_scaled_mae": 2.0,
+        },
+    }
+    for window, values in (("query", query), ("context", context)):
+        for effect in ("media", "control"):
+            for stat in metrics.LIVE_ATTRIBUTION_KEYS:
+                key = f"attribution_live_{effect}_{stat}"
+                assert values[key] == pytest.approx(expected[window][stat]), (window, key)
+            for stat in metrics.DEAD_ATTRIBUTION_KEYS:
+                key = f"attribution_dead_{effect}_{stat}"
+                assert values[key] == pytest.approx(expected[window][stat]), (window, key)
+            # Each group exists in exactly one of the two worlds.
+            live = f"joint/{window}/attribution_live_{effect}_crps"
+            dead = f"joint/{window}/attribution_dead_{effect}_leakage_scaled_mae"
+            assert record["metric_worlds"][live] == record["metric_worlds"][dead] == 1
+        # Draw time means sit at truth + shift: [1.2, 2.8] misses the truth, [-0.6, 2.6] covers it.
+        for suffix in ("", "_live", "_dead"):
+            covered = values[f"timeavg_contribution_cov80{suffix}"]
+            assert covered == (0.0 if window == "query" else 1.0), (window, suffix)
+        assert values["contribution_cumulative_energy_score"] == pytest.approx(
+            _cumulative_energy(QUERY_SHIFTS if window == "query" else CONTEXT_SHIFTS, 6)
+        )
+        # Residuals from the truth alternate by week; across draws adjacent weeks move together.
+        assert values["contribution_truth_error_residual_lag1"] == pytest.approx(-1.0)
+        assert values["contribution_adjacent_draw_correlation"] == pytest.approx(1.0)
+        key = f"joint/{window}/contribution_posterior_centered_residual_lag1"
+        assert record["undefined"][key] == "constant_series"
+
+    truth_lag1, draw_lag1, n_channels = [], [], []
+    for _, row in rows:
+        batch = corpus_batch(corpus, [row])
+        present = batch["active_c_mask"][0].bool().numpy()
+        series = batch["targets_z"][0].double().numpy()[:, 1:4][:, present]
+        wiggle = 0.5 - np.arange(series.shape[0]) % 2
+        lag1 = [np.corrcoef(z[:-1], z[1:])[0, 1] for z in series.T]
+        shifted = [np.corrcoef(z[:-1] + wiggle[:-1], z[1:] + wiggle[1:])[0, 1] for z in series.T]
+        truth_lag1.append(np.mean(lag1))
+        draw_lag1.append(np.mean(shifted))
+        n_channels.append(int(present.sum()))
+    assert query["contribution_truth_lag1"] == pytest.approx(np.mean(truth_lag1))
+    assert query["contribution_draw_lag1"] == pytest.approx(np.mean(draw_lag1), rel=1e-5)
+    assert record["counts"]["active_channels"] == pytest.approx(np.mean(n_channels))
+
+    world_a, world_b = record["per_world"]
+    assert (world_a["row"], world_b["row"]) == (rows[0][1], rows[1][1])
+    live = "joint/query/timeavg_contribution_cov80_live"
+    dead = "joint/query/timeavg_contribution_cov80_dead"
+    assert (world_a["weights"][live], world_a["weights"][dead]) == (n_channels[0], 0)
+    assert (world_b["weights"][live], world_b["weights"][dead]) == (0, n_channels[1])
+    assert world_b["undefined"][live] == "no_live_effects"
+    assert world_a["undefined"]["joint/query/attribution_dead_media_leakage_scaled_mae"] == (
+        "no_dead_effects"
+    )
+    # Controls are live through zb: A's controls are dead, B's are live.
+    assert world_a["undefined"]["joint/query/attribution_live_control_crps"] == "no_live_effects"
+    assert world_b["undefined"]["joint/query/attribution_dead_control_leakage_scaled_mae"] == (
+        "no_dead_effects"
+    )
+    assert record["counts"]["active_controls"] == pytest.approx(
+        np.mean([corpus["covariate_active_mask"][row].sum() for _, row in rows])
+    )
+
+
+def test_stub_router_graphs_score_whole_graph_statistics(model, monkeypatch):
+    corpus, rows = _live_dead_corpus()
+    _stub_joint_draws(model, monkeypatch)
+    record = evaluate_rows(
+        model, [corpus], rows, n_samples=2, seed=0, device="cpu", leg="holdout", heads=("joint",)
+    )
+    layout = EdgeSlotLayout(3, 2, 2)
+    channels, slots = [], []
+    for _, row in rows:
+        masks = [
+            corpus[key][row]
+            for key in ("treatment_active_mask", "covariate_active_mask", "latent_active_mask")
+        ]
+        channels.append(int(masks[0].sum()))
+        slots.append(int(layout.active_slot_mask(*masks).sum()))
+    graph = record["heads"]["joint_router"]["graph"]
+    # Draw 0 is the true graph; draw 1 differs on every present channel's cy edge.
+    assert graph["shd_mean"] == pytest.approx(np.mean(channels) / 2)
+    assert graph["shd_median"] == pytest.approx(np.mean(channels) / 2)
+    assert graph["exact_recovery"] == 0.5
+    assert graph["normalized_shd_mean"] == pytest.approx(
+        np.mean([c / (2 * s) for c, s in zip(channels, slots, strict=True)])
+    )
+    assert graph["n_distinct"] == 2.0
+    assert graph["entropy"] == pytest.approx(math.log(2.0))
+    assert graph["categorical_brier_score"] == pytest.approx(0.0, abs=1e-12)
+    # Every present cy marginal is 1/2: none exceeds 1/2 and the ranking is uninformative.
+    cy = record["heads"]["joint_router"]["edge"]["cy"]
+    assert cy["null_fpr"] == 0.0
+    assert cy["auprc"] == pytest.approx(cy["prevalence"])
+    assert cy["prevalence"] == pytest.approx(channels[0] / sum(channels))
+
+
+def test_stub_router_control_two_cycles_are_counted(model, monkeypatch):
+    corpus, rows = _live_dead_corpus()
+    assert all(corpus["covariate_active_mask"][row].sum() == 2 for _, row in rows)
+    _stub_joint_draws(model, monkeypatch, zz_cycle=True)
+    record = evaluate_rows(
+        model, [corpus], rows, n_samples=2, seed=0, device="cpu", leg="holdout", heads=("joint",)
+    )
+    graph = record["heads"]["joint_router"]["graph"]
+    # Draw 1 links both present controls both ways; draw 0 is the acyclic truth.
+    assert graph["zz_two_cycle_rate"] == graph["zz_cycle_rate"] == 0.5
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="MPS is unavailable")
+def test_mps_evaluation_matches_cpu_on_draw_free_scores(model, corpus, holdout):
+    def run(device):
+        return evaluate_rows(
+            model.to(device),
+            [corpus],
+            holdout,
+            n_samples=2,
+            seed=5,
+            device=device,
+            leg="holdout",
+            heads=("joint",),
+        )
+
+    cpu, mps = run("cpu"), run("mps")
+    assert mps["counts"] == cpu["counts"]
+    for et in STRUCT_EDGE_KEYS:
+        on_cpu, on_mps = cpu["heads"]["structure_head"][et], mps["heads"]["structure_head"][et]
+        for key in ("n", "n_pos", "prevalence"):
+            assert on_mps[key] == on_cpu[key], (et, key)
+        for key in ("log_score", "brier", "auroc", "auprc", "ece", "null_fpr"):
+            if on_cpu[key] is None:
+                assert on_mps[key] is None, (et, key)
+            else:
+                assert on_mps[key] == pytest.approx(on_cpu[key], abs=1e-5), (et, key)

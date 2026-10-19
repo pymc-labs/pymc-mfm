@@ -18,7 +18,6 @@ dist/
 /data/
 /runs/
 /mlruns/
-/latest_model/
 *.pt
 *.pth
 *.safetensors

@@ -19,7 +19,13 @@ from mlflow import MlflowClient
 from pymc_mfm import DecompositionResult, decompose, from_pretrained
 from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.data.profiles import PROFILE_A
-from pymc_mfm.data.recipes import generate_corpus, load_corpora, profile_prior, provenance
+from pymc_mfm.data.recipes import (
+    SHARD_PLANS,
+    generate_corpus,
+    load_corpora,
+    profile_prior,
+    provenance,
+)
 from pymc_mfm.diagnostics import build_report, render_report
 from pymc_mfm.training import TrackingConfig, TrainingConfig, load_checkpoint, train
 
@@ -39,7 +45,7 @@ def main() -> None:
         PROFILE_A,
         n_cells=6,
         draws_per_cell=2,
-        seed=530000,
+        seed=SHARD_PLANS["A"].seed(0),
         n_time_steps=16,
         l_max=4,
         carryover_burn_in=0,

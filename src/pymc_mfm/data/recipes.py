@@ -1,8 +1,9 @@
-"""Canonical corpus recipes and schema-4 corpus helpers.
+"""Canonical corpus recipes, shard plans and schema-4 corpus helpers.
 
 ``PROFILE_A_PRIOR`` is the fixed ``pymc_generator`` configuration for profile A.
-Corpus size and random seed are caller arguments rather than recipe fields.
-``generate_corpus`` writes one corpus and a JSON sidecar with its exact
+Corpus size and random seed are caller arguments rather than recipe fields;
+``SHARD_PLANS`` fixes them for the sharded profile corpora and the evaluation
+corpus. ``generate_corpus`` writes one corpus and a JSON sidecar with its exact
 construction inputs; ``load_corpora`` validates schema 4 and records corpus
 identity for training.
 
@@ -16,9 +17,11 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import secrets
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from numbers import Integral
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -119,12 +122,6 @@ PROFILE_A_PRIOR: Mapping[str, Any] = MappingProxyType(
     }
 )
 
-#: Shard cell geometry for profile A (1,250 worlds).
-PROFILE_A_TRAIN_CELLS: Mapping[str, int] = MappingProxyType({"n_cells": 125, "draws_per_cell": 10})
-
-#: Base seed for the documented profile-A shard sequence.
-PROFILE_A_SHARD_BASE_SEED = 530000
-
 
 @dataclass(frozen=True, slots=True)
 class PriorRecipe:
@@ -201,6 +198,117 @@ def _fresh_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShardPlan:
+    """Seeds and cell geometry of a sharded corpus, one generator call per shard.
+
+    Shard ``i`` is generated from ``profile``'s recipe with seed
+    ``first_seed + i * seed_stride`` and ``n_cells`` cells of ``draws_per_cell``
+    worlds each. ``overrides[i]``, when set, holds shard ``i``'s ``SCMPrior``
+    field overrides and ``shard_names[i]`` its label.
+    """
+
+    name: str
+    profile: ArtifactProfile
+    first_seed: int
+    seed_stride: int
+    n_shards: int
+    n_cells: int
+    draws_per_cell: int
+    overrides: tuple[Mapping[str, Any], ...] | None = None
+    shard_names: tuple[str, ...] | None = None
+
+    def __post_init__(self) -> None:
+        if min(self.seed_stride, self.n_shards, self.draws_per_cell) < 1 or self.n_cells < 2:
+            raise ValueError(
+                "a shard plan needs seed_stride, n_shards and draws_per_cell >= 1 and n_cells >= 2"
+            )
+        for field, values in (("overrides", self.overrides), ("shard_names", self.shard_names)):
+            if values is not None and len(values) != self.n_shards:
+                raise ValueError(f"{field} needs one entry per shard ({self.n_shards})")
+
+    @property
+    def worlds(self) -> int:
+        """Worlds across all shards."""
+        return self.n_shards * self.n_cells * self.draws_per_cell
+
+    def seed(self, shard: int) -> int:
+        """Generator seed of ``shard``; ``ValueError`` outside ``0 .. n_shards - 1``."""
+        return self.first_seed + self._index(shard) * self.seed_stride
+
+    def shard_overrides(self, shard: int) -> dict[str, Any]:
+        """``SCMPrior`` overrides of ``shard``; empty when the plan has none."""
+        index = self._index(shard)
+        return {} if self.overrides is None else dict(self.overrides[index])
+
+    def prior(self, shard: int, *, n_cells: int | None = None) -> SCMPrior:
+        """Validated ``SCMPrior`` of ``shard``; requires the ``generation`` extra.
+
+        ``n_cells`` replaces the plan's cell count for small probes; the seed,
+        draws per cell and overrides stay the plan's.
+        """
+        return profile_prior(
+            self.profile,
+            n_cells=self.n_cells if n_cells is None else n_cells,
+            draws_per_cell=self.draws_per_cell,
+            seed=self.seed(shard),
+            **self.shard_overrides(shard),
+        )
+
+    def _index(self, shard: int) -> int:
+        if isinstance(shard, bool) or not isinstance(shard, Integral):
+            raise ValueError(f"shard must be an integer, got {shard!r}")
+        if not 0 <= shard < self.n_shards:
+            raise ValueError(f"plan {self.name!r} has shards 0..{self.n_shards - 1}, got {shard}")
+        return int(shard)
+
+
+#: Shard plans by name. ``A`` (seeds 530200-530359, 200,000 worlds) and ``B``
+#: (seeds 530400-530719, 400,000 worlds) are the profile training corpora, 125
+#: cells x 10 draws per shard. ``evaluation`` is ten profile-A shards of 32
+#: cells x 4 draws with seeds 540000-549000 in steps of 1000 (1,280 worlds);
+#: shard ``i`` has exactly ``6 + i`` active channels.
+SHARD_PLANS: Mapping[str, ShardPlan] = MappingProxyType(
+    {
+        plan.name: plan
+        for plan in (
+            ShardPlan(
+                name="A",
+                profile=PROFILE_A,
+                first_seed=530200,
+                seed_stride=1,
+                n_shards=160,
+                n_cells=125,
+                draws_per_cell=10,
+            ),
+            ShardPlan(
+                name="B",
+                profile=PROFILE_B,
+                first_seed=530400,
+                seed_stride=1,
+                n_shards=320,
+                n_cells=125,
+                draws_per_cell=10,
+            ),
+            ShardPlan(
+                name="evaluation",
+                profile=PROFILE_A,
+                first_seed=540000,
+                seed_stride=1000,
+                n_shards=10,
+                n_cells=32,
+                draws_per_cell=4,
+                overrides=tuple(
+                    MappingProxyType({"n_treatments_active_range": (active, active)})
+                    for active in range(6, 16)
+                ),
+                shard_names=tuple(f"eval_a{active:02d}" for active in range(6, 16)),
+            ),
+        )
+    }
+)
+
+
 def prior_sidecar_path(path: str | Path) -> Path:
     """Path of the JSON prior sidecar written next to a corpus: ``<path>.prior.json``."""
     path = Path(path)
@@ -213,26 +321,42 @@ def generate_corpus(prior: SCMPrior, path: str | Path) -> dict[str, Any]:
     Runs ``pymc_generator.DataGenerator(prior).generate()`` (validated) and
     ``pymc_generator.save_corpus``; then writes ``prior_sidecar_path(path)`` with
     ``{"prior": asdict(prior), "pymc_generator_version": ..., "generated_at": ISO-8601 UTC}``
-    (tuples become JSON lists). Returns the in-memory corpus. Requires the
-    ``generation`` extra.
+    (tuples become JSON lists). ``path`` must end in ``.npz``. Both files are
+    written under temporary names in ``path``'s directory and then renamed into
+    place, the sidecar first, so an existing file is replaced only by a complete
+    one. Returns the in-memory corpus. Requires the ``generation`` extra.
     """
     try:
         import pymc_generator
     except ImportError as exc:
         raise ImportError(_GENERATION_EXTRA_HINT) from exc
 
+    path = Path(path)
+    if path.suffix != ".npz":
+        raise ValueError(f"corpus path must end in .npz, got {path}")
+    sidecar_path = prior_sidecar_path(path)
+    # A per-call token keeps concurrent writers of one target off each other's files.
+    token = secrets.token_hex(4)
+    partial = path.with_name(f".{path.stem}.{token}.partial.npz")
+    partial_sidecar = sidecar_path.with_name(f".{sidecar_path.name}.{token}.partial")
     corpus = pymc_generator.DataGenerator(prior).generate()
-    pymc_generator.save_corpus(corpus, path)
-    with Path(path).open("rb") as handle:
-        corpus_digest = hashlib.file_digest(handle, "sha256").hexdigest()
-    sidecar = {
-        "prior": dataclasses.asdict(prior),
-        "pymc_generator_version": pymc_generator.__version__,
-        "generated_at": datetime.now(UTC).isoformat(),
-        "data_origin": "synthetic",
-        "corpus_sha256": corpus_digest,
-    }
-    prior_sidecar_path(path).write_text(json.dumps(sidecar, indent=2, sort_keys=True))
+    try:
+        pymc_generator.save_corpus(corpus, partial)
+        with partial.open("rb") as handle:
+            corpus_digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        sidecar = {
+            "prior": dataclasses.asdict(prior),
+            "pymc_generator_version": pymc_generator.__version__,
+            "generated_at": datetime.now(UTC).isoformat(),
+            "data_origin": "synthetic",
+            "corpus_sha256": corpus_digest,
+        }
+        partial_sidecar.write_text(json.dumps(sidecar, indent=2, sort_keys=True))
+        partial_sidecar.replace(sidecar_path)
+        partial.replace(path)
+    finally:
+        partial.unlink(missing_ok=True)
+        partial_sidecar.unlink(missing_ok=True)
     return corpus
 
 

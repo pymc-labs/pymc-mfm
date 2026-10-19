@@ -1,17 +1,24 @@
-"""Synthetic prior recipes and corpus loading identity."""
+"""Synthetic prior recipes, shard plans, corpus generation and loading identity."""
 
 import dataclasses
+import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 from conftest import make_synthetic_corpus
 
+import pymc_mfm.data.__main__ as cli
 from pymc_mfm.data.profiles import PROFILE_A, PROFILE_B
 from pymc_mfm.data.recipes import (
     PROFILE_A_PRIOR,
+    SHARD_PLANS,
+    ShardPlan,
+    generate_corpus,
     load_corpora,
     prior_sidecar_path,
     profile_prior,
@@ -55,6 +62,47 @@ def test_profile_b_changes_only_live_channel_budget():
         recipe_for(dataclasses.replace(PROFILE_A, name="C"))
 
 
+@pytest.mark.parametrize(
+    ("name", "profile", "seeds"),
+    [("A", PROFILE_A, range(530200, 530360)), ("B", PROFILE_B, range(530400, 530720))],
+)
+def test_profile_shard_plans_tile_the_profile_corpus(name, profile, seeds):
+    plan = SHARD_PLANS[name]
+    assert plan.name == name and plan.profile is profile
+    assert (plan.n_cells, plan.draws_per_cell) == (125, 10)
+    assert plan.n_shards * plan.n_cells * plan.draws_per_cell == plan.worlds == profile.worlds
+    assert [plan.seed(shard) for shard in range(plan.n_shards)] == list(seeds)
+    assert plan.shard_overrides(0) == {} and plan.shard_names is None
+    for invalid in (-1, plan.n_shards, True, 1.0):
+        with pytest.raises(ValueError):
+            plan.seed(invalid)
+
+
+def test_evaluation_plan_fixes_the_active_channel_count_of_each_shard():
+    plan = SHARD_PLANS["evaluation"]
+    assert plan.profile is PROFILE_A
+    assert (plan.n_shards, plan.n_cells, plan.draws_per_cell, plan.worlds) == (10, 32, 4, 1280)
+    assert [plan.seed(shard) for shard in range(10)] == list(range(540000, 549001, 1000))
+    assert [plan.shard_overrides(shard) for shard in range(10)] == [
+        {"n_treatments_active_range": (active, active)} for active in range(6, 16)
+    ]
+    assert plan.shard_names == tuple(f"eval_a{active:02d}" for active in range(6, 16))
+    with pytest.raises(ValueError):
+        plan.shard_overrides(10)
+
+
+def test_shard_plan_rejects_per_shard_entries_that_do_not_match_its_shards():
+    geometry = dict(
+        name="p", profile=PROFILE_A, first_seed=1, seed_stride=1, n_cells=2, draws_per_cell=1
+    )
+    with pytest.raises(ValueError):
+        ShardPlan(**geometry, n_shards=2, shard_names=("only",))
+    with pytest.raises(ValueError):
+        ShardPlan(**geometry, n_shards=2, overrides=({},) * 3)
+    with pytest.raises(ValueError):
+        ShardPlan(**{**geometry, "n_cells": 1}, n_shards=1)
+
+
 def test_import_does_not_load_the_generator():
     subprocess.run(
         [
@@ -80,6 +128,18 @@ def test_profile_prior_constructs_exactly_the_payload():
     overridden = profile_prior(PROFILE_A, n_cells=2, draws_per_cell=1, seed=1, n_time_steps=52)
     assert overridden.n_time_steps == 52
     assert PROFILE_A_PRIOR["edge_budget"]["cy"] == (5, 5)
+
+
+@needs_generator
+def test_plan_prior_keeps_the_shard_seed_draws_and_overrides_for_fewer_cells():
+    prior = SHARD_PLANS["evaluation"].prior(9, n_cells=2)
+    assert dataclasses.asdict(prior) == {
+        **PROFILE_A_PRIOR,
+        "n_cells": 2,
+        "draws_per_cell": 4,
+        "seed": 549000,
+        "n_treatments_active_range": (15, 15),
+    }
 
 
 @needs_generator
@@ -130,9 +190,164 @@ def test_load_corpora_rejects_missing_split_arrays(tmp_path):
 
 
 @needs_generator
-def test_cli_overrides_reach_the_prior(monkeypatch, tmp_path):
-    import pymc_mfm.data.__main__ as cli
+def test_generate_corpus_replaces_a_corpus_only_with_a_complete_one(monkeypatch, tmp_path):
+    import pymc_generator
 
+    def digest(path):
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    generated = make_synthetic_corpus()
+    monkeypatch.setattr(
+        pymc_generator, "DataGenerator", lambda prior: SimpleNamespace(generate=lambda: generated)
+    )
+    prior = profile_prior(PROFILE_A, n_cells=2, draws_per_cell=1, seed=1)
+    path = tmp_path / "corpus.npz"
+    sidecar = prior_sidecar_path(path)
+    generate_corpus(prior, path)
+    assert sorted(tmp_path.iterdir()) == [path, sidecar]
+    recorded = json.loads(sidecar.read_text())
+    assert recorded["corpus_sha256"] == digest(path)
+    assert recorded["prior"]["seed"] == 1
+    before = (path.read_bytes(), sidecar.read_bytes())
+
+    def interrupted(corpus, partial):
+        partial.write_bytes(b"partial")
+        raise RuntimeError("interrupted while saving")
+
+    monkeypatch.setattr(pymc_generator, "save_corpus", interrupted)
+    with pytest.raises(RuntimeError):
+        generate_corpus(prior, path)
+    assert (path.read_bytes(), sidecar.read_bytes()) == before
+    assert sorted(tmp_path.iterdir()) == [path, sidecar]
+    with pytest.raises(ValueError):
+        generate_corpus(prior, tmp_path / "corpus.bin")
+
+
+def _refuse_generation(prior, path):
+    raise AssertionError("the CLI generated a corpus for invalid arguments")
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--profile", "A", "--shard", "160"],
+        ["--profile", "B", "--shard", "320"],
+        ["--profile", "A", "--shard", "-1"],
+        ["--evaluation-shard", "10"],
+        ["--evaluation-shard", "-1"],
+        ["--shard", "0"],
+        ["--profile", "A", "--shard", "0", "--n-cells", "2"],
+        ["--profile", "A", "--shard", "0", "--draws-per-cell", "10"],
+        ["--profile", "A", "--shard", "0", "--seed", "530200"],
+        ["--profile", "A", "--shard", "0", "--override", "n_time_steps=52"],
+        ["--evaluation-shard", "0", "--profile", "A"],
+        ["--evaluation-shard", "0", "--profile", "A", "--shard", "0"],
+        ["--evaluation-shard", "0", "--override", "n_time_steps=52"],
+        ["--evaluation-shard", "0", "--seed", "540000"],
+        ["--profile", "A", "--n-cells", "2", "--draws-per-cell", "10"],
+        ["--n-cells", "2", "--draws-per-cell", "10", "--seed", "1"],
+    ],
+)
+def test_cli_rejects_invalid_shard_arguments_before_generating(arguments, monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "generate_corpus", _refuse_generation)
+    with pytest.raises(SystemExit) as raised:
+        cli.main(["generate", *arguments, "--out", str(tmp_path)])
+    assert raised.value.code == 2
+    assert not list(tmp_path.iterdir())
+
+
+def test_cli_refuses_an_unusable_or_existing_target_before_generating(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "generate_corpus", _refuse_generation)
+    existing = tmp_path / "shard_540000.npz"
+    existing.write_bytes(b"existing corpus")
+    for out in (tmp_path, existing, tmp_path / "corpus"):
+        with pytest.raises(SystemExit) as raised:
+            cli.main(["generate", "--evaluation-shard", "0", "--out", str(out)])
+        assert raised.value.code == 2
+    assert existing.read_bytes() == b"existing corpus"
+    assert list(tmp_path.iterdir()) == [existing]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX directory permissions")
+def test_cli_refuses_an_unwritable_directory_before_generating(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "generate_corpus", _refuse_generation)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o555)
+    try:
+        if os.access(locked, os.W_OK):
+            pytest.skip("running with privileges that ignore directory permissions")
+        for out in (locked, locked / "new" / "shard.npz"):
+            with pytest.raises(SystemExit) as raised:
+                cli.main(["generate", "--evaluation-shard", "0", "--out", str(out)])
+            assert raised.value.code == 2
+    finally:
+        locked.chmod(0o755)
+    assert not list(locked.iterdir())
+
+
+@needs_generator
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--n-cells", "0"],
+        ["--n-cells", "1", "--override", "seed=5"],
+        ["--n-cells", "1", "--override", "n_time_step=52"],
+    ],
+    ids=["invalid-value", "flag-field-override", "unknown-field-override"],
+)
+def test_cli_reports_an_invalid_custom_prior_as_a_usage_error(monkeypatch, tmp_path, extra):
+    monkeypatch.setattr(cli, "generate_corpus", _refuse_generation)
+    with pytest.raises(SystemExit) as raised:
+        cli.main(
+            [
+                "generate",
+                "--profile",
+                "A",
+                *extra,
+                "--draws-per-cell",
+                "1",
+                "--seed",
+                "1",
+                "--out",
+                str(tmp_path / "custom.npz"),
+            ]
+        )
+    assert raised.value.code == 2
+
+
+@needs_generator
+def test_cli_writes_plan_shards_to_a_directory_or_a_file(monkeypatch, tmp_path):
+    written = []
+
+    def fake_generate(prior, path):
+        written.append((prior, path))
+        return {"is_val": make_synthetic_corpus()["is_val"]}
+
+    monkeypatch.setattr(cli, "generate_corpus", fake_generate)
+    assert cli.main(["generate", "--profile", "B", "--shard", "319", "--out", str(tmp_path)]) == 0
+    evaluation = tmp_path / "evaluation.npz"
+    assert cli.main(["generate", "--evaluation-shard", "9", "--out", str(evaluation)]) == 0
+    evaluation.write_bytes(b"previous corpus")
+    arguments = ["generate", "--evaluation-shard", "9", "--out", str(evaluation), "--force"]
+    assert cli.main(arguments) == 0
+
+    (b_prior, b_path), (eval_prior, eval_path), (_, forced_path) = written
+    assert b_path == tmp_path / "shard_530719.npz"
+    assert (b_prior.seed, b_prior.n_cells, b_prior.draws_per_cell) == (530719, 125, 10)
+    assert b_prior.edge_budget["cy"] == (4, 10)
+    assert eval_path == forced_path == evaluation
+    assert dataclasses.asdict(eval_prior) == {
+        **PROFILE_A_PRIOR,
+        "n_cells": 32,
+        "draws_per_cell": 4,
+        "seed": 549000,
+        "n_treatments_active_range": (15, 15),
+    }
+
+
+@needs_generator
+def test_cli_overrides_reach_the_prior(monkeypatch, tmp_path):
     captured = {}
 
     def fake_generate(prior, path):
@@ -165,7 +380,7 @@ def test_cli_overrides_reach_the_prior(monkeypatch, tmp_path):
         == 0
     )
     prior = captured["prior"]
-    assert captured["path"] == str(out)
+    assert captured["path"] == out
     assert (prior.n_cells, prior.draws_per_cell, prior.seed) == (3, 2, 9)
     assert prior.edge_budget == {"cy": (6, 6)}
     assert prior.n_time_steps == 52

@@ -108,3 +108,38 @@ def test_fixed_graph_validates_original_precision_before_casting(model, batch, v
     graph = torch.full((2, layout.n_slots), value, dtype=torch.float64)
     with pytest.raises(ValueError):
         model.sample_disentangled(batch, 3, mode="fixed", graph=graph)
+
+
+SAMPLING_ENTRY_POINTS = ("predict", "sample_context", "sample_disentangled", "sample", "head")
+
+
+def _draws(model, batch, entry, **count):
+    """Leading draws of one public sampling entry point, forwarding only the count."""
+    if entry == "predict":
+        return model.predict(batch, **count)
+    if entry == "sample_context":
+        return model.sample_context(batch, **count)
+    if entry == "sample_disentangled":
+        return model.sample_disentangled(batch, **count)[0]
+    weekly, channels, controls = model.encoder.forward_with_controls(batch)
+    if entry == "sample":
+        return model.sample(batch, weekly, channels, control_repr=controls, **count)
+    return model.head.sample(weekly, channels, control_repr=controls, **count)
+
+
+@pytest.mark.parametrize("entry", SAMPLING_ENTRY_POINTS)
+def test_omitted_draw_count_is_the_ab_inference_default(model, batch, entry):
+    assert _draws(model, batch, entry).shape[0] == 32
+
+
+@pytest.mark.parametrize("n_samples", [True, 2.5, 0])
+@pytest.mark.parametrize("entry", SAMPLING_ENTRY_POINTS)
+def test_draw_counts_are_never_coerced(model, batch, entry, n_samples):
+    with pytest.raises(ValueError):
+        _draws(model, batch, entry, n_samples=n_samples)
+
+
+@pytest.mark.parametrize("router_samples", [True, 2.5, 0])
+def test_map_router_bank_size_is_never_coerced(model, batch, router_samples):
+    with pytest.raises(ValueError):
+        model.sample_disentangled(batch, 3, mode="map", router_samples=router_samples)

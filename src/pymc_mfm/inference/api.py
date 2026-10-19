@@ -12,6 +12,7 @@ from pymc_mfm.data.features import MOMENT_FEATURE_BLOCKS
 from pymc_mfm.data.observations import encode_observations, observation_identity
 from pymc_mfm.inference.result import DecompositionResult, _numpy, result_from_batch
 from pymc_mfm.model.config import ModelConfig
+from pymc_mfm.model.flow import DEFAULT_N_SAMPLES
 from pymc_mfm.model.model import MFM
 
 
@@ -92,7 +93,7 @@ def decompose(
     model: MFM,
     observations: Mapping[str, object],
     *,
-    n_samples: int | None = None,
+    n_samples: int = DEFAULT_N_SAMPLES,
     window: str = "query",
     mode: str = "model_average",
     graph=None,
@@ -110,7 +111,8 @@ def decompose(
     Fixed graphs are supplied hypotheses; modal graphs are empirical router modes,
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
-    context/query posterior. The caller controls the PyTorch random seed.
+    context/query posterior. The caller controls the PyTorch random seed;
+    ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
     if not isinstance(observations, Mapping):
@@ -177,8 +179,9 @@ def decompose(
     if (batch["sales_scale"] <= 0).any():
         raise ValueError("sales_scale must remain positive in the model representation")
     if graph is not None:
-        # Validate the caller's precision before the model converts graph dtype.
-        supplied_graph = graph if isinstance(graph, torch.Tensor) else np.asarray(graph)
+        # Validate the caller's precision before the model converts graph dtype. A
+        # copy keeps a caller's (possibly read-only) array out of the tensor.
+        supplied_graph = graph if isinstance(graph, torch.Tensor) else np.array(graph)
         graph = torch.as_tensor(supplied_graph)
         if not ((graph == 0) | (graph == 1)).all():
             raise ValueError("supplied graph must be binary before dtype conversion")
@@ -196,6 +199,7 @@ def decompose(
             if key in identity and identity[key] is not None and identity[key] != value:
                 raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
         identity.update(provenance)
+    _drop_recorded_evaluation(identity, getattr(model, "provenance", {}).get("training_evaluation"))
     # Hash only the representation read by inference; never write observations.
     identity["data_sha256"] = observation_identity(batch)
     identity["head"] = "conditional"
@@ -266,3 +270,27 @@ def decompose(
         )
         result = replace(result, time=selected)
     return result
+
+
+def _drop_recorded_evaluation(identity: dict, recorded) -> None:
+    """Keep a bundle's recorded training evaluation out of each result it produces.
+
+    The record (held-out worlds plus every recorded metric) stays in the bundle's
+    ``config.json``; results already name that bundle by ``bundle_sha256`` and
+    ``source_checkpoint_sha256``. Only copies equal to the bundle's own record are
+    dropped, so caller annotations are never silently removed.
+    """
+    if recorded is None:
+        return
+    if identity.get("training_evaluation") == recorded:
+        del identity["training_evaluation"]
+    artifact = identity.get("artifact")
+    if isinstance(artifact, Mapping) and isinstance(artifact.get("provenance"), Mapping):
+        provenance = artifact["provenance"]
+        if provenance.get("training_evaluation") == recorded:
+            identity["artifact"] = {
+                **artifact,
+                "provenance": {
+                    key: value for key, value in provenance.items() if key != "training_evaluation"
+                },
+            }

@@ -14,7 +14,10 @@ import os
 import random
 import re
 import shutil
+import sys
+import threading
 import time
+import uuid
 import warnings
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -56,6 +59,22 @@ class TrackingConfig:
     the SQLite database and artifact store live below the run output directory.
     Diagnostics consume *existing* evaluation draws at every evaluation event;
     expensive reference fits, stress runs and SBC are never scheduled implicitly.
+
+    ``http_timeout`` (seconds per request) and ``http_max_retries`` bound the
+    MLflow HTTP client. Each takes precedence over the caller's
+    ``MLFLOW_HTTP_REQUEST_TIMEOUT``/``MLFLOW_HTTP_REQUEST_MAX_RETRIES``, which
+    take precedence over 10 s and 2 retries. Backoff factor 1 without jitter
+    applies unless ``MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR``/``_JITTER`` are set,
+    and a server's ``Retry-After`` answer does not stretch it unless
+    ``MLFLOW_HTTP_RESPECT_RETRY_AFTER_HEADER`` is true. A failed start stops
+    delivery after one failure receipt. After a successful start,
+    tracking-server writes and artifact uploads pause separately: a transport
+    failure pauses its channel after one receipt, and the channel's later
+    deliveries are skipped, never replayed, until a probe once per cool-down
+    (60 s, doubling up to 600 s while the channel keeps failing) gets through.
+    At the run end a paused channel probes at once, and the first transport
+    failure on a channel is its one bounded run-end attempt. The local
+    evidence stays complete.
     """
 
     enabled: bool = True
@@ -63,6 +82,8 @@ class TrackingConfig:
     experiment_name: str = "pymc-mfm"
     profile: str = "new-run"
     diagnostics: bool = True
+    http_timeout: int | None = None
+    http_max_retries: int | None = None
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool or type(self.diagnostics) is not bool:
@@ -72,6 +93,192 @@ class TrackingConfig:
             raise ValueError("experiment_name and profile must not be empty")
         if self.tracking_uri is not None and not self.tracking_uri.strip():
             raise ValueError("tracking_uri must not be empty")
+        if self.http_timeout is not None and (
+            type(self.http_timeout) is not int or self.http_timeout < 1
+        ):
+            raise ValueError("http_timeout must be None or an integer number of seconds >= 1")
+        # MLflow rejects more than 10 retries (_MLFLOW_HTTP_REQUEST_MAX_RETRIES_LIMIT).
+        if self.http_max_retries is not None and (
+            type(self.http_max_retries) is not int or not 0 <= self.http_max_retries <= 10
+        ):
+            raise ValueError("http_max_retries must be None or an integer from 0 to 10")
+
+
+# MLflow reads these from the process environment on every request. Its own
+# defaults (120 s timeout, 7 retries, exponential backoff with jitter) spend
+# minutes on each call to an unreachable backend, and it waits as long as a
+# 413, 429 or 503 answer's Retry-After header asks: up to 6 h per retry.
+_HTTP_DEFAULTS: dict[str, bool | int | float] = {
+    "MLFLOW_HTTP_REQUEST_TIMEOUT": 10,
+    "MLFLOW_HTTP_REQUEST_MAX_RETRIES": 2,
+    "MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR": 1,
+    "MLFLOW_HTTP_REQUEST_BACKOFF_JITTER": 0.0,
+    "MLFLOW_HTTP_RESPECT_RETRY_AFTER_HEADER": False,
+}
+_HTTP_FIELDS = {
+    "MLFLOW_HTTP_REQUEST_TIMEOUT": "http_timeout",
+    "MLFLOW_HTTP_REQUEST_MAX_RETRIES": "http_max_retries",
+}
+# A parsed caller value below its minimum (0 unless listed) is unusable: MLflow
+# fails every request with a zero timeout.
+_HTTP_MINIMUMS = {"MLFLOW_HTTP_REQUEST_TIMEOUT": 1}
+# Concurrently active observers share one process environment: the first one
+# snapshots the caller's values and applies its settings, the last restores them.
+_HTTP_LOCK = threading.Lock()
+_HTTP_SHARED: dict[str, Any] = {
+    "owners": 0,
+    "previous": {},
+    "caller": {},
+    "unparsable": [],
+    "applied": {},
+}
+
+
+def _apply_http_settings(config: TrackingConfig) -> dict[str, Any] | None:
+    """Hold bounded MLflow HTTP settings for one run; describe any adjustment.
+
+    Values resolve as field > caller environment > MFM default. Caller values
+    are parsed with MLflow's own getters, so a value MLflow cannot parse falls
+    back to the MFM default instead of failing every request. So does a parsed
+    value that is non-finite, negative, or a timeout below 1 s: a NaN jitter,
+    for example, would make urllib3 sleep its 120 s maximum between retries,
+    and MLflow fails every request with a zero timeout. Upper bounds stay
+    MLflow's to enforce, because a caller may have raised MLflow's own limit
+    variables.
+    The returned receipt (``None`` when nothing was adjusted) holds variable
+    names and numeric settings only, never raw environment text.
+    """
+    from mlflow import environment_variables
+
+    with _HTTP_LOCK:
+        shared = _HTTP_SHARED
+        if shared["owners"] == 0:
+            caller, unparsable = {}, []
+            for name in _HTTP_DEFAULTS:
+                if name in os.environ:
+                    try:
+                        value = getattr(environment_variables, name).get()
+                    except ValueError:
+                        unparsable.append(name)
+                        continue
+                    if not math.isfinite(value) or value < _HTTP_MINIMUMS.get(name, 0):
+                        unparsable.append(name)
+                    else:
+                        caller[name] = value
+            shared.update(
+                previous={name: os.environ.get(name) for name in _HTTP_DEFAULTS},
+                caller=caller,
+                unparsable=unparsable,
+            )
+        requested = {}
+        for name, default in _HTTP_DEFAULTS.items():
+            value = getattr(config, _HTTP_FIELDS[name]) if name in _HTTP_FIELDS else None
+            requested[name] = shared["caller"].get(name, default) if value is None else value
+        if shared["owners"] == 0:
+            shared["applied"] = requested
+            for name, value in requested.items():
+                os.environ[name] = str(value)
+        shared["owners"] += 1
+        applied, unparsable = dict(shared["applied"]), list(shared["unparsable"])
+    conflicting = [name for name, value in requested.items() if applied[name] != value]
+    if not unparsable and not conflicting:
+        return None
+    return {
+        "applied": applied,
+        "requested": requested,
+        "unparsable": unparsable,
+        "conflicting": conflicting,
+    }
+
+
+def _restore_http_settings() -> None:
+    with _HTTP_LOCK:
+        _HTTP_SHARED["owners"] -= 1
+        if _HTTP_SHARED["owners"] == 0:
+            for name, value in _HTTP_SHARED["previous"].items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+
+# After a successful start, a transport failure pauses its delivery channel:
+# the channel's deliveries are skipped for a cool-down, which doubles after each
+# failed probe up to the cap and resets once a delivery on the channel succeeds.
+_PAUSE_SECONDS = 60.0
+_MAX_PAUSE_SECONDS = 600.0
+
+
+@dataclass(slots=True)
+class _Channel:
+    """Delivery state of tracking-server writes or of artifact uploads.
+
+    ``pause`` is the open pause record: its ``channel``, the ``sequence`` of the
+    receipt that opened it, ``resumed_sequence`` (set when it closes),
+    ``skipped_deliveries`` and ``failed_probes``. The next probe is due at
+    ``probe_at``, which is None again once a probe got through; the pause closes
+    when a delivery then succeeds. The totals count every pause of the run.
+    """
+
+    name: str
+    pause: dict[str, Any] | None = None
+    probe_at: float | None = None
+    cooldown: float = _PAUSE_SECONDS
+    final: bool = False
+    stopped: bool = False
+    pauses: int = 0
+    skipped_deliveries: int = 0
+    failed_probes: int = 0
+
+    @property
+    def summary(self) -> dict[str, Any]:
+        return {
+            "open": None if self.pause is None else dict(self.pause),
+            "pauses": self.pauses,
+            "skipped_deliveries": self.skipped_deliveries,
+            "failed_probes": self.failed_probes,
+        }
+
+
+def _transport_failure(exc: BaseException) -> bool:
+    """Connection failure, timeout or exhausted retries, however MLflow wraps it.
+
+    MLflow re-raises ``requests`` errors as ``MlflowException`` with the
+    original as cause or context; retries exhausted on rate-limit or
+    unavailable answers count too. After a successful start such a failure
+    pauses its delivery channel. Other failures, such as a rejected request, a
+    local file error or an S3/GCS/Azure client error that wraps no ``requests``
+    error, affect one delivery and leave delivery running.
+    """
+    try:
+        from requests import exceptions
+    except ImportError:
+        return False
+    transport = (exceptions.ConnectionError, exceptions.Timeout, exceptions.RetryError)
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        if isinstance(exc, transport):
+            return True
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def _interrupt(exc: BaseException, outer: BaseException | None) -> BaseException | None:
+    """The first non-``Exception`` (such as ``KeyboardInterrupt``) in ``exc``'s chain.
+
+    A client can turn an interrupt into its own error while cleaning up (SQLAlchemy
+    does, leaving the interrupt as ``__context__``); the interrupt must still win.
+    The walk stops at ``outer``, the exception the caller was already handling:
+    it and its chain predate the call.
+    """
+    seen = set()
+    while exc is not None and exc is not outer and id(exc) not in seen:
+        if not isinstance(exc, Exception):
+            return exc
+        seen.add(id(exc))
+        exc = exc.__cause__ or exc.__context__
+    return None
 
 
 def _safe_uri(value: str) -> str:
@@ -213,6 +420,16 @@ class MlflowTrainingObserver(TrainingObserver):
         self._started = False
         self._ended = False
         self._withheld_reports = False
+        # Every attempt of this execution's create_run carries this random id as
+        # the mfm.start_id tag, so its retried copies can be found (os.urandom
+        # leaves the Python, NumPy and torch RNGs alone).
+        self._start_id = uuid.uuid4().hex
+        # Tracking-server writes and artifact uploads pause and stop separately
+        # (see _deliver). Probes are due on _clock, a monotonic clock in seconds
+        # that tests may replace.
+        self._channels = {name: _Channel(name) for name in ("tracking", "artifacts")}
+        self._clock = time.monotonic
+        self._http_applied = False
 
     @property
     def summary(self) -> dict[str, Any]:
@@ -225,6 +442,7 @@ class MlflowTrainingObserver(TrainingObserver):
             "delivery_status": self.delivery_status,
             "enabled": self.config.enabled,
             "local_run_id": self.local_run_id,
+            "start_id": self._start_id,
             "run_id": self.run_id,
             "experiment_id": self.experiment_id,
             "tracking_uri": _safe_uri(self.tracking_uri),
@@ -232,8 +450,10 @@ class MlflowTrainingObserver(TrainingObserver):
             "profile": self.config.profile,
             "failure_count": self.failure_count,
             "delivery_seconds": self.delivery_seconds,
+            "delivery_pauses": {name: state.summary for name, state in self._channels.items()},
             "evidence": "tracking/events",
             "failures": "tracking/delivery_failures.jsonl",
+            "closed_pauses": "tracking/delivery_pauses.jsonl",
             "name_table": "tracking/names.json",
         }
 
@@ -241,7 +461,22 @@ class MlflowTrainingObserver(TrainingObserver):
         _write_json(self.root / "state.json", self.summary)
         _write_json(self.root / "names.json", self._names)
 
-    def _failure(self, operation: str, exc: BaseException, *, artifact: str | None = None) -> None:
+    def _append(self, name: str, entry: Mapping[str, Any]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        with (self.root / name).open("a") as handle:
+            handle.write(json.dumps(entry, allow_nan=False) + "\n")
+            handle.flush()
+
+    def _failure(
+        self,
+        operation: str,
+        exc: BaseException,
+        *,
+        artifact: str | None = None,
+        stop: bool = False,
+        transport: bool = False,
+    ) -> None:
+        """One receipt; a caller that pauses or stops a channel has done so already."""
         self.failure_count += 1
         self.delivery_status = "degraded"
         entry = {
@@ -249,16 +484,15 @@ class MlflowTrainingObserver(TrainingObserver):
             "operation": operation,
             "error_type": type(exc).__name__,
             "artifact": artifact,
+            "transport": transport,
+            "delivery_stopped": stop,
             "timestamp_ms": int(time.time() * 1000),
             "reason": (
                 "See retained local evidence; backend exception text is withheld for privacy."
             ),
         }
         try:
-            self.root.mkdir(parents=True, exist_ok=True)
-            with (self.root / "delivery_failures.jsonl").open("a") as handle:
-                handle.write(json.dumps(entry, allow_nan=False) + "\n")
-                handle.flush()
+            self._append("delivery_failures.jsonl", entry)
             self._state()
         except Exception:
             # A broken output filesystem also cannot hold delivery-failure
@@ -289,16 +523,108 @@ class MlflowTrainingObserver(TrainingObserver):
         finally:
             self.delivery_seconds += time.perf_counter() - started
 
-    def _deliver(self, operation: str, function, *, artifact: str | None = None) -> None:
-        if not self.config.enabled:
+    def _deliver(
+        self, operation: str, function, *, artifact: str | None = None, channel: str = "tracking"
+    ) -> None:
+        """One delivery on its channel, ``"tracking"`` or ``"artifacts"``.
+
+        A failure is a receipt, never an exception, and a failure on one
+        channel never skips a delivery on the other.
+        """
+        state = self._channels[channel]
+        if not self.config.enabled or state.stopped:
             return
         if self.client is None or self.run_id is None:
             self._failure(operation, RuntimeError("backend unavailable"), artifact=artifact)
             return
+        # Skipped deliveries are counted, not queued; the local events stay complete.
+        if state.probe_at is not None and not self._probe(state):
+            self._skip(state)
+            return
         try:
             function()
         except Exception as exc:
-            self._failure(operation, exc, artifact=artifact)
+            if not _transport_failure(exc):
+                # The backend answered: one receipt, and delivery continues.
+                self._failure(operation, exc, artifact=artifact)
+            elif not self._lost(state, operation, exc, artifact=artifact):
+                self._skip(state)
+        else:
+            if state.pause is not None:
+                self._resume(state)
+
+    def _probe(self, state: _Channel) -> bool:
+        """Whether a paused channel attempts the delivery at hand.
+
+        A paused channel is probed once per elapsed cool-down, and at once
+        during the run end. An upload probes with itself. A tracking-server
+        write is preceded by a rewrite of the run's delivery-status tag, so the
+        remote run shows the degraded delivery as soon as the server answers
+        again; the write at hand follows once the tag got through.
+        """
+        if not state.final and self._clock() < state.probe_at:
+            return False
+        if state.name == "tracking":
+            try:
+                self.client.set_tag(
+                    self.run_id, "mfm.delivery_status", self.delivery_status, synchronous=True
+                )
+            except Exception as exc:
+                if _transport_failure(exc):
+                    self._lost(state, "delivery_tag", exc)
+                    return False
+                # The server answered; only this tag was refused.
+                self._failure("delivery_tag", exc)
+        state.probe_at = None
+        return True
+
+    def _lost(
+        self, state: _Channel, operation: str, exc: BaseException, *, artifact: str | None = None
+    ) -> bool:
+        """A transport failure on a channel; whether it got a receipt of its own.
+
+        Each later call to an unreachable backend would spend the whole
+        timeout/retry schedule on the training thread. So a failure while the
+        channel delivers opens a pause with one receipt. A failed probe, or a
+        failed delivery right after a probe got through, continues the open
+        pause and doubles its cool-down. During the run end the failure is the
+        channel's one bounded attempt: one receipt, and the channel stops.
+        """
+        if state.final:
+            state.stopped = True
+        elif state.pause is None:
+            state.pause = {
+                "channel": state.name,
+                "sequence": self._sequence,
+                "resumed_sequence": None,
+                "skipped_deliveries": 0,
+                "failed_probes": 0,
+            }
+            state.pauses += 1
+            state.probe_at = self._clock() + state.cooldown
+        else:
+            state.pause["failed_probes"] += 1
+            state.failed_probes += 1
+            state.cooldown = min(2 * state.cooldown, _MAX_PAUSE_SECONDS)
+            state.probe_at = self._clock() + state.cooldown
+            return False
+        self._failure(operation, exc, artifact=artifact, stop=state.final, transport=True)
+        return True
+
+    def _skip(self, state: _Channel) -> None:
+        state.pause["skipped_deliveries"] += 1
+        state.skipped_deliveries += 1
+
+    def _resume(self, state: _Channel) -> None:
+        """A delivery succeeded on a paused channel: its pause closes into the ledger."""
+        state.pause["resumed_sequence"] = self._sequence
+        try:
+            self._append("delivery_pauses.jsonl", state.pause)
+        except OSError:
+            # A broken output filesystem cannot hold the ledger; the totals remain.
+            pass
+        state.pause = None
+        state.cooldown = _PAUSE_SECONDS
 
     def metric_name(
         self, original: str, *, path: tuple[str, ...] = (), kind: str = "metric"
@@ -326,6 +652,7 @@ class MlflowTrainingObserver(TrainingObserver):
             "log_artifact",
             lambda: self.client.log_artifact(self.run_id, str(source), artifact_path=destination),
             artifact=f"{destination}/{source.name}",
+            channel="artifacts",
         )
 
     def _snapshot(
@@ -409,6 +736,7 @@ class MlflowTrainingObserver(TrainingObserver):
                             self._metric_type(item["key"], item["value"], timestamp, item["step"])
                             for item in batch
                         ],
+                        synchronous=True,
                     ),
                     artifact=str(path.relative_to(self.root)),
                 )
@@ -439,8 +767,52 @@ class MlflowTrainingObserver(TrainingObserver):
             self._deliver(
                 "log_parameters",
                 lambda batch=batch: self.client.log_batch(
-                    self.run_id, params=[self._param_type(key, value) for key, value in batch]
+                    self.run_id,
+                    params=[self._param_type(key, value) for key, value in batch],
+                    synchronous=True,
                 ),
+            )
+
+    def _end_duplicate_runs(self) -> None:
+        """End the extra runs a retried ``create_run`` left behind: one bounded search.
+
+        Only MLflow's HTTP client retries a request, so only a tracking server
+        (``http``, ``https`` or ``databricks``) can hold them: up to retries + 1
+        running runs carry this observer's ``mfm.start_id``. Each one that is
+        not ours is tagged ``mfm.duplicate_of`` with our run id and terminated
+        FAILED. This is housekeeping, not delivery: a failure is a local
+        ``duplicate_search_failed`` event, pauses nothing and leaves the
+        delivery status as it is.
+        """
+        scheme = urlsplit(self.tracking_uri).scheme
+        if scheme not in ("http", "https", "databricks") and self.tracking_uri != "databricks":
+            return
+        from mlflow.entities import ViewType
+        from mlflow.environment_variables import MLFLOW_HTTP_REQUEST_MAX_RETRIES
+
+        operation = "find_duplicate_runs"
+        try:
+            runs = self.client.search_runs(
+                [self.experiment_id],
+                filter_string=(
+                    f"tags.`mfm.start_id` = '{self._start_id}' and attributes.status = 'RUNNING'"
+                ),
+                run_view_type=ViewType.ACTIVE_ONLY,
+                max_results=MLFLOW_HTTP_REQUEST_MAX_RETRIES.get() + 1,
+            )
+            found = [run.info.run_id for run in runs if run.info.run_id != self.run_id]
+            if found:
+                self._event("duplicate_runs", {"count": len(found), "run_ids": found})
+            operation = "end_duplicate_run"
+            for run_id in found:
+                self.client.set_tag(run_id, "mfm.duplicate_of", self.run_id, synchronous=True)
+                self.client.set_terminated(run_id, status="FAILED")
+        except Exception as exc:
+            # Local only, and the error type without backend text, as in receipts.
+            self._event(
+                "duplicate_search_failed",
+                {"operation": operation, "error_type": type(exc).__name__},
+                deliver=False,
             )
 
     def on_run_start(self, run: Mapping[str, Any]) -> None:
@@ -450,12 +822,18 @@ class MlflowTrainingObserver(TrainingObserver):
             self._started = True
             self.local_run_id = str(run["run_id"])
             self._state()
+            http_receipt = None
             if self.config.enabled:
+                # Every exception raised below chains to what the caller is handling.
+                outer = sys.exc_info()[1]
                 try:
                     from mlflow import MlflowClient
                     from mlflow.entities import Metric, Param
 
                     self._metric_type, self._param_type = Metric, Param
+                    # Before the trainer starts any thread; on_run_end restores them.
+                    http_receipt = _apply_http_settings(self.config)
+                    self._http_applied = True
                     self.client = MlflowClient(tracking_uri=self.tracking_uri)
                     experiment = self.client.get_experiment_by_name(self.config.experiment_name)
                     if experiment is None:
@@ -476,6 +854,7 @@ class MlflowTrainingObserver(TrainingObserver):
                                 str(run.get("run_name") or self.local_run_id)
                             ),
                             "mfm.local_run_id": self.local_run_id,
+                            "mfm.start_id": self._start_id,
                             "mfm.profile": self.config.profile,
                             "mfm.lifecycle_status": "running",
                             "mfm.delivery_status": "healthy",
@@ -484,19 +863,49 @@ class MlflowTrainingObserver(TrainingObserver):
                     self.run_id = created.info.run_id
                     self.delivery_status = "healthy"
                     self._state()
-                except Exception as exc:
-                    self._failure("start_run", exc)
+                except BaseException as exc:
+                    # Without a backend run nothing can be delivered: one receipt, then
+                    # stop. An interrupted start (Ctrl-C) is a failed start too, also
+                    # when a client wrapped the interrupt in its own error.
+                    interrupt = _interrupt(exc, outer)
+                    stop = self.run_id is None
+                    if stop:
+                        for state in self._channels.values():
+                            state.stopped = True
+                    self._failure(
+                        "start_run",
+                        exc if interrupt is None else interrupt,
+                        stop=stop,
+                        transport=_transport_failure(exc),
+                    )
+                    if interrupt is exc:
+                        raise
+                    if interrupt is not None:
+                        raise interrupt from exc
             self._event("run_start", run)
             self._snapshot(
                 Path(__file__).with_name("tracking_catalog.json"), kind="catalog", step=0
             )
             self._event("tracking_config", asdict(self.config))
+            if http_receipt is not None:
+                self._event("http_settings", http_receipt)
+            if self.run_id is not None:
+                self._end_duplicate_runs()
 
         self._guard("run_start", start)
 
     def on_run_config(self, run: Mapping[str, Any]) -> None:
         def configure():
-            self._event("configuration", run)
+            # Corpus statistics are step-0 corpus/* metrics rather than parameters.
+            corpus = run.get("corpus_summary") or {}
+            self._event(
+                "configuration",
+                run,
+                metrics=[
+                    ("corpus/" + _pointer(path), ("corpus_summary", *path), value)
+                    for path, value in _leaves(corpus)
+                ],
+            )
             mutable = {
                 "status",
                 "finished_at",
@@ -509,7 +918,13 @@ class MlflowTrainingObserver(TrainingObserver):
                 "tracking",
                 "consumed",
             }
-            self._parameters({key: value for key, value in run.items() if key not in mutable})
+            self._parameters(
+                {
+                    key: value
+                    for key, value in run.items()
+                    if key not in mutable and key != "corpus_summary"
+                }
+            )
             self._state()
 
         self._guard("run_config", configure)
@@ -541,6 +956,18 @@ class MlflowTrainingObserver(TrainingObserver):
                 for path, value in _leaves(record)
                 if path and path[0] not in ("flat", "legs")
             )
+            # Heads and counts reach MLflow through flat; metric_worlds, tables
+            # and per_world stay JSON evidence in the event, never metrics.
+            skipped = (
+                "heads",
+                "counts",
+                "n_worlds",
+                "n_samples",
+                "seed",
+                "metric_worlds",
+                "tables",
+                "per_world",
+            )
             for leg, values in record.get("legs", {}).items():
                 metrics.extend(
                     (f"evaluation/{leg}/{key}", ("legs", leg, key), values[key])
@@ -550,7 +977,7 @@ class MlflowTrainingObserver(TrainingObserver):
                 metrics.extend(
                     (f"evaluation/{leg}/" + _pointer(path), ("legs", leg, *path), value)
                     for path, value in _leaves(values)
-                    if path and path[0] not in ("heads", "n_worlds", "n_samples", "seed")
+                    if path and path[0] not in skipped
                 )
             self._event("evaluation", record, metrics=metrics)
 
@@ -565,7 +992,10 @@ class MlflowTrainingObserver(TrainingObserver):
                 if file_sha256(source) != record["sha256"]:
                     raise ValueError("checkpoint changed before delivery")
                 artifact = self._snapshot(
-                    source, kind="checkpoint_" + str(record["kind"]), step=int(record["step"])
+                    source,
+                    kind="checkpoint_" + str(record["kind"]),
+                    step=int(record["step"]),
+                    deliver=False,
                 )
             except Exception as exc:
                 self._event(
@@ -577,7 +1007,10 @@ class MlflowTrainingObserver(TrainingObserver):
                     },
                 )
                 raise
+            # The upload follows its event, so an upload that closes a pause
+            # records this event as the one whose delivery resumed.
             self._event("checkpoint", {**record, "artifact": artifact})
+            self._artifact(self.root / artifact["path"], Path(artifact["path"]).parent.as_posix())
 
         self._guard("checkpoint", log)
 
@@ -753,9 +1186,32 @@ class MlflowTrainingObserver(TrainingObserver):
         if self._ended:
             return
         self._ended = True
+        try:
+            self._finalize(run)
+        finally:
+            # The caller's MLflow HTTP environment is restored on every exit path.
+            if self._http_applied:
+                self._http_applied = False
+                _restore_http_settings()
+
+    def _finalize(self, run: Mapping[str, Any]) -> None:
         self.lifecycle_status = str(run["status"])
+        # The run end waits for no cool-down: a paused channel probes at its
+        # first terminal delivery, and the first transport failure on a channel
+        # is that channel's one bounded run-end attempt.
+        for state in self._channels.values():
+            state.final = True
+        tracking = self._channels["tracking"]
+        finished = False
+
+        def upload(*names: str) -> None:
+            for name in names:
+                source = self.root / name
+                if source.is_file():
+                    self._artifact(source, "tracking")
 
         def finish():
+            nonlocal finished
             step = int(run.get("final_step", 0))
             self._event("run_end", {**run, "tracking": self.summary})
             for name in (
@@ -797,25 +1253,27 @@ class MlflowTrainingObserver(TrainingObserver):
                 except Exception as exc:
                     self._failure("export_artifact", exc, artifact=str(relative))
             self._state()
-            for name in ("names.json", "state.json", "delivery_failures.jsonl"):
-                source = self.root / name
-                if source.is_file():
-                    self._artifact(source, "tracking")
+            upload("names.json", "state.json", "delivery_failures.jsonl", "delivery_pauses.jsonl")
+            finished = True
 
         def terminate():
             terminal = {"finished": "FINISHED", "interrupted": "KILLED", "failed": "FAILED"}.get(
                 self.lifecycle_status, "FAILED"
             )
+            paused = tracking.pause is not None
+            # A backend that answers again does not keep the remote run RUNNING:
+            # the tags and status get the tracking channel's one run-end attempt,
+            # after its probe if the channel is paused.
             self._deliver(
                 "lifecycle_tag",
                 lambda: self.client.set_tag(
-                    self.run_id, "mfm.lifecycle_status", self.lifecycle_status
+                    self.run_id, "mfm.lifecycle_status", self.lifecycle_status, synchronous=True
                 ),
             )
             self._deliver(
                 "delivery_tag",
                 lambda: self.client.set_tag(
-                    self.run_id, "mfm.delivery_status", self.delivery_status
+                    self.run_id, "mfm.delivery_status", self.delivery_status, synchronous=True
                 ),
             )
             # FINISHED is never asserted when delivery is incomplete.
@@ -825,6 +1283,11 @@ class MlflowTrainingObserver(TrainingObserver):
                 "terminate_run", lambda: self.client.set_terminated(self.run_id, status=terminal)
             )
             self._state()
+            # finish() uploaded the state and the pause ledger before these calls
+            # closed the tracking pause: upload both again. After an interrupted
+            # finish(), the tags and status stay the run end's only network calls.
+            if finished and paused and tracking.pause is None:
+                upload("state.json", "delivery_pauses.jsonl")
 
         try:
             self._guard("run_end", finish)
@@ -835,6 +1298,8 @@ class MlflowTrainingObserver(TrainingObserver):
                 )
             self._failure("finalization_interrupted", exc)
             error_type = type(exc).__name__
+            # Local only: after an interruption, the terminate attempt below is
+            # the run end's only network call.
             self._guard(
                 "interruption_event",
                 lambda: self._event(
@@ -844,6 +1309,7 @@ class MlflowTrainingObserver(TrainingObserver):
                         "error_type": error_type,
                         "final_step": run.get("final_step", 0),
                     },
+                    deliver=False,
                 ),
             )
             raise
