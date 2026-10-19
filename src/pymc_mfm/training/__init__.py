@@ -5,11 +5,14 @@ from .config import TrainingConfig
 from .evaluation import MONITOR_METRIC, evaluate_rows, flatten_evaluation
 from .observer import TrainingObserver
 from .stream import CorpusStream
+from .tracking import MlflowTrainingObserver, TrackingConfig
 from .trainer import TrainingError, TrainingResult, train
 
 __all__ = [
     "MONITOR_METRIC",
     "CorpusStream",
+    "MlflowTrainingObserver",
+    "TrackingConfig",
     "TrainingConfig",
     "TrainingError",
     "TrainingObserver",

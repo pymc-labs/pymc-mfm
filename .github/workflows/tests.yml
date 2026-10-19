@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        installation: [base, full]
+    env:
+      MPLBACKEND: Agg
+      HF_HUB_OFFLINE: "1"
+      MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: "false"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - name: Install base runtime and test tools
+        if: matrix.installation == 'base'
+        run: uv sync --locked
+      - name: Install complete integration extras
+        if: matrix.installation == 'full'
+        run: uv sync --locked --all-extras
+      - name: Check formatting and lint
+        run: |
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+      - name: Exercise local contracts without publication credentials
+        run: uv run --no-sync pytest -q
+      - name: Build distributable artifacts
+        run: uv build

@@ -100,8 +100,13 @@ def energy_score(samples: np.ndarray, truth: np.ndarray) -> float | None:
         raise ValueError("energy score is undefined with no coordinates")
     scale = np.sqrt(float(dimension))
     truth_term = np.linalg.norm(flat_samples - flat_truth[None, :], axis=1).mean() / scale
-    pairwise = np.linalg.norm(flat_samples[:, None, :] - flat_samples[None, :, :], axis=-1)
-    pair_term = pairwise.sum() / (2.0 * n_draws * (n_draws - 1) * scale)
+    # Visit each unordered pair once without an S-by-S-by-d temporary. Reports
+    # can contain hundreds of long trajectories, not just tiny minibatches.
+    pair_sum = sum(
+        np.linalg.norm(flat_samples[i + 1 :] - flat_samples[i], axis=1).sum()
+        for i in range(n_draws - 1)
+    )
+    pair_term = pair_sum / (n_draws * (n_draws - 1) * scale)
     return float(truth_term - pair_term)
 
 

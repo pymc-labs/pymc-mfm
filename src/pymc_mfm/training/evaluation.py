@@ -15,15 +15,16 @@ than coerced into valid-looking metrics.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from numbers import Integral
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
 from torch import Tensor
 
+from pymc_mfm.data.observations import observation_identity
 from pymc_mfm.model.graph import (
     STRUCT_EDGE_KEYS,
     EdgeSlotLayout,
@@ -33,6 +34,11 @@ from pymc_mfm.model.graph import (
 from pymc_mfm.model.model import MFM
 from pymc_mfm.training import metrics
 from pymc_mfm.training.stream import batches_for_rows
+
+if TYPE_CHECKING:
+    from pymc_mfm.inference.result import DecompositionResult
+
+ResultSink = Callable[["DecompositionResult", np.ndarray, np.ndarray, np.ndarray], None]
 
 #: Held-out joint-query energy score minimized during checkpoint selection.
 MONITOR_METRIC = "holdout/joint/query/decomposition_energy_score"
@@ -195,7 +201,7 @@ def _edge_record(
 
 
 def _numpy(value: Tensor) -> np.ndarray:
-    return value.detach().cpu().numpy().astype(np.float64)
+    return value.detach().to(device="cpu", dtype=torch.float64).numpy()
 
 
 def _score_decomposition(
@@ -333,6 +339,7 @@ def evaluate_rows(
     seed: int,
     device: str | torch.device,
     leg: str,
+    result_sink: ResultSink | None = None,
 ) -> dict[str, Any]:
     """Score ``rows`` (``(corpus_index, row)`` pairs) on all four heads.
 
@@ -353,6 +360,12 @@ def evaluate_rows(
     :data:`GRAPH_METRICS`); a metric with no finite world is ``None`` and named
     in ``undefined`` with its reason; partially non-finite metrics keep the
     finite mean and report ``nonfinite_in_<k>_worlds``.
+
+    Optional ``result_sink(result, truth, graph_truth, observed)`` captures each
+    world's context/query conditional draws already computed here. It never
+    samples a second time. Capture conversion failures are explicit under
+    ``result_capture`` and do not alter numerical scores; callback failures
+    propagate. The callback receives natural-unit truth/observations separately.
     """
     if isinstance(n_samples, bool) or not isinstance(n_samples, Integral) or n_samples < 1:
         raise ValueError("n_samples must be a positive integer")
@@ -369,6 +382,7 @@ def evaluate_rows(
     structure_pool = _EdgePool()
     router_pool = _EdgePool()
     graph_acc = _MeanAccumulator(GRAPH_METRICS)
+    result_capture: dict[str, Any] = {"captured": 0, "failures": []}
 
     batches = batches_for_rows(corpora, rows, device=device)
     was_training = model.training
@@ -386,6 +400,10 @@ def evaluate_rows(
                     structure_pool,
                     router_pool,
                     graph_acc,
+                    result_sink=result_sink,
+                    result_capture=result_capture,
+                    leg=leg,
+                    seed=seed,
                 )
     finally:
         model.train(was_training)
@@ -411,6 +429,7 @@ def evaluate_rows(
         "heads": heads,
         "undefined": undefined,
         "labels": dict(HEAD_LABELS),
+        **({"result_capture": result_capture} if result_sink is not None else {}),
     }
 
 
@@ -424,6 +443,11 @@ def _score_batch(
     structure_pool: _EdgePool,
     router_pool: _EdgePool,
     graph_acc: _MeanAccumulator,
+    *,
+    result_sink: ResultSink | None = None,
+    result_capture: dict[str, Any] | None = None,
+    leg: str = "",
+    seed: int = 0,
 ) -> None:
     active_c = _numpy(batch["active_c_mask"]).astype(bool)
     active_m = _numpy(batch["active_m_mask"]).astype(bool)
@@ -444,10 +468,10 @@ def _score_batch(
 
     joint_query, g_flow = model.predict(batch, n_samples, return_structure=True)
     joint_context, _ = model.sample_context(batch, n_samples, return_structure=True)
-    conditional_query, _ = model.sample_disentangled(
+    conditional_query, query_graphs = model.sample_disentangled(
         batch, n_samples, mode="model_average", window="query"
     )
-    conditional_context, _ = model.sample_disentangled(
+    conditional_context, context_graphs = model.sample_disentangled(
         batch, n_samples, mode="model_average", window="context"
     )
     draws = {
@@ -456,6 +480,14 @@ def _score_batch(
         ("conditional", "query"): _numpy(conditional_query),
         ("conditional", "context"): _numpy(conditional_context),
     }
+    conditional_graphs = (
+        None
+        if result_sink is None
+        else {
+            "query": _numpy(query_graphs),
+            "context": _numpy(context_graphs),
+        }
+    )
 
     graphs = _numpy(binary_graphs_from_flow(g_flow))  # [S, B, L]
     # Thresholding NaN/Inf flow values would silently turn them into binary edges.
@@ -474,6 +506,50 @@ def _score_batch(
         corpus = corpora[corpus_index]
         outcome = np.asarray(corpus["outcome_raw"][row], dtype=np.float64)
         noise = np.asarray(corpus["outcome_noise"][row], dtype=np.float64)
+        capture_provenance = None
+        if result_sink is not None:
+            input_support = {}
+            for key in ("ctx_spend_z", "qry_spend_z", "ctx_controls_z", "qry_controls_z"):
+                values = _numpy(batch[key][b])
+                input_support[key] = {
+                    "units": "encoded context-normalized representation",
+                    "n": len(values),
+                    "mean": values.mean(axis=0).tolist(),
+                    "std": values.std(axis=0).tolist(),
+                    "min": values.min(axis=0).tolist(),
+                    "max": values.max(axis=0).tolist(),
+                }
+            for key, field in (("channels", "treatment_raw"), ("controls", "covariates")):
+                raw = np.asarray(corpus[field][row], dtype=np.float64)
+                for window, span in window_slices.items():
+                    values = raw[span]
+                    input_support[f"{window}_{key}_raw"] = {
+                        "units": "native observed input units",
+                        "n": len(values),
+                        "mean": values.mean(axis=0).tolist(),
+                        "std": values.std(axis=0).tolist(),
+                        "min": values.min(axis=0).tolist(),
+                        "max": values.max(axis=0).tolist(),
+                    }
+            context_observed = outcome[:n_context]
+            input_support["context_outcome_raw"] = {
+                "units": "outcome",
+                "n": n_context,
+                "mean": float(context_observed.mean()),
+                "std": float(context_observed.std()),
+                "min": float(context_observed.min()),
+                "max": float(context_observed.max()),
+            }
+            capture_provenance = {
+                "data_split": str(leg),
+                "corpus_index": int(corpus_index),
+                "row": int(row),
+                "world_id": f"corpus:{corpus_index}/row:{row}",
+                "data_sha256": observation_identity(batch, world=b),
+                "seed": int(seed),
+                "input_support": input_support,
+                "capture": "existing conditional evaluator samples; no additional inference",
+            }
         for (head, window), samples in draws.items():
             span = window_slices[window]
             _score_decomposition(
@@ -486,6 +562,41 @@ def _score_batch(
                 noise[span],
                 float(scale[b]),
             )
+            if result_sink is not None and head == "conditional":
+                from pymc_mfm.inference.result import result_from_batch
+
+                try:
+                    captured = result_from_batch(
+                        batch,
+                        samples,
+                        conditional_graphs[window],
+                        model_config=model.config,
+                        world=b,
+                        window=window,
+                        mode="model_average",
+                        provenance=capture_provenance,
+                    )
+                except (ValueError, TypeError) as exc:
+                    if result_capture is None:
+                        raise
+                    result_capture["failures"].append(
+                        {
+                            "corpus_index": int(corpus_index),
+                            "row": int(row),
+                            "window": window,
+                            "error_type": type(exc).__name__,
+                            "error": str(exc),
+                        }
+                    )
+                else:
+                    result_sink(
+                        captured,
+                        truth[window][b] * float(scale[b]),
+                        true_flat[b].copy(),
+                        outcome[span].copy(),
+                    )
+                    if result_capture is not None:
+                        result_capture["captured"] += 1
         for et in STRUCT_EDGE_KEYS:
             keep = edge_active[et][b].ravel()
             y = edge_truth[et][b].ravel()

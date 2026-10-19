@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from pymc_mfm.data.features import moment_features
+from pymc_mfm.data.observations import encode_observations
 from pymc_mfm.model.graph import EdgeSlotLayout
 
 _GENERATOR_EDGE_TYPES = ("cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz")
@@ -153,17 +153,10 @@ def corpus_batch(
     if np.any(graph > layout.active_slot_mask(active_c, active_m, active_j)):
         raise ValueError("g has an edge touching an inactive padded node")
 
-    log_spend = np.log1p(spend)
-    spend_mean = log_spend[:, :n_context].mean(axis=1)
-    spend_std = np.maximum(log_spend[:, :n_context].std(axis=1), 1e-6)
-    spend_z = (log_spend - spend_mean[:, None]) / spend_std[:, None]
-    log_outcome = np.log(outcome[:, :n_context]).astype(np.float32)
-    revenue_z = log_outcome - log_outcome.mean(axis=1, keepdims=True)
-    controls_mean = controls[:, :n_context].mean(axis=1)
-    controls_std = controls[:, :n_context].std(axis=1)
-    controls_std = np.where(controls_std > 1e-3, controls_std, 1.0)
-    controls_z = np.clip((controls - controls_mean[:, None]) / controls_std[:, None], -10, 10)
-    scale = np.maximum(np.quantile(np.abs(outcome[:, :n_context]), 0.95, axis=1), 1e-6)
+    encoded = encode_observations(
+        spend, controls, outcome[:, :n_context], active_c, active_m, active_j
+    )
+    scale = encoded["sales_scale"]
     targets = (
         np.concatenate(
             (baseline[..., None], direct, covariate, latent.sum(axis=-1, keepdims=True), indirect),
@@ -171,38 +164,8 @@ def corpus_batch(
         )
         / scale[:, None, None]
     )
-    week = np.arange(n_weeks, dtype=np.float32) / np.float32(n_weeks)
-    weeks = np.broadcast_to(week[None, :, None], (len(selected), n_weeks, 1)).copy()
-    encoded = {
-        "ctx_spend_z": spend_z[:, :n_context],
-        "qry_spend_z": spend_z[:, n_context:],
-        "ctx_controls_z": controls_z[:, :n_context],
-        "qry_controls_z": controls_z[:, n_context:],
-        "ctx_revenue_z": revenue_z[..., None],
-        "spend_mean": (spend_mean - 9.5) / 1.5,
-        "spend_std": (spend_std - 0.55) / 0.25,
-        "ctx_week": weeks[:, :n_context],
-        "qry_week": weeks[:, n_context:],
-        "active_c_mask": active_c,
-        "active_m_mask": active_m,
-        "active_j_mask": active_j,
-        "context_targets_z": targets[:, :n_context],
-        "targets_z": targets[:, n_context:],
-        "sales_scale": scale,
-    }
-    features = [
-        moment_features(
-            {
-                "spend": spend[b, :n_context],
-                "revenue": log_outcome[b],
-                "controls": controls[b, :n_context],
-            },
-            k,
-            m,
-        )
-        for b in range(len(selected))
-    ]
-    encoded.update({key: np.stack([row[key] for row in features]) for key in features[0]})
+    encoded["context_targets_z"] = targets[:, :n_context]
+    encoded["targets_z"] = targets[:, n_context:]
     encoded.update({f"g_{key}": value for key, value in layout.unpack(graph).items()})
     result = {}
     for key, array in encoded.items():
