@@ -404,11 +404,6 @@ def _train_run(
             "parameter_count": parameter_count,
             "total_parameter_count": sum(parameter.numel() for parameter in model.parameters()),
             "corpus": evidence_value(provenance),
-            "extraction_source": {
-                "repository": "https://github.com/pymc-labs/pymc-pfn",
-                "revision": "52687cf25cca9be13094a397fabdf016367c0a52",
-                "training_entrypoint": "scripts/train_mmm_decomposition.py",
-            },
             "consumption_budget": {
                 "steps": training.steps,
                 "batch_size": training.batch_size,
@@ -510,7 +505,6 @@ def _train_run(
                     "environment",
                     "corpus",
                     "geometry",
-                    "extraction_source",
                     "code",
                     "profile",
                     "tracking",
@@ -579,8 +573,6 @@ def _train_run(
                         "recipe": "saved_conditional_evaluation_report",
                     }
                 )
-                for observer in event_observers:
-                    observer.on_diagnostic(manifest, report_dir)
                 event = {
                     "step": step,
                     "checkpoint_sha256": checkpoint["sha256"],
@@ -607,6 +599,9 @@ def _train_run(
                 )
             with (out_dir / "diagnostics.jsonl").open("a") as handle:
                 handle.write(json.dumps(evidence_value(event), allow_nan=False) + "\n")
+            if "manifest" in event:
+                for observer in event_observers:
+                    observer.on_diagnostic(event["manifest"], report_dir)
         diagnostic_inputs.clear()
 
     def evaluate(step: int) -> dict[str, Any]:

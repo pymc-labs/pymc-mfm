@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
-from typing import Mapping
 
 import numpy as np
 import torch
 
+from pymc_mfm.data.features import MOMENT_FEATURE_BLOCKS
 from pymc_mfm.data.observations import encode_observations, observation_identity
 from pymc_mfm.inference.result import DecompositionResult, _numpy, result_from_batch
 from pymc_mfm.model.config import ModelConfig
@@ -36,19 +37,15 @@ def observation_batch(
     horizon position. Outcomes must be positive and spend nonnegative.
     """
 
-    def numeric(value, name, ndim, dtype):
+    def numeric(value, name, ndim):
         array = np.asarray(value)
         if array.ndim != ndim or array.dtype.kind not in "biuf" or not np.isfinite(array).all():
             raise ValueError(f"{name} must be a finite real {ndim}-dimensional array")
-        with np.errstate(over="ignore"):
-            array = array.astype(dtype)
-        if not np.isfinite(array).all():
-            raise ValueError(f"{name} exceeds the model representation")
         return array
 
-    spend = numeric(spend, "spend", 2, np.float32)
-    controls = numeric(controls, "controls", 2, np.float32)
-    outcome = numeric(context_outcome, "context_outcome", 1, np.float64)
+    spend = numeric(spend, "spend", 2)
+    controls = numeric(controls, "controls", 2)
+    outcome = numeric(context_outcome, "context_outcome", 1)
     t, k = spend.shape
     if t < 2 or k < 1 or controls.shape != (t, model_config.n_controls):
         raise ValueError("spend/controls must share time and the artifact's control width")
@@ -71,6 +68,13 @@ def observation_batch(
     active_j = mask(latent_mask, "latent_mask", model_config.n_demand, False)
     if np.any(spend[:, ~active_c]) or np.any(controls[:, ~active_m]):
         raise ValueError("padded observation columns must be zero")
+    # Domain and padding belong to the supplied values, not rounded float32 zeros.
+    with np.errstate(over="ignore"):
+        spend = spend.astype(np.float32)
+        controls = controls.astype(np.float32)
+        outcome = outcome.astype(np.float64)
+    if not all(np.isfinite(value).all() for value in (spend, controls, outcome)):
+        raise ValueError("observations exceed the finite model representation")
     encoded = encode_observations(
         spend[None], controls[None], outcome[None], active_c[None], active_m[None], active_j[None]
     )
@@ -107,23 +111,71 @@ def decompose(
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
     context/query posterior. The caller controls the PyTorch random seed.
+    Caller provenance may supplement, but not replace, loaded artifact identities.
     """
+    if not isinstance(observations, Mapping):
+        raise ValueError("observations must be a mapping")
     parameter = next(model.parameters())
-    if "ctx_spend_z" in observations:
-        batch = dict(observations)
-        if batch["ctx_spend_z"].shape[0] != 1:
-            raise ValueError("decompose accepts one observed world at a time")
+    if "ctx_spend_z" in observations or "spend" not in observations:
+        if not all(isinstance(key, str) for key in observations):
+            raise ValueError("encoded observation keys must be strings")
+        batch = {
+            key: value
+            for key, value in observations.items()
+            if not key.startswith("g_") and "targets" not in key
+        }
         if any(not isinstance(value, torch.Tensor) for value in batch.values()):
             raise ValueError("encoded observation values must be tensors")
-        batch = {
-            key: value.to(device=parameter.device, dtype=parameter.dtype)
-            for key, value in batch.items()
+        for key in ("ctx_spend_z", "qry_spend_z"):
+            if key not in batch or batch[key].ndim != 3 or min(batch[key].shape) < 1:
+                raise ValueError(f"{key} must have nonempty shape [world,time,channel]")
+        b, c, k = batch["ctx_spend_z"].shape
+        if b != 1:
+            raise ValueError("decompose accepts one observed world at a time")
+        q = batch["qry_spend_z"].shape[1]
+        m, j = model.config.n_controls, model.config.n_demand
+        shapes = {
+            "qry_spend_z": (b, q, k),
+            "ctx_controls_z": (b, c, m),
+            "qry_controls_z": (b, q, m),
+            "ctx_revenue_z": (b, c, 1),
+            "spend_mean": (b, k),
+            "spend_std": (b, k),
+            "ctx_week": (b, c, 1),
+            "qry_week": (b, q, 1),
+            "active_c_mask": (b, k),
+            "active_m_mask": (b, m),
+            "active_j_mask": (b, j),
+            "sales_scale": (b,),
         }
+        allowed = shapes.keys() | {"ctx_spend_z"} | {name for name, _ in MOMENT_FEATURE_BLOCKS}
+        if batch.keys() - allowed:
+            raise ValueError("encoded observations contain unknown fields")
+        for key, shape in shapes.items():
+            if key not in batch or batch[key].shape != shape:
+                raise ValueError(f"{key} must have shape {shape}")
+        model.encoder.assert_batch_alignment(batch)
+        for key, value in batch.items():
+            if value.is_complex() or not torch.isfinite(value).all():
+                raise ValueError(f"{key} must contain finite real values")
+        for key in ("active_c_mask", "active_m_mask", "active_j_mask"):
+            if ((batch[key] != 0) & (batch[key] != 1)).any():
+                raise ValueError(f"{key} must be binary before dtype conversion")
+        if (batch["sales_scale"] <= 0).any():
+            raise ValueError("sales_scale must be positive")
     else:
         batch = observation_batch(
             **observations, model_config=model.config, device=parameter.device
         )
-        batch = {key: value.to(dtype=parameter.dtype) for key, value in batch.items()}
+    batch = {
+        key: value.to(device=parameter.device, dtype=parameter.dtype)
+        for key, value in batch.items()
+    }
+    for key, value in batch.items():
+        if not torch.isfinite(value).all():
+            raise ValueError(f"{key} exceeds the finite model representation")
+    if (batch["sales_scale"] <= 0).any():
+        raise ValueError("sales_scale must remain positive in the model representation")
     if graph is not None:
         # Validate the caller's precision before the model converts graph dtype.
         supplied_graph = graph if isinstance(graph, torch.Tensor) else np.asarray(graph)
@@ -137,7 +189,13 @@ def decompose(
     artifact = getattr(model, "artifact_metadata", None)
     if artifact:
         identity["artifact"] = artifact
-    identity.update(provenance or {})
+    if provenance is not None:
+        if not isinstance(provenance, Mapping):
+            raise ValueError("provenance must be a mapping")
+        for key, value in provenance.items():
+            if key in identity and identity[key] is not None and identity[key] != value:
+                raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
+        identity.update(provenance)
     # Hash only the representation read by inference; never write observations.
     identity["data_sha256"] = observation_identity(batch)
     identity["head"] = "conditional"

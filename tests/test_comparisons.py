@@ -557,7 +557,7 @@ def test_posterior_sbc_and_c2st_figures_use_saved_numerical_evidence():
 
 
 def pinned_replication(tmp_path):
-    data = tmp_path / "whitepaper" / "data"
+    data = tmp_path / "summary" / "data"
     data.mkdir(parents=True)
     root = tmp_path / "results"
     receipts = {}

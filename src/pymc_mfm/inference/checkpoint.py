@@ -161,6 +161,7 @@ def save_pretrained(
     ``root / "profiles" / profile`` as ``path`` for each explicitly named export.
     A nonempty destination is never overwritten (including Hub snapshots).
     Only whitelisted, caller-approved metadata is accepted as provenance.
+    Annotations on a loaded model must preserve its existing source/run identity.
     Stop concurrent model updates before exporting.
     """
     if type(model) is not MFM:
@@ -177,10 +178,30 @@ def save_pretrained(
     # Exercise custom semantic-buffer checks without copying into initialized weights.
     reference.load_state_dict(state, strict=True, assign=True)
     previous = getattr(model, "artifact_metadata", {})
-    if provenance is None:
-        provenance = previous.get("provenance")
+    previous_provenance = previous.get("provenance", {})
+    if provenance is not None:
+        supplied = provenance_metadata(provenance)
+        for key in provenance:
+            if (
+                key != "status"
+                and key in previous_provenance
+                and supplied[key] != previous_provenance[key]
+            ):
+                raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
+        source = getattr(model, "provenance", {}).get("checkpoint_sha256")
+        if (
+            source is not None
+            and "source_checkpoint_sha256" in supplied
+            and supplied["source_checkpoint_sha256"] != source
+        ):
+            raise ValueError("source_checkpoint_sha256 conflicts with the loaded checkpoint")
+        provenance = {**previous_provenance, **supplied} if provenance else previous_provenance
+    else:
+        provenance = previous_provenance or None
     if profile is None:
         profile = previous.get("profile")
+    elif previous.get("profile") is not None and profile != previous["profile"]:
+        raise ValueError("profile conflicts with the loaded artifact")
     profile = validate_profile(profile)
     metadata = {
         "format_version": FORMAT_VERSION,

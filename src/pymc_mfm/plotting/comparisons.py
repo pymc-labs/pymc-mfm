@@ -1,7 +1,7 @@
 """Readable comparison figures drawn only from stored numerical summaries.
 
-Matplotlib is imported on demand. No private templates, fonts, inference
-methods, reference samplers or experiment directories are required.
+Matplotlib is imported on demand. Rendering never invokes an inference model,
+generator, or reference sampler.
 """
 
 from __future__ import annotations

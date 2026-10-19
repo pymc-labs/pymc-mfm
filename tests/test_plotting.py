@@ -88,7 +88,13 @@ def test_empirical_graph_plot_preserves_complete_graph_mass_and_truth_marker():
 
 
 def test_edge_heatmap_uses_active_aligned_edges_and_fixed_hypothesis_label():
-    result = replace(make_result(), mode="fixed", graphs=np.tile([1, 0, 1], (5, 1)))
+    result = make_result()
+    result = replace(
+        result,
+        mode="fixed",
+        graphs=np.tile([1, 0, 1], (5, 1)),
+        provenance={**result.provenance, "graph_source": "supplied_hypothesis"},
+    )
     summary = compute_diagnostics(result, graph_truth=[1, 0, 0])
     figure = plot_structure_heatmap(summary)
     ax = figure.axes[0]

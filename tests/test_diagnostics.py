@@ -252,7 +252,13 @@ def test_truth_alignment_and_padded_support_are_rejected():
 
 
 def test_fixed_graph_frequency_is_labeled_as_hypothesis_not_posterior():
-    result = replace(make_result(), mode="fixed", graphs=np.tile([1, 0, 1], (5, 1)))
+    result = make_result()
+    result = replace(
+        result,
+        mode="fixed",
+        graphs=np.tile([1, 0, 1], (5, 1)),
+        provenance={**result.provenance, "graph_source": "supplied_hypothesis"},
+    )
     report = compute_diagnostics(result)
     assert report["statuses"]["array/graphs"]["status"] == "hypothesis_conditional"
     edge_key = next(key for key in report["metrics"] if key.startswith("edge/"))

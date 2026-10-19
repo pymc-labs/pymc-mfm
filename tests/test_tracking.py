@@ -4,6 +4,7 @@ import builtins
 import json
 import math
 import random
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 
@@ -28,6 +29,48 @@ def preserve_python_numpy_rng():
     finally:
         random.setstate(python_state)
         np.random.set_state(numpy_state)
+
+
+def test_installed_code_identity_ignores_an_enclosing_applications_git_history(
+    tmp_path, monkeypatch
+):
+    from pymc_mfm.training import _provenance
+
+    module = tmp_path / ".venv/lib/site-packages/pymc_mfm/training/_provenance.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("# Installed source content\n")
+    monkeypatch.setattr(_provenance, "__file__", str(module))
+    before = _provenance.code_record()
+    subprocess.run(
+        ["git", "-c", "init.templateDir=", "init", "-q", str(tmp_path)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(tmp_path),
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "user.name=MFM test",
+            "-c",
+            "user.email=test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "Unrelated app",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    assert _provenance.code_record() == before
+    assert before["revision"] is None
+    module.write_text("# Different installed source content\n")
+    assert _provenance.code_record()["source_sha256"] != before["source_sha256"]
 
 
 def events(path):
@@ -698,22 +741,34 @@ def test_credential_bearing_report_withholds_html_and_figures_too(
     assert receipt["status"] == "withheld_credentials"
 
 
-def test_observer_exception_credentials_never_enter_failure_artifacts(tmp_path, monkeypatch):
+@pytest.mark.parametrize("hook", ["on_step", "on_diagnostic"])
+def test_observer_exception_credentials_never_enter_failure_artifacts(tmp_path, monkeypatch, hook):
     from pymc_mfm.training import TrainingObserver
 
     mlflow = pytest.importorskip("mlflow")
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
 
     class FailingObserver(TrainingObserver):
-        def on_step(self, record):
-            raise RuntimeError("Authorization: Bearer DO_NOT_SAVE_CALLER_SECRET")
+        pass
+
+    def fail(*args):
+        raise RuntimeError("Authorization: Bearer DO_NOT_SAVE_CALLER_SECRET")
+
+    setattr(FailingObserver, hook, fail)
 
     out = tmp_path / "caller-failure"
     with pytest.raises(RuntimeError):
-        tiny_run(out, tracking=TrackingConfig(diagnostics=False), observers=[FailingObserver()])
+        tiny_run(
+            out,
+            tracking=TrackingConfig(diagnostics=hook == "on_diagnostic"),
+            observers=[FailingObserver()],
+        )
     run = json.loads((out / "run.json").read_text())
     assert run["status"] == "failed" and run["error_type"] == "RuntimeError"
     assert "DO_NOT_SAVE" not in json.dumps(run)
+    if hook == "on_diagnostic":
+        diagnostic = json.loads((out / "diagnostics.jsonl").read_text().splitlines()[0])
+        assert "manifest" in diagnostic
     client = mlflow.MlflowClient(tracking_uri=run["tracking"]["tracking_uri"])
     for path in artifact_paths(client, run["tracking"]["run_id"]):
         if path.endswith((".json", ".jsonl")):

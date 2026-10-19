@@ -89,4 +89,6 @@ def encode_observations(
         for i in range(b)
     ]
     encoded.update({key: np.stack([row[key] for row in features]) for key in features[0]})
+    for key in ("control_moments", "control_location_scale", "control_effect_moments"):
+        encoded[key] *= active_m[..., None]
     return encoded

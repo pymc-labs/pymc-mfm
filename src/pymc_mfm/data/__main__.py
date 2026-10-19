@@ -69,10 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     corpus = generate_corpus(prior, args.out)
     n_worlds = int(corpus["is_val"].shape[0])
     n_holdout = int(corpus["is_val"].sum())
-    flag = " (reconstructed recipe)" if recipe.reconstructed else ""
     print(
         f"wrote {args.out}: {n_worlds} worlds ({n_holdout} holdout) from recipe "
-        f"{recipe.name}{flag}, seed {args.seed}"
+        f"{recipe.name}, seed {args.seed}"
     )
     return 0
 

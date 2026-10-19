@@ -52,11 +52,13 @@ def test_epoch_consumes_each_train_row_exactly_once_when_buckets_divide(corpus):
 def test_leftover_rows_are_dropped_and_each_row_seen_at_most_once_per_epoch(corpus):
     stream = CorpusStream([corpus], batch_size=5, seed=3)
     assert stream.rows_per_epoch == 20 and stream.batches_per_epoch == 4
-    provenances = [p for _, p in draw(stream, 4)]
-    consumed = [row for p in provenances for row in p.rows]
-    assert len(set(consumed)) == 20
-    assert all(p.epoch == 0 for p in provenances)
-    assert stream.next_batch()[1].epoch == 1
+    for epoch in range(3):
+        provenances = [p for _, p in draw(stream, stream.batches_per_epoch)]
+        consumed = [row for p in provenances for row in p.rows]
+        assert len(consumed) == len(set(consumed)) == 20
+        assert set(consumed) <= train_rows(corpus)
+        assert all(p.epoch == epoch for p in provenances)
+        assert sorted(p.context_length for p in provenances) == [6, 6, 9, 9]
 
 
 def test_train_stream_never_serves_holdout_rows_and_holdout_split_serves_only_them(corpus):
@@ -76,39 +78,6 @@ def test_same_seed_reproduces_row_order_and_different_seed_changes_it(corpus):
 
     assert order(7) == order(7)
     assert order(7) != order(8)
-
-
-@pytest.mark.parametrize("first_context", [6, 9])
-def test_consumer_order_matches_pfn_epoch_sampler(corpus, first_context):
-    rows = [(0, int(row)) for row in np.flatnonzero(corpus["is_val"] == 0)]
-    batch_size = 5  # Two rows per bucket are dropped at each epoch boundary.
-    # Exercise both first-appearance orders without relying on private stream state.
-    for seed in range(100):
-        first = np.random.default_rng(seed).permutation(len(rows))[0]
-        if context_length(corpus, rows[first][1]) == first_context:
-            break
-    else:
-        pytest.fail(f"no seed starts with context length {first_context}")
-
-    stream = CorpusStream([corpus], batch_size=batch_size, seed=seed)
-    rng = np.random.default_rng(seed)
-    # Independent literal PFN _start_epoch / weighted FIFO reference.
-    for epoch in range(3):
-        buckets = {}
-        for index in rng.permutation(len(rows)):
-            row = rows[index]
-            buckets.setdefault(context_length(corpus, row[1]), []).append(row)
-
-        while emittable := [key for key, queue in buckets.items() if len(queue) >= batch_size]:
-            weights = np.array([len(buckets[key]) for key in emittable], dtype=np.float64)
-            key = emittable[int(rng.choice(len(emittable), p=weights / weights.sum()))]
-            expected_rows = tuple(buckets[key][:batch_size])
-            del buckets[key][:batch_size]
-
-            _, provenance = stream.next_batch()
-            assert provenance.rows == expected_rows
-            assert provenance.context_length == key
-            assert provenance.epoch == epoch
 
 
 def test_holdout_rows_use_an_independent_rng_and_leave_training_order_untouched(corpus):

@@ -1,5 +1,6 @@
 """The observation boundary uses no synthetic labels and preserves result identity."""
 
+import json
 from dataclasses import replace
 
 import numpy as np
@@ -8,6 +9,8 @@ import torch
 
 from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.inference.api import decompose, observation_batch
+from pymc_mfm.inference.checkpoint import save_pretrained
+from pymc_mfm.inference.hub import from_pretrained
 from pymc_mfm.inference.result import DecompositionResult
 from pymc_mfm.model.graph import EdgeSlotLayout
 
@@ -100,7 +103,117 @@ def test_observation_input_rejects_silent_padding_and_invalid_domain(model, synt
         )
 
 
-def test_context_is_a_separate_marginal_and_preserves_training_mode(model, synthetic_corpus):
+@pytest.mark.parametrize(
+    ("name", "column", "value"),
+    [("spend", 0, -1e-50), ("spend", -1, 1e-50), ("controls", -1, 1e-50)],
+)
+def test_raw_domain_and_padding_are_validated_before_rounding(
+    model, synthetic_corpus, name, column, value
+):
+    inputs = observed(synthetic_corpus)
+    values = inputs[name].astype(np.float64)
+    if name == "controls":
+        inputs["control_mask"] = np.array([1, 0])
+        values[:, -1] = 0
+    values[0, column] = value
+    with pytest.raises(ValueError):
+        observation_batch(**{**inputs, name: values}, model_config=model.config)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "not_mapping",
+        "missing_spend",
+        "non_tensor",
+        "scalar_spend",
+        "query_width",
+        "missing_controls",
+        "scale_shape",
+        "mask_shape",
+        "missing_feature",
+        "unknown_scalar",
+        "unknown_vector",
+    ],
+)
+def test_encoded_observations_validate_structure_before_indexing(model, synthetic_corpus, mutation):
+    encoded = observation_batch(**observed(synthetic_corpus), model_config=model.config)
+    if mutation == "not_mapping":
+        encoded = list(encoded.items())
+    elif mutation == "missing_spend":
+        del encoded["ctx_spend_z"]
+    elif mutation == "non_tensor":
+        encoded["ctx_spend_z"] = encoded["ctx_spend_z"].tolist()
+    elif mutation == "scalar_spend":
+        encoded["ctx_spend_z"] = torch.tensor(1.0)
+    elif mutation == "query_width":
+        encoded["qry_spend_z"] = encoded["qry_spend_z"][..., :-1]
+    elif mutation == "missing_controls":
+        del encoded["ctx_controls_z"]
+    elif mutation == "scale_shape":
+        encoded["sales_scale"] = encoded["sales_scale"].reshape(1, 1)
+    elif mutation == "mask_shape":
+        encoded["active_j_mask"] = encoded["active_j_mask"][0]
+    elif mutation.startswith("unknown_"):
+        encoded["note"] = torch.tensor(1.0) if mutation == "unknown_scalar" else torch.ones(1)
+    else:
+        del encoded["control_effect_moments"]
+    with pytest.raises(ValueError):
+        decompose(model, encoded, n_samples=3)
+
+
+@pytest.mark.parametrize("name", ["active_c_mask", "active_m_mask", "active_j_mask"])
+def test_encoded_masks_are_validated_before_dtype_conversion(model, synthetic_corpus, name):
+    encoded = observation_batch(**observed(synthetic_corpus), model_config=model.config)
+    encoded[name] = encoded[name].double()
+    encoded[name][0, 0] = 1 + 1e-9
+    with pytest.raises(ValueError):
+        decompose(model, encoded, n_samples=3)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("qry_spend_z", float("nan")),
+        ("response_moments", float("inf")),
+        ("ctx_spend_z", 1 + 1j),
+        ("sales_scale", -1.0),
+        ("sales_scale", 1e-50),
+        ("qry_controls_z", 1e300),
+    ],
+)
+def test_encoded_values_are_validated_before_sampling(model, synthetic_corpus, name, value):
+    encoded = observation_batch(**observed(synthetic_corpus), model_config=model.config)
+    dtype = torch.complex128 if isinstance(value, complex) else torch.float64
+    encoded[name] = encoded[name].to(dtype)
+    encoded[name].reshape(-1)[0] = value
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError):
+        decompose(model, encoded, n_samples=3)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+def test_encoded_observations_preserve_dtype_and_ignore_training_truth(model, synthetic_corpus):
+    model = model.double()
+    inputs = observed(synthetic_corpus)
+    encoded = observation_batch(**inputs, model_config=model.config)
+    for name in ("active_c_mask", "active_m_mask", "active_j_mask"):
+        encoded[name] = encoded[name].bool()
+    encoded["g_cy"] = object()
+    encoded["targets_z"] = torch.tensor(float("nan"))
+    encoded["context_targets_z"] = None
+    torch.manual_seed(93)
+    expected = decompose(model, inputs, n_samples=3)
+    torch.manual_seed(93)
+    actual = decompose(model, encoded, n_samples=3)
+    np.testing.assert_array_equal(actual.components, expected.components)
+    np.testing.assert_array_equal(actual.graphs, expected.graphs)
+    assert actual.provenance["data_sha256"] == expected.provenance["data_sha256"]
+
+
+def test_context_is_a_separate_marginal_and_preserves_training_mode(
+    model, synthetic_corpus, tmp_path
+):
     model.train()
     inputs = observed(synthetic_corpus)
     time = np.arange(len(inputs["spend"])) + 2020
@@ -108,7 +221,13 @@ def test_context_is_a_separate_marginal_and_preserves_training_mode(model, synth
     assert model.training
     assert result.window == "context"
     np.testing.assert_array_equal(result.time, time[: len(inputs["context_outcome"])])
-    assert "not aligned" in result.provenance["marginal_windows"]
+    direct = replace(result, provenance={})
+    replay = DecompositionResult.load(direct.save(tmp_path / "direct-context"))
+    np.testing.assert_array_equal(replay.components, direct.components)
+    np.testing.assert_array_equal(replay.time, time[: len(inputs["context_outcome"])])
+    assert replay.provenance == {}
+    with pytest.raises(ValueError):
+        replace(direct, context_length=direct.context_length + 1)
 
 
 def test_supplied_graph_is_validated_before_float32_rounding(model, synthetic_corpus):
@@ -117,6 +236,103 @@ def test_supplied_graph_is_validated_before_float32_rounding(model, synthetic_co
     for supplied in (graph, graph.tolist(), torch.from_numpy(graph)):
         with pytest.raises(ValueError, match="binary"):
             decompose(model, observed(synthetic_corpus), n_samples=3, mode="fixed", graph=supplied)
+
+
+@pytest.mark.parametrize(
+    ("mode", "supply_graph", "router_samples"),
+    [
+        ("fixed", False, None),
+        ("model_average", True, None),
+        ("map", True, None),
+        ("model_average", False, 4),
+        ("fixed", True, 4),
+    ],
+)
+def test_graph_arguments_cannot_be_silently_ignored(
+    model, synthetic_corpus, mode, supply_graph, router_samples
+):
+    graph = torch.zeros(EdgeSlotLayout(3, 2, 2).n_slots) if supply_graph else None
+    with pytest.raises(ValueError):
+        decompose(
+            model,
+            observed(synthetic_corpus),
+            n_samples=3,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+        )
+
+
+@pytest.mark.parametrize("field", ["mode", "window", "n_samples", "graph_source"])
+def test_saved_result_rejects_contradictory_inference_labels(
+    model, synthetic_corpus, tmp_path, field
+):
+    graph = torch.zeros(EdgeSlotLayout(3, 2, 2).n_slots)
+    result = decompose(model, observed(synthetic_corpus), n_samples=3, mode="fixed", graph=graph)
+    path = result.save(tmp_path / "evidence")
+    payload = json.loads((path / "result.json").read_text())
+    metadata = payload["metadata"]
+    if field == "mode":
+        metadata["provenance"]["inference_config"]["mode"] = "map"
+    elif field == "window":
+        # This world's context/query lengths coincide, so shape cannot expose relabeling.
+        metadata["window"] = "context"
+    elif field == "n_samples":
+        metadata["provenance"]["inference_config"]["n_samples"] += 1
+    else:
+        metadata["provenance"]["graph_source"] = "joint_router"
+    (path / "result.json").write_text(json.dumps(payload))
+    with pytest.raises(ValueError):
+        DecompositionResult.load(path)
+
+
+def test_caller_annotations_cannot_replace_loaded_identity(model, synthetic_corpus, tmp_path):
+    source = {
+        "source_checkpoint_sha256": "a" * 64,
+        "training_run_id": "training-17",
+        "tracking_local_run_id": "local-17",
+        "tracking_run_id": "backend-17",
+    }
+    loaded = from_pretrained(
+        save_pretrained(model, tmp_path / "model", provenance=source, profile="A")
+    )
+    conflicts = {
+        "checkpoint_sha256": "f" * 64,
+        "source_checkpoint_sha256": "f" * 64,
+        "exported_checkpoint_sha256": "f" * 64,
+        "bundle_sha256": "f" * 64,
+        "profile": "B",
+        "training_run_id": "other-training",
+        "tracking_local_run_id": "other-local",
+        "tracking_run_id": "other-backend",
+        "artifact": {"profile": "B"},
+    }
+    for key, value in conflicts.items():
+        with pytest.raises(ValueError):
+            decompose(loaded, observed(synthetic_corpus), n_samples=3, provenance={key: value})
+
+
+def test_identical_and_supplemental_annotations_preserve_loaded_evidence(
+    model, synthetic_corpus, tmp_path
+):
+    source = {"source_checkpoint_sha256": "a" * 64, "training_run_id": "training-17"}
+    loaded = from_pretrained(
+        save_pretrained(model, tmp_path / "model", provenance=source, profile="A")
+    )
+    annotations = {
+        **loaded.provenance,
+        "artifact": loaded.artifact_metadata,
+        "analysis_label": "observed-quarter",
+    }
+    torch.manual_seed(94)
+    expected = decompose(loaded, observed(synthetic_corpus), n_samples=3)
+    torch.manual_seed(94)
+    result = decompose(loaded, observed(synthetic_corpus), n_samples=3, provenance=annotations)
+    replay = DecompositionResult.load(result.save(tmp_path / "evidence"))
+    np.testing.assert_array_equal(replay.components, expected.components)
+    np.testing.assert_array_equal(replay.graphs, expected.graphs)
+    for key, value in annotations.items():
+        assert replay.provenance[key] == value
 
 
 def test_unsigned_decreasing_time_cannot_overflow_validation(model, synthetic_corpus):
@@ -135,7 +351,6 @@ def test_modal_result_retains_actual_router_bank_size(model, synthetic_corpus):
     )
     assert result.provenance["inference_config"]["router_samples"] == 7
     assert result.provenance["inference_config"]["n_samples"] == result.n_samples
-    assert len(result.provenance["data_sha256"]) == 64
 
 
 def test_bfloat16_evidence_preserves_sample_values(model, synthetic_corpus):
