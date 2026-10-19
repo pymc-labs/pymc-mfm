@@ -15,8 +15,6 @@ from typing import Any
 
 import numpy as np
 
-from .comparisons import _estimate
-
 
 def is_coverage_key(key: str) -> bool:
     """Whether an evaluator key names pointwise or simultaneous 80% coverage."""
@@ -74,6 +72,10 @@ def coverage_intervals(
     nonfinite worlds are excluded and counted by reason. ``None`` evidence, or
     a key never recorded in that evidence, is ``not_recorded``, not zero.
     """
+    # Imported here: ``comparisons`` loads training metrics, and archive readers
+    # use ``pymc_mfm.diagnostics`` without importing ``pymc_mfm.training``.
+    from .comparisons import _estimate
+
     _options(seed, bootstrap_samples)
     invalid_evidence = per_world is not None and (
         not isinstance(per_world, Sequence)
