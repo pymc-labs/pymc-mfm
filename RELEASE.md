@@ -18,7 +18,10 @@ approved or published release.
   all padded control feature blocks are zero.
 - Model bundles use strict configuration and safetensors loading. Checkpoint,
   training-run and data identities remain attached to exports and results;
-  caller annotations cannot replace a loaded checkpoint's identity.
+  caller annotations cannot replace a loaded checkpoint's identity. Loaded weights
+  are copied out of the file buffer into aligned allocations, so on CPU a bundle
+  reproduces its source model's outputs bit for bit with the same thread count,
+  libraries and hardware (unaligned weights changed x86 BLAS rounding).
 - Saved decomposition evidence rejects contradictory graph mode, marginal
   window and sample-count metadata. Reports can be rendered again from saved
   evidence without inference, training or reference fitting.
