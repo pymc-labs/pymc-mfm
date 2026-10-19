@@ -10,7 +10,7 @@ import pytest
 import torch
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
-NOTEBOOK = EXAMPLES / "diagnostics.ipynb"
+NOTEBOOK = EXAMPLES / "dev" / "diagnostics.ipynb"
 QUICKSTART = EXAMPLES / "river_1_quickstart.ipynb"
 
 
