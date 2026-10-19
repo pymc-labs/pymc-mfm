@@ -91,6 +91,38 @@ def make_result():
     )
 
 
+def test_relative_diagnostics_use_the_recorded_context_ruler():
+    result = make_result()
+    truth = result.components.mean(axis=0)
+    truth[:, 0] += 0.75
+    truth[:, 3] += 0.25
+    observed = truth.sum(axis=-1) + [0.5, -0.2, 0.1]
+    reference = compute_diagnostics(result, truth=truth, observed=observed)["metrics"]
+    for units in (1e-100, 1e100):
+        converted = replace(
+            result,
+            components=result.components * units,
+            provenance={**result.provenance, "sales_scale": 10 * units},
+        )
+        with np.errstate(over="raise", invalid="raise", divide="raise"):
+            actual = compute_diagnostics(converted, truth=truth * units, observed=observed * units)[
+                "metrics"
+            ]
+        for name in (
+            "closure/latent_relative_error",
+            "closure/draw_relative_error",
+            "closure/draw_q90_relative_error",
+            "share/indirect_share_mae",
+            "share/control_share_mae",
+            "share/active_control_share_mae",
+            "latent_total/relative_mae",
+            "latent_total/scaled_mae",
+            "latent_total/var_ratio",
+            "latent_total/r2",
+        ):
+            assert actual[name] == pytest.approx(reference[name], rel=1e-10, abs=1e-12), name
+
+
 def test_paired_mixture_variance_and_covariance_match_finite_oracle():
     graphs = np.array([[0], [0], [0], [1], [1]])
     values = np.array([[1, 5], [2, 4], [4, 7], [10, -1], [12, 1]], dtype=float)

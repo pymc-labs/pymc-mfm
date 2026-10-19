@@ -439,8 +439,8 @@ def _row_correlations(left: np.ndarray, right: np.ndarray) -> tuple[np.ndarray, 
     defined = (
         (np.ptp(left, axis=-1) > 0) & (np.ptp(right, axis=-1) > 0) & (scale_a > 0) & (scale_b > 0)
     )
-    a = a / np.where(defined, scale_a, 1.0)[..., None]
-    b = b / np.where(defined, scale_b, 1.0)[..., None]
+    a = np.divide(a, scale_a[..., None], out=np.zeros_like(a), where=defined[..., None])
+    b = np.divide(b, scale_b[..., None], out=np.zeros_like(b), where=defined[..., None])
     denominator = np.sqrt(np.sum(a * a, axis=-1) * np.sum(b * b, axis=-1))
     correlation = np.sum(a * b, axis=-1) / np.where(defined, denominator, 1.0)
     return np.where(defined, np.clip(correlation, -1.0, 1.0), 0.0), defined

@@ -103,56 +103,6 @@ def corpus():
     }
 
 
-def test_observations_use_context_statistics_and_natural_time(corpus):
-    batch = corpus_batch(corpus)
-    log_two = math.log(2)
-    spend_sd = math.sqrt(1.25)
-    controls_sd = math.sqrt(5)
-    expected = {
-        "ctx_spend_z": [
-            [-1.5 / spend_sd, 0, 0],
-            [-0.5 / spend_sd, 0, 0],
-            [0.5 / spend_sd, 0, 0],
-            [1.5 / spend_sd, 0, 0],
-        ],
-        "qry_spend_z": [
-            [2.5 / spend_sd, log_two / 1e-6, 0],
-            [3.5 / spend_sd, 2 * log_two / 1e-6, 0],
-        ],
-        "ctx_controls_z": [
-            [-3 / controls_sd, 0, 0],
-            [-1 / controls_sd, 0, 0],
-            [1 / controls_sd, 0, 0],
-            [3 / controls_sd, 0, 0],
-        ],
-        "qry_controls_z": [[5 / controls_sd, 0, 1], [10, 0, 10]],
-        "ctx_revenue_z": [[-1.5 * log_two], [-0.5 * log_two], [0.5 * log_two], [1.5 * log_two]],
-        "spend_mean": [(1.5 - 9.5) / 1.5, (2 * log_two - 9.5) / 1.5, -9.5 / 1.5],
-        "spend_std": [(spend_sd - 0.55) / 0.25, (1e-6 - 0.55) / 0.25, (1e-6 - 0.55) / 0.25],
-        "ctx_week": [[0], [1 / 6], [2 / 6], [3 / 6]],
-        "qry_week": [[4 / 6], [5 / 6]],
-        "control_location_scale": [[0, controls_sd], [0, 0], [2, 1]],
-        "active_c_mask": [1, 1, 0],
-        "active_m_mask": [1, 0, 1],
-        "active_j_mask": [0, 1, 1],
-    }
-    for key, values in expected.items():
-        value = torch.tensor(values, dtype=torch.float32)
-        torch.testing.assert_close(batch[key], value.unsqueeze(0).expand(2, *value.shape))
-    torch.testing.assert_close(batch["sales_scale"], torch.tensor([59.2, 118.4]))
-    # Independent causal geometric convolution: lags 0..8, decay 0.3.
-    carried_sum = sum(
-        sum(0.3 ** (t - s) * math.expm1(s) for s in range(t + 1)) for t in range(4)
-    ) / sum(0.3**lag for lag in range(9))
-    expected_location = torch.tensor(
-        [math.log1p(carried_sum / (4 * scale)) for scale in (59.2, 118.4)]
-    )
-    torch.testing.assert_close(batch["adstock_moments"][:, 0, 0], expected_location)
-    torch.testing.assert_close(batch["control_effect_moments"][:, 2], torch.zeros(2, 6))
-    torch.testing.assert_close(batch["control_moments"][:, 1], torch.zeros(2, 3))
-    torch.testing.assert_close(batch["control_effect_moments"][:, 1], torch.zeros(2, 6))
-
-
 def test_targets_restore_signed_natural_components_without_observation_noise(corpus):
     batch = corpus_batch(corpus)
     # Baseline, three treatments, three covariates, summed latent, cc/zc/dc.
@@ -165,15 +115,53 @@ def test_targets_restore_signed_natural_components_without_observation_noise(cor
             [107.5, 5, 6, 0, -1.25, 0, 0, -1.25, -5, 10, 2.5],
             [231.5, 6, 7, 0, -1.5, 0, 0, -1.5, -6, 12, 3],
         ],
-        dtype=torch.float32,
+        dtype=torch.float64,
     )
     factor = torch.tensor([1.0, 2.0])
     targets = torch.cat((batch["context_targets_z"], batch["targets_z"]), dim=1)
     restored = targets * batch["sales_scale"][:, None, None]
-    torch.testing.assert_close(restored, factor[:, None, None] * expected)
+    torch.testing.assert_close(restored, factor[:, None, None] * expected, rtol=1e-6, atol=1e-6)
     noise = factor[:, None] * (torch.arange(6) + 0.5)
-    outcome = torch.tensor(corpus["outcome_raw"], dtype=torch.float32)
-    torch.testing.assert_close(restored.sum(dim=-1), outcome - noise)
+    outcome = torch.tensor(corpus["outcome_raw"], dtype=torch.float64)
+    torch.testing.assert_close(restored.sum(dim=-1), outcome - noise, rtol=1e-6, atol=1e-6)
+
+
+def test_training_features_and_targets_do_not_depend_on_world_units(corpus):
+    reference = corpus_batch(corpus)
+    scaled = deepcopy(corpus)
+    sales_units = np.array([1e100, 1e-100])
+    scaled["treatment_raw"] *= np.array([1e80, 1e-80, 1])
+    scaled["covariates"] *= np.array([1e-90, 1, 1e90])
+    for key in (
+        "outcome_raw",
+        "baseline_intrinsic",
+        "treatment_contribution_raw",
+        "covariate_contribution",
+        "latent_unobserved_contribution",
+        "indirect_effects_by_source",
+    ):
+        scaled[key] *= sales_units.reshape(2, *(1 for _ in range(scaled[key].ndim - 1)))
+    actual = corpus_batch(scaled)
+    for key in reference:
+        if key == "sales_scale":
+            np.testing.assert_allclose(
+                actual[key].numpy() / sales_units, reference[key].numpy(), rtol=1e-14
+            )
+        else:
+            torch.testing.assert_close(actual[key], reference[key], rtol=1e-5, atol=1e-6)
+
+
+def test_signed_latents_are_normalized_before_reduction_can_overflow(corpus):
+    corpus["outcome_raw"].fill(1e308)
+    corpus["latent_active_mask"].fill(1)
+    corpus["latent_unobserved_contribution"][:] = [1e308, 1e308, -1e308]
+    with np.errstate(over="raise", invalid="raise"):
+        batch = corpus_batch(corpus)
+    latent_column = 1 + corpus["treatment_raw"].shape[-1] + corpus["covariates"].shape[-1]
+    for key in ("context_targets_z", "targets_z"):
+        torch.testing.assert_close(
+            batch[key][..., latent_column], torch.ones_like(batch[key][..., latent_column])
+        )
 
 
 def test_future_observations_and_truth_cannot_change_context_features(corpus):
@@ -246,7 +234,7 @@ def test_mixed_context_lengths_require_selecting_a_compatible_minibatch(corpus):
     with pytest.raises(ValueError):
         corpus_batch(corpus)
     selected = corpus_batch(corpus, rows=[1])
-    torch.testing.assert_close(selected["sales_scale"], torch.tensor([60.8]))
+    torch.testing.assert_close(selected["sales_scale"], torch.tensor([60.8], dtype=torch.float64))
     torch.testing.assert_close(
         selected["ctx_revenue_z"], torch.tensor([[[-math.log(2)], [0], [math.log(2)]]])
     )

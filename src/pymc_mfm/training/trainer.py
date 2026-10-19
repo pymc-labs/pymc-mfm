@@ -767,7 +767,10 @@ def _train_run(
                 wait_start = time.perf_counter()
                 batch, provenance_record = source.next_batch() if source else stream.next_batch()
                 if resolved_device.type != "cpu":
-                    batch = {key: value.to(resolved_device) for key, value in batch.items()}
+                    batch = {
+                        key: value if key == "sales_scale" else value.to(resolved_device)
+                        for key, value in batch.items()
+                    }
                 batch_wait = time.perf_counter() - wait_start
                 lr = training.learning_rate(step)
                 for group in optimizer.param_groups:

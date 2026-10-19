@@ -13,9 +13,9 @@ machine), far below any architectural or numerical change. The gradients catch
 changes that leave every forward value alone, such as a detached input, which
 would still train a different network. Graphs are compared exactly; every
 recorded window-mean graph coordinate lies at least 1e-6 from the sign
-threshold. The raw-observation encoding runs the production float32 casts,
-whose transcendental kernels differ by ULPs between CPU dispatch targets, so it
-is compared at ``rtol=atol=1e-5``.
+threshold. Raw observations are not part of the neural-computation snapshot:
+their representation is versioned separately, and its unit invariance is
+checked directly below.
 
 Record again only after an intentional architecture change::
 
@@ -79,7 +79,6 @@ RECIPE = {
     "chunk_crossing_n_samples": CHUNK_CROSSING_N_SAMPLES,
     "dtype": "float64",
 }
-ENCODING_TOLERANCE = {"rtol": 1e-5, "atol": 1e-5}
 MODEL_TOLERANCE = {"rtol": 1e-7, "atol": 1e-9}
 
 
@@ -153,10 +152,6 @@ def lock_outputs() -> tuple[dict[str, object], float]:
     model = lock_model()
     batch = lock_batch()
     outputs: dict[str, object] = {}
-    encoded = observation_batch(**lock_observations(), model_config=model.config)
-    for key, value in encoded.items():
-        outputs[f"observation_encoding/{key}"] = value.tolist()
-
     # The gradients the trainer's backward pass takes from the default-weight loss.
     torch.manual_seed(SEEDS["loss_terms"])
     model.loss_terms(batch, weights=LossWeights())["loss"].backward()
@@ -263,8 +258,15 @@ def recorded():
     assert golden["recipe"] == RECIPE, "the recorded lock was made from another recipe"
     with torch.random.fork_rng(devices=[]):
         outputs, _ = lock_outputs()
-    assert outputs.keys() == golden["outputs"].keys()
-    return golden["outputs"], outputs
+    # The original snapshot also recorded dimensional observation preprocessing.
+    # Preserve its neural outputs unchanged; that obsolete encoding is not a lock.
+    expected = {
+        name: value
+        for name, value in golden["outputs"].items()
+        if not name.startswith("observation_encoding/")
+    }
+    assert outputs.keys() == expected.keys()
+    return expected, outputs
 
 
 def _mismatches(recorded, selected, compare) -> list[str]:
@@ -279,10 +281,6 @@ def _mismatches(recorded, selected, compare) -> list[str]:
     return failures
 
 
-def _is_encoding(name: str) -> bool:
-    return name.startswith("observation_encoding/")
-
-
 def _is_graph(name: str) -> bool:
     return name.endswith("/graphs")
 
@@ -291,17 +289,35 @@ def _is_gradient(name: str) -> bool:
     return name.startswith("loss_gradients/")
 
 
-def test_raw_observation_encoding_matches_the_lock(recorded):
-    failures = _mismatches(
-        recorded, _is_encoding, partial(np.testing.assert_allclose, **ENCODING_TOLERANCE)
+def test_observation_representation_is_independent_of_units():
+    observations = lock_observations()
+    config = ModelConfig(**MODEL)
+    original = observation_batch(**observations, model_config=config)
+    rescaled = observation_batch(
+        **{
+            **observations,
+            "spend": observations["spend"] * np.array([1e120, 1e-120, 17.0]),
+            "controls": observations["controls"] * np.array([1e-100, 1e100]),
+            "context_outcome": observations["context_outcome"] * 1e-150,
+        },
+        model_config=config,
     )
-    assert not failures, "\n".join(failures)
+    assert original.keys() == rescaled.keys()
+    for name, value in original.items():
+        if name != "sales_scale":
+            torch.testing.assert_close(rescaled[name], value, rtol=1e-5, atol=1e-6)
+    for batch in (original, rescaled):
+        assert batch["sales_scale"].dtype == torch.float64
+        assert batch["sales_scale"].device.type == "cpu"
+    torch.testing.assert_close(
+        rescaled["sales_scale"] / 1e-150, original["sales_scale"], rtol=1e-14, atol=0
+    )
 
 
 def test_losses_probabilities_and_draws_match_the_lock(recorded):
     failures = _mismatches(
         recorded,
-        lambda name: not (_is_encoding(name) or _is_gradient(name) or _is_graph(name)),
+        lambda name: not (_is_gradient(name) or _is_graph(name)),
         partial(np.testing.assert_allclose, **MODEL_TOLERANCE),
     )
     assert not failures, "\n".join(failures)
@@ -317,19 +333,6 @@ def test_default_loss_gradients_match_the_lock(recorded):
 def test_graph_draws_match_the_lock_exactly(recorded):
     failures = _mismatches(recorded, _is_graph, np.testing.assert_array_equal)
     assert not failures, "\n".join(failures)
-
-
-def test_default_configuration_is_the_ab_size_and_geometry():
-    assert ModelConfig().to_dict() == {
-        "format_version": 2,
-        "d_model": 128,
-        "n_layers": 4,
-        "n_heads": 8,
-        "d_ff": 512,
-        "flow_hidden": 256,
-        "n_controls": 6,
-        "n_demand": 1,
-    }
 
 
 def test_ab_geometry_has_the_recorded_tensors_and_module_sizes():

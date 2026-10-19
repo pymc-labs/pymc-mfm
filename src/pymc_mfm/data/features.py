@@ -105,11 +105,12 @@ def moment_features(
 ) -> dict[str, np.ndarray]:
     """Compute all five static feature blocks from observed context only.
 
-    Required inputs are natural ``spend`` with shape ``(T, C)``, log natural
-    sales in ``revenue`` with shape ``(T,)``, and raw ``controls`` with shape
-    ``(T, M)``. Neither query observations nor decomposition or graph truth are
-    read. Activity masks belong to the batch boundary and encoder; callers
-    handle metadata masks rather than including them in this mapping.
+    Required inputs are canonical ``spend`` with shape ``(T, C)``, log
+    canonical sales in ``revenue`` with shape ``(T,)``, and canonical signed
+    ``controls`` with shape ``(T, M)``. Context-only mean spend, control RMS
+    and p95 absolute sales scales are fitted by ``encode_observations`` before
+    this function. Neither query observations nor decomposition or graph truth
+    are read. Callers apply activity masks at the batch boundary.
 
     Output arrays are float32, in encoder column order:
 
@@ -118,18 +119,19 @@ def moment_features(
     * ``adstock_moments`` (C, 9): for decays 0.3, 0.5 and 0.7, the signed
       log1p carried mean, bounded partial slope and clipped implied level.
     * ``control_moments`` (M, 3): bounded absolute coefficient t-statistics
-      from those same three joint natural-sales regressions.
-    * ``control_location_scale`` (M, 2): raw mean and the normalization scale,
-      with standard deviations at or below 1e-3 replaced by one.
+      from those same three joint canonical-sales regressions.
+    * ``control_location_scale`` (M, 2): canonical mean and normalization
+      scale, with canonical standard deviations at or below 1e-3 replaced by one.
     * ``control_effect_moments`` (M, 6): signed bounded standardized slope
       and clipped implied level at each of the three regression decays.
 
-    Natural-sales regression features share the context p95 absolute-sales
-    ruler, floored at 1e-6. Uninformative moment rows remain zero.
+    Canonical-sales regression features use a context p95 absolute-sales
+    ruler of one, up to floating-point roundoff. All numerical guards apply
+    only in these canonical coordinates. Uninformative moment rows remain zero.
     """
     spend = np.asarray(context["spend"], dtype=np.float64)
     log_sales = np.asarray(context["revenue"], dtype=np.float64).reshape(-1)
-    controls = np.asarray(context["controls"], dtype=np.float32)
+    controls = np.asarray(context["controls"], dtype=np.float64)
     if controls.shape != (log_sales.size, n_controls):
         raise ValueError(
             "control representation requires context controls with shape "
@@ -154,7 +156,7 @@ def moment_features(
         return features
 
     spend_col_std = spend.std(axis=0)
-    controls_mat = np.asarray(context["controls"], dtype=np.float64)
+    controls_mat = controls
     control_col_std = controls_mat.std(axis=0)
 
     design: list[np.ndarray] = [np.ones(log_sales.size, dtype=np.float64), controls_mat]
@@ -198,7 +200,7 @@ def moment_features(
     sales = np.exp(log_sales)
     if not np.isfinite(sales).all():
         return features
-    sales_scale = max(float(np.quantile(np.abs(sales), 0.95)), 1e-6)
+    sales_scale = float(np.quantile(np.abs(sales), 0.95))
     n_weeks = sales.size
     usable_adstock = _usable_spend_channels_from_std(spend_col_std, n_channels)
     usable_control = _usable_spend_channels_from_std(spend_col_std, None)

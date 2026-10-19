@@ -122,9 +122,13 @@ class _Metrics:
 def _score(target, samples, truth, metrics, units, scale):
     from pymc_mfm.training import metrics as scoring
 
+    # Compute in context units, then restore only dimensional readouts. Ratios
+    # and squared errors must not depend on the native measurement magnitude.
+    ruler = 1.0 if scale is None else scale
+    samples = samples / ruler
     low, high = np.quantile(samples, [0.1, 0.9], axis=0)
-    metrics.add(f"{target}/mean", samples.mean(), unit=units)
-    metrics.add(f"{target}/interval80_width", np.mean(high - low), unit=units)
+    metrics.add(f"{target}/mean", samples.mean() * ruler, unit=units)
+    metrics.add(f"{target}/interval80_width", np.mean(high - low) * ruler, unit=units)
     keys = (
         "mae",
         "bias",
@@ -140,11 +144,12 @@ def _score(target, samples, truth, metrics, units, scale):
         for key in keys:
             metrics.add(f"{target}/{key}", None, reason="simulation truth not supplied")
         return
+    truth = truth / ruler
     error = samples.mean(axis=0) - truth
     mae = float(np.mean(np.abs(error)))
-    metrics.add(f"{target}/mae", mae, unit=units)
-    metrics.add(f"{target}/bias", error.mean(), unit=units)
-    metrics.add(f"{target}/crps", scoring.empirical_crps(samples, truth), unit=units)
+    metrics.add(f"{target}/mae", mae * ruler, unit=units)
+    metrics.add(f"{target}/bias", error.mean() * ruler, unit=units)
+    metrics.add(f"{target}/crps", scoring.empirical_crps(samples, truth) * ruler, unit=units)
     metrics.add(f"{target}/cov80", scoring.coverage(samples, truth))
     denominator = float(np.abs(truth).mean())
     metrics.add(
@@ -154,13 +159,14 @@ def _score(target, samples, truth, metrics, units, scale):
     )
     metrics.add(
         f"{target}/scaled_mae",
-        mae / scale if scale is not None else None,
+        mae if scale is not None else None,
         unit="sales_scale",
         reason=None if scale is not None else "sales_scale provenance absent",
     )
+    energy = scoring.energy_score(samples, truth)
     metrics.add(
         f"{target}/energy_score",
-        scoring.energy_score(samples, truth),
+        None if energy is None else energy * ruler,
         unit=units,
         reason="requires at least two draws" if len(samples) < 2 else None,
     )
@@ -682,8 +688,15 @@ def compute_diagnostics(
         ("closure_draw_rel_err", "closure/draw_relative_error"),
         ("closure_draw_q90_rel_err", "closure/draw_q90_relative_error"),
     )
+    ruler = 1.0 if scale is None else scale
     closure = (
-        None if latent_truth is None else scoring.latent_sales_scores(latent, latent_truth, sales)
+        None
+        if latent_truth is None
+        else scoring.latent_sales_scores(
+            (samples[..., active] / ruler).sum(axis=-1),
+            (truth[:, active] / ruler).sum(axis=-1),
+            sales / ruler,
+        )
     )
     for key, name in closure_keys:
         if closure is None:
@@ -703,10 +716,12 @@ def compute_diagnostics(
         elif not group.any():
             metrics.add(f"share/{key}", None, reason="no components in this group")
         else:
-            error = samples[..., group].sum(axis=-1).mean(axis=0) - truth[:, group].sum(axis=-1)
+            error = (samples[..., group] / ruler).sum(axis=-1).mean(axis=0) - (
+                truth[:, group] / ruler
+            ).sum(axis=-1)
             metrics.add(
                 f"share/{key}",
-                np.mean(np.abs(error) / np.maximum(np.abs(sales), scoring.CLOSURE_EPS)),
+                np.mean(np.abs(error) / np.maximum(np.abs(sales / ruler), scoring.CLOSURE_EPS)),
             )
     metrics.add(
         "observation/latent_mean_absolute_residual",

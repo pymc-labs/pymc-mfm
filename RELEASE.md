@@ -6,6 +6,13 @@ approved or published release.
 
 ## Changes
 
+- Shared context-fitted input scaling: per-channel mean spend, per-control RMS,
+  and outcome p95 before all features. Original outcome units are restored in
+  float64 for every decomposition draw. Both training and inference use this path.
+  Positive unit changes do not require broader raw-magnitude priors; this does
+  not establish calibration for new causal structures or relative effects.
+- Relative evaluation and diagnostic scores remain in context units, and latent
+  targets are normalized before reduction to avoid raw-unit overflow.
 - Observation-only inference checks numeric domains, padding, masks and tensor
   structure before precision narrowing. Training targets never enter inference;
   all padded control feature blocks are zero.
@@ -30,6 +37,7 @@ approved or published release.
   - `DEFAULT_N_SAMPLES = 32` is the draw count when `n_samples` is omitted.
   - A float64 architecture lock test pins losses, samples and every parameter's default-loss gradient of a two-layer model to outputs recorded before the refactor.
 - **A/B bundles.**
+  - Original dimensional A/B weights require retraining for semantic representation 2; matching tensor shapes are not compatibility.
   - Bundle provenance can record the original `source_checkpoint_sha256` and the recorded training evaluation (`training_evaluation`, aggregation classes `world`, `slot`, `slot_pooled`, `pooled_edges`).
   - `push_to_hub` uploads per-profile model cards, a collection index and an optional recorded-output sidecar; `write_model_cards` renders the cards locally. Cards show a training plan only for an explicit `corpus_plan` whose shards hold every recorded evaluation world, and a location never mixes a root bundle with profiles.
   - The sidecar is bound to the weights' `state_sha256` and the bundle's control and latent widths, validated strictly (at least one active channel and control, finite float64 numbers, int64 seeds) and uploaded in canonical form. A model whose weights changed after loading inherits neither the loaded provenance nor the loaded profile; the load-time weight digest is kept in `model.artifact_metadata`.
@@ -72,6 +80,14 @@ approved or published release.
 
 ### Breaking changes
 
+- Semantic schema **2** and training-checkpoint format **2** require context-fitted
+  unit-invariant preprocessing. Old A/B bundles/checkpoints are deliberately
+  rejected with retraining guidance; no legacy mode or schema-only conversion.
+  Existing raw corpora remain usable for fresh training.
+- `sales_scale` is float64 CPU metadata, not a model input. Tensor-level callers
+  restore units after moving draws to CPU/float64; `decompose` does this automatically.
+- Zero-context/nonzero-query columns are rejected rather than assigned an
+  arbitrary native-unit scale. Nonzero constants and all-zero columns remain valid.
 - `ModelConfig` `format_version` 2: version-1 bundles and training checkpoints are rejected.
 - The loss-weight and flow fields are gone from `ModelConfig`; `flow_ode_method`/Heun is removed and `model.ode.integrate_flow` no longer takes `method=` (Euler only).
 - `MFM.loss`/`loss_terms` take `weights=`; `inference_metadata()` takes no argument.
@@ -144,8 +160,10 @@ This example generates twelve synthetic worlds with 16 rows and an eight-row
 context, then trains the full architecture for two optimizer updates. It
 exercises checkpoint and safetensors loading, observation-only inference,
 observation-only and synthetic-truth reports, and inference-free report replay.
-It is an integration exercise, **not usable pretrained weights** or evidence of
-full-budget training quality.
+It also checks graph equality and restoration of all contribution draws in both
+windows under Case-10-style, tiny, and independently rescaled channel/control
+units. `summary.json` records each comparison. It is an integration exercise,
+**not usable pretrained weights** or evidence of full-budget training quality.
 
 The workflow explicitly selects a local SQLite MLflow backend. It reads actual
 backend metric histories, downloads checkpoint/report artifacts and checks their

@@ -31,6 +31,27 @@ def observation_identity(batch, world=0) -> str:
     return digest.hexdigest()
 
 
+def _canonical_columns(values: np.ndarray, n_context: int, *, name: str, rms: bool) -> np.ndarray:
+    """Fit a positive context scale without summing or squaring raw magnitudes."""
+    values = np.asarray(values, dtype=np.float64)
+    magnitude = np.abs(values[:, :n_context]).max(axis=1)
+    nonzero = magnitude > 0
+    if np.any(~nonzero & np.any(values[:, n_context:] != 0, axis=1)):
+        raise ValueError(f"{name} has a zero context scale with nonzero query values")
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        canonical = np.divide(
+            values, magnitude[:, None], out=np.zeros_like(values), where=nonzero[:, None]
+        )
+        context = canonical[:, :n_context]
+        relative_scale = (
+            np.sqrt(np.mean(context * context, axis=1)) if rms else context.mean(axis=1)
+        )
+        np.divide(canonical, relative_scale[:, None], out=canonical, where=nonzero[:, None])
+    if not np.isfinite(canonical).all() or np.any((values != 0) & (canonical == 0)):
+        raise ValueError(f"{name} cannot be represented in float64 context units")
+    return canonical
+
+
 def encode_observations(
     spend: np.ndarray,
     controls: np.ndarray,
@@ -42,23 +63,34 @@ def encode_observations(
     """Encode validated batched observations without targets or generating graphs.
 
     Shapes are ``[B,T,K]``, ``[B,T,M]``, ``[B,C]`` and node masks ``[B,D]``.
-    The caller validates support and padding. Both data entry points use this
-    exact numerical path; query outcomes never enter it.
+    The caller validates support and padding. Context p95 absolute outcome,
+    per-channel mean spend and per-control RMS define the unit system before
+    any features are computed. Query observations use those same scales.
+    All-zero columns stay zero; zero context with nonzero query is unsupported.
+    Both data entry points use this exact float64 path. The original outcome
+    scale is returned separately as metadata; query outcomes never enter it.
     """
     b, n_weeks, k = spend.shape
     m = controls.shape[-1]
     n_context = context_outcome.shape[1]
+    spend = _canonical_columns(spend, n_context, name="spend", rms=False)
+    controls = _canonical_columns(controls, n_context, name="controls", rms=True)
+    context_outcome = np.asarray(context_outcome, dtype=np.float64)
+    scale = np.quantile(np.abs(context_outcome), 0.95, axis=1)
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        canonical_outcome = context_outcome / scale[:, None]
+    if not np.isfinite(canonical_outcome).all() or np.any(canonical_outcome <= 0):
+        raise ValueError("context_outcome cannot be represented in float64 context units")
     log_spend = np.log1p(spend)
     spend_mean = log_spend[:, :n_context].mean(axis=1)
-    spend_std = np.maximum(log_spend[:, :n_context].std(axis=1), 1e-6)
-    spend_z = (log_spend - spend_mean[:, None]) / spend_std[:, None]
-    log_outcome = np.log(context_outcome).astype(np.float32)
+    spend_std = log_spend[:, :n_context].std(axis=1)
+    spend_z = (log_spend - spend_mean[:, None]) / np.maximum(spend_std[:, None], 1e-6)
+    log_outcome = np.log(canonical_outcome)
     revenue_z = log_outcome - log_outcome.mean(axis=1, keepdims=True)
     controls_mean = controls[:, :n_context].mean(axis=1)
     controls_std = controls[:, :n_context].std(axis=1)
     controls_std = np.where(controls_std > 1e-3, controls_std, 1.0)
     controls_z = np.clip((controls - controls_mean[:, None]) / controls_std[:, None], -10, 10)
-    scale = np.maximum(np.quantile(np.abs(context_outcome), 0.95, axis=1), 1e-6)
     week = np.arange(n_weeks, dtype=np.float32) / np.float32(n_weeks)
     weeks = np.broadcast_to(week[None, :, None], (b, n_weeks, 1)).copy()
     encoded = {
@@ -67,8 +99,8 @@ def encode_observations(
         "ctx_controls_z": controls_z[:, :n_context],
         "qry_controls_z": controls_z[:, n_context:],
         "ctx_revenue_z": revenue_z[..., None],
-        "spend_mean": (spend_mean - 9.5) / 1.5,
-        "spend_std": (spend_std - 0.55) / 0.25,
+        "spend_mean": spend_mean,
+        "spend_std": spend_std,
         "ctx_week": weeks[:, :n_context],
         "qry_week": weeks[:, n_context:],
         "active_c_mask": active_c,

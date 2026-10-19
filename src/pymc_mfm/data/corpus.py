@@ -33,15 +33,15 @@ def corpus_batch(
     worlds by ``support_mask.sum(axis=1)`` before batching. Row order and repeats
     are preserved. No train/validation split or row filtering happens here.
 
-    All outputs are float32 tensors. Decomposition targets exclude observation
-    noise, keep signed components, and share the context p95 absolute-outcome
-    ruler returned as ``sales_scale``. Multiply draws by
-    ``batch["sales_scale"][None, :, None, None]`` to restore natural units.
-    Statistics and all five moment blocks use only observed context. Treatments
-    and direct treatment contributions must be nonnegative; observed outcomes
-    must be strictly positive for the fixed log representation. Unsupported
-    values are rejected, never clipped. Covariate zscores retain the canonical
-    [-10, 10] clipping; other decomposition components may be signed.
+    Model inputs and targets are float32 tensors on ``device``; ``sales_scale``
+    is float64 CPU metadata, not a neural input. Decomposition targets exclude
+    observation noise, keep signed components, and share the context p95
+    absolute-outcome ruler. Decode in float64 with that ruler to restore natural
+    units. Spend and controls are scaled by their context mean and RMS before
+    feature construction. Statistics use only observed context. Treatments and
+    direct contributions must be nonnegative; context outcomes must be positive.
+    A column with zero context but nonzero query has no context-fitted scale
+    and is rejected. Other decomposition components may be signed.
 
     The generator's dy/zy slots address outcome Y. Their packed positions map to
     the checkpoint's internal db/zb names; this does not relabel their targets as
@@ -154,28 +154,34 @@ def corpus_batch(
         raise ValueError("g has an edge touching an inactive padded node")
 
     encoded = encode_observations(
-        spend.astype(np.float32),
-        controls.astype(np.float32),
+        spend,
+        controls,
         outcome[:, :n_context],
         active_c,
         active_m,
         active_j,
     )
-    scale = encoded["sales_scale"]
-    targets = (
-        np.concatenate(
-            (baseline[..., None], direct, covariate, latent.sum(axis=-1, keepdims=True), indirect),
-            axis=-1,
-        )
-        / scale[:, None, None]
+    scale = encoded["sales_scale"][:, None, None]
+    # Normalize each latent before summing: finite signed raw components can
+    # otherwise overflow during reduction even when their total is representable.
+    targets = np.concatenate(
+        (
+            baseline[..., None] / scale,
+            direct / scale,
+            covariate / scale,
+            (latent / scale).sum(axis=-1, keepdims=True),
+            indirect / scale,
+        ),
+        axis=-1,
     )
     encoded["context_targets_z"] = targets[:, :n_context]
     encoded["targets_z"] = targets[:, n_context:]
     encoded.update({f"g_{key}": value for key, value in layout.unpack(graph).items()})
     result = {}
     for key, array in encoded.items():
-        array = np.ascontiguousarray(array, dtype=np.float32)
+        dtype = np.float64 if key == "sales_scale" else np.float32
+        array = np.ascontiguousarray(array, dtype=dtype)
         if not np.isfinite(array).all():
-            raise ValueError(f"{key} exceeds the finite float32 MFM representation")
-        result[key] = torch.from_numpy(array).to(device)
+            raise ValueError(f"{key} exceeds the finite MFM representation")
+        result[key] = torch.from_numpy(array).to("cpu" if key == "sales_scale" else device)
     return result

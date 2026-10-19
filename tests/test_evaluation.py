@@ -413,6 +413,14 @@ def test_metric_units_name_every_metric_and_scale_like_their_scores(corpus, hold
     for key, value in base.values.items():
         factor = 3 if METRIC_UNITS[key] == "sales_scale" else 1
         assert scaled.values[key] == pytest.approx(factor * value, rel=1e-9, abs=1e-12), key
+    # A unit conversion changes the raw observations AND their ruler, not the
+    # canonical draws. Neither relative diagnostics nor canonical errors may move.
+    for units in (1e-100, 1e200):
+        converted = _score_decomposition(
+            draws, truth, *masks, units * outcome, units * noise, units * scale
+        )
+        assert converted.undefined == base.undefined
+        assert converted.values == pytest.approx(base.values, rel=1e-9, abs=1e-12)
 
 
 def test_metric_units_refuse_a_metric_this_release_does_not_define():
@@ -548,7 +556,14 @@ def test_heads_selector_samples_only_the_selected_heads(
         run(("joint",), result_sink=lambda *args: None)
 
 
-def test_captured_results_describe_the_corpus_raw_inputs_of_each_window(model, corpus, holdout):
+@pytest.mark.parametrize("units", [1.0, 1e200])
+def test_captured_results_describe_the_corpus_raw_inputs_of_each_window(
+    model, corpus, holdout, units
+):
+    corpus = {
+        **corpus,
+        **{key: corpus[key].astype(np.float64) * units for key in ("treatment_raw", "covariates")},
+    }
     captured = []
     evaluate_rows(
         model,
@@ -581,8 +596,8 @@ def test_captured_results_describe_the_corpus_raw_inputs_of_each_window(model, c
                 assert entry[window] == pytest.approx(
                     {
                         "count": len(values),
-                        "mean": values.mean(),
-                        "std": values.std(),
+                        "mean": (values / units).mean() * units,
+                        "std": (values / units).std() * units,
                         "min": values.min(),
                         "max": values.max(),
                     }

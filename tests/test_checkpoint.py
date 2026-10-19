@@ -10,6 +10,7 @@ from importlib.metadata import version as installed_version
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 from packaging.requirements import Requirement
@@ -17,10 +18,12 @@ from packaging.specifiers import SpecifierSet
 from safetensors.torch import load_file, save_file
 
 from pymc_mfm.inference._artifact_schema import COMPATIBILITY
+from pymc_mfm.inference.api import decompose
 from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.inference.hub import from_pretrained
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
+from pymc_mfm.training.checkpoint import load_checkpoint, save_checkpoint
 
 
 def _json_bytes(value):
@@ -85,6 +88,93 @@ def test_checkpoint_roundtrip_preserves_conditional_draws_and_dtype(model, batch
     assert loaded.state_dict().keys() == model.state_dict().keys()
     for name, value in model.state_dict().items():
         torch.testing.assert_close(loaded.state_dict()[name], value, rtol=0, atol=0)
+
+
+def _save_training_checkpoint(model, path):
+    save_checkpoint(
+        path,
+        model=model,
+        kind="last",
+        step=1,
+        training_config={},
+        run={},
+        consumed={},
+        evaluation=None,
+        selection={},
+    )
+
+
+def test_training_checkpoint_and_bundle_preserve_canonical_decomposition(
+    model, synthetic_corpus, tmp_path
+):
+    context = int(synthetic_corpus["support_mask"][0].sum())
+    observations = {
+        "spend": synthetic_corpus["treatment_raw"][0],
+        "controls": synthetic_corpus["covariates"][0],
+        "context_outcome": synthetic_corpus["outcome_raw"][0, :context],
+        "channel_mask": synthetic_corpus["treatment_active_mask"][0],
+        "control_mask": synthetic_corpus["covariate_active_mask"][0],
+        "latent_mask": synthetic_corpus["latent_active_mask"][0],
+    }
+    path = tmp_path / "checkpoint.pt"
+    _save_training_checkpoint(model, path)
+    restored, _ = load_checkpoint(path)
+    exported = from_pretrained(save_pretrained(restored, tmp_path / "bundle"))
+    torch.manual_seed(31)
+    expected = decompose(model, observations, n_samples=2)
+    for loaded in (restored, exported):
+        torch.manual_seed(31)
+        actual = decompose(loaded, observations, n_samples=2)
+        np.testing.assert_allclose(actual.components, expected.components, rtol=1e-6, atol=1e-6)
+        np.testing.assert_array_equal(actual.graphs, expected.graphs)
+        assert actual.provenance["sales_scale"] == expected.provenance["sales_scale"]
+
+
+@pytest.mark.parametrize("change", ["old_version", "different_outcome_ruler"])
+def test_same_shaped_bundles_cannot_change_the_input_representation(model, tmp_path, change):
+    path = save_pretrained(model, tmp_path / "model")
+    metadata = json.loads((path / "config.json").read_bytes())
+    if change == "old_version":
+        metadata["schemas"]["version"] = 1
+        metadata["model_config"]["format_version"] = 1
+    else:
+        metadata["schemas"]["normalization"]["sales_scale_quantile"] = 0.5
+    _rebind_bundle(path, metadata=metadata)
+    with pytest.raises(ValueError, match="(?i)representation.*retrain"):
+        from_pretrained(path)
+
+
+@pytest.mark.parametrize(
+    "change", ["raw_state", "dimensional", "relabeled_format", "changed_schema"]
+)
+def test_training_weights_require_the_recorded_canonical_representation(model, tmp_path, change):
+    path = tmp_path / "checkpoint.pt"
+    _save_training_checkpoint(model, path)
+    payload = torch.load(path, map_location="cpu", weights_only=True)
+    if change == "raw_state":
+        payload = {key: payload[key] for key in ("config", "state_dict")}
+    elif change == "dimensional":
+        payload["format_version"] = 1
+        del payload["schemas"]
+    elif change == "relabeled_format":
+        payload["schemas"]["version"] = 1
+        payload["config"]["format_version"] = 1
+    else:
+        payload["schemas"]["normalization"]["sales_scale_quantile"] = 0.5
+    torch.save(payload, path)
+    with pytest.raises(ValueError, match="(?i)representation.*retrain"):
+        load_checkpoint(path)
+
+
+def test_export_cannot_relabel_an_incompatible_loaded_model(model, tmp_path):
+    loaded = from_pretrained(save_pretrained(model, tmp_path / "current"))
+    loaded.artifact_metadata["schemas"]["version"] = 1
+    with pytest.raises(ValueError, match="(?i)representation.*retrain"):
+        save_pretrained(loaded, tmp_path / "relabeled_bundle", provenance={})
+    with pytest.raises(ValueError, match="(?i)representation.*retrain"):
+        _save_training_checkpoint(loaded, tmp_path / "relabeled_checkpoint.pt")
+    assert not (tmp_path / "relabeled_bundle").exists()
+    assert not (tmp_path / "relabeled_checkpoint.pt").exists()
 
 
 def test_missing_semantic_field_never_uses_current_default(model, tmp_path):
