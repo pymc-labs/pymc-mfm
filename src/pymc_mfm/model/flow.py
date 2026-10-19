@@ -1041,8 +1041,13 @@ class _LiveVelocity:
         self.token_base = head.trajectory_state_proj.bias + head.trajectory_week_proj(
             weekly_repr
         ).unsqueeze(-2)
-        self.trajectory_token_net = head.trajectory_token_net
-        self.trajectory_score = head.trajectory_score
+        # Tokens are Linear(SiLU(.)): score each week from SiLU(.) directly and apply
+        # the Linear after pooling, since the softmax weights over weeks sum to one.
+        _, token_layer = head.trajectory_token_net
+        score_layer = head.trajectory_score
+        self.token_layer = token_layer
+        self.score_weight = token_layer.weight.t() @ score_layer.weight[0]
+        self.score_bias = score_layer.weight[0] @ token_layer.bias + score_layer.bias
 
         t_dim = 1 + 2 * FLOW_N_FREQ
         d_model = weekly_repr.shape[-1]
@@ -1250,11 +1255,14 @@ class _LiveVelocity:
 
     def velocity(self, x: Tensor, t_val: float, trajectory_offset: Tensor) -> Tensor:
         """Velocity of the live state ``x[..., index]`` at flow time ``t_val``."""
-        tokens = self.trajectory_token_net(
-            torch.addcmul(trajectory_offset, x.unsqueeze(-1), self.token_state_weight)
+        hidden = F.silu(
+            torch.addcmul(trajectory_offset, x.unsqueeze(-1), self.token_state_weight),
+            inplace=True,
         )
-        weights = torch.softmax(self.trajectory_score(tokens), dim=-3)
-        context = (weights * tokens).sum(dim=-3, keepdim=True) * self.context_mask
+        score = torch.matmul(hidden, self.score_weight).add_(self.score_bias)
+        weights = torch.softmax(score, dim=-2).unsqueeze(-1)
+        pooled = (weights * hidden).sum(dim=-3, keepdim=True)
+        context = self.token_layer(pooled) * self.context_mask
         zero_context = context.new_zeros(*context.shape[:-2], 1, _TRAJECTORY_EMBED_DIM)
         contexts = torch.cat([context, zero_context], dim=-2)
 

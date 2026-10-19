@@ -20,8 +20,8 @@ approved or published release.
   draws as running them in turn. Seeded draws match the previous sampler up to
   float round-off; weights, bundles and the training objective are unchanged.
   River-1 on the quickstart world, 1,000 draws (Apple M3 Max): CPU query
-  50.2 s → 2.3 s and context 65.6 s → 3.6 s; MPS query 16.2 s → 1.5 s and
-  context 20.1 s → 2.4 s. Peak memory is lower than before.
+  50.2 s → 2.3 s and context 65.6 s → 3.5 s; MPS query 16.2 s → 1.4 s and
+  context 20.1 s → 2.3 s. Peak memory is lower than before.
   `benchmarks/inference_speed.py` reproduces the CPU timing.
 - **Joint coverage and coverage uncertainty.** A studentized 80% simultaneous
   band scores each world's truth-live media and control window totals as
