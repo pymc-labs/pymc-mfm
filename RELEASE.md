@@ -9,11 +9,14 @@ approved or published release.
 - **Faster sampling, same draws.** The router and conditional flows evaluate
   only state coordinates live in some task (padding and graph-forbidden
   contributions are skipped) and project each network's step-invariant inputs
-  once per call; the graph conditioner skips slots absent from every
-  conditioning graph. Seeded draws match the previous sampler up to float
+  once per call. Base noise is still drawn per chunk of 16 draws in the same
+  order, but many chunks are integrated together (bounded by a state-row
+  budget), and each distinct conditioning graph is passed through the graph
+  conditioner once. Seeded draws match the previous sampler up to float
   round-off; weights, bundles and the training objective are unchanged. River-1
-  on the quickstart world, 1,000 draws (Apple M3 Max): CPU query 50.2 s → 7.4 s
-  and context 65.6 s → 11.4 s; MPS query 15.8 s → 2.8 s.
+  on the quickstart world, 1,000 draws (Apple M3 Max): CPU query 50.2 s → 4.2 s
+  and context 65.6 s → 6.4 s; MPS query 16.4 s → 1.9 s and context
+  20.5 s → 2.8 s. Peak memory is lower than before.
   `benchmarks/inference_speed.py` reproduces the CPU timing.
 - **Joint coverage and coverage uncertainty.** A studentized 80% simultaneous
   band scores each world's truth-live media and control window totals as

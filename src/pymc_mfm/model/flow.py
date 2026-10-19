@@ -28,6 +28,9 @@ _TRAJECTORY_RANK = 4
 _TRAJECTORY_CONSTANT_LOADING_SCALE = 3.5
 _TRAJECTORY_FEATURE_VERSION = 5
 _FLOW_SAMPLE_CHUNK = 16
+#: State rows (draws × tasks × weeks × live coordinates) per sampling velocity evaluation.
+#: It bounds memory; unlike the noise chunk above it never changes a draw.
+_FLOW_SAMPLE_ROWS = 2**16
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
@@ -487,8 +490,21 @@ class JointFlowHead(nn.Module):
         component keeps the complete base covariance full rank. Draw order is
         white noise first, then one latent per task, coordinate, and rank.
         """
+        white, z = self._draw_noise(shape, device=device, dtype=dtype)
+        return self._mix_noise(white, z, weekly_repr)
+
+    @staticmethod
+    def _draw_noise(
+        shape: tuple[int, ...], *, device: torch.device, dtype: torch.dtype
+    ) -> tuple[Tensor, Tensor]:
+        """The random part of :meth:`_base_noise`: white noise, then rank-four latents."""
         white = torch.randn(shape, device=device, dtype=dtype)
         z = torch.randn((*shape[:-2], shape[-1], _TRAJECTORY_RANK), device=device, dtype=dtype)
+        return white, z
+
+    def _mix_noise(self, white: Tensor, z: Tensor, weekly_repr: Tensor) -> tuple[Tensor, Tensor]:
+        """The deterministic part of :meth:`_base_noise`: load latents onto weeks and mix."""
+        shape = tuple(white.shape)
         if weekly_repr.shape[-2] != shape[-2]:
             raise ValueError(
                 "weekly_repr and flow state must share the query-week axis, "
@@ -725,42 +741,56 @@ class JointFlowHead(nn.Module):
     ) -> Tensor:
         """Draw decomposition trajectories and, for the router, full graph states.
 
-        Each draw integrates ``FLOW_STEPS_SAMPLE`` uniform Euler steps.
+        Each draw integrates ``FLOW_STEPS_SAMPLE`` uniform Euler steps. The router
+        draws base noise in chunks of ``_FLOW_SAMPLE_CHUNK`` draws; seeded draws
+        depend on that chunking but not on how draws are batched for transport.
         """
         s = _sample_count(n_samples)
         c = channel_repr.shape[-2]
         d = self.state_dim(c, control_repr.shape[-2] if control_repr is not None else None)
-        if self.graph_router and s > _FLOW_SAMPLE_CHUNK:
-            chunks = []
-            drawn = 0
-            while drawn < s:
-                chunk_size = min(s - drawn, _FLOW_SAMPLE_CHUNK)
-                chunks.append(
-                    self.sample(
-                        weekly_repr,
-                        channel_repr,
-                        n_samples=chunk_size,
-                        control_repr=control_repr,
-                        state_mask=state_mask,
-                        apply_zero_atom=apply_zero_atom,
-                    )
-                )
-                drawn += chunk_size
-            return torch.cat(chunks, dim=0)
         lead = weekly_repr.shape[:-1]
-        weekly = weekly_repr.unsqueeze(0).expand(s, *lead, weekly_repr.shape[-1])
-        channels = channel_repr.unsqueeze(0).expand(s, *lead, c, channel_repr.shape[-1])
-        controls = None
-        if control_repr is not None:
-            controls = control_repr.unsqueeze(0).expand(
-                s, *lead, control_repr.shape[-2], control_repr.shape[-1]
+        chunk = _FLOW_SAMPLE_CHUNK if self.graph_router else s
+        noise = [
+            self._draw_noise(
+                (min(chunk, s - start), *lead, d),
+                device=weekly_repr.device,
+                dtype=weekly_repr.dtype,
             )
-        x, trajectory_latent = self._base_noise(
-            (s, *lead, d),
-            device=weekly_repr.device,
-            dtype=weekly_repr.dtype,
-            weekly_repr=weekly_repr,
+            for start in range(0, s, chunk)
+        ]
+        x, trajectory_latent = self._mix_noise(
+            torch.cat([white for white, _ in noise]), torch.cat([z for _, z in noise]), weekly_repr
         )
+        return self._transport(
+            x,
+            trajectory_latent,
+            weekly_repr,
+            channel_repr,
+            control_repr,
+            state_mask,
+            apply_zero_atom=apply_zero_atom,
+        )
+
+    def _transport(
+        self,
+        x: Tensor,
+        trajectory_latent: Tensor,
+        weekly_repr: Tensor,
+        channel_repr: Tensor,
+        control_repr: Tensor | None,
+        state_mask: Tensor | None,
+        *,
+        apply_zero_atom: bool,
+    ) -> Tensor:
+        """Transport base draws ``x[S, ..., T, D]`` and apply the sampler's support rules.
+
+        Draws are integrated in batches of about ``_FLOW_SAMPLE_ROWS`` evaluated
+        state rows. Every draw is integrated independently, so batching bounds
+        memory without changing any draw.
+        """
+        s = x.shape[0]
+        c = channel_repr.shape[-2]
+        lead = weekly_repr.shape[:-1]
         weight = None
         if state_mask is not None:
             weight = state_mask.to(x.dtype)
@@ -770,16 +800,35 @@ class JointFlowHead(nn.Module):
         grid = self._time_grid(FLOW_STEPS_SAMPLE)
         if weight is None:
 
-            def drift(x: Tensor, t_val: float) -> Tensor:
-                t = torch.full((s, *lead), t_val, device=x.device, dtype=x.dtype)
-                return self.velocity(x, t, weekly, channels, controls, trajectory_latent, weight)
+            def flow(x: Tensor, latent: Tensor) -> Tensor:
+                def expand(value: Tensor | None) -> Tensor | None:
+                    if value is None:
+                        return None
+                    return value.unsqueeze(0).expand(x.shape[0], *value.shape)
 
-            x = integrate_flow(x, drift, grid)
+                weekly, channels, controls = map(expand, (weekly_repr, channel_repr, control_repr))
+
+                def drift(x: Tensor, t_val: float) -> Tensor:
+                    t = torch.full(x.shape[:-1], t_val, device=x.device, dtype=x.dtype)
+                    return self.velocity(x, t, weekly, channels, controls, latent)
+
+                return integrate_flow(x, drift, grid)
+
+            width = x.shape[-1]
         else:
-            live = _LiveVelocity(
-                self, weekly_repr, channel_repr, control_repr, trajectory_latent, weight
-            )
-            x = live.integrate(x, grid)
+            live = _LiveVelocity(self, weekly_repr, channel_repr, control_repr, weight)
+
+            def flow(x: Tensor, latent: Tensor) -> Tensor:
+                return live.integrate(x, latent, grid)
+
+            width = live.index.numel()
+        batch = max(1, _FLOW_SAMPLE_ROWS // (math.prod(lead) * width))
+        x = torch.cat(
+            [
+                flow(x[start : start + batch], trajectory_latent[start : start + batch])
+                for start in range(0, s, batch)
+            ]
+        )
         if weight is not None:
             n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
             # Direct contributions are nonnegative; padding uses the same natural zero.
@@ -843,7 +892,14 @@ class _LiveNetwork:
         context_weight: Tensor,
         context_index: Tensor,
     ):
-        self.tail = net[1:]
+        _, act, hidden_layer, act2, output_layer = net
+        if not (isinstance(act, nn.SiLU) and isinstance(act2, nn.SiLU)):
+            raise ValueError("coordinate networks must be Linear, SiLU, Linear, SiLU, Linear")
+        # Bias added after the product: CPU addmm with a broadcast bias is markedly slower.
+        self.hidden_weight = hidden_layer.weight.t()
+        self.hidden_bias = hidden_layer.bias
+        self.output_weight = output_layer.weight[0]
+        self.output_bias = output_layer.bias
         self.static = static
         self.time_weight = time_weight
         self.scalar_weight = scalar_weight
@@ -862,7 +918,10 @@ class _LiveNetwork:
         hidden = F.linear(state, self.scalar_weight)
         hidden += self.static
         hidden += F.linear(context, self.context_weight, F.linear(time, self.time_weight))
-        return self.tail(hidden).squeeze(-1)
+        hidden = F.silu(hidden, inplace=True).view(-1, hidden.shape[-1])
+        hidden = torch.mm(hidden, self.hidden_weight).add_(self.hidden_bias)
+        hidden = F.silu(hidden, inplace=True)
+        return torch.mv(hidden, self.output_weight).add_(self.output_bias).view(state.shape[:-1])
 
 
 class _LiveVelocity:
@@ -885,15 +944,14 @@ class _LiveVelocity:
         weekly_repr: Tensor,
         channel_repr: Tensor,
         control_repr: Tensor | None,
-        trajectory_latent: Tensor,
         weight: Tensor,
     ):
         entity_repr = head._entity_repr(channel_repr, control_repr)
-        device = trajectory_latent.device
+        device = weekly_repr.device
         n_channels, n_entities = channel_repr.shape[-2], entity_repr.shape[-2]
         n_fixed = head.n_fixed
         n_decomposition = 1 + n_entities + n_fixed
-        d = trajectory_latent.shape[-1]
+        d = weight.shape[-1]
         layout = None
         if head.graph_router:
             layout = _edge_slot_layout(n_channels, n_entities - n_channels, head.n_demand)
@@ -905,11 +963,11 @@ class _LiveVelocity:
                 )
         entity_mask = weight[..., 1 : 1 + n_entities]
         try:
-            torch.broadcast_shapes(entity_mask.shape, (*trajectory_latent.shape[:-1], n_entities))
+            torch.broadcast_shapes(entity_mask.shape, (*weekly_repr.shape[:-1], n_entities))
         except RuntimeError as error:
             raise ValueError(
                 "state_mask entity prefix does not broadcast to the flow state: "
-                f"{tuple(weight.shape)} versus {tuple(trajectory_latent.shape)}"
+                f"{tuple(weight.shape)} versus {tuple(weekly_repr.shape[:-1])}"
             ) from error
         entity_count = entity_mask.sum(dim=-1, keepdim=True)
         if head.graph_router:
@@ -919,15 +977,16 @@ class _LiveVelocity:
             # An all-off conditioning graph leaves only baseline stochastic.
             entity_count = entity_count.clamp_min(1)
 
-        # Live state order: baseline, live entities, every fixed slot, live edge slots.
+        # Live state order: baseline, then live entities, fixed slots and edge slots.
         live = (weight != 0).expand(*weight.shape[:-1], d).reshape(-1, d).any(dim=0)
         live_entities = torch.nonzero(live[1 : 1 + n_entities]).squeeze(-1)
+        live_fixed = torch.nonzero(live[1 + n_entities : n_decomposition]).squeeze(-1)
         live_slots = torch.nonzero(live[n_decomposition:]).squeeze(-1)
         self.index = torch.cat(
             [
                 torch.zeros(1, dtype=torch.long, device=device),
                 1 + live_entities,
-                torch.arange(1 + n_entities, n_decomposition, device=device),
+                1 + n_entities + live_fixed,
                 n_decomposition + live_slots,
             ]
         )
@@ -947,11 +1006,10 @@ class _LiveVelocity:
 
         state_weight = head.trajectory_state_proj.weight
         self.token_state_weight = state_weight[:, 0]
-        self.token_offset = torch.addcmul(
-            head.trajectory_state_proj.bias + head.trajectory_week_proj(weekly_repr).unsqueeze(-2),
-            trajectory_latent.index_select(-1, self.index).unsqueeze(-1),
-            state_weight[:, 1],
-        )
+        self.token_latent_weight = state_weight[:, 1]
+        self.token_base = head.trajectory_state_proj.bias + head.trajectory_week_proj(
+            weekly_repr
+        ).unsqueeze(-2)
         self.trajectory_token_net = head.trajectory_token_net
         self.trajectory_score = head.trajectory_score
 
@@ -1067,17 +1125,17 @@ class _LiveVelocity:
                 "context": embed,
             },
         )
-        fixed_positions = position[torch.arange(1 + n_entities, n_decomposition, device=device)]
+        fixed_positions = position[1 + n_entities + live_fixed]
         networks.append(
             _LiveNetwork(
                 head.fixed_net,
                 week_static(fixed_layer, fixed["week"])
-                + F.linear(head.fixed_slot_embed.weight, fixed["slot"]),
+                + F.linear(head.fixed_slot_embed.weight[live_fixed], fixed["slot"]),
                 time_weight=fixed["time"],
                 scalar_weight=torch.cat([fixed["x"], fixed["mean"], fixed["std"]], dim=1),
-                scalar_index=columns(n_fixed, fixed_positions, mean, std),
+                scalar_index=columns(live_fixed.numel(), fixed_positions, mean, std),
                 context_weight=fixed["context"],
-                context_index=columns(n_fixed, fixed_positions),
+                context_index=columns(live_fixed.numel(), fixed_positions),
             )
         )
 
@@ -1151,10 +1209,18 @@ class _LiveVelocity:
             )
         self.networks = networks
 
-    def __call__(self, x: Tensor, t_val: float) -> Tensor:
+    def trajectory_offset(self, trajectory_latent: Tensor) -> Tensor:
+        """Step-invariant part of the live trajectory tokens for one batch of draws."""
+        return torch.addcmul(
+            self.token_base,
+            trajectory_latent.index_select(-1, self.index).unsqueeze(-1),
+            self.token_latent_weight,
+        )
+
+    def velocity(self, x: Tensor, t_val: float, trajectory_offset: Tensor) -> Tensor:
         """Velocity of the live state ``x[..., index]`` at flow time ``t_val``."""
         tokens = self.trajectory_token_net(
-            torch.addcmul(self.token_offset, x.unsqueeze(-1), self.token_state_weight)
+            torch.addcmul(trajectory_offset, x.unsqueeze(-1), self.token_state_weight)
         )
         weights = torch.softmax(self.trajectory_score(tokens), dim=-3)
         context = (weights * tokens).sum(dim=-3, keepdim=True) * self.context_mask
@@ -1171,12 +1237,13 @@ class _LiveVelocity:
         time = _fourier_time(x.new_full((), t_val))
         return torch.cat([network(scalars, contexts, time) for network in self.networks], dim=-1)
 
-    def integrate(self, x: Tensor, grid) -> Tensor:
+    def integrate(self, x: Tensor, trajectory_latent: Tensor, grid) -> Tensor:
         """Euler-integrate masked ``x``; coordinates masked in every task stay zero."""
         weight = self.weight
+        offset = self.trajectory_offset(trajectory_latent)
         live = integrate_flow(
             x.index_select(-1, self.index),
-            self,
+            lambda state, t_val: self.velocity(state, t_val, offset),
             grid,
             project=lambda state, _t_next: state * weight,
         )

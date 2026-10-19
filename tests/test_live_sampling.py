@@ -37,14 +37,12 @@ def _assert_live_velocity_matches(head, weekly, channels, controls, mask, *, n_s
     shape = (n_samples, *weekly.shape[:-1], d)
     x = torch.randn(shape, generator=generator, dtype=torch.float64) * mask
     latent = torch.randn(shape, generator=generator, dtype=torch.float64) * mask
-    live = _LiveVelocity(head, weekly, channels, controls, latent, mask)
+    live = _LiveVelocity(head, weekly, channels, controls, mask)
+    offset = live.trajectory_offset(latent)
 
-    n_decomposition = 1 + channels.shape[-2] + controls.shape[-2] + head.n_fixed
-    always = {0, *range(n_decomposition - head.n_fixed, n_decomposition)}
     live_somewhere = set(torch.nonzero((mask != 0).reshape(-1, d).any(dim=0)).flatten().tolist())
-    evaluated = set(live.index.tolist())
-    assert live_somewhere <= evaluated, "a coordinate live in some task was skipped"
-    assert evaluated - live_somewhere <= always, "a coordinate dead in every task was evaluated"
+    assert 0 in live_somewhere, "the baseline coordinate is never masked"
+    assert set(live.index.tolist()) == live_somewhere, "evaluated coordinates must be the live ones"
 
     def expand(value):
         return value.unsqueeze(0).expand(n_samples, *value.shape)
@@ -60,7 +58,7 @@ def _assert_live_velocity_matches(head, weekly, channels, controls, mask, *, n_s
             mask,
         )
         torch.testing.assert_close(
-            live(x.index_select(-1, live.index), t),
+            live.velocity(x.index_select(-1, live.index), t, offset),
             full.index_select(-1, live.index),
             **ROUND_OFF,
         )
