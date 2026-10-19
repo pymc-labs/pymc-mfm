@@ -106,6 +106,7 @@ approved or published release.
   - The README documents the CPU thread setting for bitwise-repeatable runs.
   - `load_replication_summary` was removed; it parsed a summary format that MFM never produces.
   - CI plants ignored local files (`*.pt`, `*.npz`, `.env.*`) before building, so a build that stops honouring `.gitignore` fails the installed-distribution check.
+- **Examples.** `examples/` holds only the River-1 quickstart; the diagnostics notebook moved to `examples/dev/`. The two-update workflow and offline inference scripts that the installed-distribution check runs moved to `.github/scripts/`, and `examples/tracking.py` was removed.
 
 ### Breaking changes
 
@@ -186,10 +187,10 @@ performance guarantee.
 
 ```bash
 uv sync --locked --extra generation --extra training
-uv run --no-sync python examples/workflow.py --out runs/workflow
+uv run --no-sync python .github/scripts/workflow.py --out runs/workflow
 ```
 
-This example generates twelve synthetic worlds with 16 rows and an eight-row
+This workflow generates twelve synthetic worlds with 16 rows and an eight-row
 context, then trains the full architecture for two optimizer updates. It
 exercises checkpoint and safetensors loading, observation-only inference,
 observation-only and synthetic-truth reports, and inference-free report replay.
@@ -217,7 +218,7 @@ One base-wheel CPU smoke on an Apple M3 Max (macOS arm64, Python 3.13.9,
 PyTorch 2.14.0, two CPU threads) measured 3.83 seconds to load the full model,
 0.22 seconds for four context draws and 0.17 seconds for four query draws.
 Each window had eight rows and 26 components; peak **whole-process** RSS was
-379.75 MiB. These are single-run observations using the two-update example,
+379.75 MiB. These are single-run observations using the two-update workflow,
 not a benchmark distribution, hardware minimum or trained-model quality claim.
 
 None of these workflows establishes business-domain calibration, causal
@@ -231,7 +232,7 @@ unattended budget optimization.
   Approve any accompanying data or diagnostic evidence for redistribution too.
 - Any distributed pretrained model needs an immutable bundle reference,
   checksums, a model card and a clearly stated evaluation scope. The two-update
-  example is not a pretrained model release.
+  workflow is not a pretrained model release.
 - Hub publication needs an authorized destination and an approved artifact
   license. A real upload, pinned download and offline reload must be verified
   for the intended artifacts before advertising that distribution path.

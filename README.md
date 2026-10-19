@@ -20,7 +20,7 @@ src/pymc_mfm/
   diagnostics/   Numerical diagnostics, calibration and evaluation metrics
   plotting/      Figures and reports, separate from numerical diagnostics
 tests/           Focused behavioral tests
-examples/        Small examples using the public API
+examples/        River-1 quickstart notebook; dev/ holds maintainer notebooks
 pyproject.toml   Package metadata, dependencies and development-tool settings
 uv.lock          Locked dependencies for the uv workflow
 environment.yml  Conda Python environment
@@ -733,17 +733,6 @@ likelihood. Auxiliary structure probabilities never route conditional inference.
 Context and query calls are **separate marginal evaluations**, not a joint
 full-horizon posterior. Component totals exclude observation noise.
 
-`examples/observation_only.py` is an executable offline example. `--model` is
-required and must name an existing local bundle directory. Its input JSON contains
-only the `spend`, `controls`, `context_outcome` and optional mask fields shown
-above. It saves the two marginal windows separately and reports CPU load time,
-sampling time and peak process RSS (including imports and loading):
-
-```bash
-uv run --no-sync python examples/observation_only.py \
-  --model model --observations observations.json --out runs/observed --samples 32
-```
-
 Validation precedes dtype narrowing: tiny negative spend, nonzero padding and
 near-binary encoded masks cannot become valid through rounding. Caller annotations
 cannot replace a loaded checkpoint's identity. Saved results reject
@@ -830,9 +819,10 @@ draws.
 
 Rendering is headless by default and works in notebooks without paper fonts or
 hosted services; library figures carry a PNG representation, so Jupyter shows
-them without pyplot. `examples/diagnostics.ipynb` trains a tiny model for a few
-updates, plots its records with `TrainingRun`, decomposes a synthetic world, and
-walks through `result.plot`, `result.diagnostics(...)` with generating truth, and
+them without pyplot. The development notebook `examples/dev/diagnostics.ipynb`
+trains a tiny model for a few updates, plots its records with `TrainingRun`,
+decomposes a synthetic world, and walks through `result.plot`,
+`result.diagnostics(...)` with generating truth, and
 `diag.report(...)`. Its weights are explicitly **untrained** for any real use;
 `tests/test_examples.py` executes it headless. Graphviz is optional; the
 standard DAG renderer uses matplotlib and declares alternate-renderer
@@ -1624,8 +1614,8 @@ uv run --no-sync mlflow server \
   --artifacts-destination runs/mlflow-artifacts --host 127.0.0.1 --port 5000
 ```
 
-`examples/tracking.py` reads complete histories and versioned report artifacts
-through `MlflowClient`. `tracking_catalog.json` under `pymc_mfm.training`
+`MlflowClient` reads complete histories and versioned report artifacts.
+`tracking_catalog.json` under `pymc_mfm.training`
 documents producer → field → representation → cadence. The generated name
 table preserves original dimensions even when safe metric names require encoding.
 The canonical loop logs every active joint/conditional/context/auxiliary loss,
@@ -1787,11 +1777,11 @@ graph support and draw alignment, complete-graph mode, strict configuration and
 weight loading, and dtype-preserving artifact round trips. It requires no
 external checkpoints, corpora or hosted services.
 
-### Small public workflow
+### Small integration workflow
 
 ```bash
 uv sync --locked --extra generation --extra training
-uv run --no-sync python examples/workflow.py --out runs/workflow
+uv run --no-sync python .github/scripts/workflow.py --out runs/workflow
 ```
 
 This generates and reloads twelve synthetic worlds from an explicitly reduced
@@ -1804,8 +1794,8 @@ This is an integration exercise, **not** usable pretrained weights or a calibrat
 attribution model.
 
 Tracking is enabled with an explicitly local SQLite backend under the output
-directory, so an ambient remote tracking URI cannot receive this example.
-The example checks actual MLflow metric histories, downloaded checkpoint/report
+directory, so an ambient remote tracking URI cannot receive this workflow.
+The workflow checks actual MLflow metric histories, downloaded checkpoint/report
 hashes, healthy delivery and run→checkpoint→result→report lineage. The metric
 name table maps producer names to stored MLflow keys; use it rather than guessing
 the encoded keys. Outputs require a new directory and are never published.
