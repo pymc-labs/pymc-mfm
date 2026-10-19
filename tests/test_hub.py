@@ -316,6 +316,9 @@ def test_publication_is_explicit_license_gated_and_preserves_complete_state(
         # The evaluation plan is no training corpus.
         with pytest.raises(ValueError):
             push_to_hub(model, REPO, license="mit", corpus_plan="evaluation")
+        # A description that could carry a credential is refused before any transport.
+        with pytest.raises(ValueError, match="credentials"):
+            push_to_hub(model, REPO, license="mit", description="Token hf_abcdefghijklmnop.")
     token = "hf_doNotSerializePublisherToken"
     published = tmp_path / "published"
     events = []
@@ -375,6 +378,7 @@ def test_publication_is_explicit_license_gated_and_preserves_complete_state(
         provenance=provenance,
         license="apache-2.0",
         recorded_outputs=sidecar,
+        description="Profile A, trained on **local** worlds.",
     )
     assert commit.oid == COMMIT_B
     assert [name for name, _ in events] == ["create_repo", "create_commit"]
@@ -400,6 +404,10 @@ def test_publication_is_explicit_license_gated_and_preserves_complete_state(
     card = _card_facts(hf.ModelCard((published / "profiles/A/README.md").read_text()).text)
     assert not any(key.startswith("plan.") for key in card)
     assert restored.provenance["source_checkpoint_sha256"] == "f" * 64
+    # The description belongs to its profile's card, not to the collection index.
+    profile_card = (published / "profiles/A/README.md").read_text()
+    assert "## Model description\n\nProfile A, trained on **local** worlds.\n" in profile_card
+    assert "Model description" not in (published / "README.md").read_text()
 
 
 def test_publish_rejects_private_metadata_before_remote_changes(model, monkeypatch):
@@ -750,6 +758,42 @@ def test_local_cards_describe_each_profile_and_index_the_collection(model, tmp_p
         assert options.keys() == {"--profile", "--shard", "--out"}
         assert options["--profile"] == name
     from_pretrained(tmp_path, profile="A")
+
+
+def test_a_card_description_precedes_the_generated_sections_of_one_bundle(model, tmp_path):
+    save_pretrained(model, tmp_path / "profiles" / "A", profile="A")
+    save_pretrained(model, tmp_path / "profiles" / "B", profile="B")
+    bundle = tmp_path / "profiles" / "A"
+    plain = hf.ModelCard(write_model_cards(bundle, license="mit")[0].read_text()).text
+    assert "Model description" not in plain
+    written = {path: path.read_bytes() for path in tmp_path.rglob("README.md")}
+    # Headings, issue numbers, harmless queries and variable names are prose, not
+    # a credential-bearing URL.
+    description = (
+        "River test model from pull request #39.\n\n### Training\n\n4 updates on "
+        "[toy worlds](https://hf.co/x?lang=en); set `HF_TOKEN` to load it."
+    )
+    for invalid in (
+        "",
+        " \n",
+        ["River"],
+        "Fetched with https://hf.co/x?token=abc",
+        "See [the data](https://user:secret@hf.co/x).",
+        "Bearer abcdefgh",
+    ):
+        with pytest.raises(ValueError):
+            write_model_cards(bundle, license="mit", description=invalid)
+    # A description names one bundle, never every profile of a collection.
+    with pytest.raises(ValueError):
+        write_model_cards(tmp_path, license="mit", description=description)
+    assert {path: path.read_bytes() for path in tmp_path.rglob("README.md")} == written
+    [path] = write_model_cards(bundle, license="mit", description=f"\n{description}\n\n")
+    text = hf.ModelCard(path.read_text()).text
+    head, architecture = text.split("## Architecture", 1)
+    assert head.endswith(f"## Model description\n\n{description}\n\n")
+    # The generated sections are unchanged by the description.
+    assert plain.split("## Architecture", 1)[1] == architecture
+    assert _card_facts(text) == _card_facts(plain)
 
 
 #: Plan B's shards are seeded 530400..530719 and hold rows 0..1249; each plan
