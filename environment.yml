@@ -1,0 +1,7 @@
+name: pymc-mfm
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.13
+  - pip>=25.1
