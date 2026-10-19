@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import tempfile
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 import numpy as np
 import torch
@@ -15,6 +16,8 @@ import torch
 from ._artifact_schema import json_bytes
 
 if TYPE_CHECKING:
+    from xarray import DataTree
+
     from pymc_mfm.diagnostics.accessors import Diagnostics, ResultPlots
 
 #: ``result.json`` version: metadata is hash-bound like the arrays since version 2.
@@ -86,6 +89,56 @@ def _require_json_text(value, path):
                 stack.append((item, f"{path}/{key}"))
         elif isinstance(value, (list, tuple)):
             stack.extend((item, f"{path}/{index}") for index, item in enumerate(value))
+
+
+def _checked_evidence(
+    result: DecompositionResult,
+    truth,
+    graph_truth,
+    observed,
+    *,
+    stored: bool,
+    partial: bool = False,
+) -> dict[str, np.ndarray]:
+    """Checked float64 evidence of one result, by the evidence rules of ``compute_diagnostics``.
+
+    ``truth`` ``[T,D]``, ``graph_truth`` ``[L]`` and ``observed`` ``[T]`` align with
+    ``result``. Supplied arrays must be real and are copied to float64; ``stored`` ones
+    (decoded from an archive's ``truth.npz``) must already be exactly float64 and are kept
+    as they are. With ``partial`` a ``None`` piece is left out of the returned mapping and
+    only the supplied pieces are checked.
+    """
+    _, times, width = result.components.shape
+    shapes = {
+        "truth": (times, width),
+        "graph_truth": (result.graphs.shape[1],),
+        "observed": (times,),
+    }
+    evidence = {}
+    for name, value in zip(shapes, (truth, graph_truth, observed), strict=True):
+        if partial and value is None:
+            continue
+        if stored:
+            array = value
+            if array.dtype != np.float64:
+                raise ValueError(f"{name} must be float64, got {array.dtype}")
+        else:
+            array = np.asarray(value)
+            if array.dtype.kind not in "biuf":
+                raise ValueError(f"{name} must be a real array")
+            array = np.array(array, dtype=np.float64, copy=True)
+        if array.shape != shapes[name]:
+            raise ValueError(f"{name} has shape {array.shape}; the result needs {shapes[name]}")
+        if not np.isfinite(array).all():
+            raise ValueError(f"{name} must be finite")
+        evidence[name] = array
+    if "graph_truth" in evidence and not np.isin(evidence["graph_truth"], (0, 1)).all():
+        raise ValueError("graph_truth must be binary")
+    if "truth" in evidence and np.any(evidence["truth"][:, ~result.component_mask]):
+        raise ValueError("truth is nonzero on padded components")
+    if "graph_truth" in evidence and np.any(evidence["graph_truth"][~result.edge_mask]):
+        raise ValueError("graph_truth has edges outside the active support")
+    return evidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,17 +319,40 @@ class DecompositionResult:
             self._cache["diagnostics"] = diagnostics
         return diagnostics
 
+    def to_datatree(self, *, observed=None, truth=None, graph_truth=None) -> DataTree:
+        """These draws as an ArviZ ``xarray.DataTree``; needs the ``pymc-mfm[arviz]`` extra.
+
+        Export only: ``save`` stays the evidence format and MFM never reads a tree back.
+        Groups: ``posterior`` (``components[chain=1, draw, time, component]`` and
+        ``graph[chain=1, draw, edge]``, active slots only), ``constant_data`` (component
+        and edge families, edge endpoints), ``observed_data`` (``outcome[time]``, from
+        ``observed``) and ``truth`` (``components``/``graph`` from synthetic ``truth`` /
+        ``graph_truth``), never mixed with observations. Evidence follows the rules of
+        :meth:`diagnostics`; the padded columns it must leave at zero are dropped. Draws
+        are one chain of independent amortized samples: R-hat is undefined; ESS and MCSE
+        describe only Monte Carlo variability, not convergence or amortization accuracy.
+        One tree holds one window: never concatenate context and query trees.
+        This call imports xarray and arviz-base lazily.
+        """
+        from ._datatree import result_datatree
+
+        return result_datatree(self, observed=observed, truth=truth, graph_truth=graph_truth)
+
+    def _metadata(self) -> dict[str, Any]:
+        """The non-array fields ``save`` writes and its ``metadata_sha256`` digests."""
+        return {
+            item.name: getattr(self, item.name)
+            for item in fields(self)
+            if item.init and item.name not in _ARRAY_FIELDS
+        }
+
     def save(self, path: str | Path) -> Path:
         """Atomically create a new evidence directory, never mutate cached evidence."""
         path = Path(path)
         if path.exists():
             raise FileExistsError(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        metadata = {
-            item.name: getattr(self, item.name)
-            for item in fields(self)
-            if item.init and item.name not in _ARRAY_FIELDS
-        }
+        metadata = self._metadata()
         with tempfile.TemporaryDirectory(prefix=".result-", dir=path.parent) as temporary:
             staged = Path(temporary) / "result"
             staged.mkdir()
@@ -294,15 +370,13 @@ class DecompositionResult:
             staged.rename(path)
         return path
 
-    @classmethod
-    def load(cls, path: str | Path) -> DecompositionResult:
-        """Load verified, non-executable saved evidence without inference.
+    @staticmethod
+    def _checked_payload(payload: object) -> dict:
+        """The ``result.json`` checks of :meth:`load`, with its messages.
 
-        Arrays and metadata (labels, units, provenance) are both hash-bound, so
-        an edited ``result.json`` is rejected instead of relabeling the draws.
+        An object, ``format_version`` 2 (checked before the key set), the exact
+        key set. Returns ``payload`` itself.
         """
-        path = Path(path)
-        payload = json.loads((path / "result.json").read_text())
         if not isinstance(payload, dict):
             raise ValueError("invalid result metadata fields")
         version = payload.get("format_version")
@@ -313,9 +387,22 @@ class DecompositionResult:
             )
         if set(payload) != _PAYLOAD_KEYS:
             raise ValueError("invalid result metadata fields")
-        arrays_path = path / "arrays.npz"
-        with arrays_path.open("rb") as handle:
-            digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        return payload
+
+    @classmethod
+    def _from_saved(cls, payload: dict, arrays: bytes | BinaryIO) -> DecompositionResult:
+        """Build a result from a checked payload and its ``arrays.npz``, as :meth:`load` does.
+
+        ``arrays`` is the file's bytes or the file itself, open at its start. In
+        :meth:`load`'s order and with its messages: the checksum of exactly that
+        content, the metadata checksum and fields, then the array members, decoded
+        from the same content. A file is streamed, never held in memory whole.
+        """
+        if isinstance(arrays, bytes):
+            digest, stream = hashlib.sha256(arrays).hexdigest(), io.BytesIO(arrays)
+        else:
+            digest, stream = hashlib.file_digest(arrays, "sha256").hexdigest(), arrays
+            stream.seek(0)
         if digest != payload["arrays_sha256"]:
             raise ValueError("result array checksum mismatch")
         metadata = payload["metadata"]
@@ -327,10 +414,22 @@ class DecompositionResult:
         expected = {item.name for item in fields(cls) if item.init} - set(_ARRAY_FIELDS)
         if set(metadata) != expected:
             raise ValueError("incomplete or unknown result metadata")
-        with np.load(arrays_path, allow_pickle=False) as arrays:
-            if set(arrays.files) != set(_ARRAY_FIELDS):
+        with np.load(stream, allow_pickle=False) as stored:
+            if set(stored.files) != set(_ARRAY_FIELDS):
                 raise ValueError("incomplete or unknown result arrays")
-            return cls(**metadata, **{key: arrays[key] for key in _ARRAY_FIELDS})
+            return cls(**metadata, **{key: stored[key] for key in _ARRAY_FIELDS})
+
+    @classmethod
+    def load(cls, path: str | Path) -> DecompositionResult:
+        """Load verified, non-executable saved evidence without inference.
+
+        Arrays and metadata (labels, units, provenance) are both hash-bound, so
+        an edited ``result.json`` is rejected instead of relabeling the draws.
+        """
+        path = Path(path)
+        payload = cls._checked_payload(json.loads((path / "result.json").read_text()))
+        with (path / "arrays.npz").open("rb") as handle:
+            return cls._from_saved(payload, handle)
 
 
 def result_from_batch(

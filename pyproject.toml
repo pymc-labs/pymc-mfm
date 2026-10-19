@@ -21,6 +21,9 @@ diagnostics = [
     "scikit-learn>=1.6",
     "arviz-stats>=1.3,<2",
 ]
+arviz = [
+    "arviz-stats[xarray]>=1.3,<2",
+]
 hub = [
     "huggingface-hub>=1.0,<2",
 ]

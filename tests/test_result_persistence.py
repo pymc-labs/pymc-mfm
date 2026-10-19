@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import pickle
+import tracemalloc
 from dataclasses import fields, replace
 
 import numpy as np
@@ -144,6 +145,33 @@ def test_deep_provenance_saves_and_is_checked_at_every_depth(tmp_path):
     circular["self"] = circular
     with pytest.raises(ValueError):
         replace(result, provenance={**result.provenance, "loop": circular})
+
+
+def test_loading_streams_the_arrays_file_instead_of_buffering_it(tmp_path):
+    base = make_result()
+    draws, weeks = 250, 104
+    rng = np.random.default_rng(0)
+    result = replace(
+        base,
+        components=rng.normal(size=(draws, weeks, len(base.component_mask))) * base.component_mask,
+        graphs=np.zeros((draws, base.graphs.shape[1])),
+        time=np.arange(weeks) + base.context_length,
+    )
+    path = result.save(tmp_path / "saved")
+    tracing = tracemalloc.is_tracing()
+    tracemalloc.start()
+    tracemalloc.reset_peak()
+    before = tracemalloc.get_traced_memory()[0]
+    try:
+        loaded = DecompositionResult.load(path)
+        peak = tracemalloc.get_traced_memory()[1] - before
+    finally:
+        if not tracing:
+            tracemalloc.stop()
+    np.testing.assert_array_equal(loaded.components, result.components)
+    # The decoded draws and the result's own read-only copy take about two arrays; holding
+    # the whole (barely compressible) arrays.npz as well would take almost a third.
+    assert peak < 2.6 * result.components.nbytes
 
 
 def test_cached_diagnostics_are_not_identity_or_saved_evidence(tmp_path):

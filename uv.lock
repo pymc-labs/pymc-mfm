@@ -2485,6 +2485,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+arviz = [
+    { name = "arviz-stats", extra = ["xarray"] },
+]
 diagnostics = [
     { name = "arviz-stats" },
     { name = "matplotlib" },
@@ -2515,6 +2518,7 @@ dev = [
 requires-dist = [
     { name = "arviz-stats", marker = "extra == 'diagnostics'", specifier = ">=1.3,<2" },
     { name = "arviz-stats", marker = "extra == 'training'", specifier = ">=1.3,<2" },
+    { name = "arviz-stats", extras = ["xarray"], marker = "extra == 'arviz'", specifier = ">=1.3,<2" },
     { name = "huggingface-hub", marker = "extra == 'hub'", specifier = ">=1.0,<2" },
     { name = "matplotlib", marker = "extra == 'diagnostics'", specifier = ">=3.9" },
     { name = "matplotlib", marker = "extra == 'training'", specifier = ">=3.9" },
@@ -2529,7 +2533,7 @@ requires-dist = [
     { name = "scipy", marker = "extra == 'training'", specifier = ">=1.14" },
     { name = "torch", specifier = ">=2.6,<3" },
 ]
-provides-extras = ["generation", "diagnostics", "hub", "training"]
+provides-extras = ["generation", "diagnostics", "arviz", "hub", "training"]
 
 [package.metadata.requires-dev]
 dev = [

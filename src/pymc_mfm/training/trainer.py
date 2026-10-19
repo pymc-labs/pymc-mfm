@@ -22,7 +22,7 @@ import json
 import math
 import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,10 +41,17 @@ from pymc_mfm.training._provenance import (
     environment_record,
     export_lineage,
 )
+from pymc_mfm.training.archive import (
+    _corpus_records,
+    _evaluation_block,
+    _model_identity,
+    _world_records,
+)
 from pymc_mfm.training.checkpoint import file_sha256, save_checkpoint
 from pymc_mfm.training.config import TrainingConfig
 from pymc_mfm.training.evaluation import (
     BOUNDS_SLACK,
+    DECOMPOSITION_HEADS,
     evaluate_rows,
     flatten_evaluation,
     metric_bounds,
@@ -78,6 +85,9 @@ SELECTION_READOUT = {
         "joint router head on the held-out query window; not a conditional-decoder quality claim"
     ),
 }
+#: Evaluation events ``train(holdout_archives=...)`` can archive: ``"best"``, every event
+#: that promotes ``checkpoint_best.pt``, and ``"terminal"``, the final event.
+HOLDOUT_ARCHIVE_KINDS = ("best", "terminal")
 #: Undefined reason under which the leakage gate passes: no world has a padded channel.
 _VACUOUS_LEAKAGE = "no_inactive_channels"
 #: Undefined-reason prefix of a metric that dropped non-finite worlds or slots.
@@ -280,6 +290,27 @@ def _select_checkpoint(
     }
 
 
+def _holdout_archive_kinds(value: Sequence[str] | None) -> tuple[str, ...]:
+    """``holdout_archives`` as distinct :data:`HOLDOUT_ARCHIVE_KINDS`, in canonical order.
+
+    ``None`` and an empty sequence disable archives. A string or another value that is
+    not an iterable of names (``True``), a name outside :data:`HOLDOUT_ARCHIVE_KINDS` or
+    a repeated name raises ``ValueError``.
+    """
+    if value is None:
+        return ()
+    names = None if isinstance(value, str) or not isinstance(value, Iterable) else list(value)
+    if (
+        names is None
+        or any(name not in HOLDOUT_ARCHIVE_KINDS for name in names)
+        or len(set(names)) != len(names)
+    ):
+        raise ValueError(
+            f"holdout_archives must be distinct names from {HOLDOUT_ARCHIVE_KINDS}, got {value!r}"
+        )
+    return tuple(kind for kind in HOLDOUT_ARCHIVE_KINDS if kind in names)
+
+
 def train(
     corpora: Sequence[Mapping[str, Any]],
     *,
@@ -291,6 +322,7 @@ def train(
     observers: Sequence[TrainingObserver] = (),
     run_name: str | None = None,
     tracking: TrackingConfig | None = None,
+    holdout_archives: Sequence[str] | None = (),
 ) -> TrainingResult:
     """Train with durable local evidence and default-enabled optional MLflow.
 
@@ -302,9 +334,27 @@ def train(
     environment that export would refuse (``save_pretrained``: package versions
     outside this release's ``COMPATIBILITY``, or not release versions) is refused
     before anything is written.
+
+    ``holdout_archives`` selects evaluation events whose held-out leg is kept as
+    a :class:`pymc_mfm.diagnostics.EvaluationArchive` at
+    ``out_dir / "archives" / "step_<N:09d>"``: ``"best"``, every event that
+    promotes ``checkpoint_best.pt``, and ``"terminal"``, the final event. An
+    archive holds that leg's existing conditional captures, so no inference is
+    added and draws, scores, selection, weights and random streams are
+    unchanged; the evaluation records of events that can be archived gain the
+    holdout leg's ``result_capture``. An archive written at the final step names
+    that step's ``checkpoint_last.pt``, the exported bundle's source checkpoint,
+    and any other names its step's ``checkpoint_best.pt``. Each archive gets a
+    ``run.json`` ``diagnostics`` entry (recipe ``holdout_evaluation_archive``),
+    which the bundle references for the final step. A failed archive is
+    recorded as failed and training continues; a configuration that cannot be
+    archived fails the run before training, and an invalid value raises
+    ``ValueError`` before anything is written. Unset (``()`` or ``None``),
+    nothing in the run changes.
     """
     training = TrainingConfig() if training is None else training
     tracking = TrackingConfig() if tracking is None else tracking
+    archives = _holdout_archive_kinds(holdout_archives)
     out_dir = Path(out_dir)
     if (out_dir / "run.json").exists():
         raise FileExistsError(f"{out_dir} already holds a training run")
@@ -345,6 +395,7 @@ def train(
             observers=observers,
             run=run,
             tracker=tracker,
+            holdout_archives=archives,
         )
     except BaseException as exc:
         if run["status"] == "running":
@@ -383,6 +434,7 @@ def _train_run(
     observers: Sequence[TrainingObserver] = (),
     run: dict[str, Any],
     tracker: MlflowTrainingObserver,
+    holdout_archives: tuple[str, ...] = (),
 ) -> TrainingResult:
     """Train the canonical model on loaded schema-4 corpora.
 
@@ -394,7 +446,9 @@ def _train_run(
     reliability, CORP and threshold tables and its per-effect ``strata``
     tables, written before its ``evaluations.jsonl`` line; the strata tables
     are only there), ``checkpoint_last.pt``/``checkpoint_best.pt``/
-    ``checkpoint_step_<N>.pt`` and, on completion, ``model`` in the
+    ``checkpoint_step_<N>.pt``, ``archives/step_<N:09d>`` (an evaluation
+    archive of each event that ``holdout_archives`` selects, see :func:`train`)
+    and, on completion, ``model`` in the
     :func:`pymc_mfm.inference.checkpoint.save_pretrained` directory format
     holding the terminal weights.
 
@@ -402,6 +456,10 @@ def _train_run(
     controls/latents; a supplied one must match the corpus geometry. A
     nonfinite loss or gradient norm at a logging step fails the run, and an
     interrupted or failed run is recorded as such rather than as finished.
+    ``holdout_archives`` holds canonical kinds (:func:`_holdout_archive_kinds`);
+    their corpora and evaluation identity is derived before weight
+    initialization and draws nothing, so a configuration that cannot be
+    archived fails the run before training.
     """
     resolved_device = resolve_device(device)
 
@@ -441,6 +499,23 @@ def _train_run(
     if n_holdout < 1:
         raise ValueError("training requires held-out worlds (is_val == 1) for evaluation")
     eval_holdout = min(training.eval_worlds, n_holdout)
+    archive_static: dict[str, Any] | None = None
+    if holdout_archives:
+        # The held-out worlds are the same at every event; deriving their
+        # identity encodes them but draws nothing, so initialization is unchanged.
+        archive_static = {
+            "corpora": _corpus_records(
+                corpora, provenance, identities=[record["actual_inputs"] for record in provenance]
+            ),
+            "evaluation": _evaluation_block(
+                _world_records(corpora, stream.holdout_rows(eval_holdout, seed=training.eval_seed)),
+                leg="holdout",
+                heads=DECOMPOSITION_HEADS,
+                seed=training.eval_seed + 1,
+                n_samples=training.eval_samples,
+                device=resolved_device,
+            ),
+        }
 
     # Seed before construction: weight initialization consumes the global RNG.
     torch.manual_seed(training.seed)
@@ -527,6 +602,13 @@ def _train_run(
             "best": None,
         }
     )
+    if holdout_archives:
+        run["evaluation_policy"]["holdout_archives"] = {
+            "checkpoints": list(holdout_archives),
+            "leg": "holdout",
+            "path": "archives/step_<N:09d>",
+            "resampling": False,
+        }
     _write_json(out_dir / "run.json", run)
     _write_json(out_dir / "corpus_support.json", corpus_support(corpora))
     tracker.on_run_config(run)
@@ -544,6 +626,7 @@ def _train_run(
     first_seen: dict[tuple[int, int], None] = {}
     consumption_digest = hashlib.sha256()
     diagnostic_inputs: list[tuple[Any, Any, Any, Any]] = []
+    archive_inputs: list[tuple[Any, Any, Any, Any]] = []
     training_records: list[dict[str, Any]] = []
     evaluation_records: list[dict[str, Any]] = []
     consumed = {
@@ -611,6 +694,66 @@ def _train_run(
         for observer in event_observers:
             observer.on_checkpoint({**entry, "path": str(path), "selection": selection})
         return entry
+
+    def record_archive(step: int, last: Mapping[str, Any], best: Mapping[str, Any] | None) -> None:
+        """Archive this event's held-out captures when ``holdout_archives`` selects it.
+
+        The archive names ``last``, this event's ``checkpoint_last.pt``, when it
+        includes ``"terminal"`` or is written at the final step, and ``best``
+        otherwise. A failure is recorded by its type and training continues.
+        """
+        if not holdout_archives:
+            return
+        captured = list(archive_inputs)
+        archive_inputs.clear()
+        kinds = [
+            kind
+            for kind in holdout_archives
+            if (kind == "best" and best is not None)
+            or (kind == "terminal" and step == training.steps)
+        ]
+        if not kinds:
+            return
+        relative = f"archives/step_{step:09d}"
+        bound = last if ("terminal" in kinds or step == training.steps) else best
+        entry = {
+            "name": f"step_{step}_holdout_archive",
+            "checkpoint_sha256": last["sha256"],
+            "status": "failed",
+            "recipe": "holdout_evaluation_archive",
+            "path": relative,
+            "kinds": kinds,
+        }
+        if best is not None:
+            entry["best_checkpoint_sha256"] = best["sha256"]
+        try:
+            from pymc_mfm.diagnostics.archive import EvaluationArchive
+
+            with preserve_rng():
+                identity = {
+                    "model": _model_identity(
+                        model,
+                        checkpoint_sha256=bound["sha256"],
+                        source_step=step,
+                        profile=tracker.config.profile,
+                    ),
+                    **archive_static,
+                }
+                # absolute(): create expands a leading "~", which the run directory keeps.
+                target = out_dir.absolute() / relative
+                with EvaluationArchive.create(target, identity) as writer:
+                    for item in captured:
+                        writer.add(*item)
+            # Hashed where create published it, not at a re-derived spelling.
+            entry.update(
+                status="recorded",
+                sha256=file_sha256(writer.path / "manifest.json"),
+                archive_sha256=writer.archive_sha256,
+                state_sha256=identity["model"]["state_sha256"],
+            )
+        except Exception as exc:
+            entry["error_type"] = type(exc).__name__
+        run["diagnostics"].append(entry)
 
     def record_diagnostics(step: int, checkpoint: Mapping[str, Any]) -> None:
         if not diagnostic_inputs:
@@ -706,11 +849,22 @@ def _train_run(
     def evaluate(step: int) -> dict[str, Any]:
         legs: dict[str, Any] = {}
         diagnostic_inputs.clear()
+        archive_inputs.clear()
         result_sink = None
         if tracker.config.enabled and tracker.config.diagnostics:
 
             def result_sink(result, truth, graph_truth, observed):
                 diagnostic_inputs.append((result, truth, graph_truth, observed))
+
+        # Only events that can be archived collect held-out captures: a sink adds
+        # result_capture to the holdout leg's record but changes no draw or score.
+        holdout_sink = result_sink
+        if holdout_archives and ("best" in holdout_archives or step == training.steps):
+
+            def holdout_sink(result, truth, graph_truth, observed, diagnose=result_sink):
+                archive_inputs.append((result, truth, graph_truth, observed))
+                if diagnose is not None:
+                    diagnose(result, truth, graph_truth, observed)
 
         # Fixed seeds per leg keep worlds and draws comparable across events.
         holdout_rows = stream.holdout_rows(eval_holdout, seed=training.eval_seed)
@@ -722,7 +876,7 @@ def _train_run(
             seed=training.eval_seed + 1,
             device=resolved_device,
             leg="holdout",
-            result_sink=result_sink,
+            result_sink=holdout_sink,
             per_world=True,
         )
         seen_count = min(training.eval_worlds, len(first_seen))
@@ -894,10 +1048,12 @@ def _train_run(
                     checkpoint = record_checkpoint(
                         "last", step, "checkpoint_last.pt", evaluation, evaluation["selection"]
                     )
+                    best = None
                     if evaluation["selection"]["promoted"]:
-                        record_checkpoint(
+                        best = record_checkpoint(
                             "best", step, "checkpoint_best.pt", evaluation, evaluation["selection"]
                         )
+                    record_archive(step, checkpoint, best)
                     record_diagnostics(step, checkpoint)
         terminal = next(entry for entry in run["checkpoints"] if entry["kind"] == "last")
         export_provenance = {

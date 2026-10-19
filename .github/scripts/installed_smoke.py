@@ -16,6 +16,17 @@ import tomllib
 import zipfile
 from pathlib import Path
 
+#: Run where the arviz extra is not installed: the DataTree export must refuse and name it.
+ARVIZ_EXTRA_REQUIRED = """
+from pymc_mfm import DecompositionResult
+try:
+    DecompositionResult.load("base-inference/query").to_datatree()
+except ImportError as exc:
+    assert "pymc-mfm[arviz]" in str(exc), exc
+else:
+    raise AssertionError("to_datatree() ran without the arviz extra")
+"""
+
 
 def run(*command: str, cwd: Path, env: dict[str, str]) -> None:
     subprocess.run(command, cwd=cwd, env=env, check=True)
@@ -83,6 +94,7 @@ def main() -> None:
         ("full", ("generation", "training", "hub"), sdists[0]),
         ("base", (), wheels[0]),
         ("diagnostics", ("diagnostics",), wheels[0]),
+        ("arviz", ("arviz",), wheels[0]),
     ):
         prefix = out / name
         run("uv", "venv", "--python", sys.executable, str(prefix), cwd=out, env=env)
@@ -152,7 +164,16 @@ print(p)
         cwd=out,
         env=env,
     )
-    forbidden = ("pymc_generator", "mlflow", "matplotlib", "scipy", "huggingface_hub")
+    forbidden = (
+        "pymc_generator",
+        "mlflow",
+        "matplotlib",
+        "scipy",
+        "huggingface_hub",
+        "xarray",
+        "arviz_base",
+        "arviz_stats",
+    )
     run(
         str(python_paths["base"]),
         "-I",
@@ -177,6 +198,7 @@ print(p)
         cwd=out,
         env=env,
     )
+    run(str(python_paths["base"]), "-I", "-c", ARVIZ_EXTRA_REQUIRED, cwd=out, env=env)
     run(
         str(python_paths["diagnostics"]),
         "-I",
@@ -187,7 +209,7 @@ from pymc_mfm import DecompositionResult
 from pymc_mfm.diagnostics import build_report, render_report
 assert all(
     importlib.util.find_spec(name) is None
-    for name in ("pymc_generator", "mlflow", "huggingface_hub")
+    for name in ("pymc_generator", "mlflow", "huggingface_hub", "xarray", "arviz_base")
 )
 result = DecompositionResult.load("base-inference/query")
 manifest = build_report(result, "diagnostics-report")
@@ -203,7 +225,31 @@ assert all(
         cwd=out,
         env=env,
     )
-    print("Installed sdist workflow, base wheel inference and diagnostics-only replay passed.")
+    run(str(python_paths["diagnostics"]), "-I", "-c", ARVIZ_EXTRA_REQUIRED, cwd=out, env=env)
+    run(
+        str(python_paths["arviz"]),
+        "-I",
+        "-c",
+        """
+import importlib.util
+import arviz_stats
+from pymc_mfm import DecompositionResult
+trees = {}
+for window in ("query", "context"):
+    result = DecompositionResult.load(f"base-inference/{window}")
+    trees[window] = tree = result.to_datatree()
+    expected = result.components.shape[1] * result.component_mask.sum() + result.edge_mask.sum()
+    assert len(arviz_stats.summary(tree, kind="stats")) == expected, window
+assert trees["query"].attrs["window"] != trees["context"].attrs["window"]
+assert importlib.util.find_spec("matplotlib") is None
+""",
+        cwd=out,
+        env=env,
+    )
+    print(
+        "Installed sdist workflow, base wheel inference, diagnostics-only replay and "
+        "arviz-only DataTree export passed."
+    )
 
 
 if __name__ == "__main__":
