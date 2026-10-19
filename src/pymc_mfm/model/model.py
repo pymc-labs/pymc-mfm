@@ -492,6 +492,7 @@ class MFM(nn.Module):
                 n_samples=router_count,
                 return_structure=True,
                 control_repr=query_repr.controls,
+                structure_only=True,
             )
             graphs = self._validate_conditional_graph(
                 binary_graphs_from_flow(graph_flow), layout, state_mask, n_samples=router_count
@@ -602,19 +603,34 @@ class MFM(nn.Module):
         n_samples: int = DEFAULT_N_SAMPLES,
         return_structure: bool = False,
         control_repr: Tensor | None = None,
-    ) -> Tensor | tuple[Tensor, Tensor]:
-        """Draw a router marginal from already-encoded window representations."""
+        *,
+        structure_only: bool = False,
+    ) -> Tensor | tuple[Tensor | None, Tensor]:
+        """Draw a router marginal from already-encoded window representations.
+
+        ``structure_only=True`` (with ``return_structure=True``) returns
+        ``(None, g_samples)`` and skips the fixed confounder and indirect totals:
+        they feed no other coordinate, so the graph draws are unchanged.
+        """
+        if structure_only and not return_structure:
+            raise ValueError("structure_only requires return_structure=True")
+        c = channel_repr.shape[-2]
+        m = control_repr.shape[-2] if control_repr is not None else self.head.n_controls
+        n_decomp = 1 + c + m + self.head.n_fixed
+        state_mask = self._flow_state_mask(batch)
+        if structure_only:
+            state_mask = state_mask.clone()
+            state_mask[..., 1 + c + m : n_decomp] = 0.0
         flow_samples = self.head.sample(
             weekly_repr,
             channel_repr,
             n_samples=n_samples,
             control_repr=control_repr,
-            state_mask=self._flow_state_mask(batch),
+            state_mask=state_mask,
         )
-        c = channel_repr.shape[-2]
-        m = control_repr.shape[-2] if control_repr is not None else self.head.n_controls
-        n_decomp = 1 + c + m + self.head.n_fixed
         g_samples = flow_samples[..., n_decomp:]
+        if structure_only:
+            return None, g_samples
         flow_samples = flow_samples[..., :n_decomp]
         return (flow_samples, g_samples) if return_structure else flow_samples
 

@@ -129,3 +129,24 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
     torch.testing.assert_close(serial, whole, **ROUND_OFF)
     assert torch.equal(concurrent_graphs, serial_graphs)
     assert torch.equal(concurrent, serial)
+
+
+@pytest.mark.parametrize("window", ["query", "context"])
+def test_structure_only_router_draws_the_same_graph_flow(model64, batch64, window):
+    timeline = model64.encoder.forward_timeline(batch64)
+    representations = timeline.query if window == "query" else timeline.context
+    flows = []
+    for structure_only in (False, True):
+        torch.manual_seed(43)
+        decomposition, graph_flow = model64.sample(
+            batch64,
+            representations.weekly,
+            representations.channels,
+            n_samples=19,
+            return_structure=True,
+            control_repr=representations.controls,
+            structure_only=structure_only,
+        )
+        assert (decomposition is None) == structure_only
+        flows.append(graph_flow)
+    torch.testing.assert_close(flows[1], flows[0], **ROUND_OFF)
