@@ -1,4 +1,4 @@
-"""Current pymc-generator corpora to the canonical A/B tensor representation."""
+"""Adapt current ``pymc_generator`` corpora to the canonical model tensors."""
 
 from __future__ import annotations
 

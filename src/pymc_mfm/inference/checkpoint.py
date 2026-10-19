@@ -21,10 +21,9 @@ def save_model(model: MFM, path: str | Path) -> None:
 def load_model(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
     """Strictly load a canonical artifact in evaluation mode.
 
-    Only tensor/primitive payloads are deserialized. The configuration version
-    defines architecture and preprocessing semantics; absent fields never fall
-    back to current defaults. Original PFN checkpoints require explicit one-time
-    conversion, not a compatibility branch in this loader.
+    Only tensor and primitive payloads are deserialized. The configuration
+    version defines architecture and preprocessing semantics; malformed or
+    incomplete artifacts are rejected rather than inferred.
     """
     payload = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(payload, dict) or payload.keys() != {"config", "state_dict"}:
