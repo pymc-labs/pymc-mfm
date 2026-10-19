@@ -482,12 +482,14 @@ def plot_attribution(summary):
 
 
 def plot_window_totals(summary):
-    """Window-mean channel coverage, its world rates and the latent-total fit.
+    """Pointwise window-mean channel coverage, joint-live coverage and latent-total fit.
 
     A channel's interval is the central 80% of its per-draw window means; a
     vermillion cross marks window-mean truth outside it. The middle panel draws
-    the table's time-average coverage rates, the right one each week's
-    posterior-mean latent total against the structural truth (latent-sales R²).
+    the recorded pointwise coverage shares beside the studentized simultaneous
+    80% event for every truth-live active channel. Unavailable events state their
+    reason; older summaries say ``not recorded`` and are never rescored. The
+    right panel compares posterior-mean latent totals with structural truth.
     """
     data = summary["arrays"].get("window_totals")
     if data is None:
@@ -496,7 +498,7 @@ def plot_window_totals(summary):
     units = summary["metadata"]["units"]
     entries = data["channels"]
     means = [summary["arrays"]["components"][entry["index"]]["time_mean"] for entry in entries]
-    fig, axes = _figure(1, 3, width=15, row_height=4.6, width_ratios=(3, 1, 2))
+    fig, axes = _figure(1, 3, width=15, row_height=4.6, width_ratios=(3, 2, 2))
     channels, rates, fit = axes[0]
     for live, label in ((True, "Live channel"), (False, "Dead channel"), (None, "Channel")):
         members = [slot for slot, entry in enumerate(entries) if entry["live"] is live]
@@ -547,18 +549,45 @@ def plot_window_totals(summary):
         ylabel=f"Window-mean contribution ({units})", title="Time-average 80% coverage per channel"
     )
     channels.legend(fontsize=7)
-    groups = (("cov80", "All"), ("cov80_live", "Live"), ("cov80_dead", "Dead"))
-    colors = (COLORS["pooled"], _LIVE_COLORS[True], _LIVE_COLORS[False])
-    for position, ((key, _), color) in enumerate(zip(groups, colors, strict=True)):
-        metric = f"timeavg/channel/{key}"
-        if metrics[metric] is None:
+    groups = (
+        ("timeavg/channel/cov80", "Pointwise\nall", COLORS["pooled"]),
+        ("timeavg/channel/cov80_live", "Pointwise\nlive", _LIVE_COLORS[True]),
+        ("timeavg/channel/cov80_dead", "Pointwise\ndead", _LIVE_COLORS[False]),
+        ("window_totals/simultaneous_cov80", "Joint-live\nevent", _LIVE_COLORS[True]),
+    )
+    for position, (metric, label, color) in enumerate(groups):
+        value = metrics.get(metric)
+        if value is None:
             rates.text(position, 0.02, "n/a", ha="center", fontsize=8)
+            status = summary.get("statuses", {}).get(f"metric/{metric}", {})
+            reason = status.get("reason") or (
+                "unavailable" if metric in metrics else "not recorded"
+            )
+            rates.plot(
+                [],
+                [],
+                " ",
+                label=_fit(
+                    f"{' '.join(label.split())} n/a: {reason}",
+                    fig.get_figwidth() * 2 / 7,
+                    7,
+                    longest=_LONGEST_WORD,
+                ),
+            )
         else:
-            rates.bar(position, metrics[metric], color=color, gid=metric)
+            rates.bar(
+                position,
+                value,
+                color=color,
+                hatch="//" if metric == "window_totals/simultaneous_cov80" else None,
+                gid=metric,
+            )
     rates.axhline(0.8, color="black", linestyle="--", linewidth=1, label="Nominal 80%")
-    rates.set_xticks(range(len(groups)), [label for _, label in groups])
-    rates.set(ylim=(0, 1.05), ylabel="Share of channels covered", title="World coverage")
-    rates.legend(fontsize=7, loc="lower center")
+    rates.set_xticks(range(len(groups)), [label for _, label, _ in groups], fontsize=8)
+    rates.set(
+        ylim=(0, 1.05), ylabel="Coverage share / indicator", title="Pointwise shares / joint event"
+    )
+    rates.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.18))
     total = summary["arrays"]["total"]
     fit.scatter(
         total["truth"],
@@ -572,14 +601,16 @@ def plot_window_totals(summary):
     if low == high:
         low, high = low - 1, high + 1
     fit.plot([low, high], [low, high], "k--", linewidth=1, label="Identity")
-    r2 = metrics["latent_total/r2"]
+    r2 = metrics.get("latent_total/r2")
     fit.set(
         xlabel=f"Structural latent total ({units})",
         ylabel=f"Posterior-mean latent total ({units})",
         title=f"Latent-sales R² {r2:.3f}" if r2 is not None else "Latent-sales R² undefined",
     )
     fit.legend(fontsize=7)
-    _header(fig, summary, "Window totals — time-average channel coverage and latent-total fit")
+    _header(
+        fig, summary, "Window totals — pointwise coverage, joint-live event and latent-total fit"
+    )
     return fig
 
 

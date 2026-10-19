@@ -6,6 +6,17 @@ approved or published release.
 
 ## Changes
 
+- **Joint coverage and coverage uncertainty.** A studentized 80% simultaneous
+  band scores each world's truth-live media and control window totals as
+  `timeavg_{contribution,control_contribution}_simcov80_live`; the existing
+  pointwise metrics and checkpoint selection are unchanged. One-result window
+  totals show the channel joint event beside pointwise coverage. Coverage-only
+  world/cell evidence is retained in evaluation tables, not scalar events or
+  checkpoints. `TrainingRun.derived_metrics()` and diagnostic reports reuse the
+  comparison bootstrap for report-only 95% intervals, resampling generator
+  cells while preserving equal-world means. Missing cell identity or fewer
+  than two cells gives explicit unavailable bounds; saved report snapshots
+  rerender without inference and old reports mark missing quantities not recorded.
 - Shared context-fitted input scaling: per-channel mean spend, per-control RMS,
   and outcome p95 before all features. Original outcome units are restored in
   float64 for every decomposition draw. Both training and inference use this path.
@@ -62,7 +73,7 @@ approved or published release.
   - Model cards note "no positive edges — calibration not evidenced" (or "no negative edges — …") beside the calibration scores (`ece`, `mcb`, `dsc`, `unc`) of an edge family recorded with one truth class, and `TrainingRun.derived_metrics()` leaves such families out of `mean_ece`.
   - Stratified readouts (`pymc_mfm.diagnostics.strata`): one row per active channel and control effect of each world (`effect_rows`, `result_effect_rows`) with its window-total truth, posterior mean, central 80% interval and CRPS in `sales_scale` units, its direct `cy`/`zb` edge frequency in the same draws and its graph-truth label. `strata_summary` groups them per family by true and predicted size bin (an exact `zero` bin, then right-closed bins at stored `cuts`: quartiles of the worlds' nonzero absolute true totals, so replays and other models on the same worlds bin identically), edge-frequency bin, active channels and live channels, with counts, coverage, CRPS and signed/absolute residuals (never divided by the truth). `misclassification` joins each threshold's TP/FP/TN/FN edge call (`p >= t`) with the same values. Empty strata are `unavailable` with a reason, never zero.
   - `evaluate_rows` records `strata[head][window]` for the selected heads, and `per_world=True` adds each world's rows. Training writes them only to `evaluation_tables/step_<N>.json`; `evaluations.jsonl`, checkpoints and MLflow do not carry them, and no selection gate reads them.
-  - Checkpoint gates validate `METRIC_BOUNDS` and include the selected head's context energy score; a held-out metric of that head with non-finite worlds blocks promotion (`selection.nonfinite_keys`).
+  - Checkpoint gates validate `METRIC_BOUNDS` and include the selected head's context energy score; a legacy held-out metric of that head with non-finite worlds blocks promotion (`selection.nonfinite_keys`). The two additive simultaneous-coverage families are excluded from this guard, preserving checkpoint selection while retaining their unavailable reasons.
   - `check_recorded_evaluation` reproduces a bundle's recorded training evaluation within stated tolerances.
   - MPS evaluation no longer converts tensors to zeros.
   - Evaluation archives (`pymc_mfm.diagnostics.EvaluationArchive`) keep the evaluator's conditional captures for cross-world reports. `EvaluationArchive.create(out_dir, identity)` returns a writer whose `add` is a `result_sink` and whose `close` publishes atomically. The layout (`manifest.json` plus one saved `DecompositionResult` directory and `truth.npz` per world window) and its strict manifest declare the model, the corpora and the evaluation, including the call plan with consecutive seeds, and fix the archive order. `EvaluationArchive.load` reads every file once through a bounded reader that refuses symlinked archive files and entry directories, size- and hash-checks every byte it decodes before use, and names the offending file in `ArchiveIntegrityError`. Reads yield `(result, truth, graph_truth, observed)` 4-tuples in capture order, and converters feed `strata_summary` (every world), `sbc_report` (family window totals) and `conditional_sbc_report` (both with one world per generator cell), all without a model call. `archive_identity`, `evaluate_into_archive(worlds_per_call=...)` and `python -m pymc_mfm.training evaluate` (4 worlds per call by default) build and write archives, and `train(holdout_archives=...)` / `--holdout-archives` archives a run's held-out evaluations. Only results whose inputs equal a declared corpus world are accepted, and identities from `archive_identity` are marked synthetic only with a hash-bound sidecar (hand-built identities are trusted as written). `DecompositionResult.load` is split into private steps so that archives decode the bytes they hashed; `load`'s behaviour is unchanged (no user action).

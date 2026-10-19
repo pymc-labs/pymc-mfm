@@ -59,7 +59,7 @@ LATENT_SALES_KEYS = (
     "latent_sales_r2",
 )
 #: Keys of :func:`time_average_scores` (after its prefix).
-TIME_AVERAGE_KEYS = ("cov80", "cov80_live", "cov80_dead")
+TIME_AVERAGE_KEYS = ("cov80", "cov80_live", "cov80_dead", "simcov80_live")
 #: Keys of :func:`graph_scores` that compare the draws with the true graph.
 _TRUTH_GRAPH_KEYS = (
     "shd_mean",
@@ -845,36 +845,105 @@ def time_average_coverage(
     return float(np.mean((lo <= level) & (level <= hi)))
 
 
+def simultaneous_coverage(samples: np.ndarray, truth: np.ndarray, level: float = 0.8) -> Scored:
+    """Whether one world's truth lies in a studentized simultaneous band.
+
+    ``samples`` is ``(S, T, E)`` and ``truth`` ``(T, E)`` for a prefiltered
+    truth-live effect family. Reduce time first, then center each effect's
+    draw means at its posterior mean and divide by its posterior SD
+    (``ddof=0``). The band radius is the NumPy-linear ``level`` quantile of
+    the per-draw maximum absolute standardized deviation. The truth is
+    covered when its maximum deviation is no larger than that radius.
+
+    Studentization prevents the largest-scale effect alone setting the
+    band. Window means and totals give the same event. Exchangeable truth
+    and draws give approximately ``level`` coverage, not an exact
+    finite-draw guarantee. This differs from every effect lying in its
+    pointwise interval, which has no fixed joint nominal level.
+
+    Reasons: ``fewer_than_two_live_effects``, ``zero_posterior_sd`` in any
+    effect (also for one draw), and ``nonfinite`` inputs or intermediates.
+    Invalid shapes, an empty time window or a level outside ``(0, 1)``
+    raise ``ValueError``.
+    """
+    draws, target = _draws_and_truth(samples, truth, 3)
+    if not math.isfinite(level) or not 0 < level < 1:
+        raise ValueError("level must be finite and strictly between zero and one")
+    if target.shape[0] < 1:
+        raise ValueError("simultaneous coverage needs a nonempty time window")
+    if not _all_finite(draws, target):
+        return None, NONFINITE
+    if target.shape[1] < 2:
+        return None, "fewer_than_two_live_effects"
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        means, target_mean = draws.mean(axis=1), target.mean(axis=0)
+        if not _all_finite(means, target_mean):
+            return None, NONFINITE
+        # Repeated non-binary-exact values can have a tiny spurious NumPy SD.
+        if (np.ptp(means, axis=0) == 0).any():
+            return None, "zero_posterior_sd"
+        center = means.mean(axis=0)
+        if not _all_finite(center):
+            return None, NONFINITE
+        # ``means`` owns its reduction buffer. Scale centered residuals before
+        # squaring so narrow finite posteriors do not underflow to zero SD.
+        means -= center
+        scale = np.abs(means).max(axis=0)
+        if not _all_finite(scale):
+            return None, NONFINITE
+        means /= scale
+        sd = np.sqrt(np.mean(means * means, axis=0))
+        deviations = np.abs(means / sd)
+        truth_deviation = np.abs(((target_mean - center) / scale) / sd)
+        if not _all_finite(deviations, truth_deviation):
+            return None, NONFINITE
+        radius = np.quantile(deviations.max(axis=1), level)
+    return float(truth_deviation.max() <= radius), None
+
+
 def time_average_scores(
     samples: np.ndarray, truth: np.ndarray, live: np.ndarray | None, *, prefix: str = ""
 ) -> WorldScores:
-    """80% time-average coverage of draws ``(S, T, C)``: all, live and dead slots.
+    """Pointwise and simultaneous 80% window coverage for one effect family.
 
     ``cov80``, ``cov80_live`` and ``cov80_dead`` (after ``prefix``) are
-    :func:`time_average_coverage` over the group, weighted by its slot count.
-    ``live`` ``(C,)`` holds graph labels, ``None`` without graph truth
-    (``missing_graph_truth``); empty groups are ``no_live_effects`` /
-    ``no_dead_effects``; non-finite inputs make every key ``nonfinite``.
+    :func:`time_average_coverage`, weighted by the group's slot count.
+    ``simcov80_live`` is :func:`simultaneous_coverage` on truth-live effects,
+    with world weight 1; dead effects never enter that joint event.
+    ``live`` ``(C,)`` holds graph labels, ``None`` without graph truth.
+    Pointwise empty groups are ``no_live_effects`` / ``no_dead_effects``.
+    Non-finite inputs retain the pointwise family's ``nonfinite`` behavior;
+    the simultaneous score checks only the truth-live group.
     """
     draws, target = _draws_and_truth(samples, truth, 3)
     if target.shape[1] < 1:
         raise ValueError("time-average coverage needs at least one slot")
     world = WorldScores()
-    all_key, live_key, dead_key = (prefix + key for key in TIME_AVERAGE_KEYS)
+    all_key, live_key, dead_key, simultaneous_key = (prefix + key for key in TIME_AVERAGE_KEYS)
+    live_mask = None if live is None else _graph_labels(live, target.shape[1])
     if not _all_finite(draws, target):
-        return _skip_all(world, (all_key, live_key, dead_key), NONFINITE)
-    world.put(all_key, time_average_coverage(draws, target), target.shape[1])
-    if live is None:
-        return _skip_all(world, (live_key, dead_key), "missing_graph_truth")
-    live_mask = _graph_labels(live, target.shape[1])
-    for key, mask, empty in (
-        (live_key, live_mask, "no_live_effects"),
-        (dead_key, ~live_mask, "no_dead_effects"),
-    ):
-        if mask.any():
-            world.put(key, time_average_coverage(draws[..., mask], target[:, mask]), mask.sum())
+        _skip_all(world, (all_key, live_key, dead_key), NONFINITE)
+    else:
+        world.put(all_key, time_average_coverage(draws, target), target.shape[1])
+        if live_mask is None:
+            _skip_all(world, (live_key, dead_key), "missing_graph_truth")
         else:
-            world.skip(key, empty)
+            for key, mask, empty in (
+                (live_key, live_mask, "no_live_effects"),
+                (dead_key, ~live_mask, "no_dead_effects"),
+            ):
+                if mask.any():
+                    world.put(
+                        key, time_average_coverage(draws[..., mask], target[:, mask]), mask.sum()
+                    )
+                else:
+                    world.skip(key, empty)
+    if live_mask is None:
+        world.skip(simultaneous_key, "missing_graph_truth")
+    else:
+        world.score(
+            simultaneous_key, simultaneous_coverage(draws[..., live_mask], target[:, live_mask])
+        )
     return world
 
 

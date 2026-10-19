@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from pymc_mfm.plotting import panels
 
 from .core import record_series
+from .coverage import evaluation_coverage_intervals
 from .report import _output, _report_evidence, _score, _write_report
 
 if TYPE_CHECKING:
@@ -45,10 +46,17 @@ class Diagnostics:
         reference=None,
         training_records=(),
         evaluation_records=(),
+        coverage_intervals=(),
     ):
         self.result = result
         self._records, self._arrays = _report_evidence(
-            truth, graph_truth, observed, training_records, evaluation_records, reference
+            truth,
+            graph_truth,
+            observed,
+            training_records,
+            evaluation_records,
+            reference,
+            coverage_intervals,
         )
         self.summary = _score(result, self._records, self._arrays)
 
@@ -193,7 +201,11 @@ class DiagnosticsPlots(_SummaryPlots):
         return self._draw("attribution")
 
     def window_totals(self) -> Figure:
-        """Time-average 80% coverage per channel, live and dead, and the latent-total fit."""
+        """Pointwise channel coverage and joint live-effect coverage of window means.
+
+        Includes the latent-total fit; joint coverage uses a studentized 80%
+        simultaneous band, distinct from all live pointwise intervals covering.
+        """
         return self._draw("window_totals")
 
     def cumulative(self) -> Figure:
@@ -364,9 +376,9 @@ def _read_records(path, partial):
 class TrainingRun:
     """Recorded history of one :func:`pymc_mfm.training.train` run directory.
 
-    Reads ``run.json``, ``metrics.jsonl`` and ``evaluations.jsonl`` only
-    (``plot.strata`` reads one ``evaluation_tables`` file when called) and
-    never loads a model, so it also follows a run that is still writing.
+    Reads ``run.json``, ``metrics.jsonl`` and ``evaluations.jsonl`` on load.
+    ``plot.strata`` and ``derived_metrics`` read saved ``evaluation_tables``
+    when called. It never loads a model and also follows a run still writing.
     ``training`` and ``evaluation`` are :func:`record_series` summaries; a
     missing records file gives empty series. ``partial_lines`` lists the
     tolerated unterminated last line of a file (a write in progress or cut
@@ -417,8 +429,10 @@ class TrainingRun:
     def plot(self) -> TrainingPlots:
         return TrainingPlots(self)
 
-    def derived_metrics(self) -> list[dict[str, Any]]:
-        """Report-only quantities per evaluation event, from the recorded flat values.
+    def derived_metrics(
+        self, *, seed: int = 0, bootstrap_samples: int = 2000
+    ) -> list[dict[str, Any]]:
+        """Report-only quantities per event, from recorded scores and coverage tables.
 
         ``holdout_minus_seen/<key>`` is the held-out minus the seen value of
         every key both legs record (positive: higher on held-out worlds).
@@ -427,6 +441,13 @@ class TrainingRun:
         router's edge marginals; ``mean_ece`` leaves out families recorded with
         one truth class (``n_pos`` 0 or ``n``), whose ECE evidences no
         calibration. An undefined input gives ``None``.
+
+        ``coverage_intervals[leg][key]`` holds the equal-world mean and its
+        95% cell-clustered bootstrap interval, scored-world/cell/slot counts,
+        eligibility and undefined reasons, seed and draw count. Slot weights
+        affect only count metadata. Intervals use saved coverage evidence in
+        ``evaluation_tables/step_<N:09d>.json``, never inference replay; absent
+        tables or evidence are ``unavailable`` / ``not_recorded``.
         """
         derived = []
         for record in self.evaluation["records"]:
@@ -461,6 +482,11 @@ class TrainingRun:
                         values[f"{leg}/{source}/mean_{metric}"] = (
                             math.fsum(defined) / len(defined) if defined else None
                         )
+            path = self.run_dir / "evaluation_tables" / f"step_{int(record['step']):09d}.json"
+            tables = _read_json(path, "evaluation tables") if path.is_file() else None
+            values["coverage_intervals"] = evaluation_coverage_intervals(
+                record, tables, seed=seed, bootstrap_samples=bootstrap_samples
+            )
             derived.append(values)
         return derived
 

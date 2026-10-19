@@ -438,27 +438,45 @@ def _attribution(names, families, active, samples, truth, scale, effect_labels, 
 
 
 def _window_totals(names, channels, samples, truth, labels, scale, metrics):
-    """Window-level channel totals: time-average coverage and running-total energy score.
+    """Window-level channel coverage, joint-live coverage and running-total energy score.
 
-    ``labels`` is the ``(live, reason)`` pair of the channels' ``cy`` labels.
+    ``labels`` is the ``(live, reason)`` pair of the active channels' ``cy`` labels.
+    Pointwise scores keep their ``timeavg/channel/`` names; the simultaneous
+    live-family event is ``window_totals/simultaneous_cov80``, dimensionless.
     Returns the window-total and cumulative arrays, or ``(None, None, reason)``.
     """
     from pymc_mfm.training import metrics as scoring
 
-    coverage_keys = [f"timeavg/channel/{key}" for key in scoring.TIME_AVERAGE_KEYS]
+    coverage_keys = [f"timeavg/channel/{key}" for key in ("cov80", "cov80_live", "cov80_dead")]
+    simultaneous_key = "window_totals/simultaneous_cov80"
     energy_key = "cumulative/channel/energy_score"
+    live, unlabeled = labels
     if truth is None or not channels.size:
         reason = (
             "simulation truth not supplied" if truth is None else "no active channel components"
         )
         for key in coverage_keys:
             metrics.add(key, None, reason=reason)
+        simultaneous_reason = (
+            reason
+            if truth is None
+            else unlabeled
+            if live is None
+            else "fewer_than_two_live_effects"
+        )
+        metrics.add(simultaneous_key, None, reason=simultaneous_reason)
         metrics.add(energy_key, None, unit="sales_scale", reason=reason)
         return None, None, reason
-    live, unlabeled = labels
     draws, target = samples[..., channels], truth[:, channels]
     world = scoring.time_average_scores(draws, target, live, prefix="timeavg/channel/")
     _add_scores(metrics, world, coverage_keys, unlabeled=unlabeled)
+    score_key = "timeavg/channel/simcov80_live"
+    reason = world.undefined.get(score_key)
+    metrics.add(
+        simultaneous_key,
+        world.values.get(score_key),
+        reason=unlabeled if reason == "missing_graph_truth" else reason,
+    )
     if scale is None:
         metrics.add(energy_key, None, unit="sales_scale", reason="sales_scale provenance absent")
     else:

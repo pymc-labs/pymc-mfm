@@ -280,16 +280,20 @@ class DecompositionResult:
         reference=None,
         training_records=(),
         evaluation_records=(),
+        coverage_intervals=(),
     ) -> Diagnostics:
         """Score these draws once against the supplied evidence; never samples.
 
         The returned object holds the computed catalog, so its metrics,
         statuses, figures and report reuse one computation. Without evidence
         the object is also cached on this result and shared with ``plot``.
+        ``coverage_intervals`` supplies report-only saved evaluation uncertainty;
+        it is frozen with the other evidence and never added to scalar metrics.
         """
         from pymc_mfm.diagnostics.accessors import Diagnostics
 
         training_records, evaluation_records = list(training_records), list(evaluation_records)
+        coverage_intervals = list(coverage_intervals)
         evidence_free = (
             truth is None
             and graph_truth is None
@@ -297,6 +301,7 @@ class DecompositionResult:
             and reference is None
             and not training_records
             and not evaluation_records
+            and not coverage_intervals
         )
         if evidence_free and "diagnostics" in self._cache:
             return self._cache["diagnostics"]
@@ -308,6 +313,7 @@ class DecompositionResult:
             reference=reference,
             training_records=training_records,
             evaluation_records=evaluation_records,
+            coverage_intervals=coverage_intervals,
         )
         if evidence_free:
             self._cache["diagnostics"] = diagnostics
