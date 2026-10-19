@@ -56,7 +56,7 @@ approved or published release.
   - `push_to_hub` uploads per-profile model cards, a collection index and an optional recorded-output sidecar; `write_model_cards` renders the cards locally. Cards show a training plan only for an explicit `corpus_plan` whose shards hold every recorded evaluation world, and a location never mixes a root bundle with profiles.
   - The sidecar is bound to the weights' `state_sha256` and the bundle's control and latent widths, validated strictly (at least one active channel and control, finite float64 numbers, int64 seeds) and uploaded in canonical form. A model whose weights changed after loading inherits neither the loaded provenance nor the loaded profile; the load-time weight digest is kept in `model.artifact_metadata`.
   - `push_to_hub` and `write_model_cards` accept a maintainer-written `description` (Markdown), rendered as the card's `Model description` section ahead of the generated sections. It applies to one bundle and is refused before any network operation if it holds a Hub token, a bearer credential or a credential-bearing link; links are checked one at a time, so headings and variable names in prose are not misread as URL parts.
-  - PyMC Labs' first published model, `river-1` (2,443,583 parameters, the final checkpoint of run `profile-c-9add72ea6d35`), is profile `river-1` of the private collection `pymc-labs/mfm`; its training corpus is in the private dataset `pymc-labs/mfm`. `examples/river_1_quickstart.ipynb` decomposes simulated PyMC-Marketing-style data with it (80% context, 20% query, 1,000 draws).
+  - PyMC Labs' first published model, `river-1` (2,443,583 parameters, the final checkpoint of run `profile-c-9add72ea6d35`), is profile `river-1` of the private collection `pymc-labs/mfm`; its training corpus is in the private dataset `pymc-labs/mfm`. `examples/river_1_quickstart.ipynb` simulates PyMC-Marketing-style data with PyMC-Marketing's adstock and saturation transformers (new `[examples]` extra), decomposes it with River-1 (80% context, 20% query, 1,000 draws) and plots each channel's and control's contribution against the truth in both windows.
   - Bundles load where the installed versions satisfy the installed release's compatibility constant and every lower bound the bundle records; recorded upper bounds are not enforced, so a later release can relax the constant for published bundles. `numpy` and `torch` are capped below 3 in the dependencies, matching the constant. `save_pretrained` refuses an environment outside it or whose package versions are not release versions (canonical PEP 440 without a local label; torch alone may carry the build label of a CPU, CUDA, ROCm or XPU wheel, including the CPU cxx11-ABI and AMD ROCm `.git<commit>` wheels, or the commit of a source or NVIDIA NGC build), and `train` runs the same check before writing anything; the refusal names the installed package and version. Exports record versions as `packaging` normalizes them; the installed Python version comes from `sys.version_info`.
   - A and B are distributed through the Hub only, and are not yet published.
 - **Corpora.**
@@ -149,8 +149,9 @@ bundle. No pretrained weights are bundled or selected automatically. Base local
 inference does not require generation, plotting, MLflow or Hub clients.
 `[generation]` supplies the generator, `[diagnostics]` adds numerical diagnostics
 and plotting, `[training]` adds diagnostics and MLflow, `[hub]` enables remote
-artifact transport, and `[arviz]` adds ArviZ `DataTree` export (xarray), a view
-of draws rather than evidence. Installing dependencies can require network
+artifact transport, `[arviz]` adds ArviZ `DataTree` export (xarray), a view
+of draws rather than evidence, and `[examples]` adds `pymc-marketing` for the
+River-1 quickstart. Installing dependencies can require network
 access; local inference and saved-evidence replay do not. Remote loading
 resolves the selected revision, or the default branch when omitted, to one
 recorded immutable commit. Use a full commit for reproducibility; offline Hub

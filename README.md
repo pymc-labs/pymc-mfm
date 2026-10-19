@@ -37,8 +37,9 @@ Base runtime dependencies are NumPy, PyTorch, safetensors and packaging.
 Base inference does not import generation, plotting, tracking, or Hub clients.
 Install `[diagnostics]` for the complete numerical/plotting suite, `[hub]` for
 remote artifact transport, `[training]` for diagnostics and MLflow, `[arviz]`
-for ArviZ DataTree export (xarray), and `[generation]` for public
-`pymc-generator`. The `dev` group supplies pytest and Ruff.
+for ArviZ DataTree export (xarray), `[generation]` for public
+`pymc-generator`, and `[examples]` for the PyMC-Marketing transformers the
+River-1 quickstart simulates its data with. The `dev` group supplies pytest and Ruff.
 
 Model weights, corpora, and generated experiment outputs are external artifacts,
 not bundled with the library. Supply a known local model directory or an explicit
@@ -1581,10 +1582,13 @@ memory-map a corpus snapshot and build the per-context corpus views that
 `evaluate_rows` and `train` read.
 
 `examples/river_1_quickstart.ipynb` simulates the weekly data of PyMC-Marketing's
-MMM example by hand, downloads River-1 into a temporary folder and decomposes the
+MMM example with its geometric adstock and logistic saturation transformers
+(`[examples]` extra), downloads River-1 into a temporary folder and decomposes the
 first 80% of the weeks (context) and the remaining 20% (query) with 1,000 draws
-each, against the known truth. `tests/test_examples.py` runs its cells with an
-untrained stand-in model, since CI has no access to the private repository.
+each, plotting every channel's and control's contribution against the known truth
+in both windows. `tests/test_examples.py` runs its cells with an untrained stand-in
+model, since CI has no access to the private repository, and skips them without
+`pymc-marketing`.
 
 ## MLflow lifecycle and evidence
 

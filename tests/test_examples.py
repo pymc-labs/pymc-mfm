@@ -48,8 +48,10 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
 
 def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkeypatch):
     # River-1 is in a private repository, so an untrained model with its control and
-    # latent widths stands in: the data, split, inference and figures still run.
+    # latent widths stands in: the data, split, inference and figures still run. The
+    # data come from PyMC-Marketing's transformers, which the examples extra installs.
     pytest.importorskip("matplotlib")
+    pytest.importorskip("pymc_marketing")
     import pymc_mfm
     from pymc_mfm import MFM, ModelConfig
 
