@@ -767,19 +767,19 @@ class JointFlowHead(nn.Module):
             x = x * weight
             trajectory_latent = trajectory_latent * weight
 
-        def drift(x: Tensor, t_val: float) -> Tensor:
-            t = torch.full((s, *lead), t_val, device=x.device, dtype=x.dtype)
-            return self.velocity(x, t, weekly, channels, controls, trajectory_latent, weight)
+        grid = self._time_grid(FLOW_STEPS_SAMPLE)
+        if weight is None:
 
-        def project(x: Tensor, t_next: float) -> Tensor:
-            return x * weight
+            def drift(x: Tensor, t_val: float) -> Tensor:
+                t = torch.full((s, *lead), t_val, device=x.device, dtype=x.dtype)
+                return self.velocity(x, t, weekly, channels, controls, trajectory_latent, weight)
 
-        x = integrate_flow(
-            x,
-            drift,
-            self._time_grid(FLOW_STEPS_SAMPLE),
-            project=project if weight is not None else None,
-        )
+            x = integrate_flow(x, drift, grid)
+        else:
+            live = _LiveVelocity(
+                self, weekly_repr, channel_repr, control_repr, trajectory_latent, weight
+            )
+            x = live.integrate(x, grid)
         if weight is not None:
             n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
             # Direct contributions are nonnegative; padding uses the same natural zero.
@@ -814,3 +814,370 @@ class JointFlowHead(nn.Module):
 
     def count_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters())
+
+
+def _input_blocks(layer: nn.Linear, widths: dict[str, int]) -> dict[str, Tensor]:
+    """Split a first layer's weight by the blocks of its concatenated input, in order."""
+    if sum(widths.values()) != layer.in_features:
+        raise ValueError(f"input blocks {widths} do not sum to {layer.in_features} features")
+    return dict(zip(widths, layer.weight.split(list(widths.values()), dim=1), strict=True))
+
+
+class _LiveNetwork:
+    """One per-coordinate network whose step-invariant first-layer blocks are precomputed.
+
+    ``static`` holds bias plus the projection of every input fixed during
+    integration, ``[..., T, rows, hidden]``. At each step only the flow-state
+    scalars (``scalar_index`` into the scalar bank), the week-pooled trajectory
+    contexts (``context_index`` into the context bank) and the flow time are projected.
+    """
+
+    def __init__(
+        self,
+        net: nn.Sequential,
+        static: Tensor,
+        *,
+        time_weight: Tensor,
+        scalar_weight: Tensor,
+        scalar_index: Tensor,
+        context_weight: Tensor,
+        context_index: Tensor,
+    ):
+        self.tail = net[1:]
+        self.static = static
+        self.time_weight = time_weight
+        self.scalar_weight = scalar_weight
+        self.scalar_index = scalar_index
+        self.context_weight = context_weight
+        self.context_index = context_index
+        self.rows = scalar_index.shape[0]
+
+    def __call__(self, scalars: Tensor, contexts: Tensor, time: Tensor) -> Tensor:
+        if self.rows == 0:
+            return scalars.new_zeros(*scalars.shape[:-1], 0)
+        state = scalars.index_select(-1, self.scalar_index.flatten())
+        state = state.unflatten(-1, tuple(self.scalar_index.shape))
+        context = contexts.index_select(-2, self.context_index.flatten())
+        context = context.unflatten(-2, tuple(self.context_index.shape)).flatten(-2)
+        hidden = F.linear(state, self.scalar_weight)
+        hidden += self.static
+        hidden += F.linear(context, self.context_weight, F.linear(time, self.time_weight))
+        return self.tail(hidden).squeeze(-1)
+
+
+class _LiveVelocity:
+    """Sampling-time :meth:`JointFlowHead.velocity` restricted to live coordinates.
+
+    Equal to ``velocity`` on every coordinate that is live in some task, up to
+    float round-off. Every network acts on one coordinate at a time, entity
+    moments are mask-weighted and each coordinate's trajectory context pools only
+    its own weeks, so a coordinate masked in every task cannot reach a live one.
+    The sampler projects such coordinates to zero after every step; their
+    velocity is never evaluated. Each network's first layer is affine in its
+    concatenated input, so the blocks fixed during integration (week, node and
+    type representations, the trajectory latent) are projected once per call and
+    only flow-state inputs are projected at each step.
+    """
+
+    def __init__(
+        self,
+        head: JointFlowHead,
+        weekly_repr: Tensor,
+        channel_repr: Tensor,
+        control_repr: Tensor | None,
+        trajectory_latent: Tensor,
+        weight: Tensor,
+    ):
+        entity_repr = head._entity_repr(channel_repr, control_repr)
+        device = trajectory_latent.device
+        n_channels, n_entities = channel_repr.shape[-2], entity_repr.shape[-2]
+        n_fixed = head.n_fixed
+        n_decomposition = 1 + n_entities + n_fixed
+        d = trajectory_latent.shape[-1]
+        layout = None
+        if head.graph_router:
+            layout = _edge_slot_layout(n_channels, n_entities - n_channels, head.n_demand)
+            if d - n_decomposition != layout.n_slots:
+                raise ValueError(
+                    f"joint graph state carries {d - n_decomposition} edge columns but the "
+                    f"layout for K={n_channels}, M={n_entities - n_channels}, "
+                    f"J={head.n_demand} has {layout.n_slots} slots"
+                )
+        entity_mask = weight[..., 1 : 1 + n_entities]
+        try:
+            torch.broadcast_shapes(entity_mask.shape, (*trajectory_latent.shape[:-1], n_entities))
+        except RuntimeError as error:
+            raise ValueError(
+                "state_mask entity prefix does not broadcast to the flow state: "
+                f"{tuple(weight.shape)} versus {tuple(trajectory_latent.shape)}"
+            ) from error
+        entity_count = entity_mask.sum(dim=-1, keepdim=True)
+        if head.graph_router:
+            if (entity_count == 0).any():
+                raise ValueError("flow state has a task/week with no active entities")
+        else:
+            # An all-off conditioning graph leaves only baseline stochastic.
+            entity_count = entity_count.clamp_min(1)
+
+        # Live state order: baseline, live entities, every fixed slot, live edge slots.
+        live = (weight != 0).expand(*weight.shape[:-1], d).reshape(-1, d).any(dim=0)
+        live_entities = torch.nonzero(live[1 : 1 + n_entities]).squeeze(-1)
+        live_slots = torch.nonzero(live[n_decomposition:]).squeeze(-1)
+        self.index = torch.cat(
+            [
+                torch.zeros(1, dtype=torch.long, device=device),
+                1 + live_entities,
+                torch.arange(1 + n_entities, n_decomposition, device=device),
+                n_decomposition + live_slots,
+            ]
+        )
+        n_live = self.index.numel()
+        n_live_entities = live_entities.numel()
+        self.entity_slice = slice(1, 1 + n_live_entities)
+        # Bank positions: a shared zero column after the live state, then the moments.
+        zero, mean, std = n_live, n_live + 1, n_live + 2
+        position = torch.full((d,), zero, dtype=torch.long, device=device)
+        position[self.index] = torch.arange(n_live, device=device)
+
+        self.weight = weight.index_select(-1, self.index)
+        self.entity_active = weight.index_select(-1, 1 + live_entities)
+        self.entity_count = entity_count
+        self.entity_count_sqrt = entity_count.sqrt()
+        self.context_mask = self.weight.unsqueeze(-1)
+
+        state_weight = head.trajectory_state_proj.weight
+        self.token_state_weight = state_weight[:, 0]
+        self.token_offset = torch.addcmul(
+            head.trajectory_state_proj.bias + head.trajectory_week_proj(weekly_repr).unsqueeze(-2),
+            trajectory_latent.index_select(-1, self.index).unsqueeze(-1),
+            state_weight[:, 1],
+        )
+        self.trajectory_token_net = head.trajectory_token_net
+        self.trajectory_score = head.trajectory_score
+
+        t_dim = 1 + 2 * FLOW_N_FREQ
+        d_model = weekly_repr.shape[-1]
+        d_node = entity_repr.shape[-1]
+        embed = _TRAJECTORY_EMBED_DIM
+
+        def week_static(layer: nn.Linear, week_weight: Tensor) -> Tensor:
+            return F.linear(weekly_repr, week_weight, layer.bias).unsqueeze(-2)
+
+        def columns(rows: int, *values: int | Tensor) -> Tensor:
+            """Bank positions ``[rows, len(values)]``; an integer repeats down its column."""
+            return torch.stack(
+                [
+                    value
+                    if isinstance(value, Tensor)
+                    else torch.full((rows,), value, dtype=torch.long, device=device)
+                    for value in values
+                ],
+                dim=-1,
+            )
+
+        base_layer = head.base_net[0]
+        base = _input_blocks(
+            base_layer,
+            {"x": 1, "time": t_dim, "week": d_model, "mean": 1, "std": 1, "context": embed},
+        )
+        networks = [
+            _LiveNetwork(
+                head.base_net,
+                week_static(base_layer, base["week"]),
+                time_weight=base["time"],
+                scalar_weight=torch.cat([base["x"], base["mean"], base["std"]], dim=1),
+                scalar_index=columns(1, 0, mean, std),
+                context_weight=base["context"],
+                context_index=columns(1, 0),
+            )
+        ]
+
+        # Entities: a masked node representation and a channel/control type.
+        masked_repr = entity_repr * entity_mask.unsqueeze(-1).to(entity_repr.dtype)
+        type_ids = torch.cat(
+            [
+                torch.full((n_channels,), ENTITY_CHANNEL, dtype=torch.long, device=device),
+                torch.full(
+                    (n_entities - n_channels,), ENTITY_CONTROL, dtype=torch.long, device=device
+                ),
+            ]
+        )
+        contrib_layer = head.contrib_net[0]
+        contrib_widths = {
+            "x": 1,
+            "time": t_dim,
+            "week": d_model,
+            "repr": d_node,
+            "base": 1,
+            "mean": 1,
+            "std": 1,
+            "type": _ENTITY_EMBED_DIM,
+        }
+        if layout is not None:
+            contrib_widths["own_edge"] = 1
+        contrib_widths["context"] = embed
+        if layout is not None:
+            contrib_widths["edge_context"] = embed
+        contrib = _input_blocks(contrib_layer, contrib_widths)
+        entity_static = (
+            week_static(contrib_layer, contrib["week"])
+            + F.linear(masked_repr.index_select(-2, live_entities), contrib["repr"])
+            + F.linear(head.entity_type_embed(type_ids[live_entities]), contrib["type"])
+        )
+        entity_positions = position[1 + live_entities]
+        scalar_columns = [entity_positions, 0, mean, std]
+        context_columns = [entity_positions]
+        scalar_blocks = [contrib["x"], contrib["base"], contrib["mean"], contrib["std"]]
+        context_blocks = [contrib["context"]]
+        if layout is not None:
+            # Each entity also reads its own outcome edge: cy for channels, zb for controls.
+            own_slot = torch.cat(
+                [
+                    torch.arange(layout.slices["cy"].start, layout.slices["cy"].stop),
+                    torch.arange(layout.slices["zb"].start, layout.slices["zb"].stop),
+                ]
+            ).to(device)
+            own_positions = position[n_decomposition + own_slot[live_entities]]
+            scalar_columns.append(own_positions)
+            context_columns.append(own_positions)
+            scalar_blocks.append(contrib["own_edge"])
+            context_blocks.append(contrib["edge_context"])
+        networks.append(
+            _LiveNetwork(
+                head.contrib_net,
+                entity_static,
+                time_weight=contrib["time"],
+                scalar_weight=torch.cat(scalar_blocks, dim=1),
+                scalar_index=columns(n_live_entities, *scalar_columns),
+                context_weight=torch.cat(context_blocks, dim=1),
+                context_index=columns(n_live_entities, *context_columns),
+            )
+        )
+
+        fixed_layer = head.fixed_net[0]
+        fixed = _input_blocks(
+            fixed_layer,
+            {
+                "x": 1,
+                "time": t_dim,
+                "week": d_model,
+                "mean": 1,
+                "std": 1,
+                "slot": _ENTITY_EMBED_DIM,
+                "context": embed,
+            },
+        )
+        fixed_positions = position[torch.arange(1 + n_entities, n_decomposition, device=device)]
+        networks.append(
+            _LiveNetwork(
+                head.fixed_net,
+                week_static(fixed_layer, fixed["week"])
+                + F.linear(head.fixed_slot_embed.weight, fixed["slot"]),
+                time_weight=fixed["time"],
+                scalar_weight=torch.cat([fixed["x"], fixed["mean"], fixed["std"]], dim=1),
+                scalar_index=columns(n_fixed, fixed_positions, mean, std),
+                context_weight=fixed["context"],
+                context_index=columns(n_fixed, fixed_positions),
+            )
+        )
+
+        if layout is not None:
+            edge_layer = head.edge_net[0]
+            edge = _input_blocks(
+                edge_layer,
+                {
+                    "x": 1,
+                    "src_state": 1,
+                    "dst_state": 1,
+                    "time": t_dim,
+                    "week": d_model,
+                    "src": d_node,
+                    "dst": d_node,
+                    "src_type": _ENTITY_EMBED_DIM,
+                    "dst_type": _ENTITY_EMBED_DIM,
+                    "context": embed,
+                    "src_context": embed,
+                    "dst_context": embed,
+                },
+            )
+            # Node bank follows the edge layout: channels, controls, demand, baseline, sales.
+            lead = weekly_repr.shape[:-1]
+            node_bank = torch.cat(
+                [
+                    masked_repr.expand(*lead, n_entities, d_node),
+                    head.demand_node_embed.weight[: head.n_demand].expand(
+                        *lead, head.n_demand, d_node
+                    ),
+                    head.baseline_node_embed.weight.expand(*lead, 1, d_node),
+                    head.sales_node_proj(weekly_repr).unsqueeze(-2),
+                ],
+                dim=-2,
+            )
+            src_index, dst_index, src_type, dst_type = head._edge_layout_tensors(layout, device)
+            src_index, dst_index = src_index[live_slots], dst_index[live_slots]
+            # Node states: entities and baseline carry flow coordinates; demand and sales are zero.
+            node_coordinate = torch.cat(
+                [
+                    position[1 : 1 + n_entities],
+                    torch.full((head.n_demand,), zero, dtype=torch.long, device=device),
+                    position[:1],
+                    torch.full((1,), zero, dtype=torch.long, device=device),
+                ]
+            )
+            slot_rows = torch.stack(
+                [
+                    position[n_decomposition + live_slots],
+                    node_coordinate[src_index],
+                    node_coordinate[dst_index],
+                ],
+                dim=-1,
+            )
+            networks.append(
+                _LiveNetwork(
+                    head.edge_net,
+                    week_static(edge_layer, edge["week"])
+                    + F.linear(node_bank, edge["src"]).index_select(-2, src_index)
+                    + F.linear(node_bank, edge["dst"]).index_select(-2, dst_index)
+                    + F.linear(head.node_type_embed(src_type[live_slots]), edge["src_type"])
+                    + F.linear(head.node_type_embed(dst_type[live_slots]), edge["dst_type"]),
+                    time_weight=edge["time"],
+                    scalar_weight=torch.cat([edge["x"], edge["src_state"], edge["dst_state"]], 1),
+                    scalar_index=slot_rows,
+                    context_weight=torch.cat(
+                        [edge["context"], edge["src_context"], edge["dst_context"]], dim=1
+                    ),
+                    context_index=slot_rows,
+                )
+            )
+        self.networks = networks
+
+    def __call__(self, x: Tensor, t_val: float) -> Tensor:
+        """Velocity of the live state ``x[..., index]`` at flow time ``t_val``."""
+        tokens = self.trajectory_token_net(
+            torch.addcmul(self.token_offset, x.unsqueeze(-1), self.token_state_weight)
+        )
+        weights = torch.softmax(self.trajectory_score(tokens), dim=-3)
+        context = (weights * tokens).sum(dim=-3, keepdim=True) * self.context_mask
+        zero_context = context.new_zeros(*context.shape[:-2], 1, _TRAJECTORY_EMBED_DIM)
+        contexts = torch.cat([context, zero_context], dim=-2)
+
+        entity = x[..., self.entity_slice]
+        mean = (entity * self.entity_active).sum(dim=-1, keepdim=True) / self.entity_count
+        std = (
+            torch.linalg.vector_norm((entity - mean) * self.entity_active, dim=-1, keepdim=True)
+            / self.entity_count_sqrt
+        )
+        scalars = torch.cat([x, x.new_zeros(*x.shape[:-1], 1), mean, std], dim=-1)
+        time = _fourier_time(x.new_full((), t_val))
+        return torch.cat([network(scalars, contexts, time) for network in self.networks], dim=-1)
+
+    def integrate(self, x: Tensor, grid) -> Tensor:
+        """Euler-integrate masked ``x``; coordinates masked in every task stay zero."""
+        weight = self.weight
+        live = integrate_flow(
+            x.index_select(-1, self.index),
+            self,
+            grid,
+            project=lambda state, _t_next: state * weight,
+        )
+        return x.new_zeros(x.shape).index_copy_(-1, self.index, live)
