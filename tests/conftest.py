@@ -1,5 +1,7 @@
 """Small complete-model fixtures; no external weights, corpus or service."""
 
+from importlib.util import find_spec
+
 import numpy as np
 import pytest
 import torch
@@ -9,6 +11,11 @@ from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM
 
 GENERATOR_EDGE_TYPES = ["cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz"]
+#: Skips a test unless the ``arviz`` extra (xarray, arviz-base, arviz-stats) is installed.
+needs_arviz = pytest.mark.skipif(
+    any(find_spec(name) is None for name in ("xarray", "arviz_base", "arviz_stats")),
+    reason="needs the pymc-mfm[arviz] extra",
+)
 
 
 def make_synthetic_corpus(

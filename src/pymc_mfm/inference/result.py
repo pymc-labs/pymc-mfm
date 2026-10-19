@@ -16,6 +16,8 @@ import torch
 from ._artifact_schema import json_bytes
 
 if TYPE_CHECKING:
+    from xarray import DataTree
+
     from pymc_mfm.diagnostics.accessors import Diagnostics, ResultPlots
 
 #: ``result.json`` version: metadata is hash-bound like the arrays since version 2.
@@ -87,6 +89,56 @@ def _require_json_text(value, path):
                 stack.append((item, f"{path}/{key}"))
         elif isinstance(value, (list, tuple)):
             stack.extend((item, f"{path}/{index}") for index, item in enumerate(value))
+
+
+def _checked_evidence(
+    result: DecompositionResult,
+    truth,
+    graph_truth,
+    observed,
+    *,
+    stored: bool,
+    partial: bool = False,
+) -> dict[str, np.ndarray]:
+    """Checked float64 evidence of one result, by the evidence rules of ``compute_diagnostics``.
+
+    ``truth`` ``[T,D]``, ``graph_truth`` ``[L]`` and ``observed`` ``[T]`` align with
+    ``result``. Supplied arrays must be real and are copied to float64; ``stored`` ones
+    (decoded from an archive's ``truth.npz``) must already be exactly float64 and are kept
+    as they are. With ``partial`` a ``None`` piece is left out of the returned mapping and
+    only the supplied pieces are checked.
+    """
+    _, times, width = result.components.shape
+    shapes = {
+        "truth": (times, width),
+        "graph_truth": (result.graphs.shape[1],),
+        "observed": (times,),
+    }
+    evidence = {}
+    for name, value in zip(shapes, (truth, graph_truth, observed), strict=True):
+        if partial and value is None:
+            continue
+        if stored:
+            array = value
+            if array.dtype != np.float64:
+                raise ValueError(f"{name} must be float64, got {array.dtype}")
+        else:
+            array = np.asarray(value)
+            if array.dtype.kind not in "biuf":
+                raise ValueError(f"{name} must be a real array")
+            array = np.array(array, dtype=np.float64, copy=True)
+        if array.shape != shapes[name]:
+            raise ValueError(f"{name} has shape {array.shape}; the result needs {shapes[name]}")
+        if not np.isfinite(array).all():
+            raise ValueError(f"{name} must be finite")
+        evidence[name] = array
+    if "graph_truth" in evidence and not np.isin(evidence["graph_truth"], (0, 1)).all():
+        raise ValueError("graph_truth must be binary")
+    if "truth" in evidence and np.any(evidence["truth"][:, ~result.component_mask]):
+        raise ValueError("truth is nonzero on padded components")
+    if "graph_truth" in evidence and np.any(evidence["graph_truth"][~result.edge_mask]):
+        raise ValueError("graph_truth has edges outside the active support")
+    return evidence
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,17 +313,40 @@ class DecompositionResult:
             self._cache["diagnostics"] = diagnostics
         return diagnostics
 
+    def to_datatree(self, *, observed=None, truth=None, graph_truth=None) -> DataTree:
+        """These draws as an ArviZ ``xarray.DataTree``; needs the ``pymc-mfm[arviz]`` extra.
+
+        Export only: ``save`` stays the evidence format and MFM never reads a tree back.
+        Groups: ``posterior`` (``components[chain=1, draw, time, component]`` and
+        ``graph[chain=1, draw, edge]``, active slots only), ``constant_data`` (component
+        and edge families, edge endpoints), ``observed_data`` (``outcome[time]``, from
+        ``observed``) and ``truth`` (``components``/``graph`` from synthetic ``truth`` /
+        ``graph_truth``), never mixed with observations. Evidence follows the rules of
+        :meth:`diagnostics`; the padded columns it must leave at zero are dropped. Draws
+        are one chain of independent amortized samples: R-hat is undefined; ESS and MCSE
+        describe only Monte Carlo variability, not convergence or amortization accuracy.
+        One tree holds one window: never concatenate context and query trees.
+        This call imports xarray and arviz-base lazily.
+        """
+        from ._datatree import result_datatree
+
+        return result_datatree(self, observed=observed, truth=truth, graph_truth=graph_truth)
+
+    def _metadata(self) -> dict[str, Any]:
+        """The non-array fields ``save`` writes and its ``metadata_sha256`` digests."""
+        return {
+            item.name: getattr(self, item.name)
+            for item in fields(self)
+            if item.init and item.name not in _ARRAY_FIELDS
+        }
+
     def save(self, path: str | Path) -> Path:
         """Atomically create a new evidence directory, never mutate cached evidence."""
         path = Path(path)
         if path.exists():
             raise FileExistsError(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        metadata = {
-            item.name: getattr(self, item.name)
-            for item in fields(self)
-            if item.init and item.name not in _ARRAY_FIELDS
-        }
+        metadata = self._metadata()
         with tempfile.TemporaryDirectory(prefix=".result-", dir=path.parent) as temporary:
             staged = Path(temporary) / "result"
             staged.mkdir()

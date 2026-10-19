@@ -46,6 +46,6 @@ jobs:
         run: touch src/pymc_mfm/canary.pt tests/canary.npz examples/.env.canary
       - name: Build distributable artifacts
         run: uv build
-      - name: Verify installed sdist, base wheel and diagnostics-only wheel
+      - name: Verify installed sdist, base wheel, diagnostics-only wheel and arviz-only wheel
         if: matrix.installation == 'full'
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed

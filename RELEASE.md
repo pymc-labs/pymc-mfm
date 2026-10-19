@@ -64,6 +64,12 @@ approved or published release.
   - `check_recorded_evaluation` reproduces a bundle's recorded training evaluation within stated tolerances.
   - MPS evaluation no longer converts tensors to zeros.
   - Evaluation archives (`pymc_mfm.diagnostics.EvaluationArchive`) keep the evaluator's conditional captures for cross-world reports. `EvaluationArchive.create(out_dir, identity)` returns a writer whose `add` is a `result_sink` and whose `close` publishes atomically. The layout (`manifest.json` plus one saved `DecompositionResult` directory and `truth.npz` per world window) and its strict manifest declare the model, the corpora and the evaluation, including the call plan with consecutive seeds, and fix the archive order. `EvaluationArchive.load` reads every file once through a bounded reader that refuses symlinked archive files and entry directories, size- and hash-checks every byte it decodes before use, and names the offending file in `ArchiveIntegrityError`. Reads yield `(result, truth, graph_truth, observed)` 4-tuples in capture order, and converters feed `strata_summary` (every world), `sbc_report` (family window totals) and `conditional_sbc_report` (both with one world per generator cell), all without a model call. `archive_identity`, `evaluate_into_archive(worlds_per_call=...)` and `python -m pymc_mfm.training evaluate` (4 worlds per call by default) build and write archives, and `train(holdout_archives=...)` / `--holdout-archives` archives a run's held-out evaluations. Only results whose inputs equal a declared corpus world are accepted, and identities from `archive_identity` are marked synthetic only with a hash-bound sidecar (hand-built identities are trusted as written). `DecompositionResult.load` is split into private steps so that archives decode the bytes they hashed; `load`'s behaviour is unchanged (no user action).
+- **ArviZ export.**
+  - New optional `[arviz]` extra (`arviz-stats[xarray]`; the lockfile resolves it with no new packages). `DecompositionResult.to_datatree(observed=None, truth=None, graph_truth=None)` and `EvaluationArchive.to_datatree(window)` export draws as an ArviZ `xarray.DataTree` and raise an `ImportError` naming `pymc-mfm[arviz]` without it. The export imports xarray and arviz-base when called; `import pymc_mfm`, `decompose` and `import pymc_mfm.diagnostics` never do.
+  - A result tree holds `posterior` `components[chain=1, draw, time, component]` and `graph[chain=1, draw, edge]` on the active slots only (padded slots are absent, not zero), `constant_data` component and edge families and edge endpoints, the caller's `observed` as `observed_data` and synthetic `truth`/`graph_truth` in a separate `truth` group. An archive tree adds a `world` dimension over the union of the worlds' time labels and active components (`NaN` where a world has none; sum with `min_count=1`), compacts active edges to `world_edge` pairs (`<world_id>|<edge>`) and keeps per-world identities, cells and independence in `constant_data`.
+  - Root and `posterior` attributes record window, mode, units, draw count and digests (a result's `metadata_sha256` is the one `save` writes to `result.json`) and state that the draws are one chain of independent amortized draws (`mcmc_diagnostics="not_applicable"`): R-hat is undefined; ESS and MCSE describe only Monte Carlo variability, not convergence or amortization accuracy. One tree holds one window: context and query stay separate trees. Export only: saved results and archives stay the evidence, MFM never reads a tree back, and writing netCDF needs a backend the extra does not install.
+  - Archives and exports share one private evidence check, and `save` and the export one metadata digest; saved bytes, rules and messages are unchanged (no user action).
+  - The installed-distribution check adds an arviz-only wheel lane; its base and diagnostics lanes check that xarray and arviz-base are absent and that the export names the missing extra.
 - **Plot suite.**
   - Figures no longer use pyplot and carry a PNG representation for notebooks. Result, diagnostics and comparison figures state head, window, mode, units and draw count; run evaluation figures state units, scope, legs, draws and head labels.
   - New report panels: attribution, window totals, cumulative contribution, temporal coherence, edge reliability, graph statistics (every `joint_router/graph` statistic as `graph/<key>`, the truth-free ones also without graph truth), cycle check (complete graph plus cc/zz cycle and two-cycle rates) and input support. `run.plot.corpus()` plots the corpus summary and `run.plot.corpus_support()` the world-level context support.
@@ -129,11 +135,13 @@ The offline observation example requires `--model` to name a known local MFM
 bundle. No pretrained weights are bundled or selected automatically. Base local
 inference does not require generation, plotting, MLflow or Hub clients.
 `[generation]` supplies the generator, `[diagnostics]` adds numerical diagnostics
-and plotting, `[training]` adds diagnostics and MLflow, and `[hub]` enables remote
-artifact transport. Installing dependencies can require network access; local
-inference and saved-evidence replay do not. Remote loading resolves the selected
-revision, or the default branch when omitted, to one recorded immutable commit.
-Use a full commit for reproducibility; offline Hub loading needs a populated cache.
+and plotting, `[training]` adds diagnostics and MLflow, `[hub]` enables remote
+artifact transport, and `[arviz]` adds ArviZ `DataTree` export (xarray), a view
+of draws rather than evidence. Installing dependencies can require network
+access; local inference and saved-evidence replay do not. Remote loading
+resolves the selected revision, or the default branch when omitted, to one
+recorded immutable commit. Use a full commit for reproducibility; offline Hub
+loading needs a populated cache.
 
 Context and query inference calls are independent marginal evaluations, not
 paired full-horizon draws. `model_average` samples router graphs, `map` uses
@@ -185,9 +193,12 @@ backend keys. Outputs require a new directory and are not published. See the
 entrypoints.
 
 Fresh-install verification passed the full workflow from the built sdist,
-offline inference from a base-only wheel environment, and saved-result
-render/replay from a diagnostics-only wheel environment. Each ran with Python
-`-I`, verified noneditable installed imports, and checked its dependency set.
+offline inference from a base-only wheel environment, saved-result
+render/replay from a diagnostics-only wheel environment, and `DataTree` export
+with ArviZ summaries of both saved windows from an arviz-only wheel environment;
+the base and diagnostics environments have no xarray and refuse the export with
+an `ImportError` naming `pymc-mfm[arviz]`. Each ran with Python `-I`, verified
+noneditable installed imports, and checked its dependency set.
 
 One base-wheel CPU smoke on an Apple M3 Max (macOS arm64, Python 3.13.9,
 PyTorch 2.14.0, two CPU threads) measured 3.83 seconds to load the full model,
