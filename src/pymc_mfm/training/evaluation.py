@@ -101,7 +101,16 @@ DECOMPOSITION_METRICS: tuple[str, ...] = (
     *_TEMPORAL_METRICS,
     *_TIME_AVERAGE_METRICS,
 )
-_EDGE_SCORES = ("log_score", "brier", "auroc", "auprc", "ece", "null_fpr", "prevalence")
+_EDGE_SCORES = (
+    "log_score",
+    "brier",
+    "auroc",
+    "auprc",
+    "ece",
+    *metrics.BRIER_DECOMPOSITION_KEYS,
+    "null_fpr",
+    "prevalence",
+)
 EDGE_METRICS = (*_EDGE_SCORES, "n", "n_pos")
 GRAPH_METRICS = (
     *metrics.GRAPH_KEYS,
@@ -163,6 +172,10 @@ METRIC_BOUNDS: dict[str, tuple[float, float]] = {
     "auroc": _PROBABILITY,
     "auprc": _PROBABILITY,
     "ece": _PROBABILITY,
+    # CORP Brier components: mcb <= brier, and dsc <= unc = r (1 - r) <= 1/4.
+    "mcb": _PROBABILITY,
+    "dsc": (0.0, 0.25),
+    "unc": (0.0, 0.25),
     "null_fpr": _PROBABILITY,
     "prevalence": _PROBABILITY,
     "n": _NONNEGATIVE,
@@ -186,8 +199,9 @@ METRIC_BOUNDS: dict[str, tuple[float, float]] = {
     "active_controls": _NONNEGATIVE,
     "worlds": (1.0, math.inf),
 }
-#: Round-off allowed beyond every bound: U-statistic energy scores and the
-#: sorted-sample CRPS can dip just below zero in floating point.
+#: Round-off allowed beyond every bound: U-statistic energy scores, the
+#: sorted-sample CRPS and the CORP Brier components (differences of mean
+#: scores) can dip just below zero in floating point.
 BOUNDS_SLACK = 1e-12
 #: Unit of every metric, keyed like :data:`METRIC_BOUNDS`, as its scorer computes
 #: it: ``sales_scale`` for errors and scores of z-space draws (natural units over
@@ -208,7 +222,18 @@ METRIC_UNITS: dict[str, str] = {
     **dict.fromkeys(_TEMPORAL_METRICS, "dimensionless"),
     **dict.fromkeys(_TIME_AVERAGE_METRICS, "dimensionless"),
     "log_score": "nats",
-    **dict.fromkeys(("brier", "auroc", "auprc", "ece", "null_fpr", "prevalence"), "dimensionless"),
+    **dict.fromkeys(
+        (
+            "brier",
+            "auroc",
+            "auprc",
+            "ece",
+            *metrics.BRIER_DECOMPOSITION_KEYS,
+            "null_fpr",
+            "prevalence",
+        ),
+        "dimensionless",
+    ),
     **dict.fromkeys(("n", "n_pos", "shd_mean", "shd_median", "n_distinct"), "count"),
     **dict.fromkeys(
         (
@@ -399,7 +424,11 @@ class _EdgePool:
     def finalize(
         self, prefix: str, undefined: dict[str, str]
     ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, list]]]:
-        """Scores and reliability/threshold tables per edge type."""
+        """Scores and reliability/CORP/threshold tables per edge type.
+
+        A one-class edge type keeps its reliability and threshold tables but
+        has no CORP table, like its undefined CORP scores.
+        """
         records: dict[str, dict[str, Any]] = {}
         tables: dict[str, dict[str, list]] = {}
         for et in STRUCT_EDGE_KEYS:
@@ -407,8 +436,10 @@ class _EdgePool:
             y = np.concatenate(self._truth[et]) if self._truth[et] else np.empty(0)
             records[et] = _edge_record(p, y, f"{prefix}/{et}", undefined)
             scoreable = y.size > 0 and np.isfinite(p).all()
+            two_class = scoreable and 0 < records[et]["n_pos"] < y.size
             tables[et] = {
                 "reliability": metrics.reliability_table(p, y) if scoreable else [],
+                "corp": metrics.isotonic_calibration(p, y) if two_class else [],
                 "thresholds": metrics.threshold_table(p, y) if scoreable else [],
             }
         return records, tables
@@ -423,15 +454,23 @@ def _edge_record(
         for key in _EDGE_SCORES:
             undefined[f"{prefix}/{key}"] = "no_active_slots"
         return {**dict.fromkeys(_EDGE_SCORES), "n": 0, "n_pos": 0}
+    # A one-class family evidences no calibration: its CORP components are
+    # undefined (``ece`` keeps its historical, recorded definition).
+    two_class = 0 < n_pos < n
+    # ``unc = r (1 - r)`` summarizes truth alone, in brier_decomposition's form.
+    unc = (n_pos * (n - n_pos) / n / n, None) if two_class else (None, "one_class")
     invalid = int((~np.isfinite(p)).sum())
     if invalid:
         for key in _EDGE_SCORES:
-            if key != "prevalence":
+            if key not in ("prevalence", "unc"):
                 undefined[f"{prefix}/{key}"] = f"nonfinite_in_{invalid}_slots"
+        if unc[1] is not None:
+            undefined[f"{prefix}/unc"] = unc[1]
         # Truth summaries remain defined even when predictions cannot be scored.
         return {
             **dict.fromkeys(_EDGE_SCORES),
             "prevalence": float(y.mean()),
+            "unc": unc[0],
             "n": n,
             "n_pos": n_pos,
         }
@@ -441,6 +480,11 @@ def _edge_record(
         "auprc": metrics.auprc(p, y),
         "null_fpr": metrics.null_fpr(p, y),
     }
+    if two_class:
+        split = metrics.brier_decomposition(p, y)
+        scored.update({"mcb": (split["mcb"], None), "dsc": (split["dsc"], None), "unc": unc})
+    else:
+        scored.update(dict.fromkeys(metrics.BRIER_DECOMPOSITION_KEYS, (None, "one_class")))
     for key, (_, reason) in scored.items():
         if reason is not None:
             undefined[f"{prefix}/{key}"] = reason
@@ -733,8 +777,9 @@ def evaluate_rows(
     * ``metric_worlds``: ``{"head/.../metric": worlds with a finite value}`` for
       every per-world metric;
     * ``tables``: ``{"structure_head" | "joint_router": {edge: {"reliability",
-      "thresholds"}}}`` from :func:`metrics.reliability_table` and
-      :func:`metrics.threshold_table` (empty without scoreable slots);
+      "corp", "thresholds"}}}`` from :func:`metrics.reliability_table`,
+      :func:`metrics.isotonic_calibration` and :func:`metrics.threshold_table`
+      (empty without scoreable slots; ``corp`` also empty for one truth class);
     * ``per_world`` (only with ``per_world=True``), in evaluation order:
       ``[{corpus_index, row, values, weights, undefined}]`` with every per-world
       key's value (``None`` when undefined), its slot weight (``0`` when

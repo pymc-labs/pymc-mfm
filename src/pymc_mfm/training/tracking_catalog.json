@@ -72,7 +72,7 @@
     {
       "producer": "trainer.evaluate/evaluate_rows",
       "fields": ["step", "epoch", "consumed_rows", "n_samples", "legs.*.leg", "legs.*.n_worlds", "legs.*.n_samples", "legs.*.seed", "legs.*.rows", "legs.*.labels.*", "legs.*.undefined.*", "legs.*.result_capture.*", "legs.*.counts.*", "legs.*.metric_worlds.*", "legs.*.tables.*", "flat.*", "selection.*"],
-      "representation": "all flat finite values (including {leg}/counts/*) as evaluation/<original name> histories; seeds and selection numerics as scalar histories; complete unflattened record, labels, rows, statuses, capture failures, metric_worlds and reliability/threshold tables as JSON only (tables also in evaluation_tables/step_<N:09d>.json; reliability rows are the non-empty of 10 equal-width bins)",
+      "representation": "all flat finite values (including {leg}/counts/*) as evaluation/<original name> histories; seeds and selection numerics as scalar histories; complete unflattened record, labels, rows, statuses, capture failures, metric_worlds and reliability/CORP/threshold tables as JSON only (tables also in evaluation_tables/step_<N:09d>.json; reliability rows are the non-empty of 10 equal-width bins; corp rows are the blocks of the isotonic fit of edge truth on probability, empty for a one-class edge family)",
       "cadence": "TrainingConfig.eval_every and final update",
       "applicability": "seen/holdout legs when present"
     },
@@ -85,8 +85,8 @@
     },
     {
       "producer": "evaluation._edge_record/_score_batch",
-      "fields": ["legs.*.heads.structure_head.*.{log_score,brier,auroc,auprc,ece,null_fpr,prevalence,n,n_pos}", "legs.*.heads.joint_router.edge.*.{log_score,brier,auroc,auprc,ece,null_fpr,prevalence,n,n_pos}", "legs.*.heads.joint_router.graph.{shd_mean,shd_median,normalized_shd_mean,exact_recovery,energy_score,categorical_brier_score,entropy,n_distinct,cc_two_cycle_rate,cc_cycle_rate,zz_two_cycle_rate,zz_cycle_rate,pairwise_comoment_abs_err,pairwise_comoment_max_abs_err}"],
-      "representation": "all finite flat scalar histories and original structured JSON; one-class/empty/nonfinite statuses retained",
+      "fields": ["legs.*.heads.structure_head.*.{log_score,brier,auroc,auprc,ece,mcb,dsc,unc,null_fpr,prevalence,n,n_pos}", "legs.*.heads.joint_router.edge.*.{log_score,brier,auroc,auprc,ece,mcb,dsc,unc,null_fpr,prevalence,n,n_pos}", "legs.*.heads.joint_router.graph.{shd_mean,shd_median,normalized_shd_mean,exact_recovery,energy_score,categorical_brier_score,entropy,n_distinct,cc_two_cycle_rate,cc_cycle_rate,zz_two_cycle_rate,zz_cycle_rate,pairwise_comoment_abs_err,pairwise_comoment_max_abs_err}"],
+      "representation": "all finite flat scalar histories and original structured JSON; one-class/empty/nonfinite statuses retained (mcb/dsc/unc, the CORP Brier decomposition, are one_class-undefined for a family with one truth class; its recorded ece is not calibration evidence)",
       "cadence": "existing evaluation cadence",
       "applicability": "auxiliary structure probabilities remain separate from router-draw edge/whole-graph probabilities"
     },
@@ -114,7 +114,7 @@
     {
       "producer": "diagnostics metric/report suite",
       "fields": ["metrics.*", "statuses.*", "panels.*", "artifacts.*"],
-      "families": ["component/total errors and proper scores", "coverage/interval width", "closure and per-draw closure", "per-family/channel/control recovery", "live/dead attribution and dead-effect leakage", "temporal coherence per family", "window totals and cumulative contribution", "graph edge/whole-graph probabilities, scores and edge reliability", "complete-graph statistics (evaluator joint_router/graph keys as graph/*) and directed-cycle check (complete graph, cc/zz cycle and two-cycle rates)", "graph support/cardinality and rare graph frequency", "zero atom/false exclusion/padding", "PIT/ECDF/rank distributions", "within/between-graph uncertainty", "report-only share MAEs", "recorded raw input support", "truth/reference/data health and qualification", "reference comparisons when supplied", "A/B and stress comparison records when supplied"],
+      "families": ["component/total errors and proper scores", "coverage/interval width", "closure and per-draw closure", "per-family/channel/control recovery", "live/dead attribution and dead-effect leakage", "temporal coherence per family", "window totals and cumulative contribution", "graph edge/whole-graph probabilities, scores (including the CORP Brier decomposition graph/{mcb,dsc,unc}) and edge reliability (binned and CORP isotonic, one-class edge sets marked not evidenced)", "complete-graph statistics (evaluator joint_router/graph keys as graph/*) and directed-cycle check (complete graph, cc/zz cycle and two-cycle rates)", "graph support/cardinality and rare graph frequency", "zero atom/false exclusion/padding", "PIT/ECDF/rank distributions", "within/between-graph uncertainty", "report-only share MAEs", "recorded raw input support", "truth/reference/data health and qualification", "reference comparisons when supplied", "A/B and stress comparison records when supplied"],
       "representation": "Full original names, units and values in manifest; comparison and calibration reports delivered by the caller through on_diagnostic use dimensioned MLflow metrics. Training-world details use per_world_table artifacts. Rank arrays, matrices, posterior tables and saved figure inputs remain lossless JSON/NPZ/figure artifacts.",
       "cadence": "producer-scheduled report events, never every optimization batch",
       "applicability": "undefined/missing/noncomputed/failed statuses remain explicit; no SBC or calibration claim from one-world rank plots"

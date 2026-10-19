@@ -742,13 +742,33 @@ def test_temporal_dots_are_slot_scores_and_bars_the_table_family_values():
     assert drawn == set(slots)
 
 
-def test_reliability_points_bin_router_frequencies_against_graph_truth():
+NOT_EVIDENCED = "no positive edges — calibration not evidenced"
+
+
+def reliability_world():
+    """Router frequencies, graph truth and families over the active edges of a labeled world.
+
+    ``cy`` and ``zb`` hold both truth classes; ``zc``, ``cc`` and ``zz`` hold no positives.
+    """
     result, _, graph_truth = evidence_world(draws=7)
-    summary = compute_diagnostics(result, graph_truth=graph_truth)
-    ax = plot_reliability(summary).axes[0]
     probability = result.graphs.mean(axis=0)[result.edge_mask]
     labels = graph_truth[result.edge_mask]
     families = np.asarray(result.provenance["edge_families"])[result.edge_mask]
+    return result, graph_truth, probability, labels, families
+
+
+def legend_labels(ax):
+    return dict(zip(*reversed(ax.get_legend_handles_labels()), strict=True))
+
+
+def one_class_families(labels, families):
+    return {family for family in set(families) if labels[families == family].sum() == 0}
+
+
+def test_reliability_bins_draw_router_frequencies_against_graph_truth():
+    result, graph_truth, probability, labels, families = reliability_world()
+    summary = compute_diagnostics(result, graph_truth=graph_truth)
+    ax = plot_reliability(summary, kind="binned").axes[0]
     edges = np.linspace(0, 1, 11)
 
     def bins(keep):
@@ -772,9 +792,105 @@ def test_reliability_points_bin_router_frequencies_against_graph_truth():
     )
     assert summary["metrics"]["graph/ece"] == pytest.approx(ece)
     points = {item.get_gid(): item.get_offsets() for item in ax.collections if item.get_gid()}
-    assert set(points) == {f"reliability/{family}" for family in set(families)}
-    for family in set(families):
+    one_class = one_class_families(labels, families)
+    assert set(points) == {f"reliability/{family}" for family in set(families) - one_class}
+    for family in set(families) - one_class:
         np.testing.assert_allclose(points[f"reliability/{family}"], bins(families == family))
+    # A family without positive edges draws no bins: its legend entry says why.
+    drawn = legend_labels(ax)
+    for family in one_class:
+        [label] = [text for text in drawn if text.startswith(f"{family}:")]
+        assert label.endswith(NOT_EVIDENCED)
+        assert not len(drawn[label].get_xdata())
+
+
+def isotonic_reference(p, y):
+    """The max-min formula of the isotonic fit, per distinct probability (independent of PAVA)."""
+    values = np.unique(p)
+    hits = np.array([y[p == v].sum() for v in values])
+    counts = np.array([(p == v).sum() for v in values])
+    return values, np.array(
+        [
+            max(
+                min(hits[j : k + 1].sum() / counts[j : k + 1].sum() for k in range(i, values.size))
+                for j in range(i + 1)
+            )
+            for i in range(values.size)
+        ]
+    )
+
+
+def test_reliability_corp_curve_is_the_isotonic_fit_of_truth_on_frequency():
+    result, graph_truth, probability, labels, families = reliability_world()
+    summary = compute_diagnostics(result, graph_truth=graph_truth)
+    ax = plot_reliability(summary).axes[0]
+    curves = {line.get_gid(): line for line in ax.lines if line.get_gid()}
+    one_class = one_class_families(labels, families)
+    assert one_class and set(families) - one_class
+    for name, keep in (
+        ("pooled", np.ones(probability.size, dtype=bool)),
+        *((family, families == family) for family in set(families) - one_class),
+    ):
+        x, y = curves[f"reliability/{name}"].get_data()
+        # Each block is a horizontal segment (lower, c) to (upper, c) over observed frequencies.
+        lower, upper, level = np.asarray(x[::2]), np.asarray(x[1::2]), np.asarray(y[::2])
+        np.testing.assert_array_equal(y[1::2], level)
+        values, fitted = isotonic_reference(probability[keep], labels[keep])
+        block = np.searchsorted(lower, values, side="right") - 1
+        assert np.all((lower[block] <= values) & (values <= upper[block]))
+        np.testing.assert_allclose(level[block], fitted, rtol=0, atol=1e-12)
+    for family in one_class:
+        assert not len(curves[f"reliability/{family}"].get_xdata())
+        assert curves[f"reliability/{family}"].get_label().endswith(NOT_EVIDENCED)
+    metrics = summary["metrics"]
+    assert metrics["graph/mcb"] - metrics["graph/dsc"] + metrics["graph/unc"] == pytest.approx(
+        metrics["graph/brier"]
+    )
+    assert f"MCB {metrics['graph/mcb']:.3g}" in ax.get_title().replace("\n", " ")
+
+
+@pytest.mark.parametrize("mode", ["model_average", "fixed"])
+def test_one_class_edges_leave_the_brier_decomposition_undefined(mode):
+    result, graph_truth, *_ = reliability_world()
+    provenance = {
+        **result.provenance,
+        "inference_config": {**result.provenance.get("inference_config", {}), "mode": mode},
+        "graph_source": "supplied_hypothesis" if mode == "fixed" else "joint_router",
+    }
+    result = replace(result, mode=mode, provenance=provenance)
+    summary = compute_diagnostics(result, graph_truth=np.zeros_like(graph_truth))
+    for key in ("mcb", "dsc", "unc"):
+        assert summary["metrics"][f"graph/{key}"] is None
+        assert summary["statuses"][f"metric/graph/{key}"]["reason"] == NOT_EVIDENCED
+    # The historical ECE keeps its value but is not calibration evidence in any graph
+    # mode; a supplied hypothesis adds its own qualification.
+    assert summary["metrics"]["graph/ece"] is not None
+    for status in (summary["statuses"]["metric/graph/ece"], summary["panels"]["reliability"]):
+        assert status["status"] == "not_evidenced"
+        assert status["reason"].startswith(NOT_EVIDENCED)
+    for kind in ("corp", "binned"):
+        ax = plot_reliability(summary, kind=kind).axes[0]
+        assert NOT_EVIDENCED in ax.get_title().replace("\n", " ")
+        assert all(not len(line.get_xdata()) for line in ax.lines if line.get_gid())
+        assert not [item for item in ax.collections if item.get_gid()]
+
+
+def test_reliability_evidence_saved_without_corp_rerenders_its_bins():
+    result, graph_truth, *_ = reliability_world()
+    summary = compute_diagnostics(result, graph_truth=graph_truth)
+    saved = json.loads(json.dumps(summary))
+    for record in (
+        saved["arrays"]["reliability"]["pooled"],
+        *saved["arrays"]["reliability"]["families"].values(),
+    ):
+        for key in ("corp", "decomposition", "notice"):
+            del record[key]
+    with pytest.raises(ValueError, match="kind='binned'"):
+        plot_reliability(saved)
+    assert "equal-width bins" in plot_panel("reliability", saved).axes[0].get_title()
+    assert "CORP" in plot_panel("reliability", summary).axes[0].get_title()
+    with pytest.raises(ValueError, match="graph truth"):
+        plot_panel("reliability", compute_diagnostics(result))
 
 
 def dead_leakage_axes(figure):

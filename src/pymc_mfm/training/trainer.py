@@ -381,8 +381,8 @@ def _train_run(
     (the first update's executed objective), ``metrics.jsonl`` (one record per
     ``log_every`` updates and at update 1), ``evaluations.jsonl`` (one record
     per evaluation event), ``evaluation_tables/step_<9d>.json`` (each event's
-    reliability and threshold tables, written before its ``evaluations.jsonl``
-    line), ``checkpoint_last.pt``/``checkpoint_best.pt``/
+    reliability, CORP and threshold tables, written before its
+    ``evaluations.jsonl`` line), ``checkpoint_last.pt``/``checkpoint_best.pt``/
     ``checkpoint_step_<N>.pt`` and, on completion, ``model`` in the
     :func:`pymc_mfm.inference.checkpoint.save_pretrained` directory format
     holding the terminal weights.
@@ -732,7 +732,7 @@ def _train_run(
             "selection": selection,
         }
         # The tables file lands before its evaluations.jsonl line, so every
-        # recorded evaluation has its reliability and threshold tables.
+        # recorded evaluation has its reliability, CORP and threshold tables.
         tables_dir.mkdir(exist_ok=True)
         _write_json(
             tables_dir / f"step_{step:09d}.json",

@@ -2,9 +2,10 @@
 
 Scalar rules: empirical CRPS, central-interval coverage, the
 dimension-normalized energy score, and binary-probability diagnostics (log
-score, Brier score, AUROC, AUPRC, null false-positive rate, expected
-calibration error, reliability and threshold tables). ``energy_score`` and
-``auroc`` return ``None`` when undefined.
+score, Brier score and its CORP decomposition, AUROC, AUPRC, null
+false-positive rate, expected calibration error, binned and isotonic (CORP)
+reliability and threshold tables). ``energy_score`` and ``auroc`` return
+``None`` when undefined.
 
 The other scorers that can be undefined return a :data:`Scored` pair,
 ``(value, None)`` or ``(None, reason)``, or one world's :class:`WorldScores`
@@ -33,6 +34,8 @@ NONFINITE = "nonfinite"
 RELIABILITY_BINS = 10
 #: Probability thresholds of :func:`threshold_table`.
 THRESHOLDS = (0.1, 0.25, 0.5, 0.75, 0.9)
+#: Keys of :func:`brier_decomposition`: miscalibration, discrimination, uncertainty.
+BRIER_DECOMPOSITION_KEYS = ("mcb", "dsc", "unc")
 #: Denominator floor of relative closure errors.
 CLOSURE_EPS = 1e-6
 
@@ -423,6 +426,118 @@ def threshold_table(
             }
         )
     return rows
+
+
+def _pava(sums: np.ndarray, weights: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Blocks of the weighted least-squares non-decreasing fit of ``sums / weights``.
+
+    Pool-adjacent-violators in one stack pass (amortized O(n)): each point
+    enters as a block and absorbs the block below while that block's mean is
+    not smaller. Means are compared by cross-multiplying summed values and
+    weights, so for the integer counts of binary outcomes the comparison is
+    exact and block means strictly increase. Returns each block's mean, total weight and
+    exclusive end index; ``np.repeat(means, np.diff(ends, prepend=0))`` is the
+    fitted sequence. Weights must be positive.
+    """
+    block_sums: list[float] = []
+    block_weights: list[float] = []
+    ends: list[int] = []
+    for index, (total, weight) in enumerate(zip(sums.tolist(), weights.tolist(), strict=True)):
+        while block_sums and block_sums[-1] * weight >= total * block_weights[-1]:
+            total += block_sums.pop()
+            weight += block_weights.pop()
+            ends.pop()
+        block_sums.append(total)
+        block_weights.append(weight)
+        ends.append(index + 1)
+    totals = np.asarray(block_weights)
+    return np.asarray(block_sums) / totals, totals, np.asarray(ends, dtype=np.intp)
+
+
+def _isotonic_blocks(p, y) -> tuple[np.ndarray, ...]:
+    """Validated pairs and the blocks of their isotonic fit, pooling tied probabilities.
+
+    Returns ``(p, y, lower, upper, count, n_pos, mass)``: the pairs, then per
+    block its smallest and largest probability, pairs, positives and summed
+    probability.
+    """
+    p_arr, y_arr = _binary_pairs(p, y)
+    if not p_arr.size:
+        raise ValueError("the isotonic fit requires at least one probability/label pair")
+    values, inverse, counts = np.unique(p_arr, return_inverse=True, return_counts=True)
+    positives = np.bincount(inverse[y_arr == 1], minlength=values.size)
+    _, _, ends = _pava(positives.astype(np.float64), counts.astype(np.float64))
+    starts = np.r_[0, ends[:-1]]
+    return (
+        p_arr,
+        y_arr,
+        values[starts],
+        values[ends - 1],
+        np.add.reduceat(counts, starts),
+        np.add.reduceat(positives, starts),
+        np.add.reduceat(values * counts, starts),
+    )
+
+
+def isotonic_calibration(p: np.ndarray, y: np.ndarray) -> list[dict[str, float | int]]:
+    """CORP reliability: the isotonic fit of binary outcomes on their probabilities.
+
+    CORP (Dimitriadis, Gneiting and Jordan, *PNAS* 2021) estimates the
+    calibration curve ``P(y = 1 | p)`` as the least-squares non-decreasing fit
+    of ``y`` on ``p`` (pool-adjacent-violators), with no bins or other tuning.
+    Tied probabilities enter as one point weighted by its count, so they share
+    one value. Rows are the fit's blocks in increasing probability, ``{lower,
+    upper, count, n_pos, mean_probability, calibrated_probability}``: the
+    block's smallest and largest probability, its pairs and positives, their
+    mean probability, and ``n_pos / count``, the calibrated probability of every
+    probability in ``[lower, upper]``. Calibrated probabilities strictly
+    increase from block to block.
+    """
+    _, _, lower, upper, count, n_pos, mass = _isotonic_blocks(p, y)
+    return [
+        {
+            "lower": float(lower[b]),
+            "upper": float(upper[b]),
+            "count": int(count[b]),
+            "n_pos": int(n_pos[b]),
+            "mean_probability": float(mass[b] / count[b]),
+            "calibrated_probability": float(n_pos[b] / count[b]),
+        }
+        for b in range(count.size)
+    ]
+
+
+def brier_decomposition(p: np.ndarray, y: np.ndarray) -> dict[str, float]:
+    """CORP decomposition ``brier = mcb - dsc + unc`` of the mean Brier score.
+
+    With ``S(q)`` the mean Brier score of probabilities ``q`` against ``y``,
+    ``c`` the :func:`isotonic_calibration` of ``p`` and ``r = mean(y)``:
+    miscalibration ``mcb = S(p) - S(c)``, discrimination ``dsc = S(r) - S(c)``
+    and uncertainty ``unc = S(r) = r (1 - r)``. The identity and the constant
+    ``r`` are non-decreasing, so the least-squares fit ``c`` makes ``mcb`` and
+    ``dsc`` non-negative up to round-off. With one class only, ``c = r = y``:
+    ``dsc = unc = 0`` and ``mcb`` is the Brier score.
+    """
+    p_arr, y_arr, _, _, count, n_pos, _ = _isotonic_blocks(p, y)
+    n, k = y_arr.size, int(n_pos.sum())
+    calibrated = math.fsum((n_pos * (count - n_pos) / count).tolist()) / n
+    # The per-block form, so a single block gives dsc = 0 exactly.
+    uncertainty = k * (n - k) / n / n
+    score = brier(p_arr, y_arr)
+    return {"mcb": score - calibrated, "dsc": uncertainty - calibrated, "unc": uncertainty}
+
+
+def one_class_notice(n: int, n_pos: int) -> str | None:
+    """Why ``n`` edges with ``n_pos`` positives evidence no calibration, or ``None``.
+
+    Without both truth classes a calibration curve or ECE is computed from one
+    class only; reports state this instead of presenting it as calibrated.
+    """
+    if n_pos == 0:
+        return "no positive edges — calibration not evidenced"
+    if n_pos == n:
+        return "no negative edges — calibration not evidenced"
+    return None
 
 
 def _row_correlations(left: np.ndarray, right: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

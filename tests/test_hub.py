@@ -797,6 +797,37 @@ def test_cards_accept_the_last_row_of_the_last_shard(model, tmp_path):
     assert write_model_cards(bundle, license="mit", corpus_plan="B") == [bundle / "README.md"]
 
 
+def test_cards_note_calibration_scores_of_one_class_edge_families(model, tmp_path):
+    evaluation = _evaluation({"shard_seed": 530200, "row": 3})
+    recorded = {
+        # As recorded for A: no positive dz edge, so ece is 0.0 from negatives alone.
+        "joint_router/edge/dz/ece": 0.0,
+        "joint_router/edge/dz/mcb": None,
+        "joint_router/edge/dz/brier": 0.0,
+        "joint_router/edge/dz/n": 81.0,
+        "joint_router/edge/dz/n_pos": 0.0,
+        "structure_head/zb/ece": 0.01,
+        "structure_head/zb/n": 4.0,
+        "structure_head/zb/n_pos": 4.0,
+        "joint_router/edge/cy/ece": 0.03,
+        "joint_router/edge/cy/n": 172.0,
+        "joint_router/edge/cy/n_pos": 80.0,
+    }
+    evaluation["metrics"].update(recorded)
+    evaluation["aggregation"].update(dict.fromkeys(recorded, "pooled_edges"))
+    provenance = {"training_evaluation": evaluation}
+    bundle = save_pretrained(model, tmp_path / "A", profile="A", provenance=provenance)
+    [path] = write_model_cards(bundle, license="mit")
+    facts = _card_facts(hf.ModelCard(path.read_text()).text)
+    notes = {key: facts[key][2] for key in evaluation["metrics"] if facts[key][2]}
+    assert notes == {
+        "joint_router/edge/dz/ece": "no positive edges — calibration not evidenced",
+        "joint_router/edge/dz/mcb": "no positive edges — calibration not evidenced",
+        "structure_head/zb/ece": "no negative edges — calibration not evidenced",
+    }
+    assert json.loads(facts["joint_router/edge/dz/ece"][0]) == 0.0
+
+
 def test_local_cards_replace_cached_symlinks_without_touching_shared_blobs(model, tmp_path):
     export = save_pretrained(model, tmp_path / "export", profile="A")
     (export / "README.md").write_text("card that another revision shares\n")

@@ -204,9 +204,13 @@ class DiagnosticsPlots(_SummaryPlots):
         """Lag-1 and residual autocorrelation per trajectory family (needs truth)."""
         return self._draw("temporal")
 
-    def reliability(self, *, ax=None) -> Figure:
-        """Router edge frequencies binned against graph truth."""
-        return self._draw("reliability", panels.plot_reliability, ax=ax)
+    def reliability(self, kind="corp", *, ax=None) -> Figure:
+        """Router edge frequencies against graph truth: ``"corp"`` isotonic fit or ``"binned"``.
+
+        The CORP curve is the bin-free isotonic fit with the pooled Brier
+        decomposition; ``"binned"`` draws the equal-width bins and pooled ECE.
+        """
+        return self._draw("reliability", panels.plot_reliability, kind=kind, ax=ax)
 
     def calibration(self, kind="pit", *, ax=None) -> Figure:
         """One-world screening: ``"pit"`` ranks, ``"ecdf"`` or interval ``"coverage"``.
@@ -249,6 +253,12 @@ def _scope(window):
     if window in ("query", "context"):
         return f"{window} window"
     return "whole graph" if window == "graph" else f"{window} edges"
+
+
+def _one_class(flat, family):
+    """Whether an edge family's recorded counts hold one truth class only."""
+    n, n_pos = flat.get(f"{family}/n"), flat.get(f"{family}/n_pos")
+    return bool(n) and n_pos in (0, n)
 
 
 def _decoding_error(exc):
@@ -391,7 +401,9 @@ class TrainingRun:
         every key both legs record (positive: higher on held-out worlds).
         ``<leg>/<source>/mean_auroc`` and ``mean_ece`` average the edge
         families whose score is defined, for the structure head and the joint
-        router's edge marginals. An undefined input gives ``None``.
+        router's edge marginals; ``mean_ece`` leaves out families recorded with
+        one truth class (``n_pos`` 0 or ``n``), whose ECE evidences no
+        calibration. An undefined input gives ``None``.
         """
         derived = []
         for record in self.evaluation["records"]:
@@ -408,16 +420,21 @@ class TrainingRun:
                 for source in _EDGE_SCORE_SOURCES:
                     prefix = f"{leg}/{source}/"
                     for metric in ("auroc", "ece"):
-                        scores = [
-                            value
+                        scores = {
+                            key.rsplit("/", 1)[0]: value
                             for key, value in flat.items()
                             if key.startswith(prefix)
                             and key.endswith(f"/{metric}")
                             and key[len(prefix) :].count("/") == 1
-                        ]
+                        }
                         if not scores:
                             continue
-                        defined = [value for value in scores if value is not None]
+                        defined = [
+                            value
+                            for family, value in scores.items()
+                            if value is not None
+                            and not (metric == "ece" and _one_class(flat, family))
+                        ]
                         values[f"{leg}/{source}/mean_{metric}"] = (
                             math.fsum(defined) / len(defined) if defined else None
                         )

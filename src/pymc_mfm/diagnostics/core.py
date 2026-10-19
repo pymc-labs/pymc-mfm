@@ -515,14 +515,27 @@ def _temporal(names, families, active, samples, truth, latent, latent_truth, met
 
 
 def _reliability(probabilities, truth, families, label):
-    """Reliability tables of active-edge frequencies against graph truth, pooled and per family."""
+    """Binned and CORP reliability of active-edge frequencies against graph truth.
+
+    Pooled over every active edge and per family: ``rows`` are the non-empty
+    equal-width bins, ``corp`` the isotonic-fit blocks and ``decomposition``
+    the Brier score's ``{mcb, dsc, unc}``. An edge set with one truth class
+    keeps its bins, but has an empty ``corp``, no ``decomposition`` and a
+    ``notice`` that its calibration is not evidenced.
+    """
     from pymc_mfm.training import metrics as scoring
 
     def table(keep):
+        p, y = probabilities[keep], truth[keep]
+        n, n_pos = int(keep.sum()), int(y.sum())
+        notice = scoring.one_class_notice(n, n_pos)
         return {
-            "rows": scoring.reliability_table(probabilities[keep], truth[keep]),
-            "n": int(keep.sum()),
-            "n_pos": int(truth[keep].sum()),
+            "rows": scoring.reliability_table(p, y),
+            "corp": [] if notice else scoring.isotonic_calibration(p, y),
+            "decomposition": None if notice else scoring.brier_decomposition(p, y),
+            "notice": notice,
+            "n": n,
+            "n_pos": n_pos,
         }
 
     return {
@@ -913,21 +926,36 @@ def compute_diagnostics(
             record["cyclic"] = flag
         cyclic_mass = sum(record["frequency"] for record in frequency if record["cyclic"])
         metrics.add("graph/cyclic_draw_fraction", cyclic_mass)
+    valid = truth_active is not None and len(active_prob) > 0
+    notice = scoring.one_class_notice(active_prob.size, int(truth_active.sum())) if valid else None
     for key, function in (
         ("brier", scoring.brier),
         ("log_score", scoring.log_score),
         ("auroc", scoring.auroc),
         ("ece", scoring.ece),
     ):
-        valid = truth_active is not None and len(active_prob) > 0
         value = function(active_prob, truth_active) if valid else None
+        if value is None:
+            reason = "both truth classes required" if valid else "active graph truth unavailable"
+        else:
+            reason = notice if key == "ece" else None
         metrics.add(
             f"graph/{key}",
             value,
             unit="nats" if key == "log_score" else "dimensionless",
+            reason=reason,
+            status="not_evidenced" if key == "ece" and notice else None,
+        )
+    decomposition = (
+        scoring.brier_decomposition(active_prob, truth_active) if valid and not notice else None
+    )
+    for key in scoring.BRIER_DECOMPOSITION_KEYS:
+        metrics.add(
+            f"graph/{key}",
+            None if decomposition is None else decomposition[key],
             reason=None
-            if value is not None
-            else ("both truth classes required" if valid else "active graph truth unavailable"),
+            if decomposition is not None
+            else (notice or "active graph truth unavailable"),
         )
     if truth_active is not None:
         metrics.add(
@@ -1010,6 +1038,10 @@ def compute_diagnostics(
             None if edge_families is None else np.asarray(edge_families, dtype=object)[edge_active],
             graph_label,
         )
+        pooled_notice = arrays["reliability"]["pooled"]["notice"]
+        if pooled_notice is not None:
+            # Still drawn: its legend states why no curve is shown.
+            panels["reliability"] = {"status": "not_evidenced", "reason": pooled_notice}
     arrays["set_posterior"] = {}
     cardinalities_by_family = result.provenance.get("set_cardinalities")
     if cardinalities_by_family is None:
@@ -1145,12 +1177,19 @@ def compute_diagnostics(
             "Frequencies and scores describe a selected/supplied graph hypothesis, not posterior "
             "graph probabilities or routing calibration."
         )
+
+        def hypothesis(record):
+            # One truth class evidences no calibration under any graph mode.
+            if record["status"] == "not_evidenced":
+                return {**record, "reason": f"{record['reason']}; {reason}"}
+            return {"status": "hypothesis_conditional", "reason": reason}
+
         for name, value in metrics.values.items():
             if value is not None and (
                 name.startswith(("edge/", "graph/", "set_approximation/"))
                 or name == "uncertainty/mode_frequency"
             ):
-                statuses[f"metric/{name}"] = {"status": "hypothesis_conditional", "reason": reason}
+                statuses[f"metric/{name}"] = hypothesis(statuses[f"metric/{name}"])
         for name in (
             "structure_heatmap",
             "dag_recovery",
@@ -1162,7 +1201,7 @@ def compute_diagnostics(
             "set_posterior",
         ):
             if panels[name]["status"] != "unavailable":
-                panels[name] = {"status": "hypothesis_conditional", "reason": reason}
+                panels[name] = hypothesis(panels[name])
     if arrays["reference"] is not None:
         statuses.update(
             {
