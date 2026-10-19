@@ -158,7 +158,7 @@ print(p)
     run(
         str(python_paths["full"]),
         "-I",
-        str(root / "examples/workflow.py"),
+        str(root / ".github/scripts/workflow.py"),
         "--out",
         str(out / "workflow"),
         cwd=out,
@@ -186,7 +186,7 @@ print(p)
     run(
         str(python_paths["base"]),
         "-I",
-        str(root / "examples/observation_only.py"),
+        str(root / ".github/scripts/observation_only.py"),
         "--model",
         str(out / "workflow/run/model"),
         "--observations",
