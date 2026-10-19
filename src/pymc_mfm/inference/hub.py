@@ -16,8 +16,10 @@ import torch
 from pymc_mfm.model.model import MFM
 
 from ._artifact_schema import (
+    _SECRET_VALUE,
     BUNDLE_FILES,
     RECORDED_OUTPUTS_FILE,
+    _check_private_metadata,
     json_bytes,
     parse_json,
     recorded_outputs_bytes,
@@ -32,6 +34,8 @@ if TYPE_CHECKING:
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 _LICENSE = re.compile(r"[a-z0-9][a-z0-9.+-]{0,79}\Z")
 _PROFILE_MANIFEST = re.compile(r"profiles/([^/]+)/manifest\.json")
+#: A URL in Markdown prose, up to whitespace or the delimiters that close a link.
+_PROSE_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s<>()\[\]`'\"]+")
 _CARD_TAGS = ("marketing-mix-modeling", "graph-conditional", "safetensors")
 #: Profile-recipe fields shown in a card's training-corpus table.
 _CORPUS_FIELDS = (
@@ -488,14 +492,38 @@ def _license_section(license: str) -> str:
 this card. It is not inferred from the code license."""
 
 
+def _card_description(value: object) -> str | None:
+    """A card's maintainer-written Markdown, refused if it could carry credentials."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("description must be nonempty Markdown text")
+    try:
+        # Prose is not one URL: each link is checked alone, so a heading's `#` or a
+        # mention of an environment variable is not read as a URL's query.
+        if _SECRET_VALUE.search(value):
+            raise ValueError
+        for url in _PROSE_URL.findall(value):
+            _check_private_metadata(url)
+    except ValueError:
+        raise ValueError("description must not contain credentials") from None
+    return value.strip()
+
+
 def _bundle_card(
-    metadata: Mapping, *, license: str, repo_id: str | None, plan: ShardPlan | None
+    metadata: Mapping,
+    *,
+    license: str,
+    repo_id: str | None,
+    plan: ShardPlan | None,
+    description: str | None,
 ) -> str:
     profile = metadata["profile"]
     provenance = dict(metadata["provenance"])
     evaluation = provenance.pop("training_evaluation", None)
     _check_plan_worlds(plan, evaluation)
     title = "" if profile is None else f": profile {profile}"
+    described = "" if description is None else f"## Model description\n\n{description}\n\n"
     return f"""{_front_matter(license)}
 # Marketing Foundation Model{title}
 
@@ -505,7 +533,7 @@ and conditional decomposition decoder. Profiles are artifacts of this same
 fixed architecture trained on different corpora, not alternative model
 implementations.
 
-## Architecture
+{described}## Architecture
 
 {_architecture_section(metadata)}
 
@@ -599,6 +627,7 @@ def write_model_cards(
     license: str,
     repo_id: str | None = None,
     corpus_plan: str | None = None,
+    description: str | None = None,
 ) -> list[Path]:
     """Render the model cards of a local bundle or collection, e.g. before publication.
 
@@ -613,17 +642,21 @@ def write_model_cards(
     describes; a card never infers its corpus from the profile label, and a plan
     whose shards do not hold every world of the bundle's recorded
     ``training_evaluation`` is refused. To describe the corpora of a collection,
-    pass each ``profiles/<name>`` directory with its own plan. Every described
-    bundle is validated by the local loader before any card is written. Each card
-    is written to a sibling temporary file renamed onto its target, so a symlinked
-    ``README.md``, as in a Hub cache snapshot, is replaced rather than written
-    through into a blob other revisions share.
+    pass each ``profiles/<name>`` directory with its own plan. ``description`` is
+    the maintainer's Markdown for the one bundle in ``path`` (for example its
+    intended use, training budget, data and paper), rendered as the card's
+    ``Model description`` section; text that could carry credentials is refused.
+    Every described bundle is validated by the local loader before any card is
+    written. Each card is written to a sibling temporary file renamed onto its
+    target, so a symlinked ``README.md``, as in a Hub cache snapshot, is replaced
+    rather than written through into a blob other revisions share.
     ``repo_id`` (validated with the ``hub`` extra) selects Hub loading
     instructions; no Hub request is made. Returns the written paths.
     """
     if not isinstance(license, str) or not license.strip():
         raise ValueError("model cards require an explicit license text")
     plan = _training_plan(corpus_plan)
+    description = _card_description(description)
     if repo_id is not None:
         repo_id = _repo_id(repo_id)
     root = Path(path).expanduser()
@@ -631,12 +664,16 @@ def write_model_cards(
     profiles = sorted(name for name in entries if name != ".")
     if profiles and "." in entries:
         raise ValueError("a directory cannot hold both a root bundle and profiles/<name>/ bundles")
-    if plan is not None and len(entries) > 1:
-        raise ValueError("corpus_plan describes one bundle; pass each profiles/<name> directory")
+    if (plan is not None or description is not None) and len(entries) > 1:
+        raise ValueError(
+            "corpus_plan and description describe one bundle; pass each profiles/<name> directory"
+        )
 
     def card(name: str) -> str:
         metadata = _load_local(root / entries[name]["path"]).artifact_metadata
-        return _bundle_card(metadata, license=license, repo_id=repo_id, plan=plan)
+        return _bundle_card(
+            metadata, license=license, repo_id=repo_id, plan=plan, description=description
+        )
 
     cards = {root / "profiles" / name / "README.md": card(name) for name in profiles}
     cards[root / "README.md"] = (
@@ -665,6 +702,7 @@ def push_to_hub(
     license: str | None = None,
     recorded_outputs: str | Path | None = None,
     corpus_plan: str | None = None,
+    description: str | None = None,
 ):
     """Explicitly publish one complete bundle and its model cards in a single commit.
 
@@ -693,7 +731,11 @@ def push_to_hub(
     recorded by ``from_pretrained``), have the bundle's control and latent widths
     and pass the strict sidecar schema; its canonical serialization is uploaded as
     ``recorded_outputs.json`` beside the bundle files. Republishing a profile
-    without a sidecar deletes its previous one in the same commit.
+    without a sidecar deletes its previous one in the same commit. ``description``
+    is the maintainer's Markdown for this artifact, rendered as its card's
+    ``Model description`` section and checked for credentials before any network
+    operation; the card is regenerated on every publication, so pass it again
+    when republishing a profile.
     """
     if (
         not isinstance(license, str)
@@ -703,6 +745,7 @@ def push_to_hub(
         raise ValueError("publishing requires an explicitly approved artifact license identifier")
     profile = validate_profile(profile)
     plan = _training_plan(corpus_plan)
+    description = _card_description(description)
     recorded = None
     if recorded_outputs is not None:
         recorded_outputs = Path(recorded_outputs).expanduser()
@@ -734,7 +777,9 @@ def push_to_hub(
                 )
             )
         bundle_card = hub.ModelCard(
-            _bundle_card(metadata, license=license, repo_id=repo_id, plan=plan)
+            _bundle_card(
+                metadata, license=license, repo_id=repo_id, plan=plan, description=description
+            )
         ).content
         operations = [
             hub.CommitOperationAdd(path_in_repo=f"{prefix}{name}", path_or_fileobj=bundle / name)

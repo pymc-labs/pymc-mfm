@@ -1433,13 +1433,19 @@ do not hold every world of the bundle's recorded `training_evaluation` (its
 `shard_seed` among the plan's seeds and its row below `n_cells * draws_per_cell`)
 is refused. A repository or directory holds either profiles or one root bundle,
 never both.
-`write_model_cards(path, license=..., corpus_plan=None)` in
+`write_model_cards(path, license=..., corpus_plan=None, description=None)` in
 `pymc_mfm.inference.hub` renders the same cards locally for review with any
-explicit license text; `corpus_plan` applies when `path` holds one bundle, so
-pass each `profiles/<P>` directory. Cards are written to a temporary file and
-renamed, so a symlinked card in a cache snapshot is replaced and shared blobs are
-never rewritten. Cards do not claim Transformers/AutoModel or hosted inference
-support.
+explicit license text; `corpus_plan` and `description` apply when `path` holds
+one bundle, so pass each `profiles/<P>` directory. Cards are written to a
+temporary file and renamed, so a symlinked card in a cache snapshot is replaced
+and shared blobs are never rewritten. Cards do not claim Transformers/AutoModel
+or hosted inference support.
+`description` (also a `push_to_hub` argument) is the maintainer's Markdown for
+one artifact, such as its intended use, training budget, data and paper,
+rendered as the card's `Model description` section before the generated ones.
+It is refused before any network operation if it holds a Hub token, a bearer
+credential or a link carrying credentials. Cards are regenerated on every
+publication, so pass the description again when republishing a profile.
 
 `push_to_hub(..., recorded_outputs=path)` uploads a recorded-output sidecar,
 `profiles/<P>/recorded_outputs.json`, in the same commit. The sidecar holds
@@ -1486,6 +1492,45 @@ The opt-in `tests/test_ab_bundles.py` uses `MFM_LEGACY_AB_BUNDLES` only to verif
 that the original dimensional collection cannot load or receive current
 compatibility cards. Current-format bundle/checkpoint round trips and evaluation
 compatibility are exercised by the ordinary tests and the small training workflow.
+
+### PyMC Labs models
+
+PyMC Labs publishes its trained MFMs as profiles of one collection,
+[`pymc-labs/mfm`](https://huggingface.co/pymc-labs/mfm), and their training
+corpora in the dataset repository of the same name,
+[`datasets/pymc-labs/mfm`](https://huggingface.co/datasets/pymc-labs/mfm). Both
+are private to the `pymc-labs` organization; log in with `hf auth login` or set
+`HF_TOKEN`. River models are the small tier. Later River versions and the larger
+Sea and Ocean models become further `profiles/<name>/` bundles of the same
+repository, each with its own card, so `list_profiles("pymc-labs/mfm")` lists
+every model.
+
+| profile | published at | parameters | training corpus (dataset path) |
+|---|---|---|---|
+| `river-1` | `970e6095f14824d7e25ecace7e20a47bebde35b8` | 2,443,583 | `corpora/stream-splits-baseline-half-200k-1f4e757b6851/snap-37317315feae` |
+
+```python
+from pymc_mfm import from_pretrained
+
+river = from_pretrained(
+    "pymc-labs/mfm",
+    profile="river-1",
+    revision="970e6095f14824d7e25ecace7e20a47bebde35b8",
+)
+```
+
+River-1 is the final checkpoint (update 62,500) of training run
+`profile-c-9add72ea6d35`, trained with this repository at `32587ac` on 200,000
+synthetic worlds. It loads like any bundle and feeds `decompose`, diagnostics,
+evaluation archives and DataTree export. The dataset card shows how to
+memory-map a corpus snapshot and build the per-context corpus views that
+`evaluate_rows` and `train` read.
+
+`examples/river_1_quickstart.ipynb` simulates the weekly data of PyMC-Marketing's
+MMM example by hand, downloads River-1 into a temporary folder and decomposes the
+first 80% of the weeks (context) and the remaining 20% (query) with 1,000 draws
+each, against the known truth. `tests/test_examples.py` runs its cells with an
+untrained stand-in model, since CI has no access to the private repository.
 
 ## MLflow lifecycle and evidence
 
