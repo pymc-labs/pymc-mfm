@@ -1585,10 +1585,10 @@ memory-map a corpus snapshot and build the per-context corpus views that
 MMM example with its geometric adstock and logistic saturation transformers
 (`[examples]` extra), downloads River-1 into a temporary folder and decomposes the
 first 80% of the weeks (context) and the remaining 20% (query) with 1,000 draws
-each, plotting every channel's and control's contribution against the known truth
-in both windows. `tests/test_examples.py` runs its cells with an untrained stand-in
-model, since CI has no access to the private repository, and skips them without
-`pymc-marketing`.
+each, plotting each channel's and event's weekly contribution and the posterior of
+its window total against the known truth. `tests/test_examples.py` runs its cells
+with an untrained stand-in model, since CI has no access to the private
+repository, and skips them without `pymc-marketing`.
 
 ## MLflow lifecycle and evidence
 
