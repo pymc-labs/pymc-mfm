@@ -1,12 +1,27 @@
-"""The example notebook runs top to bottom without a notebook kernel."""
+"""The example notebooks run top to bottom without a notebook kernel."""
 
 import json
+import re
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
+import torch
 
-NOTEBOOK = Path(__file__).resolve().parents[1] / "examples" / "diagnostics.ipynb"
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+NOTEBOOK = EXAMPLES / "diagnostics.ipynb"
+QUICKSTART = EXAMPLES / "river_1_quickstart.ipynb"
+
+
+def run_code_cells(notebook: Path) -> dict:
+    namespace = {"__name__": "__main__"}
+    cells = json.loads(notebook.read_text(encoding="utf-8"))["cells"]
+    for number, cell in enumerate(cells):
+        if cell["cell_type"] == "code":
+            source = "".join(cell["source"])
+            exec(compile(source, f"{notebook.name}:cell-{number}", "exec"), namespace)
+    return namespace
 
 
 @pytest.mark.parametrize("corpus", ["generated", "synthetic"])
@@ -21,12 +36,7 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
         monkeypatch.setitem(sys.modules, "pymc_generator", None)
     monkeypatch.setenv("MPLBACKEND", "Agg")
     monkeypatch.chdir(tmp_path)
-    cells = json.loads(NOTEBOOK.read_text(encoding="utf-8"))["cells"]
-    namespace = {"__name__": "__main__"}
-    for number, cell in enumerate(cells):
-        if cell["cell_type"] == "code":
-            source = "".join(cell["source"])
-            exec(compile(source, f"{NOTEBOOK.name}:cell-{number}", "exec"), namespace)
+    namespace = run_code_cells(NOTEBOOK)
     assert namespace["source"].startswith("synthetic") is (corpus == "synthetic")
     manifest = namespace["manifest"]
     assert manifest["status"] == "complete"
@@ -34,3 +44,35 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
         name for name, panel in manifest["panels"].items() if panel.get("render_status") == "ok"
     }
     assert {"attribution", "window_totals", "cumulative", "temporal", "reliability"} <= rendered
+
+
+def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkeypatch):
+    # River-1 is in a private repository, so an untrained model with its control and
+    # latent widths stands in: the data, split, inference and figures still run.
+    pytest.importorskip("matplotlib")
+    import pymc_mfm
+    from pymc_mfm import MFM, ModelConfig
+
+    requests = []
+
+    def stand_in(repository, **options):
+        requests.append((repository, options))
+        torch.manual_seed(0)
+        config = ModelConfig(
+            d_model=8, n_layers=1, n_heads=2, d_ff=16, flow_hidden=16, n_controls=10, n_demand=1
+        )
+        return MFM(config).eval()
+
+    monkeypatch.setattr(pymc_mfm, "from_pretrained", stand_in)
+    monkeypatch.setenv("MPLBACKEND", "Agg")
+    monkeypatch.chdir(tmp_path)
+    namespace = run_code_cells(QUICKSTART)
+    [(repository, options)] = requests
+    # The published profile, pinned to a full immutable commit.
+    assert (repository, options["profile"]) == ("pymc-labs/mfm", "river-1")
+    assert re.fullmatch(r"[0-9a-f]{40}", options["revision"])
+    n_weeks, context = namespace["N_WEEKS"], namespace["CONTEXT"]
+    assert context == int(0.8 * n_weeks)
+    for result, weeks in ((namespace["context"], context), (namespace["query"], n_weeks - context)):
+        assert result.components.shape[:2] == (1_000, weeks)
+        assert np.isfinite(result.components).all()

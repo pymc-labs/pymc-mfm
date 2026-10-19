@@ -1526,6 +1526,12 @@ evaluation archives and DataTree export. The dataset card shows how to
 memory-map a corpus snapshot and build the per-context corpus views that
 `evaluate_rows` and `train` read.
 
+`examples/river_1_quickstart.ipynb` simulates the weekly data of PyMC-Marketing's
+MMM example by hand, downloads River-1 into a temporary folder and decomposes the
+first 80% of the weeks (context) and the remaining 20% (query) with 1,000 draws
+each, against the known truth. `tests/test_examples.py` runs its cells with an
+untrained stand-in model, since CI has no access to the private repository.
+
 ## MLflow lifecycle and evidence
 
 ```bash
