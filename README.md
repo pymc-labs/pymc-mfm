@@ -381,10 +381,27 @@ both windows. `latent_sales_r2` and closure compare natural units against
 | --- | --- |
 | Component recovery | `*_scaled_mae`, `*_crps`, `*_cov80` per component family, `closure_rel_err`, decomposition / latent-sales / contribution energy scores |
 | Live/dead attribution | media live when `cy = 1`, controls live when `zb = 1`: `attribution_live_{media,control}_{crps,mean_bias,mean_abs_error,demeaned_rmse}`; dead-effect leakage on the posterior mean and per draw, `attribution_dead_{media,control}_{leakage,draw_leakage}_scaled_mae` |
+| Graph-gated live total coverage | `attribution_live_{media,control}_conditional_cov80`: central 80% coverage of each truly live slot's signed window-total contribution, using only that head/window's draws with the slot's direct `cy`/`zb` edge on |
 | Per-draw closure | `closure_draw_rel_err` (mean over draws), `closure_draw_q90_rel_err` |
 | Temporal coherence | `contribution_truth_lag1`, `contribution_draw_lag1`, `contribution_lag1_tracking_abs_error`, `contribution_truth_error_residual_lag1`, `contribution_posterior_centered_residual_lag1`, `contribution_adjacent_draw_correlation` |
 | Window totals | `timeavg_contribution_cov80` (all, `_live`, `_dead` channels), `contribution_cumulative_energy_score`, `latent_sales_r2` |
 | Padding | `contribution_padding_leakage_scaled_mae` (padded slots only; distinct from dead-effect leakage) |
+
+Graph-gated live coverage first sums each draw and the truth over the window,
+then checks the signed truth against the inclusive 10th-to-90th quantile
+interval of edge-on draws. It requires at least two edge-on draws per active,
+truly live slot. It averages coverage over eligible slots within a world (the
+`per_world` weight is the eligible-slot count), then over defined worlds; no
+eligible slot gives `null` and an undefined reason. Control contributions keep
+their sign. The joint and conditional heads each use their own query/context
+graph draws, not the auxiliary structure probabilities or an unrelated graph
+sample. This finite-draw, graph-conditioned readout is not by itself an
+independent-world calibration claim.
+
+At small gate-on draw counts, linear sample quantiles have substantially less
+than nominal expected coverage even under a calibrated posterior (with two
+uniform draws the expected central 10th-to-90th interval coverage is 0.8/3).
+Use the randomized-rank PIT card for a formal finite-draw calibration check.
 
 `structure_head` and `joint_router/edge` report `log_score`, `brier`, `auroc`,
 `auprc`, `ece`, `null_fpr` (share of negative edges with p > 0.5), `prevalence`,
@@ -610,6 +627,21 @@ world-separated classifier fitting, and reference convergence/qualification flag
 Finite graph-mixture variance uses population moments and reports closure and
 rare/singleton counts; it is not a calibration guarantee. Simultaneous SBC
 ECDF bounds use a labeled Bonferroni correction across dependent quantities.
+
+`conditional_sbc_report` produces a separate independent-world conditional
+SBC card for truly live channel and control effects. It takes one selected
+world per generator cell (per corpus): repeated worlds from the same cell and
+repeated posterior draws are not extra independent ranks. Conditional ranks
+use only graph-edge-on draws for true-live slots, with signed control truth;
+model-average ranks on the same selected worlds are a separate comparison.
+Per-entity and family rank/ECDF summaries retain eligible-rank counts and
+qualification. Pooled continuous PIT and eligible full-draw discrete-rank
+ECDF decisions share a Bonferroni family-wise level; an unavailable or
+underpowered check is not a pass, and non-rejection is not proof of calibration.
+This prior/data simulation check makes no out-of-distribution, causal, or
+business-domain validity claim. `SHARD_PLANS["evaluation"]` uses the A prior;
+evaluating the B bundle on those cells introduces a training-prior shift, so
+its SBC rejection cannot isolate conditional-magnitude-head failure.
 
 `ComparisonRecord`, `comparison_summary`, `build_comparison_report`, and
 `render_comparison_report` in `pymc_mfm.diagnostics.comparisons` preserve A/B,

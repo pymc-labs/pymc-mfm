@@ -2,8 +2,9 @@
 
 :class:`Comparison` scores the saved draws of several methods on one world
 once and draws every comparison figure for their common window.
-:class:`CalibrationReport` plots and persists a saved independent-world SBC
-report card. Every figure method returns a matplotlib ``Figure`` and imports
+:class:`CalibrationReport` plots and persists saved independent-world SBC
+cards, including conditional live-effect and graph-averaged SBC. Every figure
+method returns a matplotlib ``Figure`` and imports
 matplotlib only when called. Nothing here samples a model, trains or fits a
 reference. A method whose evidence is missing raises ``ValueError`` naming it.
 """
@@ -346,8 +347,9 @@ class ComparisonPlots:
 class CalibrationReport:
     """Plot and persist a saved independent-world SBC report card.
 
-    Wraps the output of :func:`~pymc_mfm.diagnostics.sbc_report`. Nothing is
-    resampled: ``plot.card`` redraws the saved ranks, ECDF bands and coverage,
+    Wraps the output of :func:`~pymc_mfm.diagnostics.sbc_report` or
+    :func:`~pymc_mfm.diagnostics.conditional_sbc_report`. Nothing is
+    resampled: ``plot.card`` redraws saved ranks, PIT, ECDF bands and coverage,
     and ``report`` writes the files of
     :func:`~pymc_mfm.diagnostics.write_calibration_report`.
     """
@@ -355,13 +357,16 @@ class CalibrationReport:
     __slots__ = ("_report",)
 
     def __init__(self, report: Mapping[str, Any]):
-        if not isinstance(report, Mapping) or report.get("kind") != "independent_world_sbc":
+        if not isinstance(report, Mapping) or report.get("kind") not in (
+            "independent_world_sbc",
+            "independent_world_conditional_sbc",
+        ):
             raise ValueError("CalibrationReport wraps an independent-world sbc_report result")
         self._report = report
 
     @property
     def summary(self) -> Mapping[str, Any]:
-        """The wrapped ``sbc_report`` output."""
+        """The wrapped ``sbc_report`` or ``conditional_sbc_report`` output."""
         return self._report
 
     @property
@@ -382,7 +387,7 @@ class CalibrationPlots:
         self._report = report
 
     def card(self, kind: str = "ecdf") -> Figure:
-        """Rank histogram (``"ranks"``), ECDF with null band (``"ecdf"``) or ``"coverage"``."""
+        """Saved rank/PIT histogram (``"ranks"``), ECDF (``"ecdf"``) or ``"coverage"``."""
         from pymc_mfm.plotting.panels import plot_sbc_report
 
         return plot_sbc_report(self._report, kind=kind)

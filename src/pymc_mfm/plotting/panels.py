@@ -1633,13 +1633,127 @@ def plot_panel(name, summary):
     return dispatch[name](summary)
 
 
+def _plot_conditional_sbc_report(report, *, kind):
+    """Draw saved live-effect conditional and graph-averaged PIT evidence."""
+    if kind not in ("ranks", "ecdf", "coverage"):
+        raise ValueError("expected ranks/ecdf/coverage kind for conditional SBC")
+    families = [(family, report["families"].get(family) or {}) for family in ("channel", "control")]
+    entries = [(f"{family} · one effect per cell", group) for family, group in families]
+    for family, group in families:
+        entries.extend(
+            (f"{family} · {name}", entity) for name, entity in group.get("entities", {}).items()
+        )
+    fig, axes = _figure(math.ceil(len(entries) / 2), 2, width=12, row_height=3.8)
+    for ax, (name, group) in zip(axes.flat, entries):
+        if kind == "coverage":
+            ax.plot([0, 1], [0, 1], "k--", label="Nominal")
+            ax.set(
+                xlabel="Central PIT level",
+                ylabel="PIT-implied coverage",
+                xlim=(0, 1),
+                ylim=(0, 1),
+            )
+        unavailable = []
+        for mode, label, color in (
+            ("conditional", "Edge-on conditional", COLORS["channel"]),
+            ("model_average", "Graph-averaged", COLORS["control"]),
+        ):
+            record = group.get(mode)
+            if record is None:
+                unavailable.append(label)
+                continue
+            label = f"{label} ({record['n_ranks']} worlds)"
+            if kind == "ranks":
+                edges = np.asarray(record["rank_bin_edges"])
+                ax.stairs(
+                    record["rank_histogram"],
+                    edges,
+                    fill=True,
+                    color=color,
+                    alpha=0.25,
+                    label=label,
+                )
+                ax.stairs(
+                    record["expected_rank_histogram"],
+                    edges,
+                    color=color,
+                    linestyle=":",
+                    label=f"{mode.replace('_', ' ')} null expectation",
+                )
+                ax.set(xlabel="Saved PIT bin", ylabel="Independent-world count", xlim=(0, 1))
+            elif kind == "ecdf":
+                grid = record["ecdf_grid"]
+                ax.step(grid, record["ecdf"], where="post", color=color, label=label)
+                ax.step(
+                    grid,
+                    record["null_ecdf"],
+                    where="post",
+                    linestyle="--",
+                    color=color,
+                    label=f"{mode.replace('_', ' ')} saved null",
+                )
+                if record.get("ecdf_lower") is not None and record.get("ecdf_upper") is not None:
+                    ax.fill_between(
+                        grid,
+                        record["ecdf_lower"],
+                        record["ecdf_upper"],
+                        step="post",
+                        color=color,
+                        alpha=0.15,
+                    )
+                ax.set(xlabel="PIT", ylabel="Saved ECDF", xlim=(0, 1), ylim=(0, 1))
+            else:
+                coverage = sorted(
+                    (float(key.removeprefix("cov")) / 100, value)
+                    for key, value in record["rank_coverage"].items()
+                )
+                ax.plot(
+                    [level for level, _ in coverage],
+                    [value for _, value in coverage],
+                    "o-",
+                    color=color,
+                    label=label,
+                )
+        if unavailable:
+            ax.text(
+                0.02,
+                0.02,
+                f"Unavailable: {', '.join(unavailable)}",
+                transform=ax.transAxes,
+                fontsize=8,
+                va="bottom",
+            )
+        ax.set_title(_fit(name, fig.get_figwidth() / 2, 10, longest=_LONGEST_WORD), fontsize=10)
+        if ax.get_legend_handles_labels()[0]:
+            ax.legend(fontsize=7, ncol=2)
+    for ax in list(axes.flat)[len(entries) :]:
+        ax.set_visible(False)
+    provenance = report.get("provenance", {})
+    fig.suptitle(
+        "Independent-world live-effect SBC · conditional versus graph-averaged PIT\n"
+        "Conditional: live truth edges only · graph-averaged: all eligible truth edges\n"
+        "A non-rejection is not proof of calibration or OOD validity\n"
+        f"{provenance.get('head', 'unspecified')} head · "
+        f"{provenance.get('window', 'unspecified')} window · "
+        f"{provenance.get('mode', 'unspecified')} mode · "
+        f"{len(report['world_ids'])} worlds / {len(report['cell_ids'])} cells",
+        fontsize=12,
+    )
+    return fig
+
+
 def plot_sbc_report(report, *, kind="ecdf"):
     """Independent-world SBC rank/ECDF/coverage figures from a saved report card.
 
     ECDF bands are the stored Monte Carlo-calibrated discrete-null bands.
     Coverage is rank-implied, not sample-quantile coverage, and each plotted
     quantity contributes exactly one rank per declared independent world.
+
+    Conditional live-effect cards instead plot saved PIT evidence for both
+    edge-on and graph-averaged ranks, with family rows before per-entity rows.
     """
+    if report.get("kind") == "independent_world_conditional_sbc":
+        return _plot_conditional_sbc_report(report, kind=kind)
     if report.get("kind") != "independent_world_sbc" or kind not in ("ranks", "ecdf", "coverage"):
         raise ValueError("expected an independent_world_sbc report and ranks/ecdf/coverage kind")
     quantities = report["quantities"]
