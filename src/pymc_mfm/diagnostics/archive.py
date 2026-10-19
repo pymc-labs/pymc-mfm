@@ -63,7 +63,30 @@ the independence key of a world is its cell ``(label, cell_id)``.
 keep the first world of each cell in archive order, the rule
 ``conditional_sbc_report`` applies to record order. ``effect_rows`` imports the
 training metrics at call time; reading, verification and the SBC converters import no
-training code. Size, memory and time guidance: README, *Evaluation archives*.
+training code.
+
+**Size, memory and time.** Measured for one world window at A/B geometry (K=15, M=6,
+J=1: D=26 components, L=373 edge slots, 104 weeks) with an untrained model; trained
+draws and other worlds compress differently. The draws take
+``S × (T_window × D + L) × 8`` bytes raw, of which deflate keeps ≈25–40%, and
+``result.json`` is ≈69 kB regardless of S. A world takes ≈0.42 MB at S=32 and
+≈1.19 MB at S=128, so at S=128 16 worlds take ≈19 MB, 320 worlds ≈380 MB and the
+1,280 worlds of ``SHARD_PLANS["evaluation"]`` ≈1.5 GB. Inference memory, not archive
+size, limits a call. ``evaluate_rows`` puts every requested world of one context
+length into one batch, and on CPU the A/B architecture with the default heads peaks
+at ≈1.7 GB RSS per world in a batch at context 52 and ≈3 GB at context 78, almost
+independent of the number of draws. Batches and calls run one after another, so
+``worlds_per_call=N`` bounds a call's peak at ≈0.2 GB + 3 GB × N on 104-week shards:
+≈12 GB for the CLI default of 4. Wall time on CPU is ≈0.4–0.6 s per world and draw
+(128 worlds × 128 draws ≈2 h). ``load`` verifies and decodes at ≈7 s/GB (≈10 s for
+1.5 GB), each converter re-verifies what it reads at the same rate, and writing
+decodes each entry once as a self-check and hashes it once more before publishing
+(≈0.5 s/GB). Verification and iteration hold one world window in memory;
+``conditional_sbc_inputs`` holds the independent worlds of one window (e.g. 320
+cells × 128 draws × 78 weeks × 26 components ≈665 MB of components plus ≈120 MB of
+graph draws, ≈790 MB raw for context). Keep archives under ``artifacts/`` or
+``runs/``: ``*.npz`` is git-ignored everywhere, but the JSON files only inside ignored
+directories such as these.
 
 **Privacy.** Archives hold simulated worlds with their generating truth. ``add``
 accepts only results whose encoded inputs equal a declared corpus world. Build

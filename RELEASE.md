@@ -107,6 +107,7 @@ approved or published release.
   - `load_replication_summary` was removed; it parsed a summary format that MFM never produces.
   - CI plants ignored local files (`*.pt`, `*.npz`, `.env.*`) before building, so a build that stops honouring `.gitignore` fails the installed-distribution check.
 - **Examples.** `examples/` holds only the River-1 quickstart; the diagnostics notebook moved to `examples/dev/`. The two-update workflow and offline inference scripts that the installed-distribution check runs moved to `.github/scripts/`, and `examples/tracking.py` was removed.
+- **README.** Rewritten as a short usage guide: installation and extras, inference input and output shapes, the training corpus format, training, loading local models and loading from the Hugging Face Hub. The evaluation-archive size, memory and time guidance moved to the `pymc_mfm.diagnostics.archive` docstring.
 
 ### Breaking changes
 
@@ -203,9 +204,10 @@ units. `summary.json` records each comparison. It is an integration exercise,
 The workflow explicitly selects a local SQLite MLflow backend. It reads actual
 backend metric histories, downloads checkpoint/report artifacts and checks their
 hashes against the producing run's records. The saved metric-name table resolves
-backend keys. Outputs require a new directory and are not published. See the
-[README](README.md) for the inference, diagnostics and installed-distribution
-entrypoints.
+backend keys. Outputs require a new directory and are not published. The
+[README](README.md) covers installation, training and inference. The
+installed-distribution check runs after `uv build` with
+`uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed`.
 
 Fresh-install verification passed the full workflow from the built sdist,
 offline inference from a base-only wheel environment, saved-result
