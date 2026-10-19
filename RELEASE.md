@@ -15,13 +15,13 @@ approved or published release.
   conditioner once. Conditional sampling draws router graphs with
   `MFM.sample(..., structure_only=True)`, which skips the confounder and
   indirect totals that no graph coordinate depends on. On Apple silicon CPUs up
-  to four batches run at once, so Accelerate's matrix unit overlaps elementwise
-  work; this never exceeds `torch.get_num_threads()` and gives bitwise the same
-  draws as running them in turn. Seeded draws match the previous sampler up to
-  float round-off; weights, bundles and the training objective are unchanged.
-  River-1 on the quickstart world, 1,000 draws (Apple M3 Max): CPU query
-  50.2 s → 2.3 s and context 65.6 s → 3.5 s; MPS query 16.2 s → 1.4 s and
-  context 20.1 s → 2.3 s. Peak memory is lower than before.
+  to eight balanced batches run at once, so Accelerate's matrix unit overlaps
+  elementwise work; this never exceeds `torch.get_num_threads()` and gives
+  bitwise the same draws as running them in turn. Seeded draws match the
+  previous sampler up to float round-off; weights, bundles and the training
+  objective are unchanged. River-1 on the quickstart world, 1,000 draws (Apple
+  M3 Max): CPU query 50.2 s → 2.0 s and context 65.6 s → 3.2 s; MPS query
+  16.4 s → 1.4 s and context 20.6 s → 2.3 s. Peak memory is lower than before.
   `benchmarks/inference_speed.py` reproduces the CPU timing.
 - **Joint coverage and coverage uncertainty.** A studentized 80% simultaneous
   band scores each world's truth-live media and control window totals as

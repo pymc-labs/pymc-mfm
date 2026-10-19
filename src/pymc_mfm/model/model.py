@@ -529,11 +529,10 @@ class MFM(nn.Module):
         task = torch.arange(b, device=flat_graphs.device).repeat(s)
         keys = torch.cat([task.unsqueeze(-1).to(flat_graphs.dtype), flat_graphs], dim=-1)
         live_width = int((masks != 0).reshape(-1, n_dec).any(dim=0).sum())
-        batch = max(1, _FLOW_SAMPLE_ROWS // (b * t * live_width))
 
-        def decode(start: int) -> Tensor:
-            n = min(start + batch, s) - start
-            rows = slice(start * b, (start + n) * b)
+        def decode(start: int, stop: int) -> Tensor:
+            n = stop - start
+            rows = slice(start * b, stop * b)
             distinct, inverse = torch.unique(keys[rows], dim=0, return_inverse=True)
             tasks = distinct[:, 0].long()
             conditioned = self._condition_on_graph(
@@ -562,7 +561,12 @@ class MFM(nn.Module):
                 apply_zero_atom=True,
             ).reshape(n, b, t, n_dec)
 
-        sampled = torch.cat(_map_batches(decode, range(0, s, batch), weekly.device), dim=0)
+        sampled = torch.cat(
+            _map_batches(
+                decode, s, max(1, _FLOW_SAMPLE_ROWS // (b * t * live_width)), weekly.device
+            ),
+            dim=0,
+        )
         for gate, contribution_slice, edge_slice in self.head.zero_atom_gate_slices(
             layout.K, layout.M
         ):

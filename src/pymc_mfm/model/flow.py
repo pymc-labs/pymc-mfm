@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import platform
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
@@ -36,9 +36,9 @@ _FLOW_SAMPLE_CHUNK = 16
 #: It bounds memory; unlike the noise chunk above it never changes a draw.
 _FLOW_SAMPLE_ROWS = 2**15
 # Apple's BLAS (Accelerate) runs matrix products on a separate matrix unit. On Apple
-# silicon, transporting a few batches at once overlaps one batch's products with the
+# silicon, transporting several batches at once overlaps one batch's products with the
 # others' elementwise work and Python overhead. In-flight memory scales with the count.
-_SAMPLE_BATCH_WORKERS = 4 if sys.platform == "darwin" and platform.machine() == "arm64" else 1
+_SAMPLE_BATCH_WORKERS = 8 if sys.platform == "darwin" and platform.machine() == "arm64" else 1
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
@@ -97,24 +97,32 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     return int(value)
 
 
-def _map_batches[T](fn: Callable[[int], T], starts: Sequence[int], device: torch.device) -> list[T]:
-    """Return ``[fn(start) for start in starts]``, several batches at a time where that helps.
+def _map_batches[T](
+    fn: Callable[[int, int], T], total: int, max_size: int, device: torch.device
+) -> list[T]:
+    """Split ``range(total)`` into balanced batches and return ``fn(start, stop)`` for each.
 
-    Batches share no state and draw no randomness, so the schedule never changes a
-    result. Grad mode is thread-local and is carried into the worker threads, which
-    never outnumber ``torch.get_num_threads()``.
+    Batches hold at most ``max_size`` items and run several at a time where that helps;
+    their count is then a multiple of the workers, so no worker idles in a short last
+    round. Batches share no state and draw no randomness, so neither the split nor
+    the schedule changes a result. Grad mode is thread-local and is carried into the
+    worker threads, which never outnumber ``torch.get_num_threads()``.
     """
-    workers = min(_SAMPLE_BATCH_WORKERS, torch.get_num_threads(), len(starts))
-    if workers < 2 or device.type != "cpu":
-        return [fn(start) for start in starts]
+    workers = min(_SAMPLE_BATCH_WORKERS, torch.get_num_threads()) if device.type == "cpu" else 1
+    count = -(-total // max_size)
+    if workers > 1:
+        count = min(total, -(-count // workers) * workers)
+    bounds = [(total * i // count, total * (i + 1) // count) for i in range(count)]
+    if workers < 2 or count < 2:
+        return [fn(start, stop) for start, stop in bounds]
     grad_enabled = torch.is_grad_enabled()
 
-    def run(start: int) -> T:
+    def run(bound: tuple[int, int]) -> T:
         with torch.set_grad_enabled(grad_enabled):
-            return fn(start)
+            return fn(*bound)
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(run, starts))
+    with ThreadPoolExecutor(max_workers=min(workers, count)) as pool:
+        return list(pool.map(run, bounds))
 
 
 class JointFlowHead(nn.Module):
@@ -850,13 +858,11 @@ class JointFlowHead(nn.Module):
                 return live.integrate(x, latent, grid)
 
             width = live.index.numel()
-        batch = max(1, _FLOW_SAMPLE_ROWS // (math.prod(lead) * width))
         x = torch.cat(
             _map_batches(
-                lambda start: flow(
-                    x[start : start + batch], trajectory_latent[start : start + batch]
-                ),
-                range(0, s, batch),
+                lambda start, stop: flow(x[start:stop], trajectory_latent[start:stop]),
+                s,
+                max(1, _FLOW_SAMPLE_ROWS // (math.prod(lead) * width)),
                 x.device,
             )
         )
