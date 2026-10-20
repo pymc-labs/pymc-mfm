@@ -11,9 +11,11 @@ from .config import LossWeights, ModelConfig
 from .encoder import BiAttentionEncoder, SplitRepresentations
 from .flow import (
     _FLOW_SAMPLE_CHUNK,
+    _FLOW_SAMPLE_ROWS,
     DEFAULT_N_SAMPLES,
     JointFlowHead,
     _edge_slot_layout,
+    _map_batches,
     _sample_count,
 )
 from .graph import (
@@ -490,57 +492,89 @@ class MFM(nn.Module):
                 n_samples=router_count,
                 return_structure=True,
                 control_repr=query_repr.controls,
+                structure_only=True,
             )
             graphs = self._validate_conditional_graph(
                 binary_graphs_from_flow(graph_flow), layout, state_mask, n_samples=router_count
             )
             if mode == "map":
                 graphs = empirical_full_graph_mode(graphs).unsqueeze(0).expand(s, -1, -1)
-        n_dec = self.conditional_head.state_dim(layout.K, layout.M)
+        head = self.conditional_head
+        n_dec = head.state_dim(layout.K, layout.M)
         b, t = selected_repr.weekly.shape[:2]
-        chunks = []
-        for start in range(0, s, _FLOW_SAMPLE_CHUNK):
-            stop = min(start + _FLOW_SAMPLE_CHUNK, s)
-            chunk_size = stop - start
-
-            def repeat(value: Tensor) -> Tensor:
-                return (
-                    value.unsqueeze(0)
-                    .expand(chunk_size, *value.shape)
-                    .reshape(chunk_size * b, *value.shape[1:])
-                )
-
-            # Fold draw and batch axes for one conditioner and batched ODE per
-            # chunk, reusing the same encoder pass for the entire request.
-            repeated = SplitRepresentations(
-                repeat(selected_repr.weekly),
-                repeat(selected_repr.channels),
-                repeat(selected_repr.controls),
+        weekly = selected_repr.weekly
+        # Conditional base noise is drawn once per chunk of _FLOW_SAMPLE_CHUNK draws, in
+        # draw order; seeded draws depend on this chunking, not on the batches below.
+        noise = [
+            head._draw_noise(
+                (1, (min(start + _FLOW_SAMPLE_CHUNK, s) - start) * b, t, n_dec),
+                device=weekly.device,
+                dtype=weekly.dtype,
             )
-            chunk_graphs = graphs[start:stop].reshape(chunk_size * b, layout.n_slots)
+            for start in range(0, s, _FLOW_SAMPLE_CHUNK)
+        ]
+        white = torch.cat([white for white, _ in noise], dim=1)
+        latents = torch.cat([z for _, z in noise], dim=1)
+
+        def repeat(value: Tensor, n: int) -> Tensor:
+            """Fold ``n`` draws into the batch axis, draw-major."""
+            return value.unsqueeze(0).expand(n, *value.shape).reshape(n * b, *value.shape[1:])
+
+        flat_graphs = graphs.reshape(s * b, layout.n_slots)
+        masks = self._conditioned_state_mask(
+            repeat(state_mask[..., :n_dec], s), flat_graphs, layout
+        )
+        # Conditioning depends only on a draw's task and graph: condition each distinct
+        # (task, graph) pair once, then gather it for every draw that shares it.
+        task = torch.arange(b, device=flat_graphs.device).repeat(s)
+        keys = torch.cat([task.unsqueeze(-1).to(flat_graphs.dtype), flat_graphs], dim=-1)
+        live_width = int((masks != 0).reshape(-1, n_dec).any(dim=0).sum())
+
+        def decode(start: int, stop: int) -> Tensor:
+            n = stop - start
+            rows = slice(start * b, stop * b)
+            distinct, inverse = torch.unique(keys[rows], dim=0, return_inverse=True)
+            tasks = distinct[:, 0].long()
             conditioned = self._condition_on_graph(
-                repeated, chunk_graphs, layout, repeat(active_nodes)
+                SplitRepresentations(
+                    weekly[tasks], selected_repr.channels[tasks], selected_repr.controls[tasks]
+                ),
+                distinct[:, 1:],
+                layout,
+                active_nodes[tasks],
             )
-            sampled = self.conditional_head.sample(
+            conditioned = SplitRepresentations(
+                conditioned.weekly[inverse],
+                conditioned.channels[inverse],
+                conditioned.controls[inverse],
+            )
+            x, trajectory_latent = head._mix_noise(
+                white[:, rows], latents[:, rows], conditioned.weekly
+            )
+            return head._transport(
+                x,
+                trajectory_latent,
                 conditioned.weekly,
                 conditioned.channels,
-                n_samples=1,
-                control_repr=conditioned.controls,
-                state_mask=self._conditioned_state_mask(
-                    repeat(state_mask[..., :n_dec]), chunk_graphs, layout
-                ),
-            ).reshape(chunk_size, b, t, n_dec)
-            for gate, contribution_slice, edge_slice in self.head.zero_atom_gate_slices(
-                layout.K, layout.M
-            ):
-                live = (
-                    graphs[start:stop, :, edge_slice.start - n_dec : edge_slice.stop - n_dec] > 0.5
-                )
-                if gate.reduction == "any":
-                    live = live.any(dim=-1, keepdim=True)
-                sampled[..., contribution_slice].masked_fill_(~live.unsqueeze(-2), 0.0)
-            chunks.append(sampled)
-        return torch.cat(chunks, dim=0), graphs
+                conditioned.controls,
+                masks[rows],
+                apply_zero_atom=True,
+            ).reshape(n, b, t, n_dec)
+
+        sampled = torch.cat(
+            _map_batches(
+                decode, s, max(1, _FLOW_SAMPLE_ROWS // (b * t * live_width)), weekly.device
+            ),
+            dim=0,
+        )
+        for gate, contribution_slice, edge_slice in self.head.zero_atom_gate_slices(
+            layout.K, layout.M
+        ):
+            live = graphs[..., edge_slice.start - n_dec : edge_slice.stop - n_dec] > 0.5
+            if gate.reduction == "any":
+                live = live.any(dim=-1, keepdim=True)
+            sampled[..., contribution_slice].masked_fill_(~live.unsqueeze(-2), 0.0)
+        return sampled, graphs
 
     @torch.no_grad()
     def sample_context(
@@ -573,19 +607,34 @@ class MFM(nn.Module):
         n_samples: int = DEFAULT_N_SAMPLES,
         return_structure: bool = False,
         control_repr: Tensor | None = None,
-    ) -> Tensor | tuple[Tensor, Tensor]:
-        """Draw a router marginal from already-encoded window representations."""
+        *,
+        structure_only: bool = False,
+    ) -> Tensor | tuple[Tensor | None, Tensor]:
+        """Draw a router marginal from already-encoded window representations.
+
+        ``structure_only=True`` (with ``return_structure=True``) returns
+        ``(None, g_samples)`` and skips the fixed confounder and indirect totals:
+        they feed no other coordinate, so the graph draws are unchanged.
+        """
+        if structure_only and not return_structure:
+            raise ValueError("structure_only requires return_structure=True")
+        c = channel_repr.shape[-2]
+        m = control_repr.shape[-2] if control_repr is not None else self.head.n_controls
+        n_decomp = 1 + c + m + self.head.n_fixed
+        state_mask = self._flow_state_mask(batch)
+        if structure_only:
+            state_mask = state_mask.clone()
+            state_mask[..., 1 + c + m : n_decomp] = 0.0
         flow_samples = self.head.sample(
             weekly_repr,
             channel_repr,
             n_samples=n_samples,
             control_repr=control_repr,
-            state_mask=self._flow_state_mask(batch),
+            state_mask=state_mask,
         )
-        c = channel_repr.shape[-2]
-        m = control_repr.shape[-2] if control_repr is not None else self.head.n_controls
-        n_decomp = 1 + c + m + self.head.n_fixed
         g_samples = flow_samples[..., n_decomp:]
+        if structure_only:
+            return None, g_samples
         flow_samples = flow_samples[..., :n_decomp]
         return (flow_samples, g_samples) if return_structure else flow_samples
 

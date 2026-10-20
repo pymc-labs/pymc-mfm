@@ -94,6 +94,9 @@ A column that is zero in the context but nonzero in the query is rejected.
 - `channel_names=` and `control_names=` label the components.
 - Components exclude observation noise. Context and query calls are separate
   draws, not one joint posterior.
+- Sampling skips padded channel, control and latent slots, their graph edges
+  and contributions the graph rules out, so padding adds little cost. Skipping
+  them does not change the draws.
 - `mode="model_average"` (default) samples graphs; `mode="map"` uses the most
   frequent graph; `mode="fixed", graph=...` conditions on a given graph.
 - `result.save(path)` and `DecompositionResult.load(path)` store and reload a
@@ -254,6 +257,11 @@ uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+`benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1 on
+the quickstart data, read from the local Hugging Face cache (load River-1 once
+while logged in). `--write-reference` saves the seeded draws of one version and
+`--check-reference` compares another version's draws against them.
 
 With Conda or Mamba:
 

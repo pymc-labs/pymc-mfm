@@ -456,18 +456,21 @@ class GraphConditioner(nn.Module):
             [STRUCT_EDGE_KEYS.index(family) for family in layout.slot_edge_types],
             device=device,
         )
+        # A slot absent from every graph sends zero messages: skip it exactly.
+        live = torch.nonzero((graph != 0).any(dim=0)).squeeze(-1)
+        live_src, live_dst = src[live], dst[live]
         messages = self.message(
             torch.cat(
                 [
-                    nodes.index_select(-2, src),
-                    nodes.index_select(-2, dst),
-                    self.edge_type(edge_types).expand(b, t, -1, -1),
+                    nodes.index_select(-2, live_src),
+                    nodes.index_select(-2, live_dst),
+                    self.edge_type(edge_types[live]).expand(b, t, -1, -1),
                 ],
                 dim=-1,
             )
-        ) * graph[:, None, :, None].to(nodes.dtype)
-        incoming = nodes.new_zeros(nodes.shape).index_add(-2, dst, messages[..., :h])
-        outgoing = nodes.new_zeros(nodes.shape).index_add(-2, src, messages[..., h:])
+        ) * graph[:, None, live, None].to(nodes.dtype)
+        incoming = nodes.new_zeros(nodes.shape).index_add(-2, live_dst, messages[..., :h])
+        outgoing = nodes.new_zeros(nodes.shape).index_add(-2, live_src, messages[..., h:])
         # Normalize by possible active incident edges, not present-edge degree:
         # otherwise graphs differing only in multiplicity would lose that signal.
         active = active_nodes.to(nodes.dtype)

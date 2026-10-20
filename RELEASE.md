@@ -6,6 +6,23 @@ approved or published release.
 
 ## Changes
 
+- **Faster sampling, same draws.** The router and conditional flows evaluate
+  only state coordinates live in some task (padding and graph-forbidden
+  contributions are skipped) and project each network's step-invariant inputs
+  once per call. Base noise is still drawn per chunk of 16 draws in the same
+  order, but many chunks are integrated together (bounded by a state-row
+  budget), and each distinct conditioning graph is passed through the graph
+  conditioner once. Conditional sampling draws router graphs with
+  `MFM.sample(..., structure_only=True)`, which skips the confounder and
+  indirect totals that no graph coordinate depends on. On Apple silicon CPUs up
+  to eight balanced batches run at once, so Accelerate's matrix unit overlaps
+  elementwise work; this never exceeds `torch.get_num_threads()` and gives
+  bitwise the same draws as running them in turn. Seeded draws match the
+  previous sampler up to float round-off; weights, bundles and the training
+  objective are unchanged. River-1 on the quickstart world, 1,000 draws (Apple
+  M3 Max): CPU query 50.2 s → 2.0 s and context 65.6 s → 3.2 s; MPS query
+  16.4 s → 1.4 s and context 20.6 s → 2.3 s. Peak memory is lower than before.
+  `benchmarks/inference_speed.py` reproduces the CPU timing.
 - **Joint coverage and coverage uncertainty.** A studentized 80% simultaneous
   band scores each world's truth-live media and control window totals as
   `timeavg_{contribution,control_contribution}_simcov80_live`; the existing

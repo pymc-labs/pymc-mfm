@@ -65,6 +65,7 @@ only-include = [
     ".python-version",
     "README.md",
     "RELEASE.md",
+    "benchmarks",
     "environment.yml",
     "examples",
     "pyproject.toml",
