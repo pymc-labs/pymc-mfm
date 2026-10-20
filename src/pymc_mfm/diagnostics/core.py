@@ -8,6 +8,8 @@ from urllib.parse import quote
 
 import numpy as np
 
+from pymc_mfm.inference._time import _time_to_json
+
 from .calibration import SCREENING_QUALIFICATION, calibration_summary
 from .uncertainty import paired_graph_uncertainty
 
@@ -66,7 +68,11 @@ STRATA_PANELS = ("residual_true_size", "residual_predicted_size", "strata")
 def json_safe(value):
     """Convert scientific containers, refusing nonfinite values and unknown objects."""
     if isinstance(value, np.ndarray):
+        if value.dtype.kind == "M":
+            return _time_to_json(value)
         return json_safe(value.tolist())
+    if isinstance(value, np.datetime64):
+        return _time_to_json(value)
     if isinstance(value, np.generic):
         return json_safe(value.item())
     if isinstance(value, Mapping):
@@ -1299,7 +1305,7 @@ def compute_diagnostics(
             "panels": panels,
             "arrays": arrays,
             "metadata": {
-                "time": result.time.tolist(),
+                "time": result.time,
                 "head": result.provenance.get("head", "conditional"),
                 "window": result.window,
                 "mode": result.mode,

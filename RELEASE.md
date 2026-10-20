@@ -6,6 +6,21 @@ approved or published release.
 
 ## Changes
 
+- **Dataframe `fit` / `predict`.** Load weights with `from_pretrained`, then call
+  `model.fit(history, date_column=..., target_column=..., channel_columns=...,
+  control_columns=...)` to load observed context without training the weights.
+  `model.predict(future_data)` returns graph-conditional decomposition draws in
+  original outcome units. It handles control padding, masks and context-only
+  scaling internally, ignores query outcomes, and retains the same history for
+  independent future scenarios. Dates are sorted and must follow the context's
+  regular cadence without gaps. Refitting replaces context atomically; weight
+  bundles never contain it. At least one channel and one control remain required.
+  The old encoded-tensor `model.predict` is now `model.predict_batch`; all internal
+  callers have migrated, without an overloaded input contract or compatibility alias.
+- **Native inference dates.** Results retain `datetime64` coordinates through
+  save/load, plots, report replay and DataTree export; diagnostic JSON uses ISO
+  strings rather than integer timestamps. Existing numeric labels and result
+  format version 2 remain supported.
 - **Faster sampling, same draws.** The router and conditional flows evaluate
   only state coordinates live in some task (padding and graph-forbidden
   contributions are skipped) and project each network's step-invariant inputs

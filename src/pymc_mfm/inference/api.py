@@ -10,6 +10,7 @@ import torch
 
 from pymc_mfm.data.features import MOMENT_FEATURE_BLOCKS
 from pymc_mfm.data.observations import encode_observations, observation_identity
+from pymc_mfm.inference._time import _validate_time
 from pymc_mfm.inference.result import (
     DecompositionResult,
     _input_summary,
@@ -225,16 +226,8 @@ def decompose(
     for key, (values, input_units) in support_arrays.items():
         identity["input_support"][key] = _input_summary(values, input_units)
     if time is not None:
-        time = np.asarray(time)
         full_length = batch["ctx_spend_z"].shape[1] + batch["qry_spend_z"].shape[1]
-        if (
-            time.shape != (full_length,)
-            or time.dtype.kind not in "iuf"
-            or not np.isfinite(time).all()
-        ):
-            raise ValueError("time must label every context/query row with finite numeric values")
-        if (time[1:] <= time[:-1]).any():
-            raise ValueError("time labels must be strictly increasing")
+        time = _validate_time(time, length=full_length, allow_bool=False)
     was_training = model.training
     try:
         model.eval()

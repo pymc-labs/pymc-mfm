@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from ._artifact_schema import json_bytes
+from ._time import _validate_time
 
 if TYPE_CHECKING:
     from xarray import DataTree
@@ -151,6 +152,8 @@ class DecompositionResult:
     Padding is explicit, not an estimate of causal activity. No simulation
     truth or observation noise is manufactured by this contract. The array
     fields are read-only copies of the supplied arrays.
+    Time labels are finite numeric values or strictly increasing, non-NaT
+    ``datetime64`` values, retained in their original unit and dtype.
     """
 
     components: np.ndarray
@@ -189,7 +192,9 @@ class DecompositionResult:
             # A read-only copy: the caller's buffer, reused after construction,
             # cannot change these draws or the diagnostics computed from them.
             array = np.array(getattr(self, name), copy=True)
-            if array.dtype.kind not in "biuf" or not np.isfinite(array).all():
+            if name == "time":
+                _validate_time(array)
+            elif array.dtype.kind not in "biuf" or not np.isfinite(array).all():
                 raise ValueError(f"{name} must contain finite real values")
             if name.endswith("mask"):
                 if not np.isin(array, (0, 1)).all():
@@ -219,8 +224,8 @@ class DecompositionResult:
             raise ValueError("masks must match their component/edge axes")
         if len(self.edge_names) != self.graphs.shape[1]:
             raise ValueError("edge names must match the graph axis")
-        if self.time.shape != (t,) or (self.time[1:] <= self.time[:-1]).any():
-            raise ValueError("time must be a strictly increasing numeric vector")
+        if self.time.shape != (t,):
+            raise ValueError("time must label every component row")
         if self.window not in ("context", "query"):
             raise ValueError("window must be context or query")
         if self.mode not in ("model_average", "map", "fixed"):

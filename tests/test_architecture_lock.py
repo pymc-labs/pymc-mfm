@@ -187,7 +187,10 @@ def lock_outputs() -> tuple[dict[str, object], float]:
             terms = model.loss_terms(batch, weights=weights)
             for name, value in terms.items():
                 outputs[f"loss_terms/{label}/{name}"] = value.item()
-        for name, draw in (("predict", model.predict), ("sample_context", model.sample_context)):
+        for name, draw in (
+            ("predict", model.predict_batch),
+            ("sample_context", model.sample_context),
+        ):
             torch.manual_seed(SEEDS[name])
             components, flow = draw(batch, N_SAMPLES, return_structure=True)
             outputs[f"{name}/components"] = components.tolist()

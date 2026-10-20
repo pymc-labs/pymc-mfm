@@ -22,6 +22,8 @@ import textwrap
 
 import numpy as np
 
+from pymc_mfm.inference._time import _restore_time, _time_to_json
+
 COLORS = {
     "baseline": "#666666",
     "channel": "#0072B2",
@@ -201,8 +203,35 @@ def _title(fig, ax, labels, title, owned, detail=None):
         ax.set_title(_fit(text, width, 9, longest=_LONGEST_WORD), fontsize=9, wrap=True)
 
 
+def _plot_time(ax, values):
+    """Date positions with readable labels, including dates beyond Matplotlib's calendar."""
+    time = _restore_time(values)
+    if time.dtype.kind != "M":
+        return time
+    from matplotlib.dates import AutoDateLocator, ConciseDateFormatter, date2num
+    from matplotlib.ticker import FixedFormatter, FixedLocator
+
+    time = time.astype(time.dtype.newbyteorder("="), copy=False)
+    positions = date2num(time)
+    padding = max(float(np.ptp(positions)), 1.0)
+    calendar_min = date2num(np.datetime64("0001-01-01", "D"))
+    calendar_stop = date2num(np.datetime64("10000-01-01", "D"))
+    if positions[0] - padding < calendar_min or positions[-1] + padding >= calendar_stop:
+        # Fixed ISO labels avoid calendar conversion during drawing or autoscaling.
+        ticks = np.linspace(0, len(time) - 1, min(len(time), 3), dtype=int)
+        ax.xaxis.set_major_locator(FixedLocator(positions[ticks]))
+        ax.xaxis.set_major_formatter(FixedFormatter(_time_to_json(time[ticks])))
+        ax.tick_params(axis="x", labelrotation=25)
+    else:
+        ax.xaxis_date()
+        locator = AutoDateLocator(minticks=3, maxticks=7)
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(ConciseDateFormatter(locator))
+    return positions
+
+
 def _boundary(ax, metadata):
-    time = np.asarray(metadata["time"])
+    time = _plot_time(ax, metadata["time"])
     spacing = float(np.median(np.diff(time))) if len(time) > 1 else 1.0
     if metadata["window"] == "query":
         boundary = time[0] - spacing / 2
@@ -216,6 +245,7 @@ def _boundary(ax, metadata):
 
 
 def _band(ax, time, series, color, *, label="Posterior mean"):
+    time = _plot_time(ax, time)
     ax.plot(time, series["mean"], color=color, linewidth=1.6, label=label)
     ax.fill_between(
         time, series["low"], series["high"], color=color, alpha=0.23, label="Central 80% interval"
@@ -272,18 +302,19 @@ def plot_target_recovery(summary):
     ax, residual = axes[:, 0]
     data = summary["arrays"]["total"]
     metadata = summary["metadata"]
-    _band(ax, metadata["time"], data, COLORS["channel"], label="Latent total posterior mean")
+    time = _plot_time(ax, metadata["time"])
+    _band(ax, time, data, COLORS["channel"], label="Latent total posterior mean")
     if data["observed"] is not None:
-        ax.plot(metadata["time"], data["observed"], ".", color="0.3", label="Noisy observations")
+        ax.plot(time, data["observed"], ".", color="0.3", label="Noisy observations")
         residual.plot(
-            metadata["time"],
+            time,
             data["observed_minus_latent_mean"],
             color=COLORS["channel"],
             label="Observed − posterior-mean latent total",
         )
     if data["realized_noise"] is not None:
         residual.plot(
-            metadata["time"],
+            time,
             data["realized_noise"],
             "--",
             color="0.2",
@@ -1499,6 +1530,7 @@ def plot_uncertainty(summary, *, ax=None):
     within = np.asarray(uncertainty["within_graph_variance"])
     between = np.asarray(uncertainty["between_graph_variance"])
     fig, ax, owned = _single(ax, width=11, row_height=4)
+    time = _plot_time(ax, time)
     ax.stackplot(
         time,
         within,

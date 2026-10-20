@@ -653,7 +653,7 @@ def test_partial_holdout_prediction_blocks_best_checkpoint_but_finishes_training
     tmp_path, monkeypatch, head
 ):
     # The first query draws of the selected head are the holdout leg's first world set.
-    method = "predict" if head == "joint" else "sample_disentangled"
+    method = "predict_batch" if head == "joint" else "sample_disentangled"
     original = getattr(MFM, method)
     poisoned = False
 

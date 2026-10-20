@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Self
 
 import torch
 from torch import Tensor, nn
@@ -27,6 +28,11 @@ from .graph import (
     empirical_full_graph_mode,
     structure_active_masks,
 )
+
+if TYPE_CHECKING:
+    from pandas import DataFrame
+
+    from pymc_mfm.inference.result import DecompositionResult
 
 
 class MFM(nn.Module):
@@ -54,6 +60,7 @@ class MFM(nn.Module):
         # modules initialized after the encoder, router and auxiliary head.
         self.graph_conditioner = GraphConditioner(config.d_model, config.d_model)
         self.conditional_head = JointFlowHead(config, graph_router=False)
+        self._inference_context = None
 
     def structure_logits(
         self,
@@ -413,8 +420,78 @@ class MFM(nn.Module):
         """Return the complete scalar training objective."""
         return self.loss_terms(batch, weights=weights)["loss"]
 
-    @torch.no_grad()
+    def fit(
+        self,
+        data: DataFrame,
+        *,
+        date_column: str,
+        target_column: str,
+        channel_columns: Sequence[str],
+        control_columns: Sequence[str],
+    ) -> Self:
+        """Load observed history and column roles without training the weights.
+
+        Dates are sorted and must follow a regular cadence. History needs at
+        least two rows, positive outcomes, nonnegative spend and at least one
+        channel and control. Controls are padded to this model's capacity.
+        A successful call replaces context; a failed call preserves it.
+        The stored snapshot is independent of later changes to ``data``.
+        """
+        from pymc_mfm.inference.dataframe import _FittedContext
+
+        context = _FittedContext.from_data(
+            data,
+            model_config=self.config,
+            date_column=date_column,
+            target_column=target_column,
+            channel_columns=channel_columns,
+            control_columns=control_columns,
+        )
+        self._inference_context = context
+        return self
+
     def predict(
+        self,
+        data: DataFrame,
+        *,
+        n_samples: int = DEFAULT_N_SAMPLES,
+        mode: str = "model_average",
+        graph=None,
+        router_samples: int | None = None,
+        units: str = "outcome",
+        provenance: Mapping[str, object] | None = None,
+    ) -> DecompositionResult:
+        """Infer future conditional components using history loaded by ``fit``.
+
+        Supply the configured date, channel and control columns, starting at
+        the next context period without gaps. Dates are sorted; query targets
+        and unrelated columns are ignored. Every call reuses the same context
+        and context-only scales, without appending predictions to history.
+        Returned draws use original outcome units and exclude observation noise.
+        Context is runtime data and is never included in ``save_pretrained``.
+        """
+        from pymc_mfm.inference.api import decompose
+
+        context = self._inference_context
+        if context is None:
+            raise RuntimeError("call fit(history, ...) before predict(future_data)")
+        observations, time = context.observations(data)
+        return decompose(
+            self,
+            observations,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            channel_names=context.channel_columns,
+            control_names=context.control_names,
+            time=time,
+            units=units,
+            provenance=provenance,
+        )
+
+    @torch.no_grad()
+    def predict_batch(
         self,
         batch: dict[str, Tensor],
         n_samples: int = DEFAULT_N_SAMPLES,
@@ -585,7 +662,7 @@ class MFM(nn.Module):
     ) -> Tensor | tuple[Tensor, Tensor]:
         """Draw the trained context joint marginal without reading graph truth.
 
-        The result uses ``Tcontext`` in place of ``Tquery`` in :meth:`predict`.
+        The result uses ``Tcontext`` in place of ``Tquery`` in :meth:`predict_batch`.
         It is not paired with a separately sampled query-window marginal.
         """
         timeline = self.encoder.forward_timeline(batch)

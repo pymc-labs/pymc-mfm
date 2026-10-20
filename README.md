@@ -4,8 +4,8 @@ PyMC MFM trains and runs amortized neural networks for marketing mix
 decomposition. A trained network reads one time series (media spend, controls
 and the observed outcome) and returns posterior draws of each component's
 contribution: baseline, each channel, each control and unobserved factors.
-The network is trained once on many simulated datasets; a new dataset needs one
-call, not a model fit.
+The network is trained once on many simulated datasets. For a new dataset,
+`fit` loads observed context; it does not train the network's weights.
 
 This repository is the library. Simulators, training corpora and trained weights
 are separate artifacts: models load from a local folder or from the Hugging Face Hub.
@@ -18,8 +18,8 @@ Python 3.13 or newer.
 pip install "pymc-mfm[hub] @ git+https://github.com/pymc-labs/pymc-mfm.git"
 ```
 
-The base install (NumPy, PyTorch, safetensors) loads local models and runs
-inference. Optional extras:
+The base install (NumPy, pandas, PyTorch, safetensors and packaging) loads local
+models and runs inference. Optional extras:
 
 | Extra | Adds |
 | --- | --- |
@@ -34,34 +34,65 @@ inference. Optional extras:
 
 ```python
 import numpy as np
+import pandas as pd
 import torch
 
-from pymc_mfm import decompose, from_pretrained
+from pymc_mfm import from_pretrained
 
 model = from_pretrained("models/my-model")  # a model folder; see "Load a trained model"
 
 rng = np.random.default_rng(0)
 n_weeks, n_context = 104, 80
 spend = rng.gamma(2.0, 50.0, size=(n_weeks, 2))  # 2 channels
-controls = np.zeros((n_weeks, model.config.n_controls))  # fixed width, zero padded
-controls[:, 0] = np.sin(2 * np.pi * np.arange(n_weeks) / 52)
-sales = 1_000 + spend @ [2.0, 1.0] + rng.normal(0, 20, n_weeks)
+data = pd.DataFrame(
+    {
+        "date": pd.date_range("2024-01-01", periods=n_weeks, freq="W-MON"),
+        "search": spend[:, 0],
+        "social": spend[:, 1],
+        "seasonality": np.sin(2 * np.pi * np.arange(n_weeks) / 52),
+        "sales": 1_000 + spend @ [2.0, 1.0] + rng.normal(0, 20, n_weeks),
+    }
+)
 
-observations = {
-    "spend": spend,
-    "controls": controls,
-    "context_outcome": sales[:n_context],  # outcome of the observed weeks only
-    "control_mask": [1] + [0] * (model.config.n_controls - 1),
-}
+model.fit(
+    data.iloc[:n_context],
+    date_column="date",
+    target_column="sales",
+    channel_columns=["search", "social"],
+    control_columns=["seasonality"],
+)
+future = data.iloc[n_context:].drop(columns="sales")
 torch.manual_seed(0)
-context = decompose(model, observations, window="context", n_samples=500)
-query = decompose(model, observations, window="query", n_samples=500)
+query = model.predict(future, n_samples=500)
 
 query.components.shape  # (500, 24, D): [draw, week, component]
-query.component_names  # ('baseline', 'channel:channel_0', ..., 'indirect:dc')
+query.component_names  # ('baseline', 'channel:search', 'channel:social', ..., 'indirect:dc')
 ```
 
-### Input shapes
+`fit` snapshots the history and column roles, validates the inputs, and returns
+the model. It needs at least two rows, strictly positive outcomes, nonnegative
+spend, and at least one channel and control. Control padding and masks are
+automatic; excess controls are rejected and channel count is not fixed.
+
+`predict` requires only the stored date, channel and control columns. Physical
+column order does not matter; extra columns and any query targets are ignored.
+Dates must be timezone-naive, unique, and regularly spaced. Rows are sorted
+without modifying the dataframe. Queries must start at the next context period
+and follow its cadence without gaps. Calendar frequency is inferred when
+possible; two-row histories use their fixed interval.
+
+Repeated predictions reuse the same context without appending predictions.
+A successful second `fit` replaces context; a failed fit preserves it.
+`predict` before `fit` raises an error. Weight bundles exclude private history,
+so call `fit` again after loading. The illustrative data above exercises the API,
+not attribution calibration.
+
+### Lower-level array inputs
+
+`decompose(model, observations, window="query", ...)` remains available for
+array/tensor callers; `window="context"` selects the observed window instead.
+It requires the explicit padded observation mapping below.
+`model.predict_batch(batch, ...)` is the separate tensor-level joint sampler.
 
 `T` time steps, `K` channels, `M = model.config.n_controls` control slots,
 `J = model.config.n_demand` latent slots. Rows are equally spaced steps (for
@@ -82,16 +113,18 @@ A column that is zero in the context but nonzero in the query is rejected.
 
 ### Output
 
-`decompose` returns a `DecompositionResult` for one window:
+`predict` returns a query `DecompositionResult`; lower-level `decompose` can return
+either window:
 
 | Field | Shape | Content |
 | --- | --- | --- |
 | `components` | `[S, T_window, D]` | Draws in outcome units. `T_window` is `C` (context) or `T - C` (query). |
 | `component_names` | `[D]` | Baseline, `K` channels, `M` controls, latent total, indirect `cc`, `zc`, `dc` (`D = K + M + 5`) |
 | `graphs` | `[S, L]` | Causal graph sampled with each draw (edge layout below) |
-| `time` | `[T_window]` | Row indices of the window |
+| `time` | `[T_window]` | Query dates (`predict`); row indices or supplied labels (`decompose`) |
 
-- `channel_names=` and `control_names=` label the components.
+- `predict` derives names from column roles; `decompose` accepts `channel_names=`
+  and `control_names=`.
 - Components exclude observation noise. Context and query calls are separate
   draws, not one joint posterior.
 - Sampling skips padded channel, control and latent slots, their graph edges
@@ -103,6 +136,9 @@ A column that is zero in the context but nonzero in the query is rejected.
   result without the model.
 - With `[diagnostics]`: `result.plot.reconstruction(observed=...)` and
   `result.diagnostics(truth=...)`. With `[arviz]`: `result.to_datatree()`.
+- Dates survive result save/load, plots and export. Saved results retain their
+  original datetime precision; DataTree export requires a lossless supported
+  second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
 ## Train an amortized network
 

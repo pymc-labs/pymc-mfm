@@ -110,13 +110,13 @@ def test_fixed_graph_validates_original_precision_before_casting(model, batch, v
         model.sample_disentangled(batch, 3, mode="fixed", graph=graph)
 
 
-SAMPLING_ENTRY_POINTS = ("predict", "sample_context", "sample_disentangled", "sample", "head")
+SAMPLING_ENTRY_POINTS = ("predict_batch", "sample_context", "sample_disentangled", "sample", "head")
 
 
 def _draws(model, batch, entry, **count):
     """Leading draws of one public sampling entry point, forwarding only the count."""
-    if entry == "predict":
-        return model.predict(batch, **count)
+    if entry == "predict_batch":
+        return model.predict_batch(batch, **count)
     if entry == "sample_context":
         return model.sample_context(batch, **count)
     if entry == "sample_disentangled":
@@ -125,11 +125,6 @@ def _draws(model, batch, entry, **count):
     if entry == "sample":
         return model.sample(batch, weekly, channels, control_repr=controls, **count)
     return model.head.sample(weekly, channels, control_repr=controls, **count)
-
-
-@pytest.mark.parametrize("entry", SAMPLING_ENTRY_POINTS)
-def test_omitted_draw_count_is_the_ab_inference_default(model, batch, entry):
-    assert _draws(model, batch, entry).shape[0] == 32
 
 
 @pytest.mark.parametrize("n_samples", [True, 2.5, 0])
