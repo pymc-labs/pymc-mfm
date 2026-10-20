@@ -2480,6 +2480,7 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "packaging" },
+    { name = "pandas" },
     { name = "safetensors" },
     { name = "torch" },
 ]
@@ -2528,6 +2529,7 @@ requires-dist = [
     { name = "mlflow", marker = "extra == 'training'", specifier = ">=3.10,<4" },
     { name = "numpy", specifier = ">=2.1,<3" },
     { name = "packaging", specifier = ">=24.2" },
+    { name = "pandas", specifier = ">=2.2.3,<4" },
     { name = "pymc-generator", marker = "extra == 'generation'", git = "https://github.com/pymc-labs/pymc-generator.git?rev=main" },
     { name = "pymc-marketing", marker = "extra == 'examples'", specifier = ">=1.1,<2" },
     { name = "safetensors", specifier = ">=0.6.2,<1" },

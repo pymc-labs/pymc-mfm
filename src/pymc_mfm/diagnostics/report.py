@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from pymc_mfm.inference._time import _time_to_json
+
 from .core import PANEL_NAMES, compute_diagnostics, json_safe
 
 if TYPE_CHECKING:
@@ -435,7 +437,7 @@ def build_report(
             ],
             "scoring_error": reason,
             "metadata": {
-                "time": result.time.tolist(),
+                "time": _time_to_json(result.time),
                 "head": result.provenance.get("head", "conditional"),
                 "window": result.window,
                 "mode": result.mode,
@@ -502,7 +504,7 @@ def render_report(saved_path, out_dir, *, strict=True):
     if manifest.get("provenance") != saved_result.provenance:
         raise ValueError("report provenance disagrees with verified saved result identity")
     expected_metadata = {
-        "time": saved_result.time.tolist(),
+        "time": _time_to_json(saved_result.time),
         "window": saved_result.window,
         "mode": saved_result.mode,
         "units": saved_result.units,

@@ -481,14 +481,14 @@ def test_record_is_json_serializable_without_nan(record):
 def test_nonfinite_decomposition_coverage_is_undefined_not_zero(
     model, corpus, holdout, monkeypatch
 ):
-    predict = model.predict
+    predict_batch = model.predict_batch
 
     def corrupt_baseline(*args, **kwargs):
-        samples, graph = predict(*args, **kwargs)
+        samples, graph = predict_batch(*args, **kwargs)
         samples[..., 0] = float("nan")
         return samples, graph
 
-    monkeypatch.setattr(model, "predict", corrupt_baseline)
+    monkeypatch.setattr(model, "predict_batch", corrupt_baseline)
     record = evaluate_rows(
         model, [corpus], holdout[:1], n_samples=2, seed=1, device="cpu", leg="holdout"
     )
@@ -564,14 +564,14 @@ def test_one_class_edge_families_evidence_no_corp_calibration():
 def test_nonfinite_router_draws_are_not_scored_as_binary_graphs(
     model, corpus, holdout, monkeypatch, invalid
 ):
-    predict = model.predict
+    predict_batch = model.predict_batch
 
     def corrupt_graph(*args, **kwargs):
-        samples, graph = predict(*args, **kwargs)
+        samples, graph = predict_batch(*args, **kwargs)
         graph[..., 0] = invalid  # First packed cy slot is active.
         return samples, graph
 
-    monkeypatch.setattr(model, "predict", corrupt_graph)
+    monkeypatch.setattr(model, "predict_batch", corrupt_graph)
     record = evaluate_rows(
         model, [corpus], holdout[:1], n_samples=2, seed=1, device="cpu", leg="holdout"
     )
@@ -588,7 +588,7 @@ def test_heads_selector_samples_only_the_selected_heads(
     model, corpus, holdout, record, monkeypatch
 ):
     calls = []
-    for name in ("predict", "sample_context", "sample_disentangled"):
+    for name in ("predict_batch", "sample_context", "sample_disentangled"):
         original = getattr(model, name)
 
         def spy(*args, _name=name, _original=original, **kwargs):
@@ -623,7 +623,7 @@ def test_heads_selector_samples_only_the_selected_heads(
 
     calls.clear()
     conditional = run(("conditional",))
-    assert "sample_context" not in calls and "predict" in calls  # the router needs joint draws
+    assert "sample_context" not in calls and "predict_batch" in calls  # router needs joint draws
     assert set(conditional["heads"]) == {"conditional", "structure_head", "joint_router"}
 
     for heads in ((), ("joint", "joint"), ("router",), "joint"):
@@ -795,7 +795,7 @@ def _stub_joint_draws(model, monkeypatch, *, zz_cycle=False):
             flipped[:, zz] = torch.where(both, torch.ones_like(truth[:, zz]), truth[:, zz])
         return (2 * torch.stack([truth, flipped]) - 1)[:, :, None].expand(-1, -1, n_weeks, -1)
 
-    def predict(batch, n_samples, return_structure=False):
+    def predict_batch(batch, n_samples, return_structure=False):
         truth = batch["targets_z"]
         return decomposition(truth, QUERY_SHIFTS), graph_flow(batch, truth.shape[1])
 
@@ -803,7 +803,7 @@ def _stub_joint_draws(model, monkeypatch, *, zz_cycle=False):
         truth = batch["context_targets_z"]
         return decomposition(truth, CONTEXT_SHIFTS), graph_flow(batch, truth.shape[1])
 
-    monkeypatch.setattr(model, "predict", predict)
+    monkeypatch.setattr(model, "predict_batch", predict_batch)
     monkeypatch.setattr(model, "sample_context", sample_context)
 
 

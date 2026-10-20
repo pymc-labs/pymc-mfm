@@ -2709,7 +2709,7 @@ def test_reports_from_an_archive_never_call_the_model(built, monkeypatch):
         raise AssertionError("an archive report called the model")
 
     for name in (
-        "predict",
+        "predict_batch",
         "sample_disentangled",
         "sample_context",
         "sample",

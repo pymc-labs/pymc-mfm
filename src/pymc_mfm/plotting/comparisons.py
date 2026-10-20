@@ -14,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .panels import _figure, _labels
+from .panels import _figure, _labels, _plot_time
 
 
 def _records(summary, window, methods):
@@ -404,13 +404,12 @@ def plot_world_comparison(summary, *, case, world, window="query", projection="t
             label = f"{record['method']} ({record['mode']})"
             if projection == "trajectory":
                 values = component["weekly"]
-                ax.plot(record["time"], values["mean"], color=color, label=label)
-                ax.fill_between(
-                    record["time"], values["low"], values["high"], color=color, alpha=0.12
-                )
+                time = _plot_time(ax, record["time"])
+                ax.plot(time, values["mean"], color=color, label=label)
+                ax.fill_between(time, values["low"], values["high"], color=color, alpha=0.12)
                 if method_index == 0 and component["truth"] is not None:
                     ax.plot(
-                        record["time"],
+                        time,
                         component["truth"],
                         color="black",
                         linestyle="--",
@@ -418,7 +417,7 @@ def plot_world_comparison(summary, *, case, world, window="query", projection="t
                     )
                 if method_index == 0 and name == "Latent total" and record["observed"] is not None:
                     ax.scatter(
-                        record["time"],
+                        time,
                         record["observed"],
                         color="black",
                         s=9,
@@ -470,14 +469,15 @@ def plot_reference_comparison(summary):
     nrows = (len(names) + ncols - 1) // ncols
     fig, axes = _figure(nrows, ncols, width=5 * ncols, row_height=3 + 1 / nrows)
     for i, (ax, name) in enumerate(zip(axes.flat, names)):
+        time = _plot_time(ax, arrays["time"])
         for source, color, label in (
             ("model", "C0", f"{summary['head'].capitalize()} model"),
             ("reference", "C1", summary["label"]),
         ):
             values = arrays[source]
-            ax.plot(arrays["time"], np.asarray(values["mean"])[:, i], color=color, label=label)
+            ax.plot(time, np.asarray(values["mean"])[:, i], color=color, label=label)
             ax.fill_between(
-                arrays["time"],
+                time,
                 np.asarray(values["low"])[:, i],
                 np.asarray(values["high"])[:, i],
                 color=color,

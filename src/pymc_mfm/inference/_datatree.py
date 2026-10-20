@@ -212,9 +212,24 @@ def _labels(values, name: str) -> np.ndarray:
     return np.array(values, dtype=str)
 
 
+def _datetime_coordinates(arrays):
+    """Choose one pandas/xarray resolution without changing any world's date labels."""
+    for unit in ("ns", "us", "ms", "s"):
+        converted = [values.astype(f"datetime64[{unit}]", copy=False) for values in arrays]
+        if all(
+            not np.isnat(dates).any()
+            and np.array_equal(dates.astype(values.dtype, copy=False), values)
+            for values, dates in zip(arrays, converted, strict=True)
+        ):
+            return converted
+    raise ValueError("datetime64 coordinates need a lossless common time unit")
+
+
 def _time_coordinate(values: np.ndarray) -> np.ndarray:
-    """Pandas-compatible numeric coordinates, preserving Boolean label selection."""
+    """Pandas-compatible numeric or datetime coordinates, retaining native date values."""
     values = values.astype(values.dtype.newbyteorder("="), copy=False)
+    if values.dtype.kind == "M":
+        return _datetime_coordinates((values,))[0]
     return values.astype(np.float64) if values.dtype == np.float16 else values
 
 
@@ -314,26 +329,41 @@ def archive_datatree(archive: EvaluationArchive, window: str) -> DataTree:
     if not component_axis:
         raise ValueError("DataTree export needs at least one active component")
     position = {name: index for index, name in enumerate(component_axis)}
-    # NumPy promotion can round large integer labels when worlds use different dtypes.
-    time_representatives = {}
-    for world in worlds:
-        for label in world["time"].tolist():
-            # Object indexes match numeric vectors to 0/1, but not to False/True.
-            if label not in time_representatives or isinstance(time_representatives[label], bool):
-                time_representatives[label] = label
-    time_labels = sorted(time_representatives.values())
-    time_axis = np.asarray(time_labels)
     time_kinds = {world["time"].dtype.kind for world in worlds}
-    mixed_boolean_time = "b" in time_kinds and len(time_kinds) > 1
-    if time_axis.tolist() != time_labels or mixed_boolean_time:
-        time_axis = np.asarray(time_labels, dtype=object)
-    time_position = {label: index for index, label in enumerate(time_labels)}
+    datetime_time = "M" in time_kinds
+    if datetime_time:
+        if len(time_kinds) != 1:
+            raise ValueError("archive time coordinates cannot mix numeric and datetime64 labels")
+        coordinates = _datetime_coordinates([world["time"] for world in worlds])
+        for world, dates in zip(worlds, coordinates, strict=True):
+            world["time"] = dates
+        time_axis = np.unique(np.concatenate([world["time"] for world in worlds]))
+    else:
+        # NumPy promotion can round large integer labels when worlds use different dtypes.
+        time_representatives = {}
+        for world in worlds:
+            for label in world["time"].tolist():
+                # Object indexes match numeric vectors to 0/1, but not to False/True.
+                if label not in time_representatives or isinstance(
+                    time_representatives[label], bool
+                ):
+                    time_representatives[label] = label
+        time_labels = sorted(time_representatives.values())
+        time_axis = np.asarray(time_labels)
+        mixed_boolean_time = "b" in time_kinds and len(time_kinds) > 1
+        if time_axis.tolist() != time_labels or mixed_boolean_time:
+            time_axis = np.asarray(time_labels, dtype=object)
+        time_position = {label: index for index, label in enumerate(time_labels)}
     shape = (len(worlds), len(time_axis), len(component_axis))
     components = np.full((1, n_samples, *shape), np.nan)
     truth_values = np.full(shape, np.nan)
     outcome = np.full(shape[:2], np.nan)
     for index, world in enumerate(worlds):
-        rows = np.array([time_position[label] for label in world["time"].tolist()], dtype=np.intp)
+        rows = (
+            np.searchsorted(time_axis, world["time"])
+            if datetime_time
+            else np.array([time_position[label] for label in world["time"].tolist()], dtype=np.intp)
+        )
         columns = np.array([position[name] for name in world["names"]], dtype=np.intp)
         components[0, :, index][:, rows[:, None], columns] = world["components"]
         truth_values[index][np.ix_(rows, columns)] = world["truth"]

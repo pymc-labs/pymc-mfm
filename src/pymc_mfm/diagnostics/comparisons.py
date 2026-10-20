@@ -22,6 +22,12 @@ from typing import Any
 import numpy as np
 
 from pymc_mfm.diagnostics.calibration import COVERAGE_LEVELS
+from pymc_mfm.inference._time import (
+    _restore_time,
+    _time_equal,
+    _time_to_json,
+    _validate_time,
+)
 from pymc_mfm.inference.result import DecompositionResult
 from pymc_mfm.training.metrics import empirical_crps
 
@@ -52,7 +58,9 @@ def _sha256(path: Path) -> str:
 
 def _json(value: Any) -> Any:
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return _time_to_json(value) if value.dtype.kind == "M" else value.tolist()
+    if isinstance(value, np.datetime64):
+        return _time_to_json(value)
     if isinstance(value, np.generic):
         return value.item()
     if isinstance(value, Mapping):
@@ -150,7 +158,11 @@ class ComparisonRecord:
                 self, "latent_truth", _finite(self.latent_truth, "latent_truth", (weeks,))
             )
         evidence = {
-            name: _finite(value, f"world_evidence.{name}")
+            name: (
+                _validate_time(value, name="world_evidence.time")
+                if name == "time"
+                else _finite(value, f"world_evidence.{name}")
+            )
             for name, value in self.world_evidence.items()
         }
         object.__setattr__(self, "world_evidence", evidence)
@@ -417,7 +429,7 @@ def _compatible(
         or first.scale != second.scale
     ):
         raise ValueError("comparisons require matched world, window, units and scale")
-    if not np.array_equal(a.time, b.time) or a.context_length != b.context_length:
+    if not _time_equal(a.time, b.time) or a.context_length != b.context_length:
         raise ValueError("comparisons require identical time coordinates and context boundary")
     if not omission and a.provenance["data_sha256"] != b.provenance["data_sha256"]:
         raise ValueError("comparison data SHA-256 identities differ")
@@ -481,7 +493,12 @@ def matched_omission(
         )
     for name, first in base.world_evidence.items():
         second = omitted.world_evidence[name]
-        if first.shape != second.shape or not np.allclose(first, second, rtol=1e-12, atol=1e-12):
+        same = first.shape == second.shape and (
+            _time_equal(first, second)
+            if name == "time" and (first.dtype.kind == "M" or second.dtype.kind == "M")
+            else np.allclose(first, second, rtol=1e-12, atol=1e-12)
+        )
+        if not same:
             raise ValueError(f"unmatched original world evidence: {name}")
     if (
         base.input_names != omitted.input_names
@@ -502,7 +519,7 @@ def matched_omission(
         raise ValueError("original truth identities changed across omission pair")
     original = base.world_evidence
     times = original["time"]
-    if times.ndim != 1 or len(times) == 0 or np.any(np.diff(times) <= 0):
+    if times.ndim != 1 or len(times) == 0 or np.any(times[1:] <= times[:-1]):
         raise ValueError("original world time must be strictly increasing")
     shape = (len(times),)
     for name in ("observed", "noise"):
@@ -518,8 +535,17 @@ def matched_omission(
         atol=1e-12,
     ):
         raise ValueError("original truth, noise and observations do not close")
-    positions = np.searchsorted(times, base.result.time)
-    if np.any(positions >= len(times)) or not np.array_equal(times[positions], base.result.time):
+    if (times.dtype.kind == "M") != (base.result.time.dtype.kind == "M"):
+        raise ValueError("result times do not identify an original world window")
+    labels = base.result.time
+    if times.dtype.kind == "M":
+        # Search in the original world's resolution. Promoting the full axis
+        # to a query's finer unit can overflow and destroy its sorted order.
+        labels = labels.astype(times.dtype)
+        if not _time_equal(labels, base.result.time):
+            raise ValueError("result times do not identify an original world window")
+    positions = np.searchsorted(times, labels)
+    if np.any(positions >= len(times)) or not _time_equal(times[positions], base.result.time):
         raise ValueError("result times do not identify an original world window")
     base_names = {
         name
@@ -1218,11 +1244,12 @@ def reference_diagnostics(result: DecompositionResult, reference: Mapping[str, A
         raise ValueError(
             "reference requires label, components, names, time, window, units and provenance"
         )
+    reference_time = _restore_time(reference["time"])
     if (
         tuple(reference["component_names"]) != result.component_names
         or reference["window"] != result.window
         or reference["units"] != result.units
-        or not np.array_equal(reference["time"], result.time)
+        or not _time_equal(reference_time, result.time)
     ):
         raise ValueError("reference component identities, time, window and units must align")
     identity = _digest(reference["provenance"].get("data_sha256"), "reference data_sha256")
@@ -1256,7 +1283,7 @@ def reference_diagnostics(result: DecompositionResult, reference: Mapping[str, A
             ),
         },
         "arrays": {
-            "time": result.time.tolist(),
+            "time": _time_to_json(result.time),
             "names": [
                 name for name, active in zip(result.component_names, mask, strict=True) if active
             ],

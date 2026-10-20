@@ -981,7 +981,7 @@ def _score_batch(
 
     # The joint query pass also feeds the router, so it always runs; the call
     # order below is the draw order of the seeded stream.
-    joint_query, g_flow = model.predict(batch, n_samples, return_structure=True)
+    joint_query, g_flow = model.predict_batch(batch, n_samples, return_structure=True)
     draws: dict[tuple[str, str], np.ndarray] = {}
     draw_graphs: dict[tuple[str, str], np.ndarray] = {}
     conditional_graphs = None
