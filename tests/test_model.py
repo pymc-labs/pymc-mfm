@@ -75,7 +75,7 @@ def test_graph_support_keeps_draw_and_batch_alignment_across_chunks(model, batch
         batch, 19, mode="fixed", graph=graphs, window=window
     )
     assert samples.shape == (19, 2, weeks, 1 + c + m + 4)
-    torch.testing.assert_close(returned, graphs)
+    assert torch.equal(returned, graphs)
     for family, columns, aggregate in gates:
         live = graphs[..., layout.slices[family]].bool()
         if aggregate:
@@ -86,15 +86,11 @@ def test_graph_support_keeps_draw_and_batch_alignment_across_chunks(model, batch
     changed_graph = graphs.clone()
     changed_graph[17, 1, layout.slices["cy"].start] = 1
     torch.manual_seed(34)
-    changed, _ = model.sample_disentangled(
+    changed, changed_returned = model.sample_disentangled(
         batch, 19, mode="fixed", graph=changed_graph, window=window
     )
-    assert not torch.equal(changed[17, 1, :, 0], samples[17, 1, :, 0])
-    unchanged = torch.ones((19, 2), dtype=torch.bool)
-    unchanged[17, 1] = False
-    torch.testing.assert_close(
-        changed[..., 0][unchanged], samples[..., 0][unchanged], rtol=0, atol=0
-    )
+    assert torch.equal(changed_returned, changed_graph)
+    assert not torch.allclose(changed[17, 1, :, 0], samples[17, 1, :, 0])
 
 
 def test_graph_mode_selects_complete_graph_not_independent_edge_majorities():

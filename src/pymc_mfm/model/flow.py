@@ -33,7 +33,7 @@ _TRAJECTORY_CONSTANT_LOADING_SCALE = 3.5
 _TRAJECTORY_FEATURE_VERSION = 5
 _FLOW_SAMPLE_CHUNK = 16
 #: State rows (draws × tasks × weeks × live coordinates) per sampling velocity evaluation.
-#: It bounds memory; unlike the noise chunk above it never changes a draw.
+#: It bounds memory without changing base-noise draws; kernel shapes may change rounding.
 _FLOW_SAMPLE_ROWS = 2**15
 # Apple's BLAS (Accelerate) runs matrix products on a separate matrix unit. On Apple
 # silicon, transporting several batches at once overlaps one batch's products with the
@@ -104,9 +104,9 @@ def _map_batches[T](
 
     Batches hold at most ``max_size`` items and run several at a time where that helps;
     their count is then a multiple of the workers, so no worker idles in a short last
-    round. Batches share no state and draw no randomness, so neither the split nor
-    the schedule changes a result. Grad mode is thread-local and is carried into the
-    worker threads, which never outnumber ``torch.get_num_threads()``.
+    round. Batches share no state and draw no randomness, preserving sample identity.
+    Different batch shapes may introduce floating-point round-off. Grad mode is
+    thread-local and carried into workers, which never outnumber ``torch.get_num_threads()``.
     """
     workers = min(_SAMPLE_BATCH_WORKERS, torch.get_num_threads()) if device.type == "cpu" else 1
     count = -(-total // max_size)

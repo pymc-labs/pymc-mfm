@@ -1,8 +1,8 @@
 """ArviZ ``DataTree`` export of conditional draws; xarray and arviz-base load only when called.
 
 Export only. Evidence stays :meth:`DecompositionResult.save` and evaluation archives; MFM
-never reads a tree back or scores one. A tree holds one marginal window: context and query
-are separately sampled, so their trees are never concatenated or stacked along ``draw``.
+never reads a tree back or scores one. Each window is a separate marginal: grouping context
+and query trees never pairs their draws or joins their time axes.
 
 Every group is a plain ``xarray.Dataset`` with explicit dimensions and coordinates (no
 ArviZ ``rcParams`` are consulted) and the standard ArviZ attributes of
@@ -35,7 +35,7 @@ _INT64_MAX = int(np.iinfo(np.int64).max)
 _GRAPH_DRAWS = {
     "model_average": "joint-router graph draws, one per component draw",
     "map": "the selected modal hypothesis repeated in every draw; not posterior samples",
-    "fixed": "the supplied hypothesis repeated in every draw; not posterior samples",
+    "fixed": "caller-supplied graph hypotheses; not learned graph-posterior samples",
 }
 _NOTES = {
     "sampling": "one chain of independent amortized conditional draws, not a Markov chain",
@@ -151,11 +151,44 @@ def _result_attrs(result: DecompositionResult) -> dict[str, Any]:
     return {**attrs, "graph_draws": _GRAPH_DRAWS[result.mode], **_NOTES}
 
 
-def result_datatree(
-    result: DecompositionResult, *, observed=None, truth=None, graph_truth=None
-) -> DataTree:
-    """See :meth:`DecompositionResult.to_datatree`."""
-    xr, arviz_base = _require_arviz()
+def _named_posterior(result: DecompositionResult, families: np.ndarray, coords):
+    """Named contributions, using entity axes rather than parsing prefixed slot labels."""
+    posterior = {}
+    for family, names in (("channel", result.channel_names), ("control", result.control_names)):
+        members = families == family
+        active = members & result.component_mask
+        coords[family] = _labels(names, family)[result.component_mask[members]]
+        posterior[f"{family}_contribution"] = (
+            ("chain", "draw", "date", family),
+            _numeric(result.components[None][..., active], widen_float32=True),
+        )
+    scalar_names = {
+        "baseline": "baseline",
+        "latent": "latent",
+        "indirect:cc": "indirect_cc",
+        "indirect:zc": "indirect_zc",
+        "indirect:dc": "indirect_dc",
+    }
+    for index, name in enumerate(result.component_names):
+        if result.component_mask[index] and families[index] not in ("channel", "control"):
+            posterior[scalar_names[name]] = (
+                ("chain", "draw", "date"),
+                _numeric(result.components[None, ..., index], widen_float32=True),
+            )
+    return posterior
+
+
+def _result_groups(
+    xr,
+    arviz_base,
+    result: DecompositionResult,
+    *,
+    observed=None,
+    truth=None,
+    graph_truth=None,
+    named: bool = False,
+):
+    """One window's checked groups and identity, in the generic or named schema."""
     active = result.component_mask
     if not active.any():
         raise ValueError("DataTree export needs at least one active component")
@@ -164,25 +197,29 @@ def result_datatree(
     evidence = _checked_evidence(result, truth, graph_truth, observed, stored=False, partial=True)
     edge_constants = _edge_constants(result.provenance, result.graphs.shape[1])
     attrs = _result_attrs(result)
+    time_dim = "date" if named else "time"
+    families = _labels(result.component_families, "family")
     coords = {
         "chain": np.array([0]),
         "draw": np.arange(result.n_samples),
-        "time": _time_coordinate(np.array(result.time)),
+        time_dim: _time_coordinate(np.array(result.time)),
         "component": _labels(result.component_names, "component")[active],
         "edge": _labels(result.edge_names, "edge")[edges],
     }
-    posterior = {
-        "components": (
-            ("chain", "draw", "time", "component"),
-            _numeric(result.components[None][..., active], widen_float32=True),
-        )
-    }
-    constants = {
-        "component_family": (("component",), _labels(result.component_families, "family")[active])
-    }
+    posterior = (
+        _named_posterior(result, families, coords)
+        if named
+        else {
+            "components": (
+                ("chain", "draw", time_dim, "component"),
+                _numeric(result.components[None][..., active], widen_float32=True),
+            )
+        }
+    )
+    constants = {"component_family": (("component",), families[active])}
     truth_group = {}
     if "truth" in evidence:
-        truth_group["components"] = (("time", "component"), evidence["truth"][:, active])
+        truth_group["components"] = ((time_dim, "component"), evidence["truth"][:, active])
     if has_edges:
         posterior["graph"] = (("chain", "draw", "edge"), _numeric(result.graphs[None][..., edges]))
         for key, values in edge_constants.items():
@@ -197,11 +234,45 @@ def result_datatree(
     }
     if "observed" in evidence:
         groups["observed_data"] = _dataset(
-            xr, arviz_base, {"outcome": (("time",), evidence["observed"])}, coords
+            xr, arviz_base, {"outcome": ((time_dim,), evidence["observed"])}, coords
         )
     if truth_group:
         groups["truth"] = _dataset(xr, arviz_base, truth_group, coords)
+    return groups, attrs
+
+
+def result_datatree(
+    result: DecompositionResult, *, observed=None, truth=None, graph_truth=None
+) -> DataTree:
+    """See :meth:`DecompositionResult.to_datatree`."""
+    xr, arviz_base = _require_arviz()
+    groups, attrs = _result_groups(
+        xr, arviz_base, result, observed=observed, truth=truth, graph_truth=graph_truth
+    )
     return _tree(xr, arviz_base, groups, attrs)
+
+
+def prediction_datatree(
+    context: DecompositionResult, query: DecompositionResult, *, observed
+) -> DataTree:
+    """Nest named context/query marginals without inference or shared date coordinates.
+
+    ``observed`` is the fitted context outcome; no query observations or synthetic
+    evidence are manufactured. ArviZ operations take either window subtree, not the
+    convenience root. Matching draw indices across windows do not imply paired draws.
+    """
+    xr, arviz_base = _require_arviz()
+    groups = {}
+    for window, result in (("context", context), ("query", query)):
+        window_groups, attrs = _result_groups(
+            xr,
+            arviz_base,
+            result,
+            observed=observed if window == "context" else None,
+            named=True,
+        )
+        groups[window] = _tree(xr, arviz_base, window_groups, attrs)
+    return _tree(xr, arviz_base, groups, dict(_NOTES))
 
 
 def _labels(values, name: str) -> np.ndarray:

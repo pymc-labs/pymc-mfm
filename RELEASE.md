@@ -6,6 +6,15 @@ approved or published release.
 
 ## Changes
 
+- **Context/query DataTree snapshots.** After dataframe `fit` and `predict`,
+  `model.build_idata()` exports separate context/query marginals with named
+  `date`, `channel` and `control` axes; `store=True` also exposes the returned
+  tree as passive `model.idata`. Context sampling is deferred and cached per
+  prediction; query is never resampled. Successful fits/predictions invalidate
+  model-held exports without rewriting earlier caller-held trees; failures
+  preserve the previous state. The optional `[arviz]` extra remains lazy, and
+  runtime prediction/export state stays out of weight bundles. Existing generic
+  single-result and archive export schemas are unchanged.
 - **Dataframe `fit` / `predict`.** Load weights with `from_pretrained`, then call
   `model.fit(history, date_column=..., target_column=..., channel_columns=...,
   control_columns=...)` to load observed context without training the weights.
