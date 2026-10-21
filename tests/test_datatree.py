@@ -444,6 +444,7 @@ import sys
 from importlib.util import find_spec
 
 import numpy as np
+import pandas as pd
 import torch
 
 import pymc_mfm.diagnostics
@@ -458,14 +459,38 @@ observations = {
     "controls": np.zeros((5, 2)),
     "context_outcome": np.array([10.0, 11.0]),
 }
-result = decompose(MFM(config).eval(), observations, n_samples=2)
+model = MFM(config).eval()
+result = decompose(model, observations, n_samples=2)
 loaded = DecompositionResult.load(result.save(sys.argv[1]))
+frame = pd.DataFrame({
+    "date": pd.date_range("2024-01-01", periods=5, freq="W-MON"),
+    "sales": [10.0, 11.0, np.nan, np.nan, np.nan],
+    "search": observations["spend"][:, 0],
+    "social": observations["spend"][:, 1],
+    "seasonality": observations["controls"][:, 0],
+})
+assert model.idata is None
+model.fit(
+    frame.iloc[:2], date_column="date", target_column="sales",
+    channel_columns=["search", "social"], control_columns=["seasonality"],
+)
+model.predict(frame.iloc[2:], n_samples=2)
+assert model.idata is None
 optional = {"xarray", "arviz_base", "arviz_stats", "arviz", "arviz_plots", "xarray_einstats"}
 imported = sorted(name for name in sys.modules if name.split(".")[0] in optional)
 assert not imported, imported
-if find_spec("arviz_base") is not None:  # the check sees the import an export makes
+if find_spec("arviz_base") is not None:
+    tree = model.build_idata()
+    assert set(tree.children) == {"context", "query"}
     loaded.to_datatree()
     assert "xarray" in sys.modules
+else:
+    try:
+        model.build_idata()
+    except ImportError as exc:
+        assert "pymc-mfm[arviz]" in str(exc), exc
+    else:
+        raise AssertionError("build_idata() ran without the arviz extra")
 """
     result = subprocess.run(
         [sys.executable, "-c", code, str(tmp_path / "evidence")],

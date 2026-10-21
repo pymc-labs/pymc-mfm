@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from numbers import Number
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,9 @@ from pandas.api.types import is_complex_dtype, is_numeric_dtype
 
 from pymc_mfm.data.observations import encode_observations
 from pymc_mfm.model.config import ModelConfig
+
+if TYPE_CHECKING:
+    from pymc_mfm.inference.result import DecompositionResult
 
 
 def _column_names(value, role: str) -> tuple[str, ...]:
@@ -194,3 +198,25 @@ class _FittedContext:
             "context_outcome": self.outcome,
             "control_mask": self.control_mask,
         }, np.concatenate((self.dates, dates.to_numpy(dtype="datetime64[ns]")))
+
+
+@dataclass(frozen=True, slots=True)
+class _PredictionSnapshot:
+    """Owned inputs and canonical sampling options for one successful query."""
+
+    fitted_context: _FittedContext
+    observations: dict[str, np.ndarray]
+    time: np.ndarray
+    query: DecompositionResult
+    annotations: dict[str, object] | None
+    n_samples: int
+    mode: str
+    router_samples: int | None
+    units: str
+
+    def __post_init__(self):
+        # Reuse the observation arrays already owned by the dataframe adapter,
+        # including the fitted outcomes; never copy draws or re-encode here.
+        for values in self.observations.values():
+            values.setflags(write=False)
+        self.time.setflags(write=False)

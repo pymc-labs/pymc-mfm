@@ -1,9 +1,13 @@
 """The dataframe facade retains context, not weights, and uses canonical inference."""
 
+import json
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
 import torch
+from conftest import needs_arviz
 from safetensors.torch import load_file
 
 from pymc_mfm.inference.api import decompose
@@ -546,3 +550,353 @@ def test_mixed_numeric_datetime_objects_cannot_be_coerced_to_date_labels(
         with pytest.raises(ValueError):
             model.predict(future, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
+
+
+@needs_arviz
+@pytest.mark.parametrize("mode", ["model_average", "map"])
+def test_idata_named_values_match_both_marginals_and_work_with_arviz(model, history, future, mode):
+    import arviz_base
+    from arviz_stats import summary
+
+    model.fit(history.iloc[::-1], **COLUMN_ROLES)
+    options = {"router_samples": 7} if mode == "map" else {}
+    query = model.predict(future.iloc[::-1], n_samples=5, mode=mode, units="USD", **options)
+    context_rng = torch.get_rng_state()
+    tree = model.build_idata()
+    with torch.random.fork_rng(devices=[]):
+        torch.set_rng_state(context_rng)
+        context = _canonical_result(
+            model,
+            history,
+            future,
+            query.control_names,
+            n_samples=5,
+            window="context",
+            mode=mode,
+            units="USD",
+            **options,
+        )
+
+    assert model.idata is None
+    assert set(tree.children) == {"context", "query"}
+    assert "date" not in tree.coords
+    for window, result in (("context", context), ("query", query)):
+        subtree = tree[window]
+        posterior = subtree["posterior"]
+        assert set(posterior.data_vars) == {
+            "baseline",
+            "channel_contribution",
+            "control_contribution",
+            "latent",
+            "indirect_cc",
+            "indirect_zc",
+            "indirect_dc",
+            "graph",
+        }
+        np.testing.assert_array_equal(posterior["date"].values, result.time)
+        assert posterior["channel"].values.tolist() == list(CHANNELS)
+        assert posterior["control"].values.tolist() == list(CONTROLS)
+        for variable, family, dimension in (
+            ("channel_contribution", "channel", "channel"),
+            ("control_contribution", "control", "control"),
+        ):
+            active = np.array(result.component_families) == family
+            active &= result.component_mask
+            assert posterior[variable].dims == ("chain", "draw", "date", dimension)
+            np.testing.assert_array_equal(
+                posterior[variable].values[0], result.components[..., active]
+            )
+        for component in ("baseline", "latent", "indirect:cc", "indirect:zc", "indirect:dc"):
+            variable = component.replace(":", "_")
+            assert posterior[variable].dims == ("chain", "draw", "date")
+            np.testing.assert_array_equal(
+                posterior[variable].values[0],
+                result.components[..., result.component_names.index(component)],
+            )
+        assert posterior["graph"].dims == ("chain", "draw", "edge")
+        np.testing.assert_array_equal(
+            posterior["graph"].values[0], result.graphs[:, result.edge_mask]
+        )
+        constants = subtree["constant_data"]
+        endpoints = np.array(result.provenance["edge_endpoints"])[result.edge_mask]
+        np.testing.assert_array_equal(constants["edge_source"].values, endpoints[:, 0])
+        np.testing.assert_array_equal(constants["edge_target"].values, endpoints[:, 1])
+        for attrs in (subtree.attrs, posterior.attrs):
+            assert attrs["window"] == window
+            assert attrs["mode"] == mode
+            assert attrs["units"] == "USD"
+            assert attrs["data_sha256"] == result.provenance["data_sha256"]
+            assert attrs["mcmc_diagnostics"] == "not_applicable"
+        extracted = arviz_base.extract(subtree, var_names="channel_contribution")
+        np.testing.assert_array_equal(
+            extracted.sel(channel="search").values,
+            posterior["channel_contribution"].sel(channel="search").values[0].T,
+        )
+        table = summary(subtree, var_names=["channel_contribution"], kind="stats", round_to="none")
+        np.testing.assert_allclose(
+            table["mean"].to_numpy(),
+            posterior["channel_contribution"].values.mean(axis=(0, 1)).ravel(),
+            rtol=1e-12,
+            atol=1e-12,
+        )
+    assert set(tree["context"].children) == {"posterior", "constant_data", "observed_data"}
+    assert set(tree["query"].children) == {"posterior", "constant_data"}
+    assert tree["context"]["observed_data"]["outcome"].dims == ("date",)
+    np.testing.assert_array_equal(
+        tree["context"]["observed_data"]["outcome"].values, history["sales"].to_numpy()
+    )
+
+
+def test_idata_requires_a_successful_prediction_for_the_current_fit(model, history):
+    assert model.idata is None
+    before = torch.get_rng_state()
+    with pytest.raises(RuntimeError, match="(?i)predict"):
+        model.build_idata()
+    model.fit(history, **COLUMN_ROLES)
+    with pytest.raises(RuntimeError, match="(?i)predict"):
+        model.build_idata(store=True)
+    assert model.idata is None
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+@needs_arviz
+def test_idata_storage_modes_and_repeated_exports_preserve_the_draws(model, history, future):
+    import xarray as xr
+
+    model.fit(history, **COLUMN_ROLES)
+    query = model.predict(future, n_samples=4)
+    query_values = query.components.copy()
+    first = model.build_idata()
+    assert model.idata is None
+    torch.manual_seed(819)
+    before = torch.get_rng_state()
+    stored = model.build_idata(store=True)
+    assert model.idata is stored
+    assert model.build_idata(store=True) is stored
+    returned = model.build_idata()
+    assert returned is not stored
+    assert model.idata is stored
+    assert torch.equal(torch.get_rng_state(), before)
+    for window in ("context", "query"):
+        xr.testing.assert_equal(first[window]["posterior"], stored[window]["posterior"])
+        xr.testing.assert_equal(returned[window]["posterior"], stored[window]["posterior"])
+    np.testing.assert_array_equal(query.components, query_values)
+
+
+@needs_arviz
+def test_new_fit_and_predictions_invalidate_only_model_owned_idata(model, history, future):
+    import xarray as xr
+
+    model.fit(history, **COLUMN_ROLES)
+    first_query = model.predict(future, n_samples=3)
+    first = model.build_idata(store=True)
+    first_copy = first.copy(deep=True)
+    second_query = model.predict(future.iloc[:1].assign(search=75.0), n_samples=3)
+    assert model.idata is None
+    second = model.build_idata(store=True)
+    second_copy = second.copy(deep=True)
+    assert first_query.provenance["data_sha256"] != second_query.provenance["data_sha256"]
+    for window in ("context", "query"):
+        assert second[window].attrs["data_sha256"] == second_query.provenance["data_sha256"]
+    xr.testing.assert_identical(first, first_copy)
+
+    model.fit(history.assign(sales=history["sales"] * 1.5), **COLUMN_ROLES)
+    assert model.idata is None
+    with pytest.raises(RuntimeError, match="(?i)predict"):
+        model.build_idata()
+    model.predict(future, n_samples=3)
+    third = model.build_idata(store=True)
+    assert third["context"].attrs["data_sha256"] != second["context"].attrs["data_sha256"]
+    xr.testing.assert_identical(first, first_copy)
+    xr.testing.assert_identical(second, second_copy)
+
+
+@needs_arviz
+def test_failed_fit_or_prediction_preserves_last_successful_idata(model, history, future):
+    import xarray as xr
+
+    model.fit(history, **COLUMN_ROLES)
+    model.predict(future, n_samples=3)
+    stored = model.build_idata(store=True)
+
+    def assert_preserved():
+        before = torch.get_rng_state()
+        rebuilt = model.build_idata()
+        assert model.idata is stored
+        assert torch.equal(torch.get_rng_state(), before)
+        xr.testing.assert_equal(rebuilt, stored)
+        for window in ("context", "query"):
+            assert (
+                rebuilt[window].attrs["metadata_sha256"] == stored[window].attrs["metadata_sha256"]
+            )
+
+    with pytest.raises(ValueError):
+        model.fit(history.assign(sales=0.0), **COLUMN_ROLES)
+    assert_preserved()
+    with pytest.raises(ValueError):
+        model.predict(future.assign(date=future["date"] + pd.Timedelta(days=7)), n_samples=3)
+    assert_preserved()
+    # Result construction can fail after the sampler has completed.
+    with pytest.raises(TypeError):
+        model.predict(future, n_samples=3, provenance={"scenario": object()})
+    assert_preserved()
+    assert model.build_idata(store=True) is stored
+
+
+@needs_arviz
+def test_idata_retains_prediction_inputs_provenance_and_each_fixed_graph(
+    model, history, future, tmp_path
+):
+    model.fit(history, **COLUMN_ROLES)
+    layout = EdgeSlotLayout(len(CHANNELS), model.config.n_controls, model.config.n_demand)
+    graphs = np.zeros((3, 1, layout.n_slots))
+    graphs[0, 0, layout.slices["cy"].start] = 1
+    graphs[1, 0, layout.slices["cy"].start + 1] = 1
+    original_graphs = graphs.copy()
+    annotations = {"scenario": {"name": "original"}}
+    query = model.predict(future, n_samples=3, mode="fixed", graph=graphs, provenance=annotations)
+    np.testing.assert_array_equal(query.graphs, original_graphs[:, 0])
+    with torch.random.fork_rng(devices=[]):
+        expected_context = _canonical_result(
+            model,
+            history,
+            future,
+            query.control_names,
+            n_samples=3,
+            window="context",
+            mode="fixed",
+            graph=original_graphs,
+            provenance={"scenario": {"name": "original"}},
+        )
+    context_metadata = json.loads(
+        (expected_context.save(tmp_path / "context") / "result.json").read_text()
+    )
+    metadata = json.loads((query.save(tmp_path / "query") / "result.json").read_text())
+    query_dates = query.time.copy()
+    graphs[:] = 1
+    annotations["scenario"]["name"] = object()
+    future["date"] = "changed after predict"
+    future.loc[:, [*CHANNELS, *CONTROLS]] = -999.0
+    history["sales"] = 0.0
+    tree = model.build_idata()
+    assert tree["query"].attrs["metadata_sha256"] == metadata["metadata_sha256"]
+    assert tree["context"].attrs["metadata_sha256"] == context_metadata["metadata_sha256"]
+    np.testing.assert_array_equal(tree["query"]["posterior"]["date"].values, query_dates)
+    for window in ("context", "query"):
+        np.testing.assert_array_equal(
+            tree[window]["posterior"]["graph"].values[0],
+            original_graphs[:, 0, query.edge_mask],
+        )
+        assert tree[window].attrs["data_sha256"] == query.provenance["data_sha256"]
+        assert tree[window].attrs["graph_source"] == "supplied_hypothesis"
+
+
+@needs_arviz
+def test_named_idata_preserves_odd_column_names_and_zero_fixed_graphs(model, history, future):
+    channels = ("baseline", "paid:検索 / social")
+    controls = ("__padded_control_1__",)
+    rename = dict(zip((*CHANNELS, *CONTROLS), (*channels, *controls), strict=True))
+    model.fit(
+        history.rename(columns=rename),
+        **{**COLUMN_ROLES, "channel_columns": channels, "control_columns": controls},
+    )
+    layout = EdgeSlotLayout(len(channels), model.config.n_controls, model.config.n_demand)
+    model.predict(
+        future.rename(columns=rename), n_samples=3, mode="fixed", graph=np.zeros(layout.n_slots)
+    )
+    tree = model.build_idata()
+    for window in ("context", "query"):
+        posterior = tree[window]["posterior"]
+        assert posterior["channel"].values.tolist() == list(channels)
+        assert posterior["control"].values.tolist() == list(controls)
+        np.testing.assert_array_equal(
+            posterior["channel_contribution"].sel(channel=channels[1]).values, 0.0
+        )
+        np.testing.assert_array_equal(
+            posterior["control_contribution"].sel(control=controls[0]).values, 0.0
+        )
+        np.testing.assert_array_equal(posterior["graph"].values, 0.0)
+
+
+def test_missing_idata_extra_is_reported_before_context_sampling(
+    model, history, future, monkeypatch
+):
+    model.fit(history, **COLUMN_ROLES)
+    model.predict(future, n_samples=3)
+    for name in ("xarray", "arviz_base"):
+        monkeypatch.setitem(sys.modules, name, None)
+    before = torch.get_rng_state()
+    with pytest.raises(ImportError, match=r"pymc-mfm\[arviz\]"):
+        model.build_idata(store=True)
+    assert model.idata is None
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+@needs_arviz
+def test_failed_conversion_does_not_redraw_a_completed_context(model, history, future):
+    channel = "search\x00"
+    model.fit(
+        history.rename(columns={"search": channel}),
+        **{**COLUMN_ROLES, "channel_columns": (channel, "tv")},
+    )
+    model.predict(future.rename(columns={"search": channel}), n_samples=3)
+    with pytest.raises(ValueError, match="NUL"):
+        model.build_idata()
+    after_context = torch.get_rng_state()
+    with pytest.raises(ValueError, match="NUL"):
+        model.build_idata()
+    assert torch.equal(torch.get_rng_state(), after_context)
+    assert model.idata is None
+
+
+@needs_arviz
+def test_weight_bundles_exclude_prediction_and_idata_state(model, history, future, tmp_path):
+    baseline = save_pretrained(model, tmp_path / "baseline")
+    model.fit(history, **COLUMN_ROLES)
+    model.predict(future, n_samples=3)
+    model.build_idata(store=True)
+    with_idata = save_pretrained(model, tmp_path / "with-idata")
+    assert {path.name for path in with_idata.iterdir()} == {
+        "config.json",
+        "manifest.json",
+        "model.safetensors",
+    }
+    assert (baseline / "config.json").read_bytes() == (with_idata / "config.json").read_bytes()
+    before_weights = load_file(baseline / "model.safetensors")
+    after_weights = load_file(with_idata / "model.safetensors")
+    assert before_weights.keys() == after_weights.keys()
+    for name, value in after_weights.items():
+        torch.testing.assert_close(value, before_weights[name], rtol=0, atol=0)
+    restored = from_pretrained(with_idata)
+    assert restored.idata is None
+    with pytest.raises(RuntimeError, match="(?i)predict"):
+        restored.build_idata()
+
+
+@needs_arviz
+def test_loaded_recorded_model_builds_both_windows_without_replaying_derived_provenance(
+    model, history, future, tmp_path
+):
+    from test_checkpoint import _training_evaluation
+
+    recorded = _training_evaluation()
+    loaded = from_pretrained(
+        save_pretrained(
+            model,
+            tmp_path / "recorded",
+            profile="A",
+            provenance={"source_checkpoint_sha256": "a" * 64, "training_evaluation": recorded},
+        )
+    )
+    loaded.fit(history, **COLUMN_ROLES)
+    query = loaded.predict(future, n_samples=3, provenance={"scenario": {"name": "loaded"}})
+    returned = loaded.build_idata()
+    assert loaded.idata is None
+    stored = loaded.build_idata(store=True)
+    assert loaded.idata is stored
+    assert returned is not stored
+    for tree in (returned, stored):
+        for window in ("context", "query"):
+            assert tree[window].attrs["state_sha256"] == loaded.provenance["state_sha256"]
+            assert tree[window].attrs["data_sha256"] == query.provenance["data_sha256"]
+    assert loaded.artifact_metadata["provenance"]["training_evaluation"] == recorded

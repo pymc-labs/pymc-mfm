@@ -87,6 +87,73 @@ A successful second `fit` replaces context; a failed fit preserves it.
 so call `fit` again after loading. The illustrative data above exercises the API,
 not attribution calibration.
 
+### Context and query snapshots
+
+With the `[arviz]` extra, request both decomposition windows after a successful
+`fit` and `predict`:
+
+```python
+idata = model.build_idata()  # return-only; does not assign or replace model.idata
+assert model.idata is None
+
+stored = model.build_idata(store=True)
+assert model.idata is stored
+search_draws = idata["query"]["posterior"]["channel_contribution"].sel(channel="search")
+
+# Retain separate scenario snapshots without accumulating history on the model.
+scenario = future.assign(search=lambda frame: frame["search"] * 1.2)
+model.predict(scenario, n_samples=500)
+assert model.idata is None
+idata_scenario = model.build_idata()
+# idata and stored still contain the original scenario, unchanged.
+```
+
+The returned `xarray.DataTree` has `context` and `query` subtrees, each with its
+own `posterior` and `constant_data`. Known context outcomes appear separately as
+`context/observed_data/outcome(date)`; query outcomes are neither read nor invented.
+ArviZ operations take a window subtree, for example
+`arviz_stats.summary(idata["query"], var_names=["channel_contribution"], kind="stats")`,
+not the convenience root.
+
+| Posterior variable | Dimensions |
+| --- | --- |
+| `channel_contribution` | `chain, draw, date, channel` |
+| `control_contribution` | `chain, draw, date, control` |
+| `baseline`, `latent` | `chain, draw, date` |
+| `indirect_cc`, `indirect_zc`, `indirect_dc` | `chain, draw, date` |
+| `graph` | `chain, draw, edge` |
+
+`date` contains each window's original sorted dates. `channel` and `control`
+contain the original column names, without internal prefixes or padded slots.
+Contributions are in outcome units, not raw spend/control values; baseline and
+indirect totals do not acquire a channel-by-control grid. Padding is absent, not
+estimated causal inactivity, and inactive scalar slots are omitted. `chain=1`
+and `draw` retain the uncertainty in the amortized samples. **Context and query
+are separate marginals**: equal draw indices do not pair them into full-horizon
+trajectories. Do not concatenate their date axes to manufacture joint draws.
+
+`model.idata` is a passive, read-only property, initially `None`; reading it never
+samples or converts. `store=True` returns the same tree exposed by that property
+and reuses it while current. A return-only build creates a separate container
+and leaves any stored tree unchanged. A successful `fit` or `predict` clears the
+stored reference and context-draw cache; failures preserve the last successful
+state. Earlier caller-held trees are never rewritten by later model calls.
+Weight bundles exclude history, prediction snapshots and exports.
+
+The first build samples the missing context marginal once, using the retained
+history/query inputs and inference options; it never resamples query. Subsequent
+builds reuse both sets of draws, even in return-only mode. Thus `store=False`
+means no retained **DataTree**, not no retained inference state. Prediction
+snapshots consume memory, and fresh exports may allocate arrays. Context
+sampling and optional xarray/ArviZ imports are deferred until requested; a
+missing extra is reported before context sampling. Building after `fit` alone
+raises an error: the current sampler needs a successful prediction with a
+nonempty query window.
+
+Lower-level `result.to_datatree()` and archive exports retain their generic
+`time`/`component` layouts; the model builder supplies the named dataframe-facing
+schema above.
+
 ### Lower-level array inputs
 
 `decompose(model, observations, window="query", ...)` remains available for
