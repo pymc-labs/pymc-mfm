@@ -470,11 +470,11 @@ frame = pd.DataFrame({
     "seasonality": observations["controls"][:, 0],
 })
 assert model.idata is None
-model.fit(
+model.add_context(
     frame.iloc[:2], date_column="date", target_column="sales",
     channel_columns=["search", "social"], control_columns=["seasonality"],
 )
-model.predict(frame.iloc[2:], n_samples=2)
+model.inference(frame.iloc[2:], n_samples=2)
 assert model.idata is None
 optional = {"xarray", "arviz_base", "arviz_stats", "arviz", "arviz_plots", "xarray_einstats"}
 imported = sorted(name for name in sys.modules if name.split(".")[0] in optional)

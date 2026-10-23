@@ -6,23 +6,23 @@ approved or published release.
 
 ## Changes
 
-- **Context/query DataTree snapshots.** After dataframe `fit` and `predict`,
+- **Context/query DataTree snapshots.** After dataframe `add_context` and `inference`,
   `model.build_idata()` exports separate context/query marginals with named
   `date`, `channel` and `control` axes; `store=True` also exposes the returned
   tree as passive `model.idata`. Context sampling is deferred and cached per
-  prediction; query is never resampled. Successful fits/predictions invalidate
+  prediction; query is never resampled. Successful context loads/inference calls invalidate
   model-held exports without rewriting earlier caller-held trees; failures
   preserve the previous state. The optional `[arviz]` extra remains lazy, and
   runtime prediction/export state stays out of weight bundles. Existing generic
   single-result and archive export schemas are unchanged.
-- **Dataframe `fit` / `predict`.** Load weights with `from_pretrained`, then call
-  `model.fit(history, date_column=..., target_column=..., channel_columns=...,
+- **Dataframe `add_context` / `inference`.** Load weights with `from_pretrained`, then call
+  `model.add_context(history, date_column=..., target_column=..., channel_columns=...,
   control_columns=...)` to load observed context without training the weights.
-  `model.predict(future_data)` returns graph-conditional decomposition draws in
+  `model.inference(future_data)` returns graph-conditional decomposition draws in
   original outcome units. It handles control padding, masks and context-only
   scaling internally, ignores query outcomes, and retains the same history for
   independent future scenarios. Dates are sorted and must follow the context's
-  regular cadence without gaps. Refitting replaces context atomically; weight
+  regular cadence without gaps. Loading new context replaces it atomically; weight
   bundles never contain it. At least one channel and one control remain required.
   The old encoded-tensor `model.predict` is now `model.predict_batch`; all internal
   callers have migrated, without an overloaded input contract or compatibility alias.
@@ -152,6 +152,9 @@ approved or published release.
 
 ### Breaking changes
 
+- `MFM.add_context` replaces dataframe `MFM.fit`, and `MFM.inference` replaces
+  dataframe `MFM.predict`. Arguments and results are unchanged; `predict_batch`
+  remains the separate tensor-level sampler.
 - Semantic schema **2** and training-checkpoint format **2** require context-fitted
   unit-invariant preprocessing. Old A/B bundles/checkpoints are deliberately
   rejected with retraining guidance; no legacy mode or schema-only conversion.
