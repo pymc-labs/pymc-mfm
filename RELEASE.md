@@ -6,6 +6,11 @@ approved or published release.
 
 ## Changes
 
+- **Quickstart saturation recovery.** The introductory notebook scatters each
+  channel's weekly posterior mean contribution against raw and adstocked spend,
+  separating context and query weeks and overlaying the known saturation curves.
+  The generator and plots share saturation parameters; the raw-spend curve is
+  explicitly a steady-state reference because weekly contributions include adstock.
 - **Context/query DataTree snapshots.** After dataframe `fit` and `predict`,
   `model.build_idata()` exports separate context/query marginals with named
   `date`, `channel` and `control` axes; `store=True` also exposes the returned
