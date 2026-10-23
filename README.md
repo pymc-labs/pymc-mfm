@@ -350,7 +350,9 @@ model = from_pretrained(
   a model and returns the commit id. New repositories are private.
 
 [`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a
-model from the Hub, decomposes a simulated dataset and plots the result.
+model from the Hub, decomposes a simulated dataset and plots the result. Its
+spend-contribution figure scatters each channel's weekly network contributions
+against both raw and adstocked spend, separating context and query weeks.
 
 ## Development
 
