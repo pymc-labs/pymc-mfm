@@ -351,8 +351,8 @@ model = from_pretrained(
 
 [`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a
 model from the Hub, decomposes a simulated dataset and plots the result. Its
-saturation-recovery figure compares each channel's weekly network contributions
-with the known generating curve, against both raw and adstocked spend.
+spend-contribution figure scatters each channel's weekly network contributions
+against both raw and adstocked spend, separating context and query weeks.
 
 ## Development
 
