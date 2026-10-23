@@ -426,7 +426,7 @@ class MFM(nn.Module):
         """Return the complete scalar training objective."""
         return self.loss_terms(batch, weights=weights)["loss"]
 
-    def fit(
+    def add_context(
         self,
         data: DataFrame,
         *,
@@ -435,7 +435,7 @@ class MFM(nn.Module):
         channel_columns: Sequence[str],
         control_columns: Sequence[str],
     ) -> Self:
-        """Load observed history and column roles without training the weights.
+        """Replace observed history and column roles without training the weights.
 
         Dates are sorted and must follow a regular cadence. History needs at
         least two rows, positive outcomes, nonnegative spend and at least one
@@ -460,7 +460,7 @@ class MFM(nn.Module):
         self._idata = None
         return self
 
-    def predict(
+    def inference(
         self,
         data: DataFrame,
         *,
@@ -471,7 +471,7 @@ class MFM(nn.Module):
         units: str = "outcome",
         provenance: Mapping[str, object] | None = None,
     ) -> DecompositionResult:
-        """Infer future conditional components using history loaded by ``fit``.
+        """Infer future conditional components using history loaded by ``add_context``.
 
         Supply the configured date, channel and control columns, starting at
         the next context period without gaps. Dates are sorted; query targets
@@ -488,7 +488,7 @@ class MFM(nn.Module):
 
         context = self._inference_context
         if context is None:
-            raise RuntimeError("call fit(history, ...) before predict(future_data)")
+            raise RuntimeError("call add_context(history, ...) before inference(future_data)")
         observations, time = context.observations(data)
         annotations = deepcopy(dict(provenance)) if isinstance(provenance, Mapping) else provenance
         query = decompose(
@@ -534,14 +534,14 @@ class MFM(nn.Module):
     def build_idata(self, *, store: bool = False) -> DataTree:
         """Export context and query subtrees for the latest successful prediction.
 
-        A successful ``predict`` after the current ``fit`` is required. The
+        A successful ``inference`` after the current ``add_context`` is required. The
         first build samples the missing context marginal and caches those draws;
         query is never resampled. Context and query remain separate marginals,
         not paired full-horizon trajectories.
 
         By default return a fresh DataTree without changing ``idata``. With
         ``store=True``, store and return the same object, reusing a current stored
-        export if available. Successful fit/predict calls drop these references
+        export if available. Successful add_context/inference calls drop these references
         without rewriting any earlier caller-held tree. Return-only builds still
         retain inference state, but not their export container.
 
@@ -551,7 +551,7 @@ class MFM(nn.Module):
         prediction = self._prediction_snapshot
         if prediction is None:
             raise RuntimeError(
-                "call predict(future_data) successfully after fit(history, ...) "
+                "call inference(future_data) successfully after add_context(history, ...) "
                 "before build_idata()"
             )
         if store and self._idata is not None:

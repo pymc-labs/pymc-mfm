@@ -5,7 +5,7 @@ decomposition. A trained network reads one time series (media spend, controls
 and the observed outcome) and returns posterior draws of each component's
 contribution: baseline, each channel, each control and unobserved factors.
 The network is trained once on many simulated datasets. For a new dataset,
-`fit` loads observed context; it does not train the network's weights.
+`add_context` loads observed context; it does not train the network's weights.
 
 This repository is the library. Simulators, training corpora and trained weights
 are separate artifacts: models load from a local folder or from the Hugging Face Hub.
@@ -54,7 +54,7 @@ data = pd.DataFrame(
     }
 )
 
-model.fit(
+model.add_context(
     data.iloc[:n_context],
     date_column="date",
     target_column="sales",
@@ -63,18 +63,18 @@ model.fit(
 )
 future = data.iloc[n_context:].drop(columns="sales")
 torch.manual_seed(0)
-query = model.predict(future, n_samples=500)
+query = model.inference(future, n_samples=500)
 
 query.components.shape  # (500, 24, D): [draw, week, component]
 query.component_names  # ('baseline', 'channel:search', 'channel:social', ..., 'indirect:dc')
 ```
 
-`fit` snapshots the history and column roles, validates the inputs, and returns
+`add_context` snapshots the history and column roles, validates the inputs, and returns
 the model. It needs at least two rows, strictly positive outcomes, nonnegative
 spend, and at least one channel and control. Control padding and masks are
 automatic; excess controls are rejected and channel count is not fixed.
 
-`predict` requires only the stored date, channel and control columns. Physical
+`inference` requires only the stored date, channel and control columns. Physical
 column order does not matter; extra columns and any query targets are ignored.
 Dates must be timezone-naive, unique, and regularly spaced. Rows are sorted
 without modifying the dataframe. Queries must start at the next context period
@@ -82,15 +82,15 @@ and follow its cadence without gaps. Calendar frequency is inferred when
 possible; two-row histories use their fixed interval.
 
 Repeated predictions reuse the same context without appending predictions.
-A successful second `fit` replaces context; a failed fit preserves it.
-`predict` before `fit` raises an error. Weight bundles exclude private history,
-so call `fit` again after loading. The illustrative data above exercises the API,
-not attribution calibration.
+A successful second `add_context` replaces context; a failed call preserves it.
+`inference` before `add_context` raises an error. Weight bundles exclude private
+history, so call `add_context` again after loading. The illustrative data above
+exercises the API, not attribution calibration.
 
 ### Context and query snapshots
 
 With the `[arviz]` extra, request both decomposition windows after a successful
-`fit` and `predict`:
+`add_context` and `inference`:
 
 ```python
 idata = model.build_idata()  # return-only; does not assign or replace model.idata
@@ -102,7 +102,7 @@ search_draws = idata["query"]["posterior"]["channel_contribution"].sel(channel="
 
 # Retain separate scenario snapshots without accumulating history on the model.
 scenario = future.assign(search=lambda frame: frame["search"] * 1.2)
-model.predict(scenario, n_samples=500)
+model.inference(scenario, n_samples=500)
 assert model.idata is None
 idata_scenario = model.build_idata()
 # idata and stored still contain the original scenario, unchanged.
@@ -135,7 +135,7 @@ trajectories. Do not concatenate their date axes to manufacture joint draws.
 `model.idata` is a passive, read-only property, initially `None`; reading it never
 samples or converts. `store=True` returns the same tree exposed by that property
 and reuses it while current. A return-only build creates a separate container
-and leaves any stored tree unchanged. A successful `fit` or `predict` clears the
+and leaves any stored tree unchanged. A successful `add_context` or `inference` clears the
 stored reference and context-draw cache; failures preserve the last successful
 state. Earlier caller-held trees are never rewritten by later model calls.
 Weight bundles exclude history, prediction snapshots and exports.
@@ -146,7 +146,7 @@ builds reuse both sets of draws, even in return-only mode. Thus `store=False`
 means no retained **DataTree**, not no retained inference state. Prediction
 snapshots consume memory, and fresh exports may allocate arrays. Context
 sampling and optional xarray/ArviZ imports are deferred until requested; a
-missing extra is reported before context sampling. Building after `fit` alone
+missing extra is reported before context sampling. Building after `add_context` alone
 raises an error: the current sampler needs a successful prediction with a
 nonempty query window.
 
@@ -180,7 +180,7 @@ A column that is zero in the context but nonzero in the query is rejected.
 
 ### Output
 
-`predict` returns a query `DecompositionResult`; lower-level `decompose` can return
+`inference` returns a query `DecompositionResult`; lower-level `decompose` can return
 either window:
 
 | Field | Shape | Content |
@@ -188,9 +188,9 @@ either window:
 | `components` | `[S, T_window, D]` | Draws in outcome units. `T_window` is `C` (context) or `T - C` (query). |
 | `component_names` | `[D]` | Baseline, `K` channels, `M` controls, latent total, indirect `cc`, `zc`, `dc` (`D = K + M + 5`) |
 | `graphs` | `[S, L]` | Causal graph sampled with each draw (edge layout below) |
-| `time` | `[T_window]` | Query dates (`predict`); row indices or supplied labels (`decompose`) |
+| `time` | `[T_window]` | Query dates (`inference`); row indices or supplied labels (`decompose`) |
 
-- `predict` derives names from column roles; `decompose` accepts `channel_names=`
+- `inference` derives names from column roles; `decompose` accepts `channel_names=`
   and `control_names=`.
 - Components exclude observation noise. Context and query calls are separate
   draws, not one joint posterior.
