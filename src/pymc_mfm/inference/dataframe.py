@@ -1,4 +1,4 @@
-"""Immutable observed history and column roles for the public fit/predict API."""
+"""Immutable observed history and column roles for the public add_context/inference API."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def _numeric_columns(data: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
 
 def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if len(dates) < 2:
-        raise ValueError("fit needs at least two dated context rows to determine frequency")
+        raise ValueError("add_context needs at least two dated context rows to determine frequency")
     frequency = pd.infer_freq(dates) if len(dates) >= 3 else None
     if frequency is not None:
         return pd.tseries.frequencies.to_offset(frequency)
