@@ -6,9 +6,16 @@ approved or published release.
 
 ## Changes
 
-- **Quickstart spend-contribution scatter plots.** The introductory notebook
-  scatters each channel's weekly posterior mean contribution against raw and
-  adstocked spend, separating context and query weeks without reference curves.
+- **Quickstart actual-spend scenario sweep.** Each channel is varied separately
+  from 0% to 200% of its actual eight-week query spend path, with unchanged history
+  and other inputs. The notebook plots eight-week channel totals with pointwise
+  90% approximate posterior intervals, including graph uncertainty but excluding
+  observation noise. Generator-computed adstock/saturation truth is overlaid in the
+  same units, with the original 100% spend path marked separately. These conditional
+  responses are not identified causal lift.
+- **Quickstart context spend-contribution scatter plots.** One panel per channel
+  overlays River-1's weekly posterior mean and simulated true contributions against
+  raw spend, using only context weeks; no adstocked-spend axis or query points.
 - **Context/query DataTree snapshots.** After dataframe `add_context` and `inference`,
   `model.build_idata()` exports separate context/query marginals with named
   `date`, `channel` and `control` axes; `store=True` also exposes the returned

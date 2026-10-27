@@ -351,8 +351,14 @@ model = from_pretrained(
 
 [`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a
 model from the Hub, decomposes a simulated dataset and plots the result. Its
-spend-contribution figure scatters each channel's weekly network contributions
-against both raw and adstocked spend, separating context and query weeks.
+context scatter overlays River-1's weekly posterior mean channel contributions and
+the simulated true contributions against raw spend, with one panel per channel.
+Its scenario sweep varies each channel from 0% to 200% of its actual spend path
+over eight query weeks, keeping history and other inputs fixed. It plots the
+eight-week channel contribution with pointwise 90% approximate posterior intervals
+and generator-computed truth at the same spend levels, highlighting the original
+100% spend path. These are conditional scenario responses, not identified causal
+lift curves.
 
 ## Development
 
