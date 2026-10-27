@@ -6,6 +6,11 @@ approved or published release.
 
 ## Changes
 
+- **Quickstart actual-spend scenario sweep.** Each channel is varied separately
+  from 0% to 200% of its actual eight-week query spend path, with unchanged history
+  and other inputs. The notebook plots eight-week channel totals with pointwise
+  90% approximate posterior intervals, including graph uncertainty but excluding
+  observation noise; these conditional responses are not identified causal lift.
 - **Quickstart spend-contribution scatter plots.** The introductory notebook
   scatters each channel's weekly posterior mean contribution against raw and
   adstocked spend, separating context and query weeks without reference curves.

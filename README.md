@@ -353,6 +353,10 @@ model = from_pretrained(
 model from the Hub, decomposes a simulated dataset and plots the result. Its
 spend-contribution figure scatters each channel's weekly network contributions
 against both raw and adstocked spend, separating context and query weeks.
+Its scenario sweep varies each channel from 0% to 200% of its actual spend path
+over eight query weeks, keeping history and other inputs fixed. It plots the
+eight-week channel contribution with pointwise 90% approximate posterior intervals;
+these are conditional scenario responses, not identified causal lift curves.
 
 ## Development
 
