@@ -50,3 +50,18 @@ def test_fitted_world_and_river_observation_boundary(monkeypatch):
     assert len(included["predicted_sales"]) == len(omitted["predicted_sales"]) == N_CONTEXT
     assert included["channels"]["Search"]["mean"] != omitted["channels"]["Search"]["mean"]
     assert included["diagnostics"]["divergences"] == omitted["diagnostics"]["divergences"] == 0
+
+
+def test_rejects_a_mismatched_fitting_dataset(monkeypatch):
+    fixture = json.loads((Path(__file__).parents[1] / "demo/fixtures/comparison.json").read_text())
+    fixture["world"]["spend"][0][0] += 1
+    original = Path.read_text
+
+    def read_text(path, *args, **kwargs):
+        if path.name == "comparison.json":
+            return json.dumps(fixture)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    client = TestClient(demo.app, raise_server_exceptions=False)
+    assert client.get("/api/comparison").status_code == 500
