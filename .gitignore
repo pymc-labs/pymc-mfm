@@ -25,3 +25,5 @@ dist/
 *.npy
 *.nc
 *.h5
+!/demo/fixtures/paper-worlds/world-91.npz
+!/demo/fixtures/paper-worlds/world-92.npz
