@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>River-1 Simulator — explore a synthetic marketing world</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  :root {
+    --bg: #0e1117; --panel: #161b24; --panel2: #1d2430; --border: #2a3342;
+    --text: #e6e9ef; --muted: #8b95a7; --accent: #4da3ff; --accent2: #ffb454;
+    --good: #3fd68f; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    padding: 14px 22px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 19px; margin: 0; font-weight: 650; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  #latency-badge {
+    margin-left: auto; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 14px; font-variant-numeric: tabular-nums;
+    display: flex; gap: 14px; align-items: baseline;
+  }
+  #latency-ms { font-size: 22px; font-weight: 700; color: var(--good); }
+  #latency-sub { font-size: 11px; color: var(--muted); }
+  main { display: grid; grid-template-columns: 330px 1fr; gap: 16px; padding: 16px 22px; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  .slider-row { margin-bottom: 10px; }
+  .slider-row .lbl {
+    display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 2px;
+  }
+  .slider-row .val { color: var(--accent); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .slider-row .hint { color: var(--muted); font-size: 11px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button {
+    background: var(--accent); color: #08111f; border: 0; border-radius: 7px;
+    padding: 8px 14px; font-weight: 650; font-size: 13px; cursor: pointer;
+  }
+  button.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+  select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 13px;
+  }
+  .muted { color: var(--muted); font-size: 12px; }
+  .chart { height: 320px; }
+  .chart-sm { height: 260px; }
+  .kpis { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; flex: 1; min-width: 140px; }
+  .kpi .v { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 1400px) { .grid2 { grid-template-columns: 1fr; } }
+  footer { padding: 6px 22px 24px; color: var(--muted); font-size: 12px; max-width: 950px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>River-1 Simulator</h1>
+  <span class="sub">Dial in a marketing world — the PFN fits it in one forward pass</span>
+  <div id="latency-badge">
+    <div><span id="latency-ms">—</span> <span style="font-size:12px">ms</span></div>
+    <div id="latency-sub">amortized Bayesian fit<br><span id="latency-detail">—</span></div>
+  </div>
+</header>
+
+<main>
+  <div id="controls">
+    <div class="card">
+      <h2>Channel efficiencies — the truth the model must find</h2>
+      <div id="channel-sliders"></div>
+      <p class="muted" style="margin:6px 0 0">
+        Set the simulated channel strengths. Compare the model’s estimated contributions with the known simulated truth.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>The world</h2>
+      <div id="sliders"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="secondary" id="dice-btn" title="redraw simulated spend and noise">🎲 New world</button>
+        <span class="muted">samples:</span>
+        <select id="nsamples-select">
+          <option value="16">16</option>
+          <option value="32" selected>32</option>
+          <option value="64">64</option>
+        </select>
+      </div>
+      <p class="muted" style="margin:10px 0 0">
+        Every change simulates 208 weeks and runs River-1 on the observed history. Dashed lines are the simulated <b>ground truth</b>; shaded bands are 80% posterior intervals.
+      </p>
+    </div>
+  </div>
+
+  <div id="charts">
+    <div class="card" style="padding:12px 16px">
+      <p style="margin:0;font-size:14.5px">
+        <b style="color:var(--accent)">Explore a synthetic marketing world.</b>
+        River-1 decomposes simulated sales into baseline, channel and control contributions.
+        Adjust the true channel strengths and compare the posterior with the known truth.
+        Results can be wrong: this is one artificial example, not validation on real marketing data.
+      </p>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="v stat" id="kpi-top">—</div><div class="l">highest contribution / spend</div></div>
+      <div class="kpi"><div class="v stat" id="kpi-roas">—</div><div class="l">mean ratio error vs truth</div></div>
+      <div class="kpi"><div class="v stat" id="kpi-count">0</div><div class="l">worlds fitted this session</div></div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2>Simulated contribution / spend — truth vs River-1 (80% interval)</h2><div id="chart-roas" class="chart-sm"></div></div>
+      <div class="card"><h2>True response curves (spend → weekly contribution)</h2><div id="chart-curves" class="chart-sm"></div></div>
+    </div>
+    <div class="card"><h2>Simulated sales & River-1 latent sales (80% bands)</h2><div id="chart-revenue" class="chart"></div></div>
+    <div class="card"><h2>Channel contributions — simulated truth (dashed) vs River-1</h2><div id="chart-contrib" class="chart"></div></div>
+  </div>
+</main>
+
+<footer>
+  River-1 is a research model evaluated here on simulated data. Intervals describe sampled
+  latent contributions and do not include observation noise. The displayed contribution / spend
+  ratios are averages within this simulated window, not incremental causal ROAS estimates.
+  True response curves are calculated from the simulator, not inferred by River-1.
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const SLIDERS = [
+  { key: 'trend_slope', label: 'Trend', min: -0.002, max: 0.002, step: 0.0001, value: 0,
+    hint: 'additive change per week', fmt: v => v.toFixed(4) },
+  { key: 'seasonality_amp', label: 'Seasonality', min: 0, max: 0.8, step: 0.025, value: 0.5,
+    hint: 'yearly cycle amplitude', fmt: v => v.toFixed(3) },
+  { key: 'noise_std', label: 'Noise', min: 0.02, max: 0.35, step: 0.01, value: 0.25,
+    hint: 'observation noise', fmt: v => v.toFixed(3) },
+];
+
+const BETA_MIN = 0.5, BETA_MAX = 4.0;
+const N_CHANNELS = 2;
+
+const state = {
+  params: Object.fromEntries(SLIDERS.map(s => [s.key, s.value])),
+  // A deliberately diverse starting ranking so the demo opens with a story.
+  betas: [3.0, 2.0],
+  seed: 10, nSamples: 32,
+  requestCount: 0, inflight: null, pendingTimer: null,
+};
+
+const PLOT_LAYOUT = {
+  paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+  font: { color: '#8b95a7', size: 11 },
+  margin: { l: 55, r: 12, t: 8, b: 36 },
+  xaxis: { gridcolor: '#222a38', zeroline: false },
+  yaxis: { gridcolor: '#222a38', zeroline: false },
+  showlegend: true,
+  legend: { orientation: 'h', y: 1.13, font: { size: 11 } },
+};
+const PLOT_CFG = { displayModeBar: false, responsive: true };
+const COLORS = ['#4da3ff', '#ffb454', '#3fd68f', '#ff6b9d', '#b58cff', '#5fd4d0'];
+const CH_NAMES = ['TV', 'Search'];
+
+const fmt = x => {
+  if (!isFinite(x)) return '—';
+  if (Math.abs(x) >= 1e6) return (x / 1e6).toFixed(2) + 'M';
+  if (Math.abs(x) >= 1e3) return (x / 1e3).toFixed(1) + 'k';
+  if (Math.abs(x) >= 10) return x.toFixed(0);
+  return x.toFixed(2);
+};
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+function buildSliders() {
+  const wrap = $('sliders');
+  wrap.innerHTML = '';
+  SLIDERS.forEach(cfg => {
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = `
+      <div class="lbl"><span>${cfg.label} <span class="hint">· ${cfg.hint}</span></span>
+        <span class="val" id="val-${cfg.key}">${cfg.fmt(cfg.value)}</span></div>
+      <input type="range" min="${cfg.min}" max="${cfg.max}" step="${cfg.step}"
+             value="${cfg.value}" id="param-${cfg.key}">`;
+    wrap.appendChild(row);
+    const slider = row.querySelector('input');
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value);
+      state.params[cfg.key] = v;
+      $(`val-${cfg.key}`).textContent = cfg.fmt(v);
+      scheduleRun();
+    });
+  });
+
+  const chWrap = $('channel-sliders');
+  chWrap.innerHTML = '';
+  state.betas.forEach((b, i) => {
+    const color = COLORS[i % COLORS.length];
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    row.innerHTML = `
+      <div class="lbl"><span style="color:${color};font-weight:650">${CH_NAMES[i]}</span>
+        <span class="val" id="beta-val-${i}" style="color:${color}">${b.toFixed(2)}</span></div>
+      <input type="range" min="${BETA_MIN}" max="${BETA_MAX}" step="0.01" value="${b}"
+             id="beta-${i}" style="accent-color:${color}">`;
+    chWrap.appendChild(row);
+    const slider = row.querySelector('input');
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value);
+      state.betas[i] = v;
+      $(`beta-val-${i}`).textContent = v.toFixed(2);
+      scheduleRun();
+    });
+  });
+}
+
+function scheduleRun() {
+  clearTimeout(state.pendingTimer);
+  state.pendingTimer = setTimeout(run, 600);
+}
+
+async function run() {
+  if (state.inflight) state.inflight.abort();
+  const ctrl = new AbortController();
+  state.inflight = ctrl;
+  try {
+    const t0 = performance.now();
+    const res = await api('/api/simulate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        ...state.params,
+        betas: state.betas,
+        n_channels: N_CHANNELS,
+        seed: state.seed,
+        n_samples: state.nSamples,
+      }),
+    });
+    const roundtrip = performance.now() - t0;
+    state.requestCount += 1;
+    $('latency-ms').textContent = res.fit.latency_ms.toFixed(0);
+    $('latency-detail').textContent =
+      `sim ${res.sim_ms.toFixed(1)} ms · ${res.fit.n_samples} samples · ${roundtrip.toFixed(0)} ms round-trip`;
+    $('kpi-count').textContent = state.requestCount;
+    const fitMeans = res.fit.roas.map(r => r.mean);
+    const argmax = a => a.indexOf(Math.max(...a));
+    const topOk = argmax(res.truth.roas) === argmax(fitMeans);
+    $('kpi-top').textContent = topOk ? `✓ ${CH_NAMES[argmax(fitMeans)]}` : '✗ missed';
+    $('kpi-top').style.color = topOk ? 'var(--good)' : 'var(--bad)';
+    const error = res.truth.roas.reduce((sum, value, i) => sum + Math.abs(fitMeans[i] - value) / Math.max(Math.abs(value), 1e-9), 0) / fitMeans.length;
+    $('kpi-roas').textContent = `${(error * 100).toFixed(0)}%`;
+    $('kpi-roas').style.color = 'var(--text)';
+    drawCharts(res);
+  } catch (err) {
+    if (err.name !== 'AbortError') { console.error(err); $('latency-detail').textContent = 'Model run failed: ' + err.message; }
+  } finally {
+    if (state.inflight === ctrl) state.inflight = null;
+  }
+}
+
+function pearson(a, b) {
+  const n = a.length;
+  const ma = a.reduce((x, y) => x + y, 0) / n, mb = b.reduce((x, y) => x + y, 0) / n;
+  let num = 0, da = 0, db = 0;
+  for (let i = 0; i < n; i++) {
+    num += (a[i] - ma) * (b[i] - mb);
+    da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2;
+  }
+  return num / Math.sqrt(da * db);
+}
+
+function bandTraces(weeks, b, color, name, group, dashTruth) {
+  return [
+    { x: weeks, y: b.hi, line: { width: 0 }, hoverinfo: 'skip',
+      showlegend: false, legendgroup: group, type: 'scatter' },
+    { x: weeks, y: b.lo, fill: 'tonexty', fillcolor: color + '38',
+      line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: group, type: 'scatter' },
+    { x: weeks, y: b.mean, line: { color, width: 2 }, name, legendgroup: group, type: 'scatter' },
+  ];
+}
+
+function drawCharts(res) {
+  const nWeeks = res.truth.revenue.length;
+  const allWeeks = [...Array(nWeeks).keys()];
+  const qWeeks = res.fit.query_weeks;
+  const nc = res.params.n_channels;
+
+  // ---- revenue + baseline fit ----
+  const revTraces = [
+    { x: allWeeks, y: res.truth.revenue, name: 'simulated sales',
+      line: { color: '#5c6678', width: 1.3 }, type: 'scatter' },
+    { x: allWeeks, y: res.truth.baseline, name: 'true baseline',
+      line: { color: '#ffb454', width: 1.5, dash: 'dash' }, type: 'scatter' },
+    ...bandTraces(qWeeks, res.fit.revenue, '#4da3ff', 'River-1 latent sales', 'rev'),
+    ...bandTraces(qWeeks, res.fit.baseline, '#ffb454', 'River-1 baseline', 'base'),
+  ];
+  const revLayout = structuredClone(PLOT_LAYOUT);
+  revLayout.xaxis.title = { text: 'week', font: { size: 11 } };
+  revLayout.shapes = [{
+    type: 'line', x0: res.n_ctx - 0.5, x1: res.n_ctx - 0.5, y0: 0, y1: 1,
+    yref: 'paper', line: { color: '#3a4456', width: 1, dash: 'dot' },
+  }];
+  revLayout.annotations = [{
+    x: res.n_ctx - 0.5, y: 1.05, yref: 'paper', text: '← conditioning data | fit window →',
+    showarrow: false, font: { size: 10, color: '#8b95a7' },
+  }];
+  Plotly.react('chart-revenue', revTraces, revLayout, PLOT_CFG);
+
+  // Freeze axis ceilings at each channel's beta_max-equivalent: truth
+  // contributions and ROAS are linear in beta, so these ranges are invariant
+  // under the efficiency sliders — growth reads as motion, not as autoscale.
+  const beta = res.truth.beta;
+  let contribMax = 0, roasMax = 0;
+  res.truth.contributions.forEach((arr, c) => {
+    const scale = BETA_MAX / beta[c];
+    arr.forEach(v => { contribMax = Math.max(contribMax, v * scale); });
+    roasMax = Math.max(roasMax, res.truth.roas[c] * scale);
+  });
+
+  // ---- per-channel contributions: truth vs posterior ----
+  const contribTraces = [];
+  for (let c = 0; c < nc; c++) {
+    const color = COLORS[c % COLORS.length];
+    contribTraces.push(...bandTraces(qWeeks, res.fit.contributions[c], color, CH_NAMES[c], 'ch' + c));
+    contribTraces.push({
+      x: qWeeks, y: res.truth.contributions[c], showlegend: false, legendgroup: 'ch' + c,
+      line: { color: '#e6e9ef', width: 1.2, dash: 'dot' }, type: 'scatter',
+      name: CH_NAMES[c] + ' (true)',
+    });
+  }
+  const contribLayout = structuredClone(PLOT_LAYOUT);
+
+  Plotly.react('chart-contrib', contribTraces, contribLayout, PLOT_CFG);
+
+  // ---- ROAS truth vs fit ----
+  const names = CH_NAMES.slice(0, nc);
+  const roasLayout = structuredClone(PLOT_LAYOUT);
+  roasLayout.barmode = 'group';
+
+  Plotly.react('chart-roas', [
+    { type: 'bar', x: names, y: res.truth.roas, name: 'truth',
+      marker: { color: names.map((_, i) => COLORS[i % COLORS.length]) } },
+    { type: 'bar', x: names, y: res.fit.roas.map(r => r.mean), name: 'River-1',
+      error_y: {
+        type: 'data', symmetric: false,
+        array: res.fit.roas.map(r => r.hi - r.mean),
+        arrayminus: res.fit.roas.map(r => r.mean - r.lo),
+        color: '#8b95a7',
+      },
+      marker: { color: names.map((_, i) => COLORS[i % COLORS.length]), opacity: 0.45 } },
+  ], roasLayout, PLOT_CFG);
+
+  // ---- true response curves ----
+  const curveTraces = res.response_curves.curves.flatMap((cv, c) => ([
+    { x: cv.spend, y: cv.response, name: CH_NAMES[c], legendgroup: 'cv' + c,
+      line: { color: COLORS[c % COLORS.length], width: 2 }, type: 'scatter' },
+    { x: [cv.current_spend], y: [cv.current_response], showlegend: false, legendgroup: 'cv' + c,
+      mode: 'markers', marker: { color: COLORS[c % COLORS.length], size: 9, symbol: 'circle' },
+      type: 'scatter', name: CH_NAMES[c] + ' (avg spend)' },
+  ]));
+  const curveLayout = structuredClone(PLOT_LAYOUT);
+  curveLayout.xaxis.title = { text: 'weekly spend', font: { size: 11 } };
+  curveLayout.yaxis.title = { text: 'weekly contribution', font: { size: 11 } };
+  let curveMax = 0;
+  res.response_curves.curves.forEach((cv, c) => {
+    const scale = BETA_MAX / beta[c];
+    curveMax = Math.max(curveMax, cv.response[cv.response.length - 1] * scale);
+  });
+  curveLayout.yaxis.range = [0, curveMax * 1.1];
+  Plotly.react('chart-curves', curveTraces, curveLayout, PLOT_CFG);
+}
+
+async function init() {
+  buildSliders();
+  $('nsamples-select').addEventListener('change', e => {
+    state.nSamples = parseInt(e.target.value, 10);
+    scheduleRun();
+  });
+  $('dice-btn').addEventListener('click', () => {
+    state.seed = Math.floor(Math.random() * 100000);
+    scheduleRun();
+  });
+  const info = await api('/api/info');
+  document.querySelector('header .sub').textContent =
+    `Research demo · River-1 · ${(info.n_params / 1e6).toFixed(1)}M parameters · synthetic data`;
+  if (info.default_samples && info.default_samples !== state.nSamples) {
+    state.nSamples = info.default_samples;
+    $('nsamples-select').value = String(info.default_samples);
+  }
+  await run();
+}
+init();
+</script>
+</body>
+</html>
