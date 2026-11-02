@@ -29,7 +29,7 @@ through HTTP. The prototype has not been independently validated for production.
 
 ## Model-check comparison
 
-`/compare` shows two real, precomputed PyMC-Marketing 0.11.1 MMM fits on a fixed
+`/stress-test` shows two real, precomputed PyMC-Marketing 0.11.1 MMM fits on a fixed
 synthetic dataset, one including promotion as a control and one omitting it.
 Search spend is deliberately correlated with promotion in this single example.
 Both fits used four NUTS chains with 500 warmup and 500 posterior draws per
@@ -52,3 +52,18 @@ repository root with `python -m demo.fit_comparison`. The script locally filters
 PyTensor's obsolete `-ld64` flag on newer macOS; it does not alter system files.
 Sampler outputs can vary across platforms; the committed fixture preserves the
 exact dataset and draws' summaries used by the demo.
+
+## Selected whitepaper examples
+
+`/compare` (also available at `/showcase`) runs River-1 on one-week query views from two fixed whitepaper test
+worlds. It shows 207 weeks of historical observations plus known week-208
+inputs, withholding week-208 sales. The first example (World 91) was selected
+for favorable contribution recovery; the second (World 92) is a mixed case.
+Both were selected after inspecting results, so neither is a population
+estimate. Channel letters are anonymous labels, not actual media names.
+
+The app invokes the pinned River-1 profile directly with 256 new draws per page
+load; the saved NPZ fixtures contain only the synthetic inputs, masks and truth.
+`fixtures/paper-worlds/sources.json` identifies the source-world hashes, model
+checkpoint and reduced fixture hashes, which the server verifies before use.
+The harder constructed promotion comparison remains available at `/stress-test`.

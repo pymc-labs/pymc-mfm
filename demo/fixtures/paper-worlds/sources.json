@@ -1,0 +1,18 @@
+{
+  "selection": "Two explicitly selected synthetic whitepaper cases: 91 favorable, 92 mixed. They are not a representative sample.",
+  "paper_repo": "https://github.com/pymc-labs/MarketingFoundationalModels",
+  "source_revision": "ee93e23",
+  "checkpoint": "88545558e2ae743aaceae29a2cffed5e7108132dce084f5c4c00303d4928368c",
+  "cases": {
+    "91": {
+      "source_path": "w091-tanh-geometric.npz",
+      "source_sha256": "510c50d93caca48e6b719c09451c578b7c7e310833bef811118553e594caa031",
+      "fixture_sha256": "922aa15633748adbb6bddd7cfd4872a26b8d6773ffb27518b6d55d3d580092f2"
+    },
+    "92": {
+      "source_path": "w092-tanh-geometric.npz",
+      "source_sha256": "7b69de4bc32f902368d39945d0d3a8b98b848af63167ae30c0851f5bc82b1728",
+      "fixture_sha256": "470409c01cf4fd2a61a47044d3ed83041c801c8f8f2036f605e68dc982bd5eec"
+    }
+  }
+}

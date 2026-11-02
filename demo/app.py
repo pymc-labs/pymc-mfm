@@ -9,6 +9,7 @@ import threading
 import time
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import torch
@@ -129,7 +130,7 @@ def run(req: Request):
     }
 
 
-@app.get("/compare")
+@app.get("/stress-test")
 def comparison_page():
     return FileResponse(Path(__file__).parent / "static/compare.html")
 
@@ -188,3 +189,69 @@ def comparison_result():
 @app.get("/api/comparison")
 def comparison():
     return comparison_result()
+
+
+@app.get("/compare")
+@app.get("/showcase")
+def showcase_page():
+    return FileResponse(Path(__file__).parent / "static/showcase.html")
+
+
+@app.get("/api/showcase")
+def showcase(case: Literal["91", "92"] = "91"):
+    """Run River-1 on one explicitly selected whitepaper world, one week ahead."""
+    folder = Path(__file__).parent / "fixtures/paper-worlds"
+    meta = json.loads((folder / "sources.json").read_text())
+    path = folder / f"world-{case}.npz"
+    if hashlib.sha256(path.read_bytes()).hexdigest() != meta["cases"][case]["fixture_sha256"]:
+        raise RuntimeError("Whitepaper example fixture does not match its source record")
+    with np.load(path, allow_pickle=False) as world:
+        channel_mask = world["treatment_active_mask"][0].astype(bool)
+        spend = world["treatment_raw"][0][:, channel_mask].copy()
+        controls = world["covariates"][0].copy()
+        sales = world["outcome_raw"][0].copy()
+        control_mask = world["covariate_active_mask"][0].copy()
+        latent_mask = world["latent_active_mask"][0].copy()
+        truth = world["treatment_contribution_raw"][0, -1, channel_mask].copy()
+    names = [f"Channel {chr(65 + i)}" for i in range(len(truth))]
+    observations = {
+        "spend": spend,
+        "controls": controls,
+        "context_outcome": sales[:207],
+        "control_mask": control_mask,
+        "latent_mask": latent_mask,
+    }
+    with lock:
+        torch.manual_seed(0)
+        started = time.perf_counter()
+        result = decompose(
+            model(), observations, n_samples=256, window="query", channel_names=names
+        )
+        seconds = time.perf_counter() - started
+    channels = []
+    for i, name in enumerate(names):
+        draws = result.components[:, 0, result.component_names.index(f"channel:{name}")]
+        quantiles = np.quantile(draws, [0.05, 0.95])
+        channels.append(
+            {
+                "name": name,
+                "mean": float(np.mean(draws)),
+                "lo": float(quantiles[0]),
+                "hi": float(quantiles[1]),
+                "truth": float(truth[i]),
+                "spend": spend[:, i].tolist(),
+            }
+        )
+    return {
+        "case": case,
+        "context_weeks": 207,
+        "query_week": 208,
+        "run_seconds": seconds,
+        "n_samples": 256,
+        "channels": channels,
+        "history_sales": sales[:207].tolist(),
+        "provenance": {
+            "source_sha256": meta["cases"][case]["source_sha256"],
+            "model_revision": PIN,
+        },
+    }
