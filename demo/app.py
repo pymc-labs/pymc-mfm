@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import threading
 import time
@@ -14,6 +16,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from demo.comparison_world import CHANNELS, ComparisonWorld
+from demo.comparison_world import N_CONTEXT as COMPARE_CONTEXT
 from demo.simulator import N_CONTEXT, N_WEEKS, response_curves, simulate
 from pymc_mfm import decompose, from_pretrained
 
@@ -123,3 +127,64 @@ def run(req: Request):
         },
         "response_curves": response_curves(world),
     }
+
+
+@app.get("/compare")
+def comparison_page():
+    return FileResponse(Path(__file__).parent / "static/compare.html")
+
+
+def comparison_result():
+    """Run River live for the exact synthetic dataset used by the frozen MMM fits."""
+    fixture = json.loads((Path(__file__).parent / "fixtures/comparison.json").read_text())
+    world = ComparisonWorld(
+        **{key: np.asarray(value, dtype=np.float64) for key, value in fixture["world"].items()}
+    )
+    data = np.column_stack((world.spend, world.promotion, world.outcome)).astype("<f8")
+    if hashlib.sha256(data.tobytes()).hexdigest() != fixture["data_sha256"]:
+        raise RuntimeError("Comparison fixture does not match the synthetic world")
+    horizon = COMPARE_CONTEXT + 1
+    controls = np.zeros((horizon, 10))
+    controls[:, 0] = world.promotion[:horizon]
+    observations = {
+        "spend": world.spend[:horizon],
+        "controls": controls,
+        "context_outcome": world.outcome[:COMPARE_CONTEXT],
+        "control_mask": [1] + [0] * 9,
+    }
+    with lock:
+        torch.manual_seed(0)
+        started = time.perf_counter()
+        result = decompose(
+            model(), observations, n_samples=128, window="context", channel_names=CHANNELS
+        )
+        elapsed = time.perf_counter() - started
+    contributions = {
+        channel: band(
+            result.components[:, :, result.component_names.index(f"channel:{channel}")].sum(axis=1)
+        )
+        for channel in CHANNELS
+    }
+    context = slice(0, COMPARE_CONTEXT)
+    return {
+        "weeks": COMPARE_CONTEXT,
+        "truth": {
+            "sales": world.outcome[context].tolist(),
+            "promotion": world.promotion[context].tolist(),
+            "spend": {
+                channel: world.spend[context, j].tolist() for j, channel in enumerate(CHANNELS)
+            },
+            "channels": {
+                channel: float(world.channel_truth[context, j].sum())
+                for j, channel in enumerate(CHANNELS)
+            },
+            "promotion_total": float(world.promotion_truth[context].sum()),
+        },
+        "river": {"channels": contributions, "n_samples": 128, "run_seconds": elapsed},
+        "mmm": fixture,
+    }
+
+
+@app.get("/api/comparison")
+def comparison():
+    return comparison_result()
