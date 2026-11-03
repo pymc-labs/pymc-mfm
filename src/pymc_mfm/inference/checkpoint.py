@@ -15,8 +15,10 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from safetensors import safe_open
 from safetensors.torch import save_file
 
+from pymc_mfm.model.components import ResearchComponentError
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
+from pymc_mfm.model.registry import is_research
 
 from ._artifact_schema import (
     ARCHITECTURE,
@@ -64,7 +66,20 @@ _RANGE_OPERATORS = frozenset({">=", ">", "<", "<="})
 _LOWER_BOUNDS = frozenset({">=", ">"})
 
 
-def _canonical_model(config: ModelConfig) -> MFM:
+def _refuse_research(components: Mapping[str, str] | None, *, label: str) -> None:
+    if components is not None and is_research(components):
+        raise ResearchComponentError(
+            f"{label} uses research components {dict(components)!r}: research components "
+            "never reach a release bundle"
+        )
+
+
+def _canonical_model(config: ModelConfig, components: Mapping[str, str] | None = None) -> MFM:
+    """The release architecture for ``config``, built on the meta device.
+
+    ``components`` is what a bundle's metadata declares; a research choice is refused.
+    """
+    _refuse_research(components, label="artifact")
     # No random initialization, allocation, or RNG advancement on restoration.
     with torch.device("meta"):
         return MFM(config)
@@ -267,6 +282,7 @@ def save_pretrained(
     """
     if type(model) is not MFM:
         raise ValueError("save_pretrained accepts only the canonical MFM architecture")
+    _refuse_research(model.components, label="save_pretrained model")
     compatibility, producer = _export_environment()
     config = ModelConfig.from_dict(model.config.to_dict())
     previous = getattr(model, "artifact_metadata", {})
@@ -436,7 +452,7 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
         # x86 BLAS kernels round unaligned operands differently: a bundle would not
         # reproduce the saved model's outputs bit for bit. Own fresh allocations.
         state = {name: stream.get_tensor(name).clone() for name in stream.keys()}
-    model = _canonical_model(config)
+    model = _canonical_model(config, metadata["schemas"].get("components"))
     catalog = _validate_state(model, state, specs=manifest["tensors"])
     model.load_state_dict(state, strict=True, assign=True)
     parameters = dict(model.named_parameters())

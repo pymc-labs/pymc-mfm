@@ -10,12 +10,11 @@ import torch
 from torch import Tensor, nn
 
 from .config import LossWeights, ModelConfig
-from .encoder import BiAttentionEncoder, SplitRepresentations
+from .encoder import SplitRepresentations
 from .flow import (
     _FLOW_SAMPLE_CHUNK,
     _FLOW_SAMPLE_ROWS,
     DEFAULT_N_SAMPLES,
-    JointFlowHead,
     _edge_slot_layout,
     _map_batches,
     _sample_count,
@@ -29,6 +28,7 @@ from .graph import (
     empirical_full_graph_mode,
     structure_active_masks,
 )
+from .registry import build_encoder, build_head, is_research, resolve_components
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -47,12 +47,24 @@ class MFM(nn.Module):
     query samples remain separate marginals, never paired full-horizon draws.
     """
 
-    def __init__(self, config: ModelConfig | None = None):
+    def __init__(
+        self,
+        config: ModelConfig | None = None,
+        *,
+        components: Mapping[str, str] | None = None,
+    ):
+        """Build the model from registered components (see :mod:`.registry`).
+
+        ``components`` names the encoder, router head and conditional head and
+        defaults to the release components. It is kept beside ``config``, never in it.
+        """
         super().__init__()
         self.config = ModelConfig() if config is None else config
         config = self.config
-        self.encoder = BiAttentionEncoder(config)
-        self.head = JointFlowHead(config, graph_router=True)
+        self.components = resolve_components(components)
+        self.is_research = is_research(self.components)
+        self.encoder = build_encoder(self.components["encoder"], config)
+        self.head = build_head(self.components["head"], config, graph_router=True)
         self.struct_head = StructureHead(
             d_channel=config.d_model,
             d_global=config.d_model,
@@ -62,7 +74,9 @@ class MFM(nn.Module):
         # Preserve construction order: the conditioner and decoder are fresh
         # modules initialized after the encoder, router and auxiliary head.
         self.graph_conditioner = GraphConditioner(config.d_model, config.d_model)
-        self.conditional_head = JointFlowHead(config, graph_router=False)
+        self.conditional_head = build_head(
+            self.components["conditional_head"], config, graph_router=False
+        )
         self._inference_context: _FittedContext | None = None
         self._prediction_snapshot: _PredictionSnapshot | None = None
         self._context_decomposition: DecompositionResult | None = None
