@@ -438,7 +438,11 @@ def _mostly_nul(sample: bytes) -> bool:
 
 
 def decode_wide_text(data: bytes) -> bytes | None:
-    """Return UTF-8 bytes for UTF-16 or UTF-32 text (BOM or NUL-interleaved ASCII), else None."""
+    """Return UTF-8 bytes for UTF-16 or UTF-32 text (BOM or NUL-interleaved ASCII).
+
+    Returns None when the content is not wide text. Raises UnicodeDecodeError when it looks
+    wide but does not decode cleanly.
+    """
     boms = (
         (codecs.BOM_UTF32_LE, "utf-32"),
         (codecs.BOM_UTF32_BE, "utf-32"),
@@ -447,7 +451,7 @@ def decode_wide_text(data: bytes) -> bytes | None:
     )
     for bom, codec in boms:
         if data.startswith(bom):
-            return data.decode(codec, errors="replace").encode()
+            return data.decode(codec).encode()
     head = data[:WIDE_SNIFF_BYTES]
     for codec, width, ascii_offset in (
         ("utf-32-le", 4, 0),
@@ -457,30 +461,41 @@ def decode_wide_text(data: bytes) -> bytes | None:
     ):
         filler = b"".join(head[i::width] for i in range(width) if i != ascii_offset)
         if _mostly_nul(filler) and head[ascii_offset::width].count(0) < len(head) // width // 2:
-            return data.decode(codec, errors="replace").encode()
+            return data.decode(codec).encode()
     return None
 
 
-def inspect_content(data: bytes) -> tuple[bytes, bool]:
-    """Return (text to scan, True when the content cannot be inspected as text)."""
-    if b"\0" not in data[:8192]:
-        return data, False
-    wide = decode_wide_text(data)
+def inspect_content(data: bytes) -> tuple[list[bytes], bool]:
+    """Return (byte strings to scan, True when the content is not readable text).
+
+    Readable text is strict UTF-8, or UTF-16/UTF-32 that decodes cleanly. Everything else
+    is opaque and needs an allowlist entry. The raw bytes are always scanned as well, so
+    decoding never hides a pattern that is present in the raw file.
+    """
+    try:
+        wide = decode_wide_text(data)
+    except UnicodeDecodeError:
+        return [data], True
     if wide is not None:
-        return wide, False
-    return data, True
+        return [wide, data], False
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return [data], True
+    return [data], False
 
 
 def check_content_rules(item: Item, data: bytes) -> list[Finding]:
-    text, opaque = inspect_content(data)
+    texts, opaque = inspect_content(data)
     findings = []
     if opaque:
         findings.append(
-            Finding("binary", item.path, None, "NUL bytes: content cannot be inspected")
+            Finding("binary", item.path, None, "not UTF-8, UTF-16 or UTF-32 text: cannot be read")
         )
     else:
-        findings += check_embedded_payload(item.path, text)
-    findings += check_text_rules(item.path, text)
+        findings += check_embedded_payload(item.path, texts[0])
+    for text in texts:
+        findings += check_text_rules(item.path, text)
     return findings
 
 
@@ -606,12 +621,16 @@ def cap_findings(findings: list[Finding]) -> list[Finding]:
 def check_item(item: Item, deny: list[DenyPattern]) -> list[Finding]:
     findings = check_path_rules(item)
     data = item.content()
-    text = None
+    texts: list[bytes | None] = [None]
     if data is not None:
         findings += check_content_rules(item, data)
-        text = inspect_content(data)[0]
-    findings += check_deny_rules(item, text, deny)
-    return cap_findings(findings)
+        texts = list(inspect_content(data)[0])
+    for index, text in enumerate(texts):
+        deny_hits = check_deny_rules(item, text, deny)
+        # Path matches are the same for every decoding; report them once.
+        findings += deny_hits if index == 0 else [f for f in deny_hits if f.line is not None]
+    unique = list(dict.fromkeys(findings))
+    return cap_findings(unique)
 
 
 # ------------------------------------------------------------------- allowlist

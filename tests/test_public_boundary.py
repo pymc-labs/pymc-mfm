@@ -471,7 +471,7 @@ def test_opaque_binary_needs_an_allowlist_entry(repo: Path) -> None:
     commit(repo)
     result = check(repo)
     assert result.returncode == 1
-    assert "binary logo.bin2 NUL bytes" in result.stdout
+    assert "binary logo.bin2 not UTF-8" in result.stdout
     sha = hashlib.sha256(payload).hexdigest()
     entry = (
         f'[[allow]]\npath = "logo.bin2"\nrules = ["binary"]\nreason = "image"\nsha256 = "{sha}"\n'
@@ -558,3 +558,28 @@ def test_archive_mode_outside_repo_uses_allowlist_beside_script(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_binary_without_nul_bytes_needs_an_allowlist_entry(repo: Path) -> None:
+    """Invalid UTF-8 without NUL bytes is not readable text."""
+    write(repo, "blob.dat", bytes(range(128, 256)) * 8)
+    commit(repo)
+    result = check(repo)
+    assert result.returncode == 1
+    assert "binary blob.dat" in result.stdout
+
+
+def test_ascii_token_after_wide_header_is_still_found(repo: Path) -> None:
+    """Decoding wide text must not hide a token present in the raw bytes."""
+    header = "log header line\n".encode("utf-16-le")
+    write(repo, "mixed.log", header + ("\n" + FAKE_HF_TOKEN + "\n").encode())
+    commit(repo)
+    result = check(repo)
+    assert result.returncode == 1
+    assert "secret mixed.log" in result.stdout
+
+
+def test_latin_text_in_utf8_passes(repo: Path) -> None:
+    write(repo, "notes.md", "Café, naïve, Zürich: résumé\n".encode())
+    commit(repo)
+    assert check(repo).returncode == 0
