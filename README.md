@@ -306,6 +306,26 @@ model = result.model
 
 Checkpoints hold no optimizer state, so a run cannot be resumed.
 
+### Development presets
+
+For a smoke or development run, generate the `mini` corpus plan (profile A,
+`T=104`, `K=8`, `M=4`, `J=1`, 5,000 cells x 4 draws) and train with a preset:
+
+```bash
+python -m pymc_mfm.data generate --mini-shard 0 --out corpora/
+python -m pymc_mfm.training --corpus corpora/shard_550000.npz --out-dir runs/mini \
+    --preset mini
+```
+
+`--preset` sets the default of every training flag: `canonical` is
+`TrainingConfig()`, `mini` is 8,000 updates with 400 warmup and evaluation every
+1,000, and `smoke` is a 50-update check of the whole path. Explicit flags
+override a preset. `--mini-evaluation-shard 0` writes a frozen evaluation
+corpus with the same geometry, and `--n-cells N` shrinks either mini plan for a
+quick probe. Mini is a smoke and development surface only. It is not a
+validated surrogate for full-scale results, and a model bundle cannot record a
+mini plan as its world source.
+
 ## Load a trained model
 
 A model folder holds `config.json`, `model.safetensors` and `manifest.json`.

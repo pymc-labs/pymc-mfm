@@ -205,7 +205,9 @@ class ShardPlan:
     Shard ``i`` is generated from ``profile``'s recipe with seed
     ``first_seed + i * seed_stride`` and ``n_cells`` cells of ``draws_per_cell``
     worlds each. ``overrides[i]``, when set, holds shard ``i``'s ``SCMPrior``
-    field overrides and ``shard_names[i]`` its label.
+    field overrides and ``shard_names[i]`` its label. ``development`` marks a
+    smoke and development recipe: it is not a corpus that a published bundle may
+    record as its world source.
     """
 
     name: str
@@ -217,6 +219,7 @@ class ShardPlan:
     draws_per_cell: int
     overrides: tuple[Mapping[str, Any], ...] | None = None
     shard_names: tuple[str, ...] | None = None
+    development: bool = False
 
     def __post_init__(self) -> None:
         if min(self.seed_stride, self.n_shards, self.draws_per_cell) < 1 or self.n_cells < 2:
@@ -263,11 +266,26 @@ class ShardPlan:
         return int(shard)
 
 
+_MINI_GEOMETRY: Mapping[str, Any] = MappingProxyType(
+    {
+        "n_treatments": 8,
+        "n_covariates": 4,
+        "n_treatments_active_range": (6, 8),
+        "n_covariates_active_range": (3, 4),
+    }
+)
+
 #: Shard plans by name. ``A`` (seeds 530200-530359, 200,000 worlds) and ``B``
 #: (seeds 530400-530719, 400,000 worlds) are the profile training corpora, 125
 #: cells x 10 draws per shard. ``evaluation`` is ten profile-A shards of 32
 #: cells x 4 draws with seeds 540000-549000 in steps of 1000 (1,280 worlds);
-#: shard ``i`` has exactly ``6 + i`` active channels.
+#: shard ``i`` has exactly ``6 + i`` active channels. ``mini`` (seed 550000) and
+#: ``mini_evaluation`` (seed 551000) are development plans: a smoke and
+#: development surface with K=8, M=4, J=1 and T=104. Mini is NOT a validated
+#: ranking surrogate for full-scale results, and a bundle may not record either
+#: plan as its world source. The profile-A edge budgets (``cy=(5, 5)``,
+#: ``zy=(3, 3)``, one treatment without a direct effect) force the reduced
+#: active ranges ``(6, 8)`` and ``(3, 4)``.
 SHARD_PLANS: Mapping[str, ShardPlan] = MappingProxyType(
     {
         plan.name: plan
@@ -303,6 +321,28 @@ SHARD_PLANS: Mapping[str, ShardPlan] = MappingProxyType(
                     for active in range(6, 16)
                 ),
                 shard_names=tuple(f"eval_a{active:02d}" for active in range(6, 16)),
+            ),
+            ShardPlan(
+                name="mini",
+                profile=PROFILE_A,
+                first_seed=550000,
+                seed_stride=1,
+                n_shards=1,
+                n_cells=5000,
+                draws_per_cell=4,
+                overrides=(MappingProxyType(_MINI_GEOMETRY),),
+                development=True,
+            ),
+            ShardPlan(
+                name="mini_evaluation",
+                profile=PROFILE_A,
+                first_seed=551000,
+                seed_stride=1,
+                n_shards=1,
+                n_cells=32,
+                draws_per_cell=4,
+                overrides=(MappingProxyType(_MINI_GEOMETRY),),
+                development=True,
             ),
         )
     }

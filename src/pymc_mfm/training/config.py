@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
+from types import MappingProxyType
 from typing import ClassVar, Self
 
 from pymc_mfm.model.config import LossWeights
@@ -165,3 +166,31 @@ class TrainingConfig:
         if "adam_eps" in payload and payload["adam_eps"] != cls.adam_eps:
             raise ValueError("adam_eps differs from the fixed AdamW default")
         return config
+
+
+#: Named training configurations. ``canonical`` is ``TrainingConfig()``. ``mini``
+#: and ``smoke`` are development presets for the ``mini`` corpus plans; they are
+#: not validated surrogates for the canonical run, so results from them do not
+#: rank full-scale choices.
+PRESETS: Mapping[str, TrainingConfig] = MappingProxyType(
+    {
+        "canonical": TrainingConfig(),
+        "mini": TrainingConfig(
+            steps=8_000,
+            batch_size=64,
+            warmup_steps=400,
+            eval_every=1_000,
+            milestone_steps=(),
+        ),
+        "smoke": TrainingConfig(
+            steps=50,
+            batch_size=4,
+            warmup_steps=10,
+            eval_every=50,
+            eval_worlds=4,
+            eval_samples=8,
+            log_every=10,
+            milestone_steps=(),
+        ),
+    }
+)
