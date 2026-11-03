@@ -468,9 +468,7 @@ class PrefetchingStream:
         self.last_wait_seconds: float | None = None
         #: ``resume_state`` of the wrapped stream right after the batch the consumer last
         #: received, not the producer's position; the starting state before the first.
-        self.consumed_state: dict[str, Any] | None = (
-            stream.resume_state() if hasattr(stream, "resume_state") else None
-        )
+        self.consumed_state: dict[str, Any] = stream.resume_state()
         self._queue: queue.Queue[Any] = queue.Queue(maxsize=depth)
         self._stop = threading.Event()
         self._failure: BaseException | None = None
