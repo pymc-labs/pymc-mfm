@@ -146,6 +146,8 @@ def test_compiled_training_matches_eager_when_active_families_alternate(tmp_path
     noisy = "head.trajectory_loading_net.2.bias"
     for index, name in enumerate(names):
         if name.endswith(noisy):
+            # Its value and moments are round-off; its update count must still match.
+            assert compiled_state[index]["step"] == eager_state[index]["step"], name
             continue
         torch.testing.assert_close(
             compiled["state_dict"][name], eager["state_dict"][name], rtol=1e-4, atol=1e-5, msg=name
