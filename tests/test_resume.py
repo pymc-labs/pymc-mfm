@@ -444,6 +444,26 @@ def test_resume_refuses_a_changed_corpus(tmp_path, full_run):
     assert not (tmp_path / "run").exists()
 
 
+def test_resume_matches_generator_corpora_by_file_hash(tmp_path):
+    """Generator corpora carry array-valued metadata, so they have no content SHA-256."""
+    from pymc_generator import save_corpus
+
+    from pymc_mfm.data.recipes import load_corpora, provenance
+    from pymc_mfm.training._provenance import corpus_identity
+
+    corpus = make_synthetic_corpus()
+    corpus["identifiability"] = {"signal_metrics": np.zeros((2, 2))}
+    path = tmp_path / "generator_like.npz"
+    save_corpus(corpus, path)
+    (loaded,) = load_corpora([path])
+    assert corpus_identity(loaded.corpus)["content_sha256"] is None
+    files = {"corpus": loaded.corpus, "corpus_provenance": [provenance(loaded)]}
+    full = run_train(tmp_path / "full", **files)
+    interrupted_run(tmp_path / "run", 3, **files)
+    run_train(tmp_path / "run", resume_from=tmp_path / "run" / "checkpoint_last.pt", **files)
+    assert_resumed_equals_full(full.run_dir, tmp_path / "run", after=3)
+
+
 def test_a_refused_same_directory_resume_leaves_the_directory_untouched(tmp_path):
     out = tmp_path / "run"
     config = interrupted_run(out, 3)

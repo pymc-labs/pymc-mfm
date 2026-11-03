@@ -29,6 +29,7 @@ import torch
 
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
+from pymc_mfm.training._provenance import corpus_key
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
 from pymc_mfm.training.config import TrainingConfig
 from pymc_mfm.training.stream import SeenRows
@@ -254,13 +255,11 @@ def _check_resumable(
             "resume_from: training_config differs from the checkpoint's: "
             + _describe(recorded, current, differing)
         )
-    recorded_corpus = [
-        record["actual_inputs"]["content_sha256"] for record in payload["run"]["corpus"]
-    ]
-    current_corpus = [record["actual_inputs"]["content_sha256"] for record in corpus_records]
+    recorded_corpus = [corpus_key(record) for record in payload["run"]["corpus"]]
+    current_corpus = [corpus_key(record) for record in corpus_records]
     if None in recorded_corpus or None in current_corpus or recorded_corpus != current_corpus:
         raise ValueError(
-            "resume_from: the corpora differ from the checkpoint's (content SHA-256 "
+            "resume_from: the corpora differ from the checkpoint's (identity "
             f"{recorded_corpus} recorded, {current_corpus} given)"
         )
     if start.same_directory:
