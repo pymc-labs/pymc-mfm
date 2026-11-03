@@ -38,7 +38,7 @@ import torch
 
 from pymc_mfm.model.graph import STRUCT_EDGE_KEYS
 from pymc_mfm.training._provenance import code_record, corpus_identity
-from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
+from pymc_mfm.training.checkpoint import file_sha256, import_plugins, load_checkpoint
 from pymc_mfm.training.config import TrainingConfig
 from pymc_mfm.training.evaluation import evaluate_rows, flatten_evaluation, selection_metrics
 from pymc_mfm.training.stream import CorpusStream
@@ -66,6 +66,7 @@ RESULT_COLUMNS = (
     "code_modified_from_revision",
     "code_source_sha256",
     "model_config_sha256",
+    "components",
     "training_config_sha256",
     "corpus_content_sha256",
     "eval_set_id",
@@ -207,12 +208,15 @@ def score_checkpoint(
     draws: int | None = None,
     device: str = "cpu",
     threads: int | None = None,
+    allow_research: bool = False,
 ) -> dict[str, Any]:
     """Score ``checkpoint`` on the corpora and return one results row (see the module doc).
 
     ``seed`` and ``draws`` are used by ``eval-set`` mode (default: the trainer's held-out draw
     seed and draw count) and are refused in ``replay`` mode, where the checkpoint decides them.
     ``threads`` sets the torch thread count for the call; ``None`` keeps the current one.
+    A checkpoint with research components is refused unless ``allow_research`` is true; the
+    module that registers them must already be imported.
     """
     from pymc_mfm.data.recipes import load_corpora
 
@@ -226,7 +230,7 @@ def score_checkpoint(
     if threads is not None:
         torch.set_num_threads(threads)
     try:
-        model, payload = load_checkpoint(checkpoint, device=resolved)
+        model, payload = load_checkpoint(checkpoint, device=resolved, allow_research=allow_research)
         training = payload["training_config"]
         loaded = load_corpora([str(path) for path in corpus_paths])
         corpora = [item.corpus for item in loaded]
@@ -309,6 +313,7 @@ def _row(
     selection = selection_metrics(training["selection_head"])
     head = training["selection_head"]
     code = code_record()
+    components = payload["schemas"].get("components")
     row: dict[str, Any] = {
         "run_name": payload["run"]["run_name"],
         "run_id": payload["run"]["run_id"],
@@ -319,6 +324,7 @@ def _row(
         "code_modified_from_revision": code["modified_from_revision"],
         "code_source_sha256": code["source_sha256"],
         "model_config_sha256": canonical_sha256(payload["config"]),
+        "components": json.dumps(components, sort_keys=True) if components else None,
         "training_config_sha256": canonical_sha256(training),
         "corpus_content_sha256": json.dumps(list(content)),
         "eval_set_id": eval_set_id(content, rule, seed, draws),
@@ -372,6 +378,22 @@ def append_row(path: str | Path, row: Mapping[str, str]) -> None:
         writer.writerow(row)
 
 
+def add_research_arguments(parser: argparse.ArgumentParser) -> None:
+    """``--allow-research`` and ``--plugin``, which reading a research checkpoint needs."""
+    parser.add_argument(
+        "--allow-research",
+        action="store_true",
+        help="read a checkpoint trained with research components (never exportable)",
+    )
+    parser.add_argument(
+        "--plugin",
+        action="append",
+        default=[],
+        metavar="MODULE",
+        help="import MODULE first so it registers its components; repeatable",
+    )
+
+
 def build_score_parser() -> argparse.ArgumentParser:
     defaults = TrainingConfig()
     parser = argparse.ArgumentParser(
@@ -423,6 +445,7 @@ def build_score_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="eval-set draws per world (default: %d)" % defaults.eval_samples,
     )
+    add_research_arguments(parser)
     parser.add_argument(
         "--repeat",
         type=int,
@@ -440,6 +463,7 @@ def main(argv: Sequence[str]) -> int:
     if args.repeat < 1:
         parser.error("--repeat must be at least 1")
     try:
+        import_plugins(args.plugin)
         rows = [
             score_checkpoint(
                 args.checkpoint,
@@ -449,6 +473,7 @@ def main(argv: Sequence[str]) -> int:
                 draws=args.draws,
                 device=args.device,
                 threads=args.threads,
+                allow_research=args.allow_research,
             )
             for _ in range(args.repeat)
         ]
@@ -456,7 +481,7 @@ def main(argv: Sequence[str]) -> int:
             print("repeated scorings gave different rows", file=sys.stderr)
             return 1
         append_row(args.results, rows[0])
-    except (ScoreError, RuntimeError, FileNotFoundError, ValueError) as exc:
+    except (ScoreError, RuntimeError, FileNotFoundError, ValueError, ImportError) as exc:
         parser.error(str(exc))
     summary = {
         key: rows[0][key]

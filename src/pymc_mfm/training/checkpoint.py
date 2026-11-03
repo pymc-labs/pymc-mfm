@@ -9,21 +9,28 @@ stream position at the consumed-batch boundary and the consumption record.
 ``last`` and ``milestone`` checkpoints carry it; ``best`` checkpoints hold
 ``None``. Format 2 (no ``resume`` key) is still read, for weights and scoring,
 but cannot resume a run. Format 1 and dimensional checkpoints are refused.
+
+A checkpoint of a model with research components (see :mod:`pymc_mfm.model.registry`)
+records them as ``schemas["components"]``. It is read only with ``allow_research=True``,
+and only when the module that registers those components has been imported.
 """
 
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 import torch
 
 from pymc_mfm.inference._artifact_schema import semantic_schema, validate_semantic_schema
+from pymc_mfm.model.components import ResearchComponentError
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
+from pymc_mfm.model.registry import resolve_components
 
 CHECKPOINT_FORMAT_VERSION = 3
 #: Formats ``load_checkpoint`` reads; each has its own exact key set.
@@ -114,12 +121,15 @@ def save_checkpoint(
     previous = getattr(model, "artifact_metadata", {})
     if previous:
         validate_semantic_schema(previous.get("schemas"), model.config, label="loaded artifact")
+    schemas = semantic_schema(model.config)
+    if model.is_research:
+        schemas["components"] = dict(model.components)
     payload = {
         "format_version": CHECKPOINT_FORMAT_VERSION,
         "kind": kind,
         "step": step,
         "config": model.config.to_dict(),
-        "schemas": semantic_schema(model.config),
+        "schemas": schemas,
         "state_dict": model.state_dict(),
         "training_config": dict(training_config),
         "run": dict(run),
@@ -139,7 +149,29 @@ def _check_resume_block(resume: Mapping[str, Any], step: int) -> None:
         raise ValueError(f"resume step {resume['step']!r} does not match checkpoint step {step}")
 
 
-def load_checkpoint(path: str | Path, *, device: str | torch.device = "cpu") -> tuple[MFM, dict]:
+def import_plugins(modules: Iterable[str]) -> None:
+    """Import the modules that register research components, before a checkpoint is read."""
+    for module in modules:
+        importlib.import_module(module)
+
+
+def _build_on_meta(config: ModelConfig, components: Mapping[str, str] | None) -> MFM:
+    try:
+        resolve_components(components)
+    except ValueError as exc:
+        raise ValueError(
+            f"{exc}; import the module that registers these components first (--plugin MODULE)"
+        ) from exc
+    with torch.device("meta"):
+        return MFM(config, components=components)
+
+
+def load_checkpoint(
+    path: str | Path,
+    *,
+    device: str | torch.device = "cpu",
+    allow_research: bool = False,
+) -> tuple[MFM, dict]:
     """Strictly load a training checkpoint into an evaluation-mode model.
 
     Returns the model and the complete non-tensor payload (with ``state_dict``
@@ -148,6 +180,9 @@ def load_checkpoint(path: str | Path, *, device: str | torch.device = "cpu") -> 
     its ``resume`` block (``None`` for ``best``), a format 2 payload has no such key.
     Checkpoints from dimensional preprocessing must be retrained, not converted by
     preserving their equal-shaped weights.
+
+    A checkpoint with research components raises :class:`ResearchComponentError`
+    unless ``allow_research`` is true; the model is then built with those components.
     """
     payload = torch.load(path, map_location="cpu", weights_only=True)
     if (
@@ -166,10 +201,21 @@ def load_checkpoint(path: str | Path, *, device: str | torch.device = "cpu") -> 
         raise ValueError(f"training checkpoint must contain exactly {sorted(expected)}")
     if payload.get("resume") is not None:
         _check_resume_block(payload["resume"], payload["step"])
-    validate_semantic_schema(payload["schemas"], label="training checkpoint schemas")
+    components = (
+        payload["schemas"].get("components") if isinstance(payload["schemas"], dict) else None
+    )
+    if components is not None and not allow_research:
+        raise ResearchComponentError(
+            f"{path} was trained with research components {components!r}: pass "
+            "allow_research=True (--allow-research) to read it. It can never be exported."
+        )
+    validate_semantic_schema(
+        payload["schemas"], label="training checkpoint schemas", allow_components=True
+    )
     config = ModelConfig.from_dict(payload["config"])
-    validate_semantic_schema(payload["schemas"], config, label="training checkpoint schemas")
-    with torch.device("meta"):
-        model = MFM(config)
+    validate_semantic_schema(
+        payload["schemas"], config, label="training checkpoint schemas", allow_components=True
+    )
+    model = _build_on_meta(config, components)
     model.load_state_dict(payload.pop("state_dict"), strict=True, assign=True)
     return model.to(device).eval(), payload

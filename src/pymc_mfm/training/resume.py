@@ -29,6 +29,7 @@ import torch
 
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
+from pymc_mfm.model.registry import resolve_components
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
 from pymc_mfm.training.config import TrainingConfig
 from pymc_mfm.training.stream import SeenRows
@@ -164,22 +165,30 @@ def load_start_point(
     mode: str,
     out_dir: Path,
     model_config: ModelConfig,
+    components: Mapping[str, str] | None,
     training: TrainingConfig,
     corpus_records: Sequence[Mapping[str, Any]],
 ) -> StartPoint:
     """Load and check a checkpoint for ``mode`` (``"resume"`` or ``"init"``).
 
     Nothing is written. Raises ``ValueError`` when the checkpoint cannot serve the
-    mode: a dimensional or unreadable file, a model configuration that differs, and
-    for a resume also a format 2 file, a checkpoint without resume state, a
+    mode: a dimensional or unreadable file, a model configuration or ``components`` that
+    differ, and for a resume also a format 2 file, a checkpoint without resume state, a
     ``training_config`` that differs, a different corpus, or a same-directory
     request that does not start from the directory's own ``checkpoint_last.pt``.
     """
     path = Path(path)
     if not path.is_file():
         raise ValueError(f"{mode} checkpoint {path} does not exist")
-    model, payload = load_checkpoint(path)
+    # Passing the checkpoint's own components to ``train`` is the research opt-in, checked below.
+    model, payload = load_checkpoint(path, allow_research=True)
     label = "resume_from" if mode == "resume" else "init_from"
+    requested = resolve_components(components)
+    if model.components != requested:
+        raise ValueError(
+            f"{label} components differ: checkpoint {model.components}, requested {requested}; "
+            "pass the checkpoint's components to train"
+        )
     differing = _differing(payload["config"], model_config.to_dict())
     if differing:
         raise ValueError(

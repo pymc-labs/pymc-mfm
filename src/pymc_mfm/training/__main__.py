@@ -17,6 +17,13 @@ run; a mismatch is refused before anything is written). With ``--out-dir`` set t
 checkpoint's own directory and ``checkpoint_last.pt`` it resumes in place.
 ``--init-from CHECKPOINT`` starts a new run from the checkpoint's weights only.
 
+``--component SLOT=NAME`` (repeatable) trains with a registered research component in
+a slot (``encoder``, ``head`` or ``conditional_head``), and ``--plugin MODULE`` imports a
+module first so it can register one. Research runs write no ``model/`` bundle.
+``score`` reads a research checkpoint only with ``--allow-research`` and the same
+``--plugin``; ``evaluate`` refuses research checkpoints, because evaluation archives
+assume the release architecture.
+
 ``python -m pymc_mfm.training evaluate --model PATH --corpus F [F ...]
 --out-dir DIR`` evaluates a model bundle directory or a training checkpoint
 file on saved corpora into a new evaluation archive, as
@@ -50,7 +57,7 @@ import numpy as np
 
 from pymc_mfm.inference import from_pretrained
 from pymc_mfm.training.archive import _evaluate_identity, _sidecar_seed, archive_identity
-from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
+from pymc_mfm.training.checkpoint import file_sha256, import_plugins, load_checkpoint
 from pymc_mfm.training.config import PRESETS, SELECTION_HEADS, TrainingConfig
 from pymc_mfm.training.evaluation import DECOMPOSITION_HEADS
 from pymc_mfm.training.tracking import TrackingConfig
@@ -92,6 +99,14 @@ def _world(value: str) -> tuple[int, int]:
             f"expected SEED:ROW with non-negative integers, got {value!r}"
         )
     return int(match[1]), int(match[2])
+
+
+def _component(value: str) -> tuple[str, str]:
+    """``--component SLOT=NAME`` as ``(slot, name)``."""
+    slot, separator, name = value.partition("=")
+    if not (slot and separator and name):
+        raise argparse.ArgumentTypeError(f"expected SLOT=NAME, got {value!r}")
+    return slot, name
 
 
 def _preset_name(argv: Sequence[str]) -> str:
@@ -179,6 +194,21 @@ def build_parser(preset: str = "canonical") -> argparse.ArgumentParser:
         default=(),
         metavar="KIND[,KIND]",
         help="archive held-out evaluation draws at these checkpoints: best, terminal",
+    )
+    parser.add_argument(
+        "--component",
+        action="append",
+        type=_component,
+        default=[],
+        metavar="SLOT=NAME",
+        help="train with this registered research component in SLOT; repeatable",
+    )
+    parser.add_argument(
+        "--plugin",
+        action="append",
+        default=[],
+        metavar="MODULE",
+        help="import MODULE first so it registers its components; repeatable",
     )
     return parser
 
@@ -272,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser(_preset_name(argv)).parse_args(argv)
     from pymc_mfm.data.recipes import load_corpora, provenance
 
+    import_plugins(args.plugin)
     loaded = load_corpora(args.corpus)
     values = {field.name: getattr(args, field.name) for field in fields(TrainingConfig)}
     if values["milestone_steps"] is None:
@@ -296,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         holdout_archives=args.holdout_archives,
         resume_from=args.resume_from,
         init_from=args.init_from,
+        components=dict(args.component) or None,
     )
     summary = {
         "preset": args.preset,

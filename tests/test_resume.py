@@ -97,7 +97,8 @@ def assert_resumed_equals_full(full_dir, resumed_dir, after):
     full_run = json.loads((full_dir / "run.json").read_text())
     resumed_run = json.loads((resumed_dir / "run.json").read_text())
     assert resumed_run["consumed"] == full_run["consumed"]
-    assert resumed_run["status"] == "finished" and resumed_run["final_step"] == 9
+    assert resumed_run["status"] == "finished"
+    assert resumed_run["final_step"] == full_run["final_step"]
 
 
 @pytest.fixture(scope="module")

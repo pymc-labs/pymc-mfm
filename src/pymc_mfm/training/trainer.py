@@ -35,6 +35,7 @@ from pymc_mfm.inference.checkpoint import _export_environment, save_pretrained
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM, objective_trace_to_jsonable
+from pymc_mfm.model.registry import is_research
 from pymc_mfm.training._provenance import (
     code_record,
     corpus_identity,
@@ -371,6 +372,7 @@ def train(
     holdout_archives: Sequence[str] | None = (),
     resume_from: str | Path | None = None,
     init_from: str | Path | None = None,
+    components: Mapping[str, str] | None = None,
 ) -> TrainingResult:
     """Train with durable local evidence and default-enabled optional MLflow.
 
@@ -399,6 +401,13 @@ def train(
     The two are exclusive. A resume cannot rebuild the diagnostics and archives of
     the interrupted step (the checkpoint precedes them).
 
+    ``components`` picks registered model components (see
+    :mod:`pymc_mfm.model.registry`); ``None`` is the release model. A research choice
+    is recorded in the checkpoints' ``schemas["components"]``, and the run ends
+    with ``run["export"]["status"] == "skipped"`` and no ``model/`` bundle. A resume
+    or ``init_from`` needs ``components`` equal to the checkpoint's. Archives of a
+    research run are refused (``holdout_archives`` must be empty).
+
     ``holdout_archives`` selects evaluation events whose held-out leg is kept as
     a :class:`pymc_mfm.diagnostics.EvaluationArchive` at
     ``out_dir / "archives" / "step_<N:09d>"``: ``"best"``, every event that
@@ -419,6 +428,11 @@ def train(
     training = TrainingConfig() if training is None else training
     tracking = TrackingConfig() if tracking is None else tracking
     archives = _holdout_archive_kinds(holdout_archives)
+    if archives and is_research(components):
+        raise ValueError(
+            "holdout_archives is not supported with research components: archive identity "
+            "assumes the release architecture"
+        )
     out_dir = Path(out_dir)
     if resume_from is not None and init_from is not None:
         raise ValueError("resume_from and init_from are exclusive")
@@ -432,6 +446,7 @@ def train(
             mode="resume" if resume_from is not None else "init",
             out_dir=out_dir,
             model_config=inputs[1],
+            components=components,
             training=training,
             corpus_records=inputs[2],
         )
@@ -506,6 +521,7 @@ def train(
             holdout_archives=archives,
             start=start,
             inputs=inputs,
+            components=components,
         )
     except BaseException as exc:
         if run["status"] == "running":
@@ -553,6 +569,7 @@ def _train_run(
     holdout_archives: tuple[str, ...] = (),
     start: StartPoint | None = None,
     inputs: tuple[dict[str, int], ModelConfig, list[dict[str, Any]]] | None = None,
+    components: Mapping[str, str] | None = None,
 ) -> TrainingResult:
     """Train the canonical model on loaded schema-4 corpora.
 
@@ -621,7 +638,7 @@ def _train_run(
 
     # Seed before construction: weight initialization consumes the global RNG.
     torch.manual_seed(training.seed)
-    model = MFM(model_config).to(resolved_device)
+    model = MFM(model_config, components=components).to(resolved_device)
     if start is not None:
         model.load_state_dict(start.model.state_dict(), strict=True)
     optimizer = torch.optim.AdamW(
@@ -706,6 +723,8 @@ def _train_run(
             "best": None,
         }
     )
+    if model.is_research:
+        run["components"] = dict(model.components)
     if holdout_archives:
         run["evaluation_policy"]["holdout_archives"] = {
             "checkpoints": list(holdout_archives),
@@ -1251,30 +1270,39 @@ def _train_run(
                 if step % training.eval_every == 0 or step == training.steps:
                     evaluate_and_checkpoint(step)
         terminal = next(entry for entry in run["checkpoints"] if entry["kind"] == "last")
-        export_provenance = {
-            "source_checkpoint_sha256": terminal["sha256"],
-            "source_step": completed_updates,
-            "tracking_local_run_id": run["run_id"],
-            "tracking_run_id": tracker.run_id,
-            "tracking_experiment_id": tracker.experiment_id,
-            "training_seed": training.seed,
-            "source_revision": run["code"]["revision"],
-            **export_lineage(run, terminal["sha256"]),
-        }
-        save_pretrained(
-            model,
-            out_dir / "model",
-            provenance={
-                key: value for key, value in export_provenance.items() if value is not None
-            },
-            profile=tracker.config.profile,
-        )
-        run["export"] = {
-            "path": "model",
-            "source_checkpoint_sha256": terminal["sha256"],
-            "source_step": completed_updates,
-            "files": ["config.json", "model.safetensors", "manifest.json"],
-        }
+        if model.is_research:
+            run["export"] = {
+                "status": "skipped",
+                "reason": "research components",
+                "components": dict(model.components),
+                "source_checkpoint_sha256": terminal["sha256"],
+                "source_step": completed_updates,
+            }
+        else:
+            export_provenance = {
+                "source_checkpoint_sha256": terminal["sha256"],
+                "source_step": completed_updates,
+                "tracking_local_run_id": run["run_id"],
+                "tracking_run_id": tracker.run_id,
+                "tracking_experiment_id": tracker.experiment_id,
+                "training_seed": training.seed,
+                "source_revision": run["code"]["revision"],
+                **export_lineage(run, terminal["sha256"]),
+            }
+            save_pretrained(
+                model,
+                out_dir / "model",
+                provenance={
+                    key: value for key, value in export_provenance.items() if value is not None
+                },
+                profile=tracker.config.profile,
+            )
+            run["export"] = {
+                "path": "model",
+                "source_checkpoint_sha256": terminal["sha256"],
+                "source_step": completed_updates,
+                "files": ["config.json", "model.safetensors", "manifest.json"],
+            }
         status = "finished"
     except KeyboardInterrupt:
         status, error = "interrupted", f"KeyboardInterrupt at update {step}"

@@ -235,6 +235,11 @@ def _model_identity(
     if source_step is not None and (type(source_step) is not int or source_step < 0):
         raise ValueError("source_step must be a non-negative integer")
     validate_profile(profile)
+    if model.is_research:
+        raise ValueError(
+            "evaluation archives are not supported for research components: archive identity "
+            "assumes the release architecture"
+        )
     state = model.state_dict()
     state_sha256 = _state_sha256(state, _validate_state(_canonical_model(model.config), state))
     recorded: dict[str, Any] = dict.fromkeys(
