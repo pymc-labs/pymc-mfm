@@ -239,6 +239,30 @@ def test_score_is_not_started_when_the_budget_is_spent(corpus, tmp_path):
     assert not (tmp_path / "results.csv").exists()
 
 
+def test_a_queued_score_takes_its_timeout_after_the_previous_score(corpus, tmp_path, monkeypatch):
+    """Two scores share the budget: the second one's timeout is what is left after the first."""
+    import pymc_mfm.training.launch as launch_module
+
+    specs = parse_launch_file(write_runs(tmp_path, [run_spec(corpus, "a"), run_spec(corpus, "b")]))
+    manifest = Manifest(
+        tmp_path / "launch.json", {"runs": {"a": {"status": "trained"}, "b": {"status": "trained"}}}
+    )
+    launcher = Launcher(tmp_path, Limits(max_total_seconds=100), manifest)
+    clock = {"left": 100.0}
+    monkeypatch.setattr(launcher, "remaining_seconds", lambda: clock["left"])
+    timeouts = []
+
+    def fake_run(command, log, timeout, stop, on_start):
+        timeouts.append(timeout)
+        clock["left"] -= 60.0  # each score uses 60 s of the budget
+        return launch_module.Outcome(status="failed", returncode=1, seconds=60.0)
+
+    monkeypatch.setattr(launch_module, "run_command", fake_run)
+    for spec in specs:
+        launcher.score(spec, tmp_path / "runs" / spec.name)
+    assert timeouts == [min(Limits().score_timeout_seconds, 100.0), 40.0]
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [

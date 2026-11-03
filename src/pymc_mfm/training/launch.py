@@ -200,15 +200,16 @@ class Launcher:
         )
 
     def score(self, spec: RunSpec, run_dir: Path) -> None:
-        timeout = min(self.limits.score_timeout_seconds, self.remaining_seconds())
-        if timeout <= 0:
-            note = ["score not started: no time left in --max-total-seconds"]
-            self.manifest.update_run(spec.name, status="score_failed", stderr_tail=note)
-            return
         results = self.root / RESULTS
         command = score_command(spec, run_dir, results)
         log = self.root / "logs" / f"{spec.name}.score"
+        # One scorer at a time; the timeout is taken after the wait for the lock.
         with self._score_lock:
+            timeout = min(self.limits.score_timeout_seconds, self.remaining_seconds())
+            if timeout <= 0:
+                note = ["score not started: no time left in --max-total-seconds"]
+                self.manifest.update_run(spec.name, status="score_failed", stderr_tail=note)
+                return
             outcome = run_command(
                 command, log, timeout, self.stop, self.record_pid(spec.name, "score_pid")
             )
