@@ -20,6 +20,10 @@ default), which bounds its peak memory, and call ``i`` draws with seed
 seed, a repeated world or an identity the archive refuses, is a usage error
 (exit status 2) and stops before any inference. The published archive is
 verified by loading it and summarized as JSON.
+
+``python -m pymc_mfm.training score --checkpoint PATH --corpus F [F ...] (--replay |
+--eval-set) --results CSV`` appends one provenance-stamped row for a checkpoint to a
+results CSV; see :mod:`pymc_mfm.training.score`.
 """
 
 from __future__ import annotations
@@ -217,10 +221,14 @@ def build_evaluate_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the training CLI, or the ``evaluate`` subcommand when it comes first."""
+    """Run the training CLI, or the ``evaluate`` or ``score`` subcommand when it comes first."""
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["evaluate"]:
         return _evaluate(argv[1:])
+    if argv[:1] == ["score"]:
+        from pymc_mfm.training.score import main as score_main
+
+        return score_main(argv[1:])
     args = build_parser().parse_args(argv)
     from pymc_mfm.data.recipes import load_corpora, provenance
 

@@ -84,11 +84,11 @@ A key recorded as undefined passes only when every replicate is undefined too.
 A metric family groups the keys that score one quantity, which a regression
 moves together:
 
-* ``{head}/{window}/{component}``: ``{component}_{scaled_mae,crps,cov80}`` of one
+* ``{head}/{window}/{component}``: ``{component}_{scaled_mae,crps,cov80,cov95}`` of one
   decomposition component;
 * ``{head}/{window}/temporal``: the lag-1 family ``contribution_{truth_lag1, ...}``;
-* ``{head}/{window}/timeavg_coverage``: ``timeavg_contribution_cov80``, its
-  ``_live`` and its ``_dead`` variant;
+* ``{head}/{window}/timeavg_coverage``: ``timeavg_contribution_cov80``, ``..._cov95``, their
+  ``_live`` and ``_dead`` variants;
 * ``{head}/{window}/attribution_{live,dead}_{media,control}``: one attribution
   group;
 * ``{head}/{window}/latent_sales``: ``closure_*`` and ``latent_sales_r2``;
@@ -159,7 +159,7 @@ _RECORD_KEYS = {
     "metrics",
     "aggregation",
 }
-_COMPONENT_STATS = ("scaled_mae", "crps", "cov80")
+_COMPONENT_STATS = ("scaled_mae", "crps", "cov80", "cov95")
 _DECOMPOSITION_NAMES = frozenset(DECOMPOSITION_METRICS)
 _TEMPORAL_NAMES = frozenset(f"contribution_{key}" for key in TEMPORAL_KEYS)
 _TIME_AVERAGE_NAMES = frozenset(f"timeavg_contribution_{key}" for key in TIME_AVERAGE_KEYS)
@@ -345,7 +345,7 @@ def _event_step(
     if parts[0] in DECOMPOSITION_HEADS:
         if name.startswith("timeavg_"):
             terms = [1 for _ in defined]
-        elif name.endswith("_cov80"):
+        elif name.endswith(("_cov80", "_cov95")):
             terms = [world[parts[1]] for _, world in defined]
         else:
             return None

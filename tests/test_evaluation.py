@@ -137,7 +137,7 @@ def test_perfect_decomposition_scores_zero_and_closes_on_corpus_outcome(corpus, 
                 "zero_posterior_sd",
             }, key
     for key, value in world.values.items():
-        if key.endswith("_cov80") or key.startswith("timeavg_"):
+        if key.endswith(("_cov80", "_cov95")) or key.startswith("timeavg_"):
             assert value == 1.0, key
         elif key.startswith("closure_"):
             assert value == pytest.approx(0.0, abs=1e-5), key
