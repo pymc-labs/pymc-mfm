@@ -9,10 +9,18 @@ Rows that cannot fill a batch are dropped at the next reshuffle.
 an independent RNG, so evaluation probes do not perturb training order.
 ``PrefetchingStream`` produces the same ordered batches on one background
 thread and re-raises producer errors to the consumer.
+
+``CorpusStream.resume_state`` and ``restore`` move a stream to an exact earlier
+position from a small primitive snapshot (counters, bucket cursors and two
+generator states; permutations are regenerated). ``PrefetchingStream`` keeps the
+snapshot taken right after the batch the consumer last received, so a checkpoint
+never records the producer's position ahead of the optimizer.
+``SeenRows`` is the restorable first-seen record behind the memorization probe.
 """
 
 from __future__ import annotations
 
+import copy
 import queue
 import threading
 import time
@@ -240,6 +248,8 @@ class CorpusStream:
         Bucket order follows the first matching row in the permutation so
         weighted selection remains reproducible.
         """
+        # Kept so resume_state() can rebuild this epoch's buckets from the generator alone.
+        self._epoch_rng_state = copy.deepcopy(self.rng.bit_generator.state)
         order = self.rng.permutation(len(self._index))
         lengths = self._index_lengths[order]
         keys = dict.fromkeys(lengths.tolist())
@@ -329,6 +339,114 @@ class CorpusStream:
             "consumed_rows": self.consumed_rows,
         }
 
+    def resume_state(self) -> dict[str, Any]:
+        """Snapshot from which :meth:`restore` continues the exact batch sequence.
+
+        Primitives only (so ``torch.load(weights_only=True)`` reads it) and small:
+        the permutation and buckets are not stored, only the generator state at the
+        start of the current epoch, the per-bucket cursors, the generator state now
+        and the counters. The first-seen record is separate (:class:`SeenRows`).
+        """
+        return {
+            "seed": self.seed,
+            "batch_size": self.batch_size,
+            "split": self.split,
+            "n_rows": self.n_rows,
+            "epoch": self.epoch,
+            "batches": self.batches,
+            "consumed_rows": self.consumed_rows,
+            "cursor": {int(key): int(value) for key, value in self._cursor.items()},
+            "epoch_rng_state": copy.deepcopy(self._epoch_rng_state),
+            "rng_state": copy.deepcopy(self.rng.bit_generator.state),
+        }
+
+    def restore(self, state: Mapping[str, Any]) -> None:
+        """Continue from a :meth:`resume_state` of an identically built stream.
+
+        Raises ``ValueError`` when the seed, split, batch size or row count differ, or
+        the snapshot's buckets are not this stream's.
+        """
+        for name in ("seed", "batch_size", "split", "n_rows"):
+            if state[name] != getattr(self, name):
+                raise ValueError(
+                    f"stream state {name}={state[name]!r} does not match this stream "
+                    f"({name}={getattr(self, name)!r})"
+                )
+        self.rng.bit_generator.state = copy.deepcopy(state["epoch_rng_state"])
+        self._start_epoch()
+        cursor = {int(key): int(value) for key, value in state["cursor"].items()}
+        if cursor.keys() != self._cursor.keys() or any(
+            not 0 <= cursor[key] <= len(self._buckets[key]) for key in cursor
+        ):
+            raise ValueError("stream state buckets do not match this corpus")
+        self._cursor = cursor
+        self.rng.bit_generator.state = copy.deepcopy(state["rng_state"])
+        self.epoch = int(state["epoch"])
+        self.batches = int(state["batches"])
+        self.consumed_rows = int(state["consumed_rows"])
+        # The producer-side first-seen record is not restorable; trainers keep SeenRows.
+        self._first_seen = {}
+
+
+class SeenRows:
+    """Distinct ``(corpus_index, row)`` pairs consumed so far, restorable from a checkpoint.
+
+    Keeps a membership bitmap per corpus and the ordered prefix of the first
+    ``prefix_limit`` distinct rows, which is all the memorization probe reads.
+    :meth:`state` packs the bitmaps with ``numpy.packbits`` into ``uint8`` tensors.
+    """
+
+    def __init__(self, corpus_sizes: Sequence[int], *, prefix_limit: int):
+        self._seen = [np.zeros(int(size), dtype=bool) for size in corpus_sizes]
+        self._prefix: list[Row] = []
+        self._limit = int(prefix_limit)
+        self._count = 0
+
+    def __len__(self) -> int:
+        return self._count
+
+    def add(self, rows: Sequence[Row]) -> None:
+        """Record rows in consumption order."""
+        for corpus_index, row in rows:
+            seen = self._seen[corpus_index]
+            if seen[row]:
+                continue
+            seen[row] = True
+            self._count += 1
+            if len(self._prefix) < self._limit:
+                self._prefix.append((int(corpus_index), int(row)))
+
+    def prefix(self, n: int) -> list[Row]:
+        """The first ``n <= prefix_limit`` distinct rows in consumption order."""
+        if n > self._limit:
+            raise ValueError(f"prefix({n}) exceeds the kept prefix of {self._limit} rows")
+        return self._prefix[:n]
+
+    def state(self) -> dict[str, Any]:
+        """Packed bitmaps plus the ordered prefix; primitives and tensors only."""
+        return {
+            "sizes": [int(len(seen)) for seen in self._seen],
+            "bitmaps": [torch.from_numpy(np.packbits(seen)) for seen in self._seen],
+            "prefix": [[corpus_index, row] for corpus_index, row in self._prefix],
+            "prefix_limit": self._limit,
+        }
+
+    def restore(self, state: Mapping[str, Any]) -> None:
+        """Load :meth:`state`; raises ``ValueError`` when it does not fit these corpora."""
+        sizes = [int(len(seen)) for seen in self._seen]
+        if list(state["sizes"]) != sizes or int(state["prefix_limit"]) != self._limit:
+            raise ValueError("seen-row state does not match these corpora and prefix limit")
+        seen = [
+            np.unpackbits(bitmap.numpy())[:size].astype(bool)
+            for bitmap, size in zip(state["bitmaps"], sizes, strict=True)
+        ]
+        prefix = [(int(corpus_index), int(row)) for corpus_index, row in state["prefix"]]
+        count = int(sum(int(item.sum()) for item in seen))
+        expected = min(self._limit, count)
+        if len(prefix) != expected or any(not seen[c][r] for c, r in prefix):
+            raise ValueError("seen-row prefix is inconsistent with its bitmaps")
+        self._seen, self._prefix, self._count = seen, prefix, count
+
 
 class PrefetchingStream:
     """Fill a bounded queue from ``stream.next_batch()`` on one background thread.
@@ -338,9 +456,9 @@ class PrefetchingStream:
     (``consumed_rows``, ``epoch``, ``state()``, ``seen_rows``, ``holdout_rows``) from
     the wrapped ``CorpusStream`` directly, knowing they run up to ``depth`` batches
     ahead of what the consumer has received; per-batch bookkeeping must use the
-    returned provenance. An exception raised by the producer surfaces on the next
-    :meth:`next_batch` and every later one. :meth:`stop` ends the producer and joins
-    it; :meth:`next_batch` after ``stop`` raises.
+    returned provenance, and a checkpoint must use ``consumed_state``. An exception raised
+    by the producer surfaces on the next :meth:`next_batch` and every later one.
+    :meth:`stop` ends the producer and joins it; :meth:`next_batch` after ``stop`` raises.
     """
 
     def __init__(self, stream: CorpusStream, *, depth: int = 2):
@@ -348,6 +466,11 @@ class PrefetchingStream:
             raise ValueError(f"depth must be >= 1, got {depth}")
         self.stream = stream
         self.last_wait_seconds: float | None = None
+        #: ``resume_state`` of the wrapped stream right after the batch the consumer last
+        #: received, not the producer's position; the starting state before the first.
+        self.consumed_state: dict[str, Any] | None = (
+            stream.resume_state() if hasattr(stream, "resume_state") else None
+        )
         self._queue: queue.Queue[Any] = queue.Queue(maxsize=depth)
         self._stop = threading.Event()
         self._failure: BaseException | None = None
@@ -367,7 +490,8 @@ class PrefetchingStream:
     def _produce(self) -> None:
         try:
             while not self._stop.is_set():
-                if not self._put(self.stream.next_batch()):
+                batch, provenance = self.stream.next_batch()
+                if not self._put((batch, provenance, self.stream.resume_state())):
                     return
         except BaseException as exc:  # noqa: BLE001 - surfaced to the consumer
             self._put(exc)
@@ -384,7 +508,8 @@ class PrefetchingStream:
         if isinstance(item, BaseException):
             self._failure = item
             raise item
-        return item
+        batch, provenance, self.consumed_state = item
+        return batch, provenance
 
     def stop(self) -> None:
         """Signal the producer and join it; bounded so a stuck producer cannot hang exit."""

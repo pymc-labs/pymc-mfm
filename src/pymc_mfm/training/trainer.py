@@ -17,9 +17,9 @@ coverage never changes promotion; its unavailable reasons remain recorded.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
+import shutil
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
@@ -59,7 +59,23 @@ from pymc_mfm.training.evaluation import (
     within_bounds,
 )
 from pymc_mfm.training.observer import TrainingObserver
-from pymc_mfm.training.stream import CorpusStream, PrefetchingStream
+from pymc_mfm.training.resume import (
+    EMPTY_ROW_SEQUENCE,
+    ROW_SEQUENCE_SCHEME,
+    StartPoint,
+    build_resume_block,
+    chain_row_sequence,
+    checkpoint_entry,
+    continue_run_record,
+    copy_run_history,
+    evaluation_sha256,
+    load_start_point,
+    provenance_of_start,
+    read_jsonl,
+    restore_rng_state,
+    truncate_run_files,
+)
+from pymc_mfm.training.stream import CorpusStream, PrefetchingStream, SeenRows
 from pymc_mfm.training.summary import corpus_summary, corpus_support, parameter_counts
 from pymc_mfm.training.tracking import (
     MlflowTrainingObserver,
@@ -187,6 +203,36 @@ def default_corpus_provenance(corpora: Sequence[Mapping[str, Any]]) -> list[dict
             }
         )
     return records
+
+
+def _resolve_inputs(
+    corpora: Sequence[Mapping[str, Any]],
+    model_config: ModelConfig | None,
+    corpus_provenance: Sequence[Mapping[str, Any]] | None,
+) -> tuple[dict[str, int], ModelConfig, list[dict[str, Any]]]:
+    """Corpus geometry, the model configuration and per-corpus provenance with identities."""
+    geometry = corpus_geometry(corpora)
+    if model_config is None:
+        model_config = ModelConfig(n_controls=geometry["n_controls"], n_demand=geometry["n_demand"])
+    if (
+        model_config.n_controls != geometry["n_controls"]
+        or model_config.n_demand != geometry["n_demand"]
+    ):
+        raise ValueError(
+            "model_config n_controls/n_demand "
+            f"({model_config.n_controls}, {model_config.n_demand}) must match the corpus "
+            f"({geometry['n_controls']}, {geometry['n_demand']})"
+        )
+    provenance = (
+        default_corpus_provenance(corpora)
+        if corpus_provenance is None
+        else [dict(record) for record in corpus_provenance]
+    )
+    if len(provenance) != len(corpora):
+        raise ValueError("corpus_provenance must have one record per corpus")
+    for corpus, record in zip(corpora, provenance, strict=True):
+        record["actual_inputs"] = corpus_identity(corpus)
+    return geometry, model_config, provenance
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -323,6 +369,8 @@ def train(
     run_name: str | None = None,
     tracking: TrackingConfig | None = None,
     holdout_archives: Sequence[str] | None = (),
+    resume_from: str | Path | None = None,
+    init_from: str | Path | None = None,
 ) -> TrainingResult:
     """Train with durable local evidence and default-enabled optional MLflow.
 
@@ -334,6 +382,22 @@ def train(
     environment that export would refuse (``save_pretrained``: package versions
     outside this release's ``COMPATIBILITY``, or not release versions) is refused
     before anything is written.
+
+    ``resume_from`` continues a run at ``step + 1`` of its original schedule from a
+    ``last`` or ``milestone`` format 3 checkpoint, restoring optimizer, RNG, batch
+    stream and consumption so that later records equal an uninterrupted run's. The
+    corpora, model configuration and ``training_config`` must equal the checkpoint's
+    (``prefetch_batches`` may differ); anything else, a format 2 file, a ``best``
+    checkpoint or a dimensional checkpoint raises ``ValueError`` before any file is
+    written. With ``out_dir`` the directory of the checkpoint, only its
+    ``checkpoint_last.pt``, the run continues in place (same ``run_id`` and MLflow run):
+    records after the checkpoint are dropped and ``run.json`` gains a ``resumes``
+    entry. In a new ``out_dir`` the run gets a new ``run_id``, a ``resumed_from``
+    record, and a copy of the source's metrics and evaluations up to the checkpoint.
+    ``init_from`` loads weights only from a format 2 or 3 checkpoint into a new run
+    at step 1 with a fresh optimizer; ``run.json`` records ``initialized_from``.
+    The two are exclusive. A resume cannot rebuild the diagnostics and archives of
+    the interrupted step (the checkpoint precedes them).
 
     ``holdout_archives`` selects evaluation events whose held-out leg is kept as
     a :class:`pymc_mfm.diagnostics.EvaluationArchive` at
@@ -356,7 +420,23 @@ def train(
     tracking = TrackingConfig() if tracking is None else tracking
     archives = _holdout_archive_kinds(holdout_archives)
     out_dir = Path(out_dir)
-    if (out_dir / "run.json").exists():
+    if resume_from is not None and init_from is not None:
+        raise ValueError("resume_from and init_from are exclusive")
+    start: StartPoint | None = None
+    inputs = None
+    if resume_from is not None or init_from is not None:
+        # Every refusal happens here, before anything is written.
+        inputs = _resolve_inputs(corpora, model_config, corpus_provenance)
+        start = load_start_point(
+            resume_from if resume_from is not None else init_from,
+            mode="resume" if resume_from is not None else "init",
+            out_dir=out_dir,
+            model_config=inputs[1],
+            training=training,
+            corpus_records=inputs[2],
+        )
+    in_place = start is not None and start.same_directory
+    if (out_dir / "run.json").exists() and not in_place:
         raise FileExistsError(f"{out_dir} already holds a training run")
     _export_environment()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -378,7 +458,35 @@ def train(
         "checkpoints": [],
         "best": None,
     }
-    tracker = MlflowTrainingObserver(out_dir, tracking)
+    tracker_tags: dict[str, str] = {}
+    if start is not None and not in_place:
+        tracker_tags = {f"mfm.{start.mode}_from_step": str(start.step)}
+        if start.source_run_id:
+            tracker_tags[f"mfm.{start.mode}_from_local_run_id"] = start.source_run_id
+        if start.source_tracking_run_id:
+            tracker_tags[f"mfm.{start.mode}_from_run_id"] = start.source_tracking_run_id
+    if start is not None:
+        if in_place:
+            truncate_run_files(out_dir, start.step)
+            run = continue_run_record(
+                json.loads((out_dir / "run.json").read_text()), start, out_dir
+            )
+        else:
+            record = "resumed_from" if start.mode == "resume" else "initialized_from"
+            run[record] = provenance_of_start(start)
+            if start.mode == "resume":
+                run[record]["history_copied"] = copy_run_history(
+                    start.source_dir,
+                    out_dir,
+                    step=start.step,
+                    evaluation_step=start.step - int(_evaluation_pending(start, training)),
+                )
+    tracker = MlflowTrainingObserver(
+        out_dir,
+        tracking,
+        continue_run_id=start.source_tracking_run_id if in_place else None,
+        tags=tracker_tags,
+    )
     run["tracking"] = tracker.summary
     _write_json(out_dir / "run.json", run)
     try:
@@ -396,6 +504,8 @@ def train(
             run=run,
             tracker=tracker,
             holdout_archives=archives,
+            start=start,
+            inputs=inputs,
         )
     except BaseException as exc:
         if run["status"] == "running":
@@ -423,6 +533,12 @@ def train(
             _write_json(out_dir / "run.json", run)
 
 
+def _evaluation_pending(start: StartPoint, training: TrainingConfig) -> bool:
+    """A milestone checkpoint precedes its own step's evaluation, which a resume must run."""
+    step = start.step
+    return start.kind == "milestone" and (step % training.eval_every == 0 or step == training.steps)
+
+
 def _train_run(
     corpora: Sequence[Mapping[str, Any]],
     *,
@@ -435,10 +551,13 @@ def _train_run(
     run: dict[str, Any],
     tracker: MlflowTrainingObserver,
     holdout_archives: tuple[str, ...] = (),
+    start: StartPoint | None = None,
+    inputs: tuple[dict[str, int], ModelConfig, list[dict[str, Any]]] | None = None,
 ) -> TrainingResult:
     """Train the canonical model on loaded schema-4 corpora.
 
-    ``out_dir`` must not already contain a run. It receives ``run.json``
+    ``out_dir`` must not already contain a run, except for a same-directory resume
+    (``start``, see :func:`train`). It receives ``run.json``
     (rewritten at the end with the final status), ``objective_trace.json``
     (the first update's executed objective), ``metrics.jsonl`` (one record per
     ``log_every`` updates and at update 1), ``evaluations.jsonl`` (one record
@@ -463,27 +582,10 @@ def _train_run(
     """
     resolved_device = resolve_device(device)
 
-    geometry = corpus_geometry(corpora)
-    if model_config is None:
-        model_config = ModelConfig(n_controls=geometry["n_controls"], n_demand=geometry["n_demand"])
-    if (
-        model_config.n_controls != geometry["n_controls"]
-        or model_config.n_demand != geometry["n_demand"]
-    ):
-        raise ValueError(
-            "model_config n_controls/n_demand "
-            f"({model_config.n_controls}, {model_config.n_demand}) must match the corpus "
-            f"({geometry['n_controls']}, {geometry['n_demand']})"
-        )
-    provenance = (
-        default_corpus_provenance(corpora)
-        if corpus_provenance is None
-        else [dict(record) for record in corpus_provenance]
+    geometry, model_config, provenance = (
+        _resolve_inputs(corpora, model_config, corpus_provenance) if inputs is None else inputs
     )
-    if len(provenance) != len(corpora):
-        raise ValueError("corpus_provenance must have one record per corpus")
-    for corpus, record in zip(corpora, provenance, strict=True):
-        record["actual_inputs"] = corpus_identity(corpus)
+    resuming = start is not None and start.mode == "resume"
 
     # Batches are encoded on the CPU (possibly on the prefetch thread) and
     # moved to the device by this thread only; accelerator work must not be
@@ -520,6 +622,8 @@ def _train_run(
     # Seed before construction: weight initialization consumes the global RNG.
     torch.manual_seed(training.seed)
     model = MFM(model_config).to(resolved_device)
+    if start is not None:
+        model.load_state_dict(start.model.state_dict(), strict=True)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=training.lr, weight_decay=training.weight_decay
     )
@@ -597,8 +701,8 @@ def _train_run(
                 "readout": SELECTION_READOUT[training.selection_head],
                 "terminal_checkpoint": "checkpoint_last.pt",
             },
-            "checkpoints": [],
-            "diagnostics": [],
+            "checkpoints": run["checkpoints"] if resuming else [],
+            "diagnostics": run.get("diagnostics", []) if resuming else [],
             "best": None,
         }
     )
@@ -623,8 +727,11 @@ def _train_run(
     t0 = time.perf_counter()
     # Count only completed optimizer updates; the prefetch thread can build
     # later batches without those worlds having reached the optimizer.
-    first_seen: dict[tuple[int, int], None] = {}
-    consumption_digest = hashlib.sha256()
+    seen = SeenRows(
+        [int(np.asarray(corpus["is_val"]).size) for corpus in corpora],
+        prefix_limit=training.eval_worlds,
+    )
+    row_sequence = EMPTY_ROW_SEQUENCE
     diagnostic_inputs: list[tuple[Any, Any, Any, Any]] = []
     archive_inputs: list[tuple[Any, Any, Any, Any]] = []
     training_records: list[dict[str, Any]] = []
@@ -637,26 +744,60 @@ def _train_run(
         "train_rows": stream.n_rows,
         "rows_per_epoch": stream.rows_per_epoch,
         "bucket_sizes": stream.state()["bucket_sizes"],
+        "row_sequence_scheme": ROW_SEQUENCE_SCHEME,
+        "row_sequence_sha256": EMPTY_ROW_SEQUENCE,
     }
+    first_step = 1
+    if resuming:
+        # Restore before the prefetch thread starts, so no batch is built from the
+        # initial stream position. The RNG goes last: nothing above may draw from it.
+        state = start.payload["resume"]
+        optimizer.load_state_dict(state["optimizer"])
+        stream.restore(state["stream"])
+        seen.restore(state["consumption"]["seen_rows"])
+        row_sequence = state["consumption"]["row_sequence_sha256"]
+        consumed.update(start.payload["consumed"])
+        if (
+            consumed["row_sequence_sha256"] != row_sequence
+            or consumed["distinct_rows"] != len(seen)
+            or consumed["updates"] != start.step
+        ):
+            raise ValueError("resume_from: the checkpoint's consumption records disagree")
+        best_value, best_step = state["best_value"], state["best_step"]
+        training_records.extend(read_jsonl(metrics_path))
+        evaluation_records.extend(read_jsonl(evaluations_path))
+        restore_rng_state(state["torch_rng"], state["cuda_rng"])
+        first_step = start.step + 1
+        run["consumed"] = dict(consumed)
 
     def note_consumed(step: int, provenance_record) -> None:
-        for item in provenance_record.rows:
-            first_seen.setdefault(item, None)
-        consumption_digest.update(
-            json.dumps(provenance_record.rows, separators=(",", ":")).encode()
-        )
+        nonlocal row_sequence
+        seen.add(provenance_record.rows)
+        row_sequence = chain_row_sequence(row_sequence, provenance_record.rows)
         consumed.update(
             updates=step,
             rows=step * training.batch_size,
-            distinct_rows=len(first_seen),
+            distinct_rows=len(seen),
             epoch=provenance_record.epoch,
-            row_sequence_sha256=consumption_digest.hexdigest(),
+            row_sequence_sha256=row_sequence,
         )
 
     def record_checkpoint(kind: str, step: int, name: str, evaluation, selection) -> dict[str, Any]:
         nonlocal best_value, best_step
         path = out_dir / name
         run["tracking"] = tracker.summary
+        resume = None
+        if kind != "best":
+            resume = build_resume_block(
+                optimizer=optimizer,
+                step=step,
+                stream_state=source.consumed_state if source else stream.resume_state(),
+                row_sequence=row_sequence,
+                seen=seen,
+                # After a ``last`` event's selection, ``best_*`` still lag until ``best`` is saved.
+                best_value=selection["best_value"] if kind == "last" else best_value,
+                best_step=selection["best_step"] if kind == "last" else best_step,
+            )
         digest = save_checkpoint(
             path,
             model=model,
@@ -680,12 +821,11 @@ def _train_run(
             consumed=consumed,
             evaluation=evaluation,
             selection=selection,
+            resume=resume,
         )
         entry = {"kind": kind, "step": step, "file": name, "sha256": digest}
         if evaluation is not None:
-            entry["evaluation_sha256"] = hashlib.sha256(
-                json.dumps(evaluation, sort_keys=True, allow_nan=False).encode()
-            ).hexdigest()
+            entry["evaluation_sha256"] = evaluation_sha256(evaluation)
         run["checkpoints"] = [
             existing for existing in run["checkpoints"] if existing["file"] != name
         ] + [entry]
@@ -879,12 +1019,12 @@ def _train_run(
             result_sink=holdout_sink,
             per_world=True,
         )
-        seen_count = min(training.eval_worlds, len(first_seen))
+        seen_count = min(training.eval_worlds, len(seen))
         if seen_count:
             legs["seen"] = evaluate_rows(
                 model,
                 corpora,
-                list(first_seen)[:seen_count],
+                seen.prefix(seen_count),
                 n_samples=training.eval_samples,
                 seed=training.eval_seed,
                 device=resolved_device,
@@ -907,7 +1047,7 @@ def _train_run(
         strata = {leg: values.pop("strata") for leg, values in legs.items()}
         coverage = {leg: coverage_evidence(values.pop("per_world")) for leg, values in legs.items()}
         for leg, values in legs.items():
-            values["rows"] = holdout_rows if leg == "holdout" else list(first_seen)[:seen_count]
+            values["rows"] = holdout_rows if leg == "holdout" else seen.prefix(seen_count)
         selection = _select_checkpoint(
             flat, undefined, best_value, best_step, step, head=training.selection_head
         )
@@ -950,18 +1090,81 @@ def _train_run(
             torch.mps.empty_cache()
         return record
 
+    def evaluate_and_checkpoint(step: int) -> None:
+        evaluation = evaluate(step)
+        checkpoint = record_checkpoint(
+            "last", step, "checkpoint_last.pt", evaluation, evaluation["selection"]
+        )
+        best = None
+        if evaluation["selection"]["promoted"]:
+            best = record_checkpoint(
+                "best", step, "checkpoint_best.pt", evaluation, evaluation["selection"]
+            )
+        record_archive(step, checkpoint, best)
+        record_diagnostics(step, checkpoint)
+
+    def carry_terminal_checkpoint() -> None:
+        """A new directory resumed at the final step has no update left to write its own.
+
+        The exported bundle's source is ``checkpoint_last.pt``, so the start
+        checkpoint (a ``last`` at the final step) is copied under that name.
+        """
+        if start.step == training.steps and start.kind == "last" and not start.same_directory:
+            shutil.copyfile(start.path, out_dir / "checkpoint_last.pt")
+            run["checkpoints"] = [
+                *run["checkpoints"],
+                checkpoint_entry(out_dir / "checkpoint_last.pt"),
+            ]
+
+    def carry_best_checkpoint() -> None:
+        """Give a resumed run the ``checkpoint_best.pt`` its recorded best refers to.
+
+        Present already after a same-directory resume. A best promoted by the
+        checkpoint's own evaluation may not have been written before the
+        interruption; then the checkpoint's weights are the best weights. Otherwise
+        the source run's file is copied when it is that best.
+        """
+        if best_step is None or any(
+            entry["kind"] == "best" and entry["step"] == best_step for entry in run["checkpoints"]
+        ):
+            return
+        payload = start.payload
+        if best_step == start.step and start.kind == "last":
+            record_checkpoint(
+                "best",
+                start.step,
+                "checkpoint_best.pt",
+                payload["evaluation"],
+                payload["selection"],
+            )
+            return
+        source_best = start.source_dir / "checkpoint_best.pt"
+        if source_best.is_file() and checkpoint_entry(source_best)["step"] == best_step:
+            shutil.copyfile(source_best, out_dir / source_best.name)
+            run["checkpoints"] = [
+                *run["checkpoints"],
+                checkpoint_entry(out_dir / source_best.name),
+            ]
+            if "resumed_from" in run:
+                run["resumed_from"]["best_checkpoint_copied"] = True
+
     status = "failed"
     error: str | None = None
-    step = 0
-    completed_updates = 0
+    step = first_step - 1
+    completed_updates = step
     try:
         for observer in observers:
             observer.on_run_start(run)
             observer.on_run_config(run)
+        if resuming:
+            carry_terminal_checkpoint()
+            carry_best_checkpoint()
         if training.prefetch_batches > 0:
             source = PrefetchingStream(stream, depth=training.prefetch_batches)
+        if resuming and _evaluation_pending(start, training):
+            evaluate_and_checkpoint(start.step)
         with metrics_path.open("a") as metrics_handle:
-            for step in range(1, training.steps + 1):
+            for step in range(first_step, training.steps + 1):
                 model.train()
                 wait_start = time.perf_counter()
                 batch, provenance_record = source.next_batch() if source else stream.next_batch()
@@ -1024,7 +1227,9 @@ def _train_run(
                         "elapsed_seconds": elapsed,
                         "step_seconds": step_seconds,
                         "batch_wait_seconds": batch_wait,
-                        "worlds_per_second": step * training.batch_size / elapsed,
+                        "worlds_per_second": (step - first_step + 1)
+                        * training.batch_size
+                        / elapsed,
                     }
                     nonfinite = [
                         name
@@ -1044,17 +1249,7 @@ def _train_run(
                         raise TrainingError(f"non-finite {', '.join(nonfinite)} at update {step}")
 
                 if step % training.eval_every == 0 or step == training.steps:
-                    evaluation = evaluate(step)
-                    checkpoint = record_checkpoint(
-                        "last", step, "checkpoint_last.pt", evaluation, evaluation["selection"]
-                    )
-                    best = None
-                    if evaluation["selection"]["promoted"]:
-                        best = record_checkpoint(
-                            "best", step, "checkpoint_best.pt", evaluation, evaluation["selection"]
-                        )
-                    record_archive(step, checkpoint, best)
-                    record_diagnostics(step, checkpoint)
+                    evaluate_and_checkpoint(step)
         terminal = next(entry for entry in run["checkpoints"] if entry["kind"] == "last")
         export_provenance = {
             "source_checkpoint_sha256": terminal["sha256"],

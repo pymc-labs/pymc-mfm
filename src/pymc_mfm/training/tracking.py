@@ -394,7 +394,17 @@ class MlflowTrainingObserver(TrainingObserver):
     (which can contain authentication headers, tokens, or observations).
     """
 
-    def __init__(self, out_dir: str | Path, config: TrackingConfig | None = None):
+    def __init__(
+        self,
+        out_dir: str | Path,
+        config: TrackingConfig | None = None,
+        *,
+        continue_run_id: str | None = None,
+        tags: Mapping[str, str] | None = None,
+    ):
+        """``continue_run_id`` reopens that MLflow run (a same-directory resume) and
+        continues the local event sequence; ``tags`` are added to a newly created run.
+        """
         self.out_dir = Path(out_dir).resolve()
         self.config = TrackingConfig() if config is None else config
         self.root = self.out_dir / "tracking"
@@ -430,6 +440,21 @@ class MlflowTrainingObserver(TrainingObserver):
         self._channels = {name: _Channel(name) for name in ("tracking", "artifacts")}
         self._clock = time.monotonic
         self._http_applied = False
+        self._continue_run_id = continue_run_id
+        self._extra_tags = {str(key): str(value) for key, value in (tags or {}).items()}
+        # Parameters a reopened run already holds are immutable in MLflow: kept as recorded.
+        self._inherited_params: set[str] = set()
+        if continue_run_id is not None:
+            self._load_local_continuation()
+
+    def _load_local_continuation(self) -> None:
+        """Continue the event numbering and name table of an earlier execution of this run."""
+        events = self.root / "events"
+        numbers = [int(path.name[:7]) for path in events.glob("*.json") if path.name[:7].isdigit()]
+        self._sequence = max(numbers, default=0)
+        names = self.root / "names.json"
+        if names.is_file():
+            self._names = json.loads(names.read_text())
 
     @property
     def summary(self) -> dict[str, Any]:
@@ -756,6 +781,8 @@ class MlflowTrainingObserver(TrainingObserver):
                     + hashlib.sha256(encoded.encode()).hexdigest()
                     + " (full value in configuration event)"
                 )
+            if key in self._inherited_params:
+                continue
             if key in self._params:
                 if self._params[key] != encoded:
                     raise ValueError("immutable tracking parameter changed")
@@ -815,6 +842,33 @@ class MlflowTrainingObserver(TrainingObserver):
                 deliver=False,
             )
 
+    def _reopen_run(self):
+        """The MLflow run of an interrupted execution, set RUNNING again, or ``None``.
+
+        ``None`` (run unknown to this backend, or tracking pointed elsewhere) makes the
+        caller create a new run, tagged with the run it could not continue. Metric
+        history the interrupted execution logged for steps after the checkpoint stays
+        in MLflow beside the resumed values; the local files are authoritative.
+        """
+        if self._continue_run_id is None:
+            return None
+        try:
+            existing = self.client.get_run(self._continue_run_id)
+            self.experiment_id = existing.info.experiment_id
+            self.client.update_run(self._continue_run_id, status="RUNNING")
+            for key, value in (
+                ("mfm.start_id", self._start_id),
+                ("mfm.lifecycle_status", "running"),
+                ("mfm.delivery_status", "healthy"),
+                ("mfm.resumed", "true"),
+            ):
+                self.client.set_tag(self._continue_run_id, key, value, synchronous=True)
+        except Exception:
+            self._extra_tags["mfm.continues_unavailable_run_id"] = self._continue_run_id
+            return None
+        self._inherited_params = set(existing.data.params)
+        return existing
+
     def on_run_start(self, run: Mapping[str, Any]) -> None:
         def start():
             if self._started:
@@ -847,7 +901,7 @@ class MlflowTrainingObserver(TrainingObserver):
                         )
                     else:
                         self.experiment_id = experiment.experiment_id
-                    created = self.client.create_run(
+                    created = self._reopen_run() or self.client.create_run(
                         self.experiment_id,
                         tags={
                             "mlflow.runName": evidence_value(
@@ -858,6 +912,7 @@ class MlflowTrainingObserver(TrainingObserver):
                             "mfm.profile": self.config.profile,
                             "mfm.lifecycle_status": "running",
                             "mfm.delivery_status": "healthy",
+                            **self._extra_tags,
                         },
                     )
                     self.run_id = created.info.run_id

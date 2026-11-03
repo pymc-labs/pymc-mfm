@@ -8,6 +8,12 @@ KIND[,KIND]`` (``best``, ``terminal``) also keeps the held-out draws of the
 promoted and/or final evaluations as evaluation archives under ``archives/``
 in the run directory, as ``train(holdout_archives=...)`` does.
 
+``--resume-from CHECKPOINT`` continues an interrupted run at the next step of its
+original schedule (every other flag and ``--corpus`` must match the checkpoint's
+run; a mismatch is refused before anything is written). With ``--out-dir`` set to the
+checkpoint's own directory and ``checkpoint_last.pt`` it resumes in place.
+``--init-from CHECKPOINT`` starts a new run from the checkpoint's weights only.
+
 ``python -m pymc_mfm.training evaluate --model PATH --corpus F [F ...]
 --out-dir DIR`` evaluates a model bundle directory or a training checkpoint
 file on saved corpora into a new evaluation archive, as
@@ -87,7 +93,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m pymc_mfm.training", description=__doc__.split("\n\n")[0]
     )
     parser.add_argument("--corpus", nargs="+", required=True, help="schema-4 corpus .npz files")
-    parser.add_argument("--out-dir", required=True, help="new run directory")
+    parser.add_argument(
+        "--out-dir",
+        required=True,
+        help="new run directory (or the resumed run's own, see --resume-from)",
+    )
     parser.add_argument("--device", default="auto", help="auto | cpu | cuda | mps")
     parser.add_argument("--run-name", default=None)
     parser.add_argument(
@@ -129,6 +139,19 @@ def build_parser() -> argparse.ArgumentParser:
             parser.add_argument(flag, choices=SELECTION_HEADS, default=default)
         else:
             parser.add_argument(flag, type=type(default), default=default)
+    starts = parser.add_mutually_exclusive_group()
+    starts.add_argument(
+        "--resume-from",
+        default=None,
+        metavar="CHECKPOINT",
+        help="continue the run of a last or milestone checkpoint at its next step",
+    )
+    starts.add_argument(
+        "--init-from",
+        default=None,
+        metavar="CHECKPOINT",
+        help="start a new run from this checkpoint's weights, with a fresh optimizer",
+    )
     parser.add_argument(
         "--holdout-archives",
         type=_archive_kinds,
@@ -246,6 +269,8 @@ def main(argv: list[str] | None = None) -> int:
             diagnostics=not args.no_diagnostics,
         ),
         holdout_archives=args.holdout_archives,
+        resume_from=args.resume_from,
+        init_from=args.init_from,
     )
     summary = {
         "run_dir": str(result.run_dir),
