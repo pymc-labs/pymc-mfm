@@ -464,6 +464,30 @@ def test_resume_matches_generator_corpora_by_file_hash(tmp_path):
     assert_resumed_equals_full(full.run_dir, tmp_path / "run", after=3)
 
 
+def test_resume_refuses_a_changed_array_under_the_same_file_provenance(tmp_path):
+    """Without a content hash, the file hash alone must not hide changed arrays."""
+    save_corpus = pytest.importorskip("pymc_generator").save_corpus
+
+    from pymc_mfm.data.recipes import load_corpora, provenance
+
+    corpus = make_synthetic_corpus()
+    corpus["identifiability"] = {"signal_metrics": np.zeros((2, 2))}
+    path = tmp_path / "generator_like.npz"
+    save_corpus(corpus, path)
+    (loaded,) = load_corpora([path])
+    record = provenance(loaded)
+    interrupted_run(tmp_path / "run", 3, corpus=loaded.corpus, corpus_provenance=[record])
+    changed = dict(loaded.corpus, outcome_raw=loaded.corpus["outcome_raw"] * 2)
+    with pytest.raises(ValueError, match="corpora differ"):
+        run_train(
+            tmp_path / "other",
+            corpus=changed,
+            corpus_provenance=[record],
+            resume_from=tmp_path / "run" / "checkpoint_last.pt",
+        )
+    assert not (tmp_path / "other").exists()
+
+
 def test_a_refused_same_directory_resume_leaves_the_directory_untouched(tmp_path):
     out = tmp_path / "run"
     config = interrupted_run(out, 3)
