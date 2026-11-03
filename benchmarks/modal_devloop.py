@@ -49,7 +49,13 @@ ARCHIVE_RESERVE_SECONDS = 180
 MAX_CHECKPOINT_MIB = 50
 #: A returned archive over this total (uncompressed) size is refused.
 MAX_ARCHIVE_MIB = 200
-BENCH_SCRIPTS = ("resume_acceptance.py", "precision_compile_check.py", "train_profile.py")
+#: Allowed benchmarks and what each takes as ``--out``: a directory or a JSON report path.
+BENCH_OUT = {
+    "resume_acceptance.py": "dir",
+    "precision_compile_check.py": "file",
+    "train_profile.py": "file",
+}
+BENCH_SCRIPTS = tuple(BENCH_OUT)
 
 REMOTE_SRC = "/root/pymc-mfm"
 INPUTS = "/inputs"
@@ -297,7 +303,8 @@ def bench_remote(
     """Run ``benchmarks/<script> <args> --out DIR``; return stdout, exit code and DIR as tar.gz."""
     out = WORK / "bench-out"
     out.mkdir(parents=True, exist_ok=True)
-    command = [PYTHON, f"benchmarks/{script}", *args, "--out", str(out)]
+    target = out if BENCH_OUT[script] == "dir" else out / "report.json"
+    command = [PYTHON, f"benchmarks/{script}", *args, "--out", str(target)]
     try:
         done = _run(command, capture_output=True, text=True, timeout=budget_seconds)
         stdout, exit_code = done.stdout + done.stderr, done.returncode
