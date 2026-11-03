@@ -19,7 +19,7 @@ from pymc_mfm.training import (
     train,
 )
 from pymc_mfm.training.__main__ import main
-from pymc_mfm.training.score import RESULT_COLUMNS, ScoreError, eval_set_id, score_checkpoint
+from pymc_mfm.training.score import RESULT_COLUMNS, ScoreError, score_checkpoint
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("pymc_generator") is None, reason="pymc_generator not installed"
@@ -160,9 +160,31 @@ def test_eval_set_row_and_stable_id(run_dir, corpus_path, tmp_path, capsys):
     )
     assert first["worlds"] == "16"  # every row of the corpus, not only the held-out ones
     assert first["replay_keys_compared"] == ""
-    content = json.loads(first["corpus_content_sha256"])
-    assert first["eval_set_id"] == eval_set_id(content, "all-rows", 7, 2)
-    assert eval_set_id(content, "all-rows", 8, 2) != first["eval_set_id"]
+    assert first["eval_set_id"]
+
+
+def test_eval_set_id_changes_with_corpus_content_seed_and_draws(
+    run_dir, corpus_path, tmp_path, capsys
+):
+    other_corpus = save(
+        make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=10), tmp_path / "other.npz"
+    )
+    results = tmp_path / "results.csv"
+    for corpus, seed, draws in (
+        (corpus_path, 7, 2),
+        (corpus_path, 7, 2),
+        (other_corpus, 7, 2),
+        (corpus_path, 8, 2),
+        (corpus_path, 7, 3),
+    ):
+        score(
+            capsys, "--checkpoint", run_dir / "checkpoint_last.pt", "--corpus", corpus,
+            "--eval-set", "--seed", seed, "--draws", draws, "--results", results,
+        )  # fmt: skip
+    ids = [row["eval_set_id"] for row in read_rows(results)]
+    same, again, new_corpus, new_seed, new_draws = ids
+    assert same == again
+    assert len({same, new_corpus, new_seed, new_draws}) == 4
 
 
 def test_replay_rejects_seed_and_draws(run_dir, corpus_path):
