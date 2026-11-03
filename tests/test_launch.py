@@ -3,8 +3,11 @@
 import csv
 import importlib.util
 import json
+import signal
+import subprocess
 import sys
 import threading
+import time
 from dataclasses import replace
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
@@ -15,11 +18,16 @@ from conftest import make_synthetic_corpus
 from test_resume import InterruptAfterLast
 
 from pymc_mfm.data.recipes import load_corpora
-from pymc_mfm.training import TrackingConfig, train
+from pymc_mfm.training import TrackingConfig, launch_process, train
 from pymc_mfm.training.config import PRESETS
-from pymc_mfm.training.launch import main
+from pymc_mfm.training.launch import Launcher, Limits, Manifest, main
 from pymc_mfm.training.launch_process import read_progress, run_command
-from pymc_mfm.training.launch_spec import parse_launch_file, train_command
+from pymc_mfm.training.launch_spec import (
+    LaunchFileError,
+    parse_launch_file,
+    score_command,
+    train_command,
+)
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("pymc_generator") is None, reason="pymc_generator not installed"
@@ -59,9 +67,14 @@ def run_spec(corpus, name, *, training=None, timeout=120, score="replay"):
     }
 
 
-def launch(tmp_path, runs, *arguments, root="root"):
+def write_runs(tmp_path, runs):
     path = tmp_path / "runs.json"
     path.write_text(json.dumps(runs))
+    return path
+
+
+def launch(tmp_path, runs, *arguments, root="root"):
+    path = write_runs(tmp_path, runs)
     code = main([str(path), "--root", str(tmp_path / root), *NO_MEMORY_LIMIT, *arguments])
     return code, json.loads((tmp_path / root / "launch.json").read_text())
 
@@ -73,11 +86,13 @@ def result_rows(root):
 
 @pytest.fixture(scope="module")
 def mixed(corpus, tmp_path_factory):
-    """Two good runs (replay and eval-set scoring), one timed out, one with an invalid value."""
+    """Two good runs (replay and eval-set scoring), one timed out, one with an unreadable corpus."""
     tmp_path = tmp_path_factory.mktemp("mixed")
+    unreadable = tmp_path / "unreadable.npz"
+    unreadable.write_text("not a corpus")
     runs = [
         run_spec(corpus, "slow", training={"steps": 100_000, "eval_every": 100_000}, timeout=1),
-        run_spec(corpus, "broken", training={"steps": 0}),
+        run_spec(str(unreadable), "broken"),
         run_spec(corpus, "replayed"),
         run_spec(corpus, "frozen", score="eval-set"),
     ]
@@ -117,7 +132,7 @@ def test_failing_run_keeps_its_stderr_and_does_not_stop_the_next(mixed):
     _, manifest, _ = mixed
     broken = manifest["runs"]["broken"]
     assert broken["status"] == "failed" and broken["returncode"] != 0
-    assert "steps" in "\n".join(broken["stderr_tail"])
+    assert broken["stderr_tail"]
     assert manifest["runs"]["frozen"]["status"] == "finished"
 
 
@@ -185,18 +200,43 @@ def test_resume_does_not_rerun_a_finished_run(corpus, tmp_path):
     assert (tmp_path / "root" / "runs" / "a" / "run.json").stat().st_mtime_ns == before
 
 
-def test_concurrency_measurement_records_aggregate_rate_and_ratio_to_solo(corpus, tmp_path):
+def test_concurrency_runs_every_copy_in_its_own_directory(corpus, tmp_path):
     runs = [run_spec(corpus, "probe", score=None)]
     code, manifest = launch(tmp_path, runs, "--measure-concurrency", "1,2")
     points = manifest["concurrency"]["points"]
     assert code == 0 and [point["concurrent"] for point in points] == [1, 2]
-    assert points[0]["ratio_to_solo"] == 1.0
     assert points[1]["statuses"] == ["finished", "finished"]
-    assert (
-        points[1]["ratio_to_solo"]
-        == points[1]["aggregate_worlds_per_second"] / (points[0]["aggregate_worlds_per_second"])
-    )
     assert len(list((tmp_path / "root" / "concurrency").iterdir())) == 3
+
+
+def test_concurrency_ratio_is_the_aggregate_rate_over_the_solo_rate(corpus, tmp_path, monkeypatch):
+    rates = {1: [10.0], 2: [8.0, 7.0], 4: [4.0, 4.0, 4.0, 4.0]}
+    monkeypatch.setattr(
+        Launcher, "run_copies", lambda self, spec, count: (rates[count], ["finished"] * count)
+    )
+    code, manifest = launch(tmp_path, [run_spec(corpus, "p")], "--measure-concurrency", "1,2,4")
+    points = manifest["concurrency"]["points"]
+    assert code == 0
+    assert [point["aggregate_worlds_per_second"] for point in points] == [10.0, 15.0, 16.0]
+    assert [point["ratio_to_solo"] for point in points] == [1.0, 1.5, 1.6]
+
+
+def test_concurrency_copies_that_do_not_fit_the_budget_are_not_started(corpus, tmp_path):
+    runs = [run_spec(corpus, "probe", timeout=3600, score=None)]
+    arguments = ["--measure-concurrency", "1,2", "--max-total-seconds", "60"]
+    code, manifest = launch(tmp_path, runs, *arguments)
+    assert code == 1
+    assert manifest["concurrency"]["points"][1]["statuses"] == ["skipped_budget"] * 2
+
+
+def test_score_is_not_started_when_the_budget_is_spent(corpus, tmp_path):
+    spec = parse_launch_file(write_runs(tmp_path, [run_spec(corpus, "a")]))[0]
+    manifest = Manifest(tmp_path / "launch.json", {"runs": {"a": {"status": "trained"}}})
+    launcher = Launcher(tmp_path, Limits(max_total_seconds=30), manifest)
+    launcher.score(spec, tmp_path / "runs" / "a")
+    record = manifest.data["runs"]["a"]
+    assert record["status"] == "score_failed" and "no time left" in record["stderr_tail"][0]
+    assert not (tmp_path / "results.csv").exists()
 
 
 @pytest.mark.parametrize(
@@ -228,6 +268,27 @@ def test_invalid_launch_file_is_refused_before_anything_starts(
     assert raised.value.code == 2
     assert message in capsys.readouterr().err
     assert not (tmp_path / "root").exists()
+
+
+def test_invalid_training_value_in_a_later_run_starts_nothing(corpus, tmp_path, capsys):
+    runs = [run_spec(corpus, "good"), run_spec(corpus, "bad", training={"steps": 0})]
+    path = write_runs(tmp_path, runs)
+    with pytest.raises(SystemExit) as raised:
+        main([str(path), "--root", str(tmp_path / "root"), *NO_MEMORY_LIMIT])
+    assert raised.value.code == 2
+    assert "run 'bad'" in capsys.readouterr().err
+    assert not (tmp_path / "root").exists()
+
+
+def test_milestones_beyond_the_steps_of_a_preset_run_are_dropped_like_the_cli_does(
+    corpus, tmp_path
+):
+    runs = [run_spec(corpus, "a", training={"steps": 4})]
+    runs[0]["preset"] = "canonical"  # its milestones are 25,000 and 50,000
+    parse_launch_file(write_runs(tmp_path, runs))
+    runs[0]["training"]["milestone_steps"] = [25_000]
+    with pytest.raises(LaunchFileError, match="milestone_steps"):
+        parse_launch_file(write_runs(tmp_path, runs))
 
 
 def test_existing_manifest_needs_resume(corpus, tmp_path, capsys):
@@ -324,3 +385,109 @@ def test_only_allowed_benchmarks_can_run_on_modal(modal_script):
     modal_script.check_bench_script("resume_acceptance.py")
     with pytest.raises(ValueError, match="not an allowed benchmark"):
         modal_script.check_bench_script("../etc/passwd")
+
+
+def test_bench_timeout_keeps_the_bytes_the_benchmark_printed(modal_script):
+    expired = subprocess.TimeoutExpired("bench", 5, output=b"step 1 done\n", stderr=None)
+    with mock.patch.object(modal_script.subprocess, "run", side_effect=expired):
+        stdout, exit_code = modal_script.run_benchmark(["bench"], 5)
+    assert exit_code == -1
+    assert stdout.startswith("step 1 done\n") and stdout.endswith("timed out\n")
+
+
+def test_bench_that_finishes_returns_stdout_then_stderr_and_its_exit_code(modal_script):
+    done = subprocess.CompletedProcess("bench", 3, stdout=b"out\n", stderr=b"err\n")
+    with mock.patch.object(modal_script.subprocess, "run", return_value=done):
+        assert modal_script.run_benchmark(["bench"], 5) == ("out\nerr\n", 3)
+
+
+def test_eval_set_seed_and_draws_are_passed_to_score(corpus, tmp_path):
+    runs = [run_spec(corpus, "a")]
+    runs[0]["score"] = {"mode": "eval-set", "seed": 7, "draws": 5}
+    spec = parse_launch_file(write_runs(tmp_path, runs))[0]
+    command = score_command(spec, tmp_path / "out", tmp_path / "results.csv")
+    assert command[command.index("--seed") + 1] == "7"
+    assert command[command.index("--draws") + 1] == "5"
+    assert spec.score["corpus"] == (corpus,)
+
+
+def process_alive(pid):
+    """Whether ``pid`` runs; a zombie is not counted."""
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
+def wait_for(condition, seconds=120):
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, "condition not met in time"
+        time.sleep(0.1)
+
+
+#: Starts a descendant that ignores SIGTERM and records its pid, then runs as `parent`.
+STUBBORN_DESCENDANT = """
+import pathlib, subprocess, sys, time
+child = subprocess.Popen([sys.executable, "-c",
+    "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"])
+pathlib.Path(sys.argv[1]).write_text(str(child.pid))
+{parent}
+"""
+
+
+def run_with_stubborn_descendant(tmp_path, parent, timeout):
+    pid_file = tmp_path / "descendant.pid"
+    script = STUBBORN_DESCENDANT.format(parent=parent)
+    command = [sys.executable, "-c", script, str(pid_file)]
+    outcome = run_command(command, tmp_path / "logs" / "x", timeout, threading.Event())
+    return outcome, int(pid_file.read_text())
+
+
+def test_descendant_that_ignores_sigterm_is_killed_when_the_command_times_out(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(launch_process, "TERMINATE_GRACE_SECONDS", 0.5)
+    outcome, descendant = run_with_stubborn_descendant(tmp_path, "time.sleep(60)", timeout=2)
+    assert outcome.status == "timed_out"
+    assert not process_alive(descendant)
+
+
+def test_descendant_left_behind_by_a_finished_command_is_killed(tmp_path, monkeypatch):
+    monkeypatch.setattr(launch_process, "TERMINATE_GRACE_SECONDS", 0.5)
+    outcome, descendant = run_with_stubborn_descendant(tmp_path, "time.sleep(1)", timeout=30)
+    assert outcome.status == "finished"
+    assert not process_alive(descendant)
+
+
+def test_sigterm_ends_every_child_and_marks_the_runs_interrupted(corpus, tmp_path):
+    """One run trains for ever; the other finishes training and then scores for ever."""
+    runs = [
+        run_spec(corpus, "training", training={"steps": 100_000, "eval_every": 100_000}),
+        run_spec(corpus, "scoring", score="eval-set"),
+    ]
+    runs[1]["score"]["draws"] = 100_000
+    root = tmp_path / "root"
+    launcher = subprocess.Popen(
+        [sys.executable, "-m", "pymc_mfm.training.launch", str(write_runs(tmp_path, runs))]
+        + ["--root", str(root), "--max-parallel", "2", *NO_MEMORY_LIMIT]
+    )
+
+    def recorded():
+        path = root / "launch.json"
+        return json.loads(path.read_text())["runs"] if path.is_file() else {}
+
+    wait_for(
+        lambda: (
+            "pid" in recorded().get("training", {}) and "score_pid" in recorded().get("scoring", {})
+        )
+    )
+    pids = [recorded()["training"]["pid"], recorded()["scoring"]["score_pid"]]
+    assert all(process_alive(pid) for pid in pids)
+
+    launcher.send_signal(signal.SIGTERM)
+
+    assert launcher.wait(timeout=60) == 1
+    assert not any(process_alive(pid) for pid in pids)
+    statuses = {name: record["status"] for name, record in recorded().items()}
+    assert statuses == {"training": "interrupted", "scoring": "score_interrupted"}

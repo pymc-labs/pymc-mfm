@@ -296,6 +296,22 @@ def profile_remote(corpus: str, preset: str, steps: int) -> dict:
     return json.loads(out.read_text())
 
 
+def _text(output: str | bytes | None) -> str:
+    """Captured output as text; ``TimeoutExpired`` carries bytes or None."""
+    if isinstance(output, bytes):
+        return output.decode(errors="replace")
+    return output or ""
+
+
+def run_benchmark(command: list[str], timeout_seconds: int) -> tuple[str, int]:
+    """Run ``command``; return its stdout and stderr and exit code, or -1 after the timeout."""
+    try:
+        done = _run(command, capture_output=True, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as expired:
+        return _text(expired.stdout) + _text(expired.stderr) + "\ntimed out\n", -1
+    return _text(done.stdout) + _text(done.stderr), done.returncode
+
+
 @app.function(timeout=container_timeout_seconds(HARD_CAP_MINUTES), **_container)
 def bench_remote(
     script: str, args: list[str], budget_seconds: int, max_checkpoint_mib: int
@@ -305,11 +321,7 @@ def bench_remote(
     out.mkdir(parents=True, exist_ok=True)
     target = out if BENCH_OUT[script] == "dir" else out / "report.json"
     command = [PYTHON, f"benchmarks/{script}", *args, "--out", str(target)]
-    try:
-        done = _run(command, capture_output=True, text=True, timeout=budget_seconds)
-        stdout, exit_code = done.stdout + done.stderr, done.returncode
-    except subprocess.TimeoutExpired as expired:
-        stdout, exit_code = (expired.stdout or "") + "\ntimed out\n", -1
+    stdout, exit_code = run_benchmark(command, budget_seconds)
     return {
         "stdout": stdout,
         "exit_code": exit_code,

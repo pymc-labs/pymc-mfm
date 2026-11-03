@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from pymc_mfm.training.launch_process import (
+    Outcome,
     gpu_free_gib,
     host_free_gib,
     read_progress,
@@ -56,6 +57,8 @@ RESULTS = "results.csv"
 TRAINED = ("trained", "score_failed", "score_interrupted")
 _MEMORY_POLL_SECONDS = 2.0
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
+#: Seconds of ``--max-total-seconds`` kept back for ending children and writing the manifest.
+CLEANUP_RESERVE_SECONDS = 30.0
 
 
 @dataclass
@@ -113,7 +116,8 @@ class Launcher:
             runs.setdefault(spec.name, {"status": "pending"})
         self.manifest.save(runs=runs)
         with ThreadPoolExecutor(self.limits.max_parallel) as pool:
-            for future in [pool.submit(self.run_one, spec, resume) for spec in specs]:
+            futures = [pool.submit(self.run_one, spec, resume) for spec in specs]
+            for future in futures:
                 future.result()
         finished = all(record["status"] == "finished" for record in runs.values())
         return 0 if finished else 1
@@ -135,26 +139,31 @@ class Launcher:
             else:
                 self.manifest.update_run(name, status="finished")
 
+    def remaining_seconds(self) -> float:
+        """Seconds left in ``--max-total-seconds`` after the cleanup reserve; inf without one."""
+        if self.limits.max_total_seconds is None:
+            return float("inf")
+        used = time.monotonic() - self._began
+        return self.limits.max_total_seconds - CLEANUP_RESERVE_SECONDS - used
+
     def admit(self, spec: RunSpec) -> str | None:
-        """Reserve a start for ``spec``; return the ``skipped_*`` status that refuses it, if any."""
+        """Reserve a start for ``spec``; return the status that refuses it, if any."""
         with self._admission_lock:
-            limits = self.limits
             if self.stop.is_set():
                 return "interrupted"
-            if limits.max_runs is not None and self._started >= limits.max_runs:
+            if self.limits.max_runs is not None and self._started >= self.limits.max_runs:
                 return "skipped_max_runs"
-            if limits.max_total_seconds is not None:
-                remaining = limits.max_total_seconds - (time.monotonic() - self._began)
-                if spec.timeout_seconds > remaining:
-                    return "skipped_budget"
             if not self.wait_for_memory(spec):
                 return "skipped_memory"
+            if spec.timeout_seconds > self.remaining_seconds():
+                return "skipped_budget"
             self._started += 1
             return None
 
     def wait_for_memory(self, spec: RunSpec) -> bool:
-        """Wait up to ``memory_wait_seconds`` for the free memory a start needs."""
-        deadline = time.monotonic() + self.limits.memory_wait_seconds
+        """Wait for the free memory a start needs, within the memory wait and the budget."""
+        wait = min(self.limits.memory_wait_seconds, max(self.remaining_seconds(), 0))
+        deadline = time.monotonic() + wait
         while True:
             enough = host_free_gib() >= self.limits.min_free_host_gib
             if enough and uses_cuda(spec.device):
@@ -164,33 +173,44 @@ class Launcher:
             if time.monotonic() >= deadline or self.stop.wait(_MEMORY_POLL_SECONDS):
                 return False
 
-    def train(self, spec: RunSpec, run_dir: Path, *, resume: bool) -> None:
+    def run_training(
+        self, spec: RunSpec, run_dir: Path, log_name: str, *, resume: bool = False, on_start=None
+    ) -> tuple[list[str], Outcome]:
+        """Run the training subprocess of ``spec``; return its command line and outcome."""
         command = train_command(spec, run_dir, resume=resume)
-        self.manifest.update_run(spec.name, status="running", command=shlex.join(command))
-        log = self.root / "logs" / f"{spec.name}.train"
+        log = self.root / "logs" / f"{log_name}.train"
+        outcome = run_command(command, log, spec.timeout_seconds, self.stop, on_start)
+        return command, outcome
+
+    def train(self, spec: RunSpec, run_dir: Path, *, resume: bool) -> None:
+        self.manifest.update_run(spec.name, status="running")
         record_pid = self.record_pid(spec.name, "pid")
-        outcome = run_command(command, log, spec.timeout_seconds, self.stop, record_pid)
+        command, outcome = self.run_training(
+            spec, run_dir, spec.name, resume=resume, on_start=record_pid
+        )
         status = "trained" if outcome.status == "finished" else outcome.status
         self.manifest.update_run(
             spec.name,
             status=status,
+            command=shlex.join(command),
             returncode=outcome.returncode,
             wall_seconds=outcome.seconds,
-            stderr_tail=stderr_tail(log.with_suffix(".stderr")),
+            stderr_tail=stderr_tail(self.root / "logs" / f"{spec.name}.train"),
             **read_progress(run_dir),
         )
 
     def score(self, spec: RunSpec, run_dir: Path) -> None:
+        timeout = min(self.limits.score_timeout_seconds, self.remaining_seconds())
+        if timeout <= 0:
+            note = ["score not started: no time left in --max-total-seconds"]
+            self.manifest.update_run(spec.name, status="score_failed", stderr_tail=note)
+            return
         results = self.root / RESULTS
         command = score_command(spec, run_dir, results)
         log = self.root / "logs" / f"{spec.name}.score"
         with self._score_lock:
             outcome = run_command(
-                command,
-                log,
-                self.limits.score_timeout_seconds,
-                self.stop,
-                self.record_pid(spec.name, "score_pid"),
+                command, log, timeout, self.stop, self.record_pid(spec.name, "score_pid")
             )
             row = count_rows(results) - 1 if outcome.status == "finished" else None
         if outcome.status == "finished":
@@ -201,7 +221,7 @@ class Launcher:
                 spec.name,
                 status=failed,
                 score_command=shlex.join(command),
-                stderr_tail=stderr_tail(log.with_suffix(".stderr")),
+                stderr_tail=stderr_tail(log),
             )
 
     def record_pid(self, name: str, key: str):
@@ -235,13 +255,12 @@ class Launcher:
         """Train ``count`` copies of ``spec`` at once in distinct directories, same seed."""
 
         def train_copy(index: int) -> tuple[str, float]:
-            if not self.wait_for_memory(spec):
-                return "skipped_memory", 0.0
+            refused = self.admit(spec)
+            if refused:
+                return refused, 0.0
             name = f"{spec.name}-x{count}-{index}"
             run_dir = self.root / "concurrency" / name
-            command = train_command(spec, run_dir)
-            log = self.root / "logs" / f"{name}.train"
-            outcome = run_command(command, log, spec.timeout_seconds, self.stop)
+            _, outcome = self.run_training(spec, run_dir, name)
             return outcome.status, read_progress(run_dir)["worlds_per_second"] or 0.0
 
         with ThreadPoolExecutor(count) as pool:
@@ -270,7 +289,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-total-seconds",
         type=float,
         default=None,
-        help="refuse to start a run whose timeout exceeds the remaining budget",
+        help="one deadline for starting, training, scoring and measuring; a run whose timeout "
+        "exceeds the time left (less a 30 s cleanup reserve) is not started",
     )
     parser.add_argument("--min-free-host-gib", type=float, default=defaults.min_free_host_gib)
     parser.add_argument("--min-free-gpu-gib", type=float, default=defaults.min_free_gpu_gib)

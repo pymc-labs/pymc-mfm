@@ -47,7 +47,13 @@ def read_progress(run_dir: Path) -> dict[str, Any]:
     return {"steps_done": last["step"], "worlds_per_second": last["worlds_per_second"]}
 
 
-def stderr_tail(path: Path) -> list[str]:
+def log_file(log_prefix: Path, stream: str) -> Path:
+    """``<prefix>.stdout`` or ``<prefix>.stderr``; the prefix may contain dots."""
+    return log_prefix.with_name(f"{log_prefix.name}.{stream}")
+
+
+def stderr_tail(log_prefix: Path) -> list[str]:
+    path = log_file(log_prefix, "stderr")
     lines = path.read_text(errors="replace").splitlines() if path.is_file() else []
     return lines[-STDERR_TAIL_LINES:]
 
@@ -65,7 +71,7 @@ def run_command(
     log_prefix: Path,
     timeout: float,
     stop: threading.Event,
-    on_start: Callable[[int], None] = lambda pid: None,
+    on_start: Callable[[int], None] | None = None,
 ) -> Outcome:
     """Run ``command`` in its own process group, logging to ``<prefix>.stdout/.stderr``.
 
@@ -77,11 +83,12 @@ def run_command(
     log_prefix.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with (
-        log_prefix.with_suffix(".stdout").open("ab") as out,
-        log_prefix.with_suffix(".stderr").open("ab") as err,
+        log_file(log_prefix, "stdout").open("ab") as out,
+        log_file(log_prefix, "stderr").open("ab") as err,
     ):
         process = subprocess.Popen(command, stdout=out, stderr=err, start_new_session=True)
-        on_start(process.pid)
+        if on_start:
+            on_start(process.pid)
         status = None
         while process.poll() is None and status is None:
             if stop.is_set():
@@ -90,23 +97,33 @@ def run_command(
                 status = "timed_out"
             else:
                 stop.wait(_POLL_SECONDS)
-        if status is not None:
-            _end_group(process)
+    _end_group(process)
     seconds = time.monotonic() - started
     if status is None:
         status = "finished" if process.returncode == 0 else "failed"
     return Outcome(status, process.returncode, seconds)
 
 
+def _group_alive(process: subprocess.Popen) -> bool:
+    """Whether any process of the child's group is left (this reaps the child itself)."""
+    process.poll()
+    try:
+        os.killpg(process.pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 def _end_group(process: subprocess.Popen) -> None:
-    """Terminate the process group the launcher created for ``process``, then kill it."""
-    for sig, grace in ((signal.SIGTERM, TERMINATE_GRACE_SECONDS), (signal.SIGKILL, None)):
-        try:
-            os.killpg(process.pid, sig)
-            process.wait(grace)
-            return
-        except subprocess.TimeoutExpired:
-            continue
-        except ProcessLookupError:
-            process.wait()
-            return
+    """Make sure the child's process group is gone: terminate it, then kill what remains.
+
+    Runs after every command, so a descendant that outlives its parent is also ended.
+    """
+    for sig, grace in ((signal.SIGTERM, TERMINATE_GRACE_SECONDS), (signal.SIGKILL, 5.0)):
+        if not _group_alive(process):
+            break
+        os.killpg(process.pid, sig)
+        deadline = time.monotonic() + grace
+        while _group_alive(process) and time.monotonic() < deadline:
+            time.sleep(_POLL_SECONDS / 4)
+    process.wait()

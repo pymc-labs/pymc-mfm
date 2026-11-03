@@ -83,6 +83,10 @@ def _parse_run(index: int, entry: Any) -> RunSpec:
         raise LaunchFileError(f"{label}: training must be an object of TrainingConfig fields")
     if unknown := training.keys() - _TRAINING_FIELDS:
         raise LaunchFileError(f"{label}: unknown training fields {sorted(unknown)}")
+    try:
+        resolved_training(preset, training)
+    except (TypeError, ValueError) as exc:
+        raise LaunchFileError(f"{label}: {exc}") from exc
     corpus = _existing_files(label, entry.get("corpus"))
     timeout = entry.get("timeout_seconds")
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
@@ -92,6 +96,22 @@ def _parse_run(index: int, entry: Any) -> RunSpec:
     if not isinstance(device, str):
         raise LaunchFileError(f"{label}: device must be a string")
     return RunSpec(name, preset, training, corpus, device, float(timeout), score)
+
+
+def resolved_training(preset: str, overrides: dict[str, Any]) -> TrainingConfig:
+    """The config the training CLI builds from ``preset`` and the explicit flags.
+
+    Without ``milestone_steps`` the CLI keeps the preset's milestones within ``steps``.
+    Raises ``ValueError`` for a value the config refuses.
+    """
+    values = {f.name: getattr(PRESETS[preset], f.name) for f in fields(TrainingConfig)}
+    values.update(overrides)
+    if "milestone_steps" not in overrides and type(values["steps"]) is int:
+        values["milestone_steps"] = tuple(
+            step for step in PRESETS[preset].milestone_steps if step <= values["steps"]
+        )
+    values["milestone_steps"] = tuple(values["milestone_steps"])
+    return TrainingConfig(**values)
 
 
 def _parse_score(label: str, score: Any, run_corpus: tuple[str, ...]) -> dict[str, Any] | None:
