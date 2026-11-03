@@ -1,4 +1,4 @@
-"""Run the dev-loop launcher and profiler on a Modal L4 in the ``pfn`` environment.
+"""Run the dev-loop launcher and profiler on a Modal L4.
 
 Run it with the ``modal`` CLI (its own tool environment); this file imports only the
 standard library and ``modal``. The image holds a clean clone of a committed, pushed
@@ -8,10 +8,13 @@ are container paths such as ``/inputs/shard_550000.npz``.
 
     export DEVLOOP_REVISION=<commit>          # committed and pushed
     export DEVLOOP_INPUTS=/path/to/inputs     # corpora and launch.json
-    modal run -e pfn benchmarks/modal_devloop.py::probe
-    modal run -e pfn benchmarks/modal_devloop.py::launch --launch-file launch.json \\
+    modal run -e <environment> benchmarks/modal_devloop.py::probe
+    modal run -e <environment> benchmarks/modal_devloop.py::launch --launch-file launch.json \\
         --max-minutes 30 --out-dir /tmp/devloop-modal
-    modal run -e pfn benchmarks/modal_devloop.py::profile --corpus shard_550000.npz
+    modal run -e <environment> benchmarks/modal_devloop.py::profile --corpus shard_550000.npz
+
+The Modal environment has no default here: pass it with ``-e`` (or ``MODAL_ENVIRONMENT``),
+and the entrypoints refuse to start without one.
 
 Every job costs money. Each function has an explicit ``timeout``; ``--max-minutes`` sets it
 (at most 60) and the estimated maximum cost is printed before anything starts. The
@@ -32,7 +35,6 @@ from pathlib import Path
 
 import modal
 
-ENVIRONMENT = "pfn"
 GPU = "L4"
 CPU = 4.0
 MEMORY_MIB = 16384
@@ -94,6 +96,20 @@ def container_timeout_seconds(max_minutes: float) -> int:
 def launcher_budget_seconds(timeout_seconds: int) -> int:
     """Launcher time budget inside a container of ``timeout_seconds``."""
     return max(timeout_seconds - ARCHIVE_RESERVE_SECONDS, 1)
+
+
+def chosen_environment() -> str:
+    """The environment ``modal run -e`` (or ``MODAL_ENVIRONMENT``) selected."""
+    return require_environment(
+        os.environ.get("MODAL_ENVIRONMENT") or modal.config.config.get("environment")
+    )
+
+
+def require_environment(value: str | None) -> str:
+    """The Modal environment chosen for this run; refuse to guess one."""
+    if not value:
+        raise RevisionError("choose a Modal environment with modal run -e <environment>")
+    return value
 
 
 def check_revision(sha: str, *, remote_branches: list[str], clone_status: str) -> None:
@@ -336,9 +352,10 @@ def _start(function, max_minutes: float):
     """Check the inputs, print the maximum cost and return ``function`` with its timeout set."""
     if SOURCE_SHA is None:
         raise RevisionError("set DEVLOOP_REVISION and DEVLOOP_INPUTS before modal run")
+    environment = chosen_environment()
     seconds = container_timeout_seconds(max_minutes)
     print(
-        f"revision {SOURCE_SHA}; timeout {seconds} s; "
+        f"environment {environment}; revision {SOURCE_SHA}; timeout {seconds} s; "
         f"estimated maximum cost {estimate_max_cost_usd(seconds):.2f} USD"
     )
     return function.with_options(timeout=seconds), seconds
@@ -346,6 +363,8 @@ def _start(function, max_minutes: float):
 
 @app.local_entrypoint()
 def probe():
+    environment = chosen_environment()
+    print(f"environment {environment}")
     print(json.dumps(probe_remote.remote(), indent=2))
 
 

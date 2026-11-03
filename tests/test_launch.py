@@ -393,6 +393,13 @@ def test_container_timeout_is_capped_at_sixty_minutes(modal_script):
     assert modal_script.launcher_budget_seconds(1800) < 1800
 
 
+def test_the_modal_environment_has_no_default(modal_script):
+    assert modal_script.require_environment("any-env") == "any-env"
+    for missing in (None, ""):
+        with pytest.raises(modal_script.RevisionError, match="modal run -e"):
+            modal_script.require_environment(missing)
+
+
 def test_unpushed_or_dirty_revision_is_refused(modal_script):
     modal_script.check_revision("abc", remote_branches=["origin/main"], clone_status="")
     with pytest.raises(modal_script.RevisionError, match="push it first"):
