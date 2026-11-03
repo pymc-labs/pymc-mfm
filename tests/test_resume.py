@@ -446,7 +446,7 @@ def test_resume_refuses_a_changed_corpus(tmp_path, full_run):
 
 def test_resume_matches_generator_corpora_by_file_hash(tmp_path):
     """Generator corpora carry array-valued metadata, so they have no content SHA-256."""
-    from pymc_generator import save_corpus
+    save_corpus = pytest.importorskip("pymc_generator").save_corpus
 
     from pymc_mfm.data.recipes import load_corpora, provenance
     from pymc_mfm.training._provenance import corpus_identity
@@ -623,7 +623,7 @@ def test_chained_row_sequence_matches_its_definition():
 def test_same_directory_resume_continues_the_mlflow_run_and_new_directory_starts_a_tagged_one(
     tmp_path,
 ):
-    from mlflow import MlflowClient
+    MlflowClient = pytest.importorskip("mlflow").MlflowClient
 
     tracking = TrackingConfig(diagnostics=False)
     config = reduced(steps=9, eval_every=3, milestone_steps=())
