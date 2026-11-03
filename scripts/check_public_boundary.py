@@ -18,6 +18,7 @@ Exit codes: 0 clean, 1 violations, 2 usage or configuration error.
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
 import re
 import subprocess
@@ -35,6 +36,7 @@ SUBMODULE_MODE = "160000"
 ZERO_OID_CHARS = frozenset("0")
 LARGE_FILE_BYTES = 1024 * 1024
 PAYLOAD_RUN_BYTES = 4096
+WIDE_SNIFF_BYTES = 8192
 SCAN_LIMIT_BYTES = 32 * 1024 * 1024
 MAX_FINDINGS_PER_RULE_AND_FILE = 10
 RULES = (
@@ -45,6 +47,7 @@ RULES = (
     "secret",
     "private-path",
     "deny",
+    "binary",
 )
 WEIGHT_SUFFIXES = (
     ".safetensors",
@@ -272,6 +275,7 @@ def log_changes(repo: str, *revision_args: str) -> list[RawChange]:
         repo,
         "log",
         "--source",
+        "-m",
         "--format=@@%H %S@@",
         "--raw",
         "--no-abbrev",
@@ -298,7 +302,7 @@ def range_items(objects: GitObjects, repo: str, revision_range: str) -> Iterator
     if ".." not in revision_range:
         raise UsageError("--range needs the form A..B")
     changes = log_changes(repo, revision_range)
-    # Merge commits show no diff in `git log`, so add the net change too.
+    # `git log -m` diffs merges against each parent; the net change catches the rest.
     start, _, end = revision_range.partition("..")
     net = run_git(repo, "diff", "--raw", "--no-abbrev", "--no-renames", "-z", start, end)
     changes += parse_raw_log(net)
@@ -323,13 +327,13 @@ def commit_message_findings(
 
 def all_refs_items(objects: GitObjects, repo: str) -> Iterator[Item]:
     changes = log_changes(repo, "--all")
-    seen_oids = {change.oid for change in changes}
+    seen = {(change.path, change.oid) for change in changes}
     yield from changes_to_items(objects, changes)
     # Blobs that only appear through merge resolutions or tags: add by object listing.
     listing = run_git(repo, "rev-list", "--objects", "--all").decode(errors="replace")
     for line in listing.splitlines():
         oid, _, path = line.partition(" ")
-        if oid in seen_oids or not path:
+        if (path, oid) in seen or not path:
             continue
         item = objects.blob_item(path, "100644", oid, "rev-list")
         if item is not None:
@@ -421,16 +425,62 @@ def check_path_rules(item: Item) -> list[Finding]:
         findings.append(
             Finding("large-file", item.path, None, f"{item.size} bytes, limit {LARGE_FILE_BYTES}")
         )
-    if name == PRIVATE_LINK_NAME or name.startswith(PRIVATE_LINK_NAME + "/"):
-        findings.append(Finding("private-path", item.path, None, "the private link is tracked"))
+    parts = name.replace("\\", "/").split("/")
+    if PRIVATE_LINK_NAME in (part.casefold() for part in parts):
+        findings.append(
+            Finding("private-path", item.path, None, "path has a private link component")
+        )
     return findings
 
 
-def check_content_rules(item: Item, data: bytes) -> list[Finding]:
-    findings = []
+def _mostly_nul(sample: bytes) -> bool:
+    return len(sample) >= 4 and sample.count(0) >= 0.9 * len(sample)
+
+
+def decode_wide_text(data: bytes) -> bytes | None:
+    """Return UTF-8 bytes for UTF-16 or UTF-32 text (BOM or NUL-interleaved ASCII), else None."""
+    boms = (
+        (codecs.BOM_UTF32_LE, "utf-32"),
+        (codecs.BOM_UTF32_BE, "utf-32"),
+        (codecs.BOM_UTF16_LE, "utf-16"),
+        (codecs.BOM_UTF16_BE, "utf-16"),
+    )
+    for bom, codec in boms:
+        if data.startswith(bom):
+            return data.decode(codec, errors="replace").encode()
+    head = data[:WIDE_SNIFF_BYTES]
+    for codec, width, ascii_offset in (
+        ("utf-32-le", 4, 0),
+        ("utf-32-be", 4, 3),
+        ("utf-16-le", 2, 0),
+        ("utf-16-be", 2, 1),
+    ):
+        filler = b"".join(head[i::width] for i in range(width) if i != ascii_offset)
+        if _mostly_nul(filler) and head[ascii_offset::width].count(0) < len(head) // width // 2:
+            return data.decode(codec, errors="replace").encode()
+    return None
+
+
+def inspect_content(data: bytes) -> tuple[bytes, bool]:
+    """Return (text to scan, True when the content cannot be inspected as text)."""
     if b"\0" not in data[:8192]:
-        findings += check_embedded_payload(item.path, data)
-    findings += check_text_rules(item.path, data)
+        return data, False
+    wide = decode_wide_text(data)
+    if wide is not None:
+        return wide, False
+    return data, True
+
+
+def check_content_rules(item: Item, data: bytes) -> list[Finding]:
+    text, opaque = inspect_content(data)
+    findings = []
+    if opaque:
+        findings.append(
+            Finding("binary", item.path, None, "NUL bytes: content cannot be inspected")
+        )
+    else:
+        findings += check_embedded_payload(item.path, text)
+    findings += check_text_rules(item.path, text)
     return findings
 
 
@@ -556,9 +606,11 @@ def cap_findings(findings: list[Finding]) -> list[Finding]:
 def check_item(item: Item, deny: list[DenyPattern]) -> list[Finding]:
     findings = check_path_rules(item)
     data = item.content()
+    text = None
     if data is not None:
         findings += check_content_rules(item, data)
-    findings += check_deny_rules(item, data, deny)
+        text = inspect_content(data)[0]
+    findings += check_deny_rules(item, text, deny)
     return cap_findings(findings)
 
 
@@ -608,9 +660,16 @@ def load_allowlist(path: Path, required: bool) -> list[AllowEntry]:
             raise UsageError(f"allowlist not found: {path}")
         return []
     try:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        raise UsageError(f"cannot parse allowlist {path}: {error}") from error
+        return parse_allowlist(path.read_text(encoding="utf-8"), str(path))
+    except OSError as error:
+        raise UsageError(f"cannot read allowlist {path}: {error.strerror}") from error
+
+
+def parse_allowlist(text: str, label: str) -> list[AllowEntry]:
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        raise UsageError(f"cannot parse allowlist {label}: {error}") from error
     entries = document.get("allow", [])
     if not isinstance(entries, list):
         raise UsageError("allowlist: 'allow' must be an array of tables")
@@ -691,12 +750,51 @@ def default_allowlist(repo: str | None) -> Path | None:
     return None
 
 
+def git_allowlist_revision(args: argparse.Namespace) -> str:
+    """The Git object prefix the default allowlist is read from: index, HEAD or range end."""
+    if args.staged:
+        return ":"
+    if args.range:
+        end = args.range.partition("..")[2].lstrip(".")
+        return (end or "HEAD") + ":"
+    return "HEAD:"
+
+
+def read_git_file(repo: str, spec: str) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", repo, "cat-file", "blob", spec], capture_output=True, check=False
+    )
+    return result.stdout.decode(errors="replace") if result.returncode == 0 else None
+
+
+def beside_script_allowlist() -> Path | None:
+    candidate = Path(__file__).resolve().parents[1] / DEFAULT_ALLOW
+    return candidate if candidate.is_file() else None
+
+
+def select_allowlist(args: argparse.Namespace, repo: str | None) -> list[AllowEntry]:
+    """Load exceptions. Git modes read committed or staged content, never the working tree."""
+    if args.allow:
+        return load_allowlist(Path(args.allow), required=True)
+    if args.archive or repo is None:
+        path = default_allowlist(repo)
+        return load_allowlist(path, required=False) if path else []
+    text = read_git_file(repo, f"{git_allowlist_revision(args)}{DEFAULT_ALLOW}")
+    if text is not None:
+        return parse_allowlist(text, f"{DEFAULT_ALLOW} (from Git)")
+    own_repo = Path(__file__).resolve().parents[1] == Path(repo).resolve()
+    beside = None if own_repo else beside_script_allowlist()
+    if args.all_refs and beside is not None:
+        return load_allowlist(beside, required=False)
+    print(f"warning: no {DEFAULT_ALLOW} in Git; checking without exceptions", file=sys.stderr)
+    return []
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo or find_repo_root()
     if repo is None and not args.archive:
         raise UsageError("not inside a git repository (use --repo)")
-    allow_path = Path(args.allow) if args.allow else default_allowlist(repo)
-    allow = load_allowlist(allow_path, required=bool(args.allow)) if allow_path else []
+    allow = select_allowlist(args, repo)
     deny = load_deny_file(Path(args.deny_file)) if args.deny_file else []
     objects = GitObjects(repo) if repo else None
     findings: list[Finding] = []

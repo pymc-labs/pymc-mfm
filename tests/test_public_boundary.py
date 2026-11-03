@@ -341,7 +341,7 @@ def test_unused_entry_warns_without_failing(repo: Path) -> None:
 
 
 def test_max_bytes_limits_large_file_entry(repo: Path) -> None:
-    write(repo, "big.dat", os.urandom(2 * 1024 * 1024))
+    write(repo, "big.dat", "x = 1\n" * 400_000)
     commit(repo)
     entry = '[[allow]]\npath = "big.dat"\nrules = ["large-file"]\nreason = "r"\nmax_bytes = {}\n'
     assert check(repo, "--allow", str(write_allow(repo, entry.format(3_000_000)))).returncode == 0
@@ -362,6 +362,162 @@ def test_pending_entry_fails_only_with_release(repo: Path) -> None:
 def test_bad_allowlist_entry_is_usage_error(repo: Path) -> None:
     allow = write_allow(repo, '[[allow]]\npath = "x"\nrules = ["nope"]\nreason = "r"\n')
     assert check(repo, "--allow", str(allow)).returncode == 2
+
+
+# ------------------------------------------------------------ merges (review P1)
+
+
+def merge_with_extra_file(repo: Path, name: str, data: str | bytes) -> str:
+    """Create a merge commit whose tree adds `name`, a change neither parent has."""
+    git(repo, "checkout", "-q", "-b", "side")
+    write(repo, "side.txt", "side\n")
+    commit(repo, "side work")
+    git(repo, "checkout", "-q", "main")
+    write(repo, "main.txt", "main\n")
+    commit(repo, "main work")
+    git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
+    write(repo, name, data)
+    return commit(repo, "merge")
+
+
+def test_range_catches_token_added_by_merge_then_deleted(repo: Path) -> None:
+    base = git(repo, "rev-parse", "HEAD")
+    merge_with_extra_file(repo, "evil.txt", f"key = {FAKE_AWS_KEY}\n")
+    git(repo, "rm", "-q", "evil.txt")
+    head = commit(repo, "remove it")
+    assert check(repo, "--tree").returncode == 0
+    result = check(repo, "--range", f"{base}..{head}")
+    assert result.returncode == 1
+    assert "secret evil.txt:1 AWS access key AKIA***" in result.stdout
+
+
+def test_range_with_clean_merge_passes(repo: Path) -> None:
+    base = git(repo, "rev-parse", "HEAD")
+    head = merge_with_extra_file(repo, "fine.txt", "ok\n")
+    assert check(repo, "--range", f"{base}..{head}").returncode == 0
+
+
+def test_all_refs_catches_merge_only_symlink_of_known_blob(repo: Path) -> None:
+    write(repo, "a.txt", "README.md")
+    commit(repo, "regular file with the same bytes as a link target")
+    git(repo, "checkout", "-q", "-b", "side")
+    write(repo, "side.txt", "side\n")
+    commit(repo, "side work")
+    git(repo, "checkout", "-q", "main")
+    write(repo, "main.txt", "main\n")
+    commit(repo, "main work")
+    git(repo, "merge", "-q", "--no-ff", "--no-commit", "side")
+    (repo / "a.txt").unlink()
+    (repo / "a.txt").symlink_to("README.md")
+    commit(repo, "merge")
+    result = check(repo, "--all-refs")
+    assert "symlink a.txt " in result.stdout
+
+
+# ------------------------------------------------- private link component (P1)
+
+
+def test_nested_private_component_fires_in_tree_and_sdist_tar(repo: Path, tmp_path: Path) -> None:
+    write(repo, f"tests/{PRIVATE_LINK}/customer.csv", "a,b\n")
+    commit(repo)
+    assert f"private-path tests/{PRIVATE_LINK}/customer.csv" in check(repo).stdout
+    archive = tmp_path / "pkg-1.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        data = b"a,b\n"
+        info = tarfile.TarInfo(f"pkg-1/tests/{PRIVATE_LINK}/customer.csv")
+        info.size = len(data)
+        bundle.addfile(info, io.BytesIO(data))
+    result = check(None, "--archive", str(archive))
+    assert result.returncode == 1
+    assert f"private-path pkg-1.tar.gz!pkg-1/tests/{PRIVATE_LINK}/customer.csv" in result.stdout
+
+
+def test_similar_directory_names_pass(repo: Path) -> None:
+    write(repo, "private/notes.txt", "x\n")
+    write(repo, f"{PRIVATE_LINK}ish/notes.txt", "x\n")
+    commit(repo)
+    assert check(repo).returncode == 0
+
+
+# ------------------------------------------------------ wide text and binary (P1)
+
+
+@pytest.mark.parametrize("codec", ["utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le"])
+def test_wide_text_is_decoded_for_secret_private_path_and_deny(
+    repo: Path, tmp_path: Path, codec: str
+) -> None:
+    text = f"key = {FAKE_AWS_KEY}\nrun {PRIVATE_LINK}/x.py\nzebrafish-internal\n"
+    write(repo, "wide.txt", text.encode(codec))
+    commit(repo)
+    deny = tmp_path / "deny.txt"
+    deny.write_text("zebrafish-internal\n")
+    result = check(repo, "--deny-file", str(deny))
+    assert "secret wide.txt:1 AWS access key AKIA***" in result.stdout
+    assert "private-path wide.txt:2" in result.stdout
+    assert "deny wide.txt:3 deny-file line 1" in result.stdout
+    assert "binary" not in result.stdout
+
+
+def test_clean_wide_text_passes(repo: Path) -> None:
+    write(repo, "wide.txt", "hello world\n".encode("utf-16"))
+    write(repo, "wide-le.txt", "hello world\n".encode("utf-16-le"))
+    commit(repo)
+    assert check(repo).returncode == 0
+
+
+def test_opaque_binary_needs_an_allowlist_entry(repo: Path) -> None:
+    payload = bytes([0, 1, 2, 3, 255, 0, 7, 9] * 8)
+    write(repo, "logo.bin2", payload)
+    commit(repo)
+    result = check(repo)
+    assert result.returncode == 1
+    assert "binary logo.bin2 NUL bytes" in result.stdout
+    sha = hashlib.sha256(payload).hexdigest()
+    entry = (
+        f'[[allow]]\npath = "logo.bin2"\nrules = ["binary"]\nreason = "image"\nsha256 = "{sha}"\n'
+    )
+    assert check(repo, "--allow", str(write_allow(repo, entry))).returncode == 0
+    changed = entry.replace(sha, "1" * 64)
+    assert check(repo, "--allow", str(write_allow(repo, changed))).returncode == 1
+
+
+# ------------------------------------------------- allowlist source (P1)
+
+DEFAULT_ALLOW_PATH = ".github/public-boundary-allow.toml"
+
+
+def default_allow_text() -> str:
+    return allow_entry(hashlib.sha256(b"tiny").hexdigest())
+
+
+def test_working_tree_only_allowlist_does_not_suppress_staged_finding(repo: Path) -> None:
+    write(repo, "model.pt", b"tiny")
+    git(repo, "add", "model.pt")
+    write(repo, DEFAULT_ALLOW_PATH, default_allow_text())
+    assert check(repo, "--staged").returncode == 1
+    git(repo, "add", DEFAULT_ALLOW_PATH)
+    assert check(repo, "--staged").returncode == 0
+
+
+def test_tree_reads_allowlist_from_head(repo: Path) -> None:
+    write(repo, "model.pt", b"tiny")
+    commit(repo)
+    write(repo, DEFAULT_ALLOW_PATH, default_allow_text())
+    assert check(repo, "--tree").returncode == 1
+    commit(repo, "add allowlist")
+    assert check(repo, "--tree").returncode == 0
+    (repo / DEFAULT_ALLOW_PATH).write_text("")
+    assert check(repo, "--tree").returncode == 0
+
+
+def test_range_reads_allowlist_from_range_end(repo: Path) -> None:
+    base = git(repo, "rev-parse", "HEAD")
+    write(repo, "model.pt", b"tiny")
+    head = commit(repo)
+    write(repo, DEFAULT_ALLOW_PATH, default_allow_text())
+    assert check(repo, "--range", f"{base}..{head}").returncode == 1
+    head = commit(repo, "add allowlist")
+    assert check(repo, "--range", f"{base}..{head}").returncode == 0
 
 
 # ------------------------------------------------------------------- real repo
