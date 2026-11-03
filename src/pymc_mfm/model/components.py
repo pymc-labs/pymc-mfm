@@ -142,29 +142,19 @@ class ConditionalHead(RouterHead):
 
 
 #: Required members of each contract, in the order they are reported.
+_ROUTER_MEMBERS = (
+    "loss",
+    "sample",
+    "state_dim",
+    "zero_atom_gate_slices",
+    "n_fixed",
+    "n_demand",
+    "n_controls",
+)
 REQUIRED_MEMBERS: dict[type, tuple[str, ...]] = {
     Encoder: ("forward_timeline", "forward_with_controls", "assert_batch_alignment"),
-    RouterHead: (
-        "loss",
-        "sample",
-        "state_dim",
-        "zero_atom_gate_slices",
-        "n_fixed",
-        "n_demand",
-        "n_controls",
-    ),
-    ConditionalHead: (
-        "loss",
-        "sample",
-        "state_dim",
-        "zero_atom_gate_slices",
-        "n_fixed",
-        "n_demand",
-        "n_controls",
-        "_draw_noise",
-        "_mix_noise",
-        "_transport",
-    ),
+    RouterHead: _ROUTER_MEMBERS,
+    ConditionalHead: (*_ROUTER_MEMBERS, "_draw_noise", "_mix_noise", "_transport"),
 }
 _CONTRACTS = tuple(REQUIRED_MEMBERS)
 
