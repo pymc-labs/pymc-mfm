@@ -1,0 +1,20 @@
+{
+  "packages": [
+    {
+      "name": "tymc",
+      "version": "0.1.0",
+      "repository": "https://github.com/pymc-labs/tymc",
+      "commit": "c77291884af7fbd08e11e0891c0a4d15fb21907b",
+      "file": "tymc-0.1.0.tgz",
+      "sha256": "12bb256413613cf0d5f6da3782ad9c50cae70e909fa389e43d87eeb3207209f6"
+    },
+    {
+      "name": "tymc-marketing",
+      "version": "0.1.0",
+      "repository": "https://github.com/pymc-labs/tymc-marketing",
+      "commit": "49b5fbf9a5fe9fa29aa62be720b7d6cefe2e18af",
+      "file": "tymc-marketing-0.1.0.tgz",
+      "sha256": "10a6a82d841059b49c0f1afba61170e8aed3794896370d920016a177acc91c82"
+    }
+  ]
+}

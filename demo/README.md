@@ -67,3 +67,28 @@ load; the saved NPZ fixtures contain only the synthetic inputs, masks and truth.
 `fixtures/paper-worlds/sources.json` identifies the source-world hashes, model
 checkpoint and reduced fixture hashes, which the server verifies before use.
 The harder constructed promotion comparison remains available at `/stress-test`.
+
+## Three-world forecast comparison
+
+`/compare` generates three deterministic six-channel worlds (baseline,
+correlated promotion, and a channel interaction). The models are given 166
+historical outcomes and the full set of known spend and promotion inputs; both
+predict the following 42 weeks, evaluated against observed synthetic sales.
+The River forecast is generated on the server. The tyMC-Marketing model is fit
+in a browser worker with the Mixlab default adstock, saturation, seasonality,
+and priors, two chains, 500 tuning and 500 posterior draws. The page reports
+RMSE, divergences and maximum R-hat; no convergence is implied. These fixed
+worlds are not a representative benchmark. This compares predictive accuracy,
+not causal effects or inferred structures, and does not yet implement an
+oracle structure-aware MMM.
+
+Worker sources and exact TyMC/TyMC-Marketing revisions are in `frontend/`.
+The generated `static/tymc-worker.js` is committed for deployment. To rebuild,
+install Mixlab's vendored npm dependencies at the revisions recorded in
+`frontend/vendor-manifest.json`, then from this repository run:
+
+```sh
+NODE_PATH=/path/to/mixlab/node_modules /path/to/mixlab/node_modules/.bin/esbuild \
+  demo/frontend/worker.ts --bundle --format=esm --platform=browser \
+  --target=es2022 --outfile=demo/static/tymc-worker.js
+```

@@ -46,7 +46,8 @@ def test_showcase_uses_pinned_worlds_with_one_week_held_out(monkeypatch):
     assert client.get("/api/showcase?case=other").status_code == 422
 
 
-def test_existing_comparison_url_opens_whitepaper_example():
+def test_whitepaper_and_comparison_pages_are_available():
     client = TestClient(demo.app)
-    assert "Which channels drive sales?" in client.get("/compare").text
+    assert "Which channels drive sales?" in client.get("/showcase").text
+    assert "Can you predict the next 42 weeks?" in client.get("/compare").text
     assert "Same sales. Different story?" in client.get("/stress-test").text

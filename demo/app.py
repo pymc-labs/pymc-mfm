@@ -191,7 +191,6 @@ def comparison():
     return comparison_result()
 
 
-@app.get("/compare")
 @app.get("/showcase")
 def showcase_page():
     return FileResponse(Path(__file__).parent / "static/showcase.html")
@@ -255,3 +254,50 @@ def showcase(case: Literal["91", "92"] = "91"):
             "model_revision": PIN,
         },
     }
+
+
+@app.get("/api/scenario")
+def scenario_forecast(case: Literal["baseline", "promotion", "halo"] = "baseline"):
+    """Forecast the same withheld weeks that a browser MMM can evaluate."""
+    from demo.scenario_world import CHANNELS as SCENARIO_CHANNELS
+    from demo.scenario_world import N_CONTEXT as SCENARIO_CONTEXT
+    from demo.scenario_world import make_scenario
+
+    world = make_scenario(case)
+    controls = np.zeros((len(world.outcome), 10))
+    controls[:, 0] = world.controls[:, 0]
+    observations = {
+        "spend": world.spend,
+        "controls": controls,
+        "context_outcome": world.outcome[:SCENARIO_CONTEXT],
+        "control_mask": [1] + [0] * 9,
+    }
+    with lock:
+        torch.manual_seed(0)
+        started = time.perf_counter()
+        result = decompose(
+            model(), observations, n_samples=128, window="query", channel_names=SCENARIO_CHANNELS
+        )
+        elapsed = time.perf_counter() - started
+    return {
+        "case": case,
+        "channels": SCENARIO_CHANNELS,
+        "context_weeks": SCENARIO_CONTEXT,
+        "spend": world.spend.tolist(),
+        "controls": world.controls.tolist(),
+        "outcome": world.outcome.tolist(),
+        "expected": world.expected[SCENARIO_CONTEXT:].tolist(),
+        "river": {"forecast": band(result.components.sum(axis=2)), "seconds": elapsed},
+    }
+
+
+@app.get("/compare")
+def scenario_page():
+    return FileResponse(Path(__file__).parent / "static/scenarios.html")
+
+
+@app.get("/tymc-worker.js")
+def tymc_worker():
+    return FileResponse(
+        Path(__file__).parent / "static/tymc-worker.js", media_type="application/javascript"
+    )
