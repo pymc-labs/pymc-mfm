@@ -65,13 +65,22 @@ def evaluation_sha256(evaluation: Mapping[str, Any]) -> str:
     ).hexdigest()
 
 
+def device_name(device: torch.device) -> str:
+    """``cpu``, ``mps`` or ``cuda:<index>``: the device whose RNG a resume must continue."""
+    if device.type == "cuda":
+        index = torch.cuda.current_device() if device.index is None else device.index
+        return f"cuda:{index}"
+    return device.type
+
+
 def capture_rng_state(device: torch.device) -> dict[str, Any]:
     """RNG state of the training device, plus the CPU torch RNG.
 
-    ``device_type`` names the accelerator whose state is held in ``accelerator_rng``:
-    all CUDA devices' states for ``cuda``, the MPS state for ``mps``, ``None`` for
-    ``cpu``. The training path draws no NumPy or Python global random numbers: the
-    stream owns its generator and evaluation forks and restores the torch RNG.
+    ``device`` (see :func:`device_name`) names the accelerator whose state is held in
+    ``accelerator_rng``: all CUDA devices' states for ``cuda``, the MPS state for
+    ``mps``, ``None`` for ``cpu``. The training path draws no NumPy or Python global
+    random numbers: the stream owns its generator and evaluation forks and restores the
+    torch RNG.
     """
     accelerator_rng = None
     if device.type == "cuda":
@@ -80,20 +89,24 @@ def capture_rng_state(device: torch.device) -> dict[str, Any]:
         accelerator_rng = torch.mps.get_rng_state()
     return {
         "torch_rng": torch.random.get_rng_state(),
-        "device_type": device.type,
+        "device": device_name(device),
         "accelerator_rng": accelerator_rng,
     }
 
 
 def check_rng_fits_device(resume: Mapping[str, Any], device: torch.device) -> None:
-    """Refuse a resume whose saved accelerator RNG cannot continue on ``device``."""
-    saved = resume["device_type"]
-    if saved != device.type:
+    """Refuse a resume whose saved accelerator RNG cannot continue on ``device``.
+
+    The RNG continues exactly only on the same device: the same type, the same CUDA
+    index and the same number of visible CUDA devices.
+    """
+    saved, current = resume["device"], device_name(device)
+    if saved != current:
         raise ValueError(
-            f"resume_from: the checkpoint was written on a {saved} device and cannot "
-            f"continue its RNG on a {device.type} device"
+            f"resume_from: the checkpoint was written on {saved} and cannot continue its "
+            f"RNG on {current}"
         )
-    if saved == "cuda" and len(resume["accelerator_rng"]) != torch.cuda.device_count():
+    if current.startswith("cuda") and len(resume["accelerator_rng"]) != torch.cuda.device_count():
         raise ValueError(
             f"resume_from: the checkpoint holds RNG states of {len(resume['accelerator_rng'])} "
             f"CUDA devices, but {torch.cuda.device_count()} are visible"
@@ -103,9 +116,9 @@ def check_rng_fits_device(resume: Mapping[str, Any], device: torch.device) -> No
 def restore_rng_state(resume: Mapping[str, Any]) -> None:
     """Set the torch RNGs from a resume block that :func:`check_rng_fits_device` accepted."""
     torch.random.set_rng_state(resume["torch_rng"])
-    if resume["device_type"] == "cuda":
+    if resume["device"].startswith("cuda"):
         torch.cuda.set_rng_state_all(list(resume["accelerator_rng"]))
-    elif resume["device_type"] == "mps":
+    elif resume["device"] == "mps":
         torch.mps.set_rng_state(resume["accelerator_rng"])
 
 

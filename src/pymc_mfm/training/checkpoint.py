@@ -51,7 +51,7 @@ _RESUME_KEYS = frozenset(
         "optimizer",
         "step",
         "torch_rng",
-        "device_type",
+        "device",
         "accelerator_rng",
         "stream",
         "consumption",

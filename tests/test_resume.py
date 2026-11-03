@@ -482,36 +482,37 @@ def test_resume_and_init_are_exclusive(tmp_path, full_run):
 # ---- accelerator RNG ----
 
 
-def resume_block(device_type, accelerator_rng):
-    return {"device_type": device_type, "accelerator_rng": accelerator_rng}
+def resume_block(device, accelerator_rng):
+    return {"device": device, "accelerator_rng": accelerator_rng}
 
 
 def test_cpu_capture_holds_no_accelerator_state():
     captured = capture_rng_state(torch.device("cpu"))
-    assert captured["device_type"] == "cpu" and captured["accelerator_rng"] is None
+    assert captured["device"] == "cpu" and captured["accelerator_rng"] is None
     assert torch.equal(captured["torch_rng"], torch.random.get_rng_state())
 
 
 @pytest.mark.parametrize(
     ("saved", "device", "message"),
     [
-        (resume_block("cuda", [torch.zeros(1)]), "cpu", "written on a cuda device.*cpu device"),
-        (resume_block("mps", torch.zeros(1)), "cuda", "written on a mps device.*cuda device"),
-        (resume_block("cpu", None), "mps", "written on a cpu device.*mps device"),
+        (resume_block("cuda:0", [torch.zeros(1)]), "cpu", "written on cuda:0.*on cpu"),
+        (resume_block("mps", torch.zeros(1)), "cuda:0", "written on mps.*on cuda:0"),
+        (resume_block("cpu", None), "mps", "written on cpu.*on mps"),
+        (resume_block("cuda:0", [torch.zeros(1)] * 2), "cuda:1", "written on cuda:0.*on cuda:1"),
     ],
-    ids=["cuda-to-cpu", "mps-to-cuda", "cpu-to-mps"],
+    ids=["cuda-to-cpu", "mps-to-cuda", "cpu-to-mps", "cuda-index"],
 )
-def test_resume_refuses_a_checkpoint_from_another_device_type(saved, device, message):
+def test_resume_refuses_a_checkpoint_from_another_device(saved, device, message):
     with pytest.raises(ValueError, match=message):
         check_rng_fits_device(saved, torch.device(device))
 
 
 def test_resume_refuses_a_cuda_checkpoint_when_the_device_count_differs(monkeypatch):
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 1)
-    saved = resume_block("cuda", [torch.zeros(1), torch.zeros(1)])
+    saved = resume_block("cuda:0", [torch.zeros(1), torch.zeros(1)])
     with pytest.raises(ValueError, match="RNG states of 2 CUDA devices, but 1 are visible"):
-        check_rng_fits_device(saved, torch.device("cuda"))
-    check_rng_fits_device(resume_block("cuda", [torch.zeros(1)]), torch.device("cuda"))
+        check_rng_fits_device(saved, torch.device("cuda:0"))
+    check_rng_fits_device(resume_block("cuda:0", [torch.zeros(1)]), torch.device("cuda:0"))
 
 
 def test_restore_sets_only_the_saved_devices_accelerator_rng(monkeypatch):
@@ -521,19 +522,19 @@ def test_restore_sets_only_the_saved_devices_accelerator_rng(monkeypatch):
     )
     monkeypatch.setattr(torch.mps, "set_rng_state", lambda state: calls.append(("mps", state)))
     cpu_rng = torch.random.get_rng_state()
-    for kind, state in (("cuda", [torch.ones(1)]), ("mps", torch.ones(1)), ("cpu", None)):
-        restore_rng_state({"torch_rng": cpu_rng, **resume_block(kind, state)})
+    for device, state in (("cuda:0", [torch.ones(1)]), ("mps", torch.ones(1)), ("cpu", None)):
+        restore_rng_state({"torch_rng": cpu_rng, **resume_block(device, state)})
     assert [kind for kind, _ in calls] == ["cuda", "mps"]
 
 
-def test_a_resume_from_another_device_type_is_refused_before_anything_is_written(tmp_path):
+def test_a_resume_from_another_device_is_refused_before_anything_is_written(tmp_path):
     part = tmp_path / "part"
     interrupted_run(part, 3)
     payload = torch.load(part / "checkpoint_last.pt", weights_only=True)
-    payload["resume"].update(device_type="cuda", accelerator_rng=[torch.zeros(1)])
+    payload["resume"].update(device="cuda:0", accelerator_rng=[torch.zeros(1)])
     foreign = tmp_path / "foreign.pt"
     torch.save(payload, foreign)
-    with pytest.raises(ValueError, match="written on a cuda device"):
+    with pytest.raises(ValueError, match="written on cuda:0"):
         run_train(tmp_path / "run", resume_from=foreign)
     assert not (tmp_path / "run").exists()
 
