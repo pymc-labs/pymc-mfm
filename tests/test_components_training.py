@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 import research_plugin
-import test_resume
 import torch
 from conftest import make_synthetic_corpus
 from research_plugin import SAME_SHAPE, SMALL_FLOW
@@ -65,21 +64,17 @@ def research_run(corpus_path, tmp_path_factory):
 def test_research_run_finishes_without_an_exported_bundle(research_run):
     run = json.loads((research_run / "run.json").read_text())
     last = payload_of(research_run / "checkpoint_last.pt")
+    (last_entry,) = [entry for entry in run["checkpoints"] if entry["kind"] == "last"]
     assert run["status"] == "finished" and run["final_step"] == 50
     assert run["export"] == {
         "status": "skipped",
         "reason": "research components",
         "components": {"encoder": "bi_attention", **SMALL_FLOW},
-        "source_checkpoint_sha256": last_sha(research_run),
+        "source_checkpoint_sha256": last_entry["sha256"],
         "source_step": 50,
     }
     assert not (research_run / "model").exists()
     assert last["schemas"]["components"] == run["export"]["components"]
-
-
-def last_sha(run_dir):
-    return next(c["sha256"] for c in json.loads((run_dir / "run.json").read_text())["checkpoints"]
-                if c["kind"] == "last")  # fmt: skip
 
 
 @needs_generator
@@ -99,21 +94,6 @@ def test_default_run_checkpoints_carry_no_components(tmp_path):
     assert (tmp_path / "run/model").is_dir()
 
 
-def test_same_shape_research_head_does_not_reload_as_the_default_model(tmp_path):
-    # Its tensors fit the default model, so only the recorded components tell them apart.
-    model = MFM(TINY, components=SAME_SHAPE)
-    assert model.state_dict().keys() == MFM(TINY).state_dict().keys()
-    path = tmp_path / "same_shape.pt"
-    save_checkpoint(
-        path, model=model, kind="best", step=1, training_config={}, run={}, consumed={},
-        evaluation=None, selection={},
-    )  # fmt: skip
-    with pytest.raises(ResearchComponentError):
-        load_checkpoint(path)
-    reloaded, _ = load_checkpoint(path, allow_research=True)
-    assert reloaded.components == model.components and reloaded.is_research
-
-
 def test_unregistered_component_asks_for_the_plugin_module(tmp_path):
     path = tmp_path / "unknown.pt"
     save_checkpoint(
@@ -127,12 +107,7 @@ def test_unregistered_component_asks_for_the_plugin_module(tmp_path):
         load_checkpoint(path, allow_research=True)
 
 
-def test_resume_of_a_research_run_equals_the_uninterrupted_run(tmp_path, monkeypatch):
-    def research_weights(path):
-        model, _ = load_checkpoint(path, allow_research=True)
-        return {key: value.clone() for key, value in model.state_dict().items()}
-
-    monkeypatch.setattr(test_resume, "weights", research_weights)
+def test_resume_of_a_research_run_equals_the_uninterrupted_run(tmp_path):
     config = reduced(steps=20, eval_every=10, milestone_steps=(), prefetch_batches=0)
     kwargs = dict(training=config, components=SMALL_FLOW)
     run_train(tmp_path / "full", **kwargs)
@@ -141,7 +116,7 @@ def test_resume_of_a_research_run_equals_the_uninterrupted_run(tmp_path, monkeyp
         tmp_path / "resumed", resume_from=tmp_path / "part/checkpoint_last.pt", **kwargs
     )
     assert result.status == "finished"
-    assert_resumed_equals_full(tmp_path / "full", tmp_path / "resumed", 10)
+    assert_resumed_equals_full(tmp_path / "full", tmp_path / "resumed", 10, allow_research=True)
     assert result.run["export"]["status"] == "skipped"
 
 

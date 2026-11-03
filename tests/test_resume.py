@@ -75,8 +75,8 @@ def jsonl(path):
     return [json.loads(line) for line in Path(path).read_text().splitlines()]
 
 
-def weights(path):
-    model, _ = load_checkpoint(path)
+def weights(path, *, allow_research=False):
+    model, _ = load_checkpoint(path, allow_research=allow_research)
     return {key: value.clone() for key, value in model.state_dict().items()}
 
 
@@ -85,7 +85,7 @@ def assert_same_weights(a, b):
     assert all(torch.equal(a[key], b[key]) for key in a)
 
 
-def assert_resumed_equals_full(full_dir, resumed_dir, after):
+def assert_resumed_equals_full(full_dir, resumed_dir, after, *, allow_research=False):
     full = {r["step"]: r for r in jsonl(full_dir / "metrics.jsonl")}
     resumed = {r["step"]: r for r in jsonl(resumed_dir / "metrics.jsonl")}
     later = [step for step in full if step > after]
@@ -94,7 +94,8 @@ def assert_resumed_equals_full(full_dir, resumed_dir, after):
         for key in COMPARED:
             assert resumed[step][key] == full[step][key], (step, key)
     assert_same_weights(
-        weights(full_dir / "checkpoint_last.pt"), weights(resumed_dir / "checkpoint_last.pt")
+        weights(full_dir / "checkpoint_last.pt", allow_research=allow_research),
+        weights(resumed_dir / "checkpoint_last.pt", allow_research=allow_research),
     )
     last_full = jsonl(full_dir / "evaluations.jsonl")[-1]
     last_resumed = jsonl(resumed_dir / "evaluations.jsonl")[-1]

@@ -274,6 +274,7 @@ def test_a_research_checkpoint_whose_tensors_match_the_default_never_loads_as_it
             load_checkpoint(tmp_path / "research.pt")
         loaded, _ = load_checkpoint(tmp_path / "research.pt", allow_research=True)
         assert loaded.components == research.components
+        assert isinstance(loaded.conditional_head, ReversedSampling)
     finally:
         del HEADS["reversed_sampling"]
 
