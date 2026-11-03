@@ -239,12 +239,23 @@ def export_lineage(run: Mapping[str, Any], checkpoint_sha256: str) -> dict[str, 
 def corpus_key(record: Mapping[str, Any]) -> str | None:
     """The identity that matches a corpus record across runs, or ``None`` when it has none.
 
-    This is the content SHA-256 of the in-memory arrays when every array has one. Generator
-    corpora hold object arrays, which have no canonical byte identity, so their
-    ``content_sha256`` is ``None``; the ``.npz`` file SHA-256 (``sha256``) identifies them.
+    This is the content SHA-256 of the in-memory arrays when every entry has one.
+    Generator corpora also carry array-valued metadata, which has no canonical byte
+    identity, so their ``content_sha256`` is ``None``. Their key then combines the
+    ``.npz`` file SHA-256 (``sha256``) with the hashes of every entry that does have
+    one and the names of those that do not, so a changed array is still caught.
     """
-    content = (record.get("actual_inputs") or {}).get("content_sha256")
+    identity = record.get("actual_inputs") or {}
+    content = identity.get("content_sha256")
     if content is not None:
         return content
     file_sha256 = record.get("sha256")
-    return None if file_sha256 is None else f"file:{file_sha256}"
+    if file_sha256 is None or "arrays" not in identity:
+        return None
+    hashed = {
+        "arrays": identity["arrays"],
+        "metadata": identity.get("metadata_sha256", {}),
+        "unavailable": sorted(identity.get("unavailable", {})),
+    }
+    encoded = json.dumps(hashed, sort_keys=True, separators=(",", ":")).encode()
+    return f"file:{file_sha256}+entries:{hashlib.sha256(encoded).hexdigest()}"

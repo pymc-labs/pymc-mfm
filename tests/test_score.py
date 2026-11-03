@@ -266,5 +266,20 @@ def test_replay_matches_generator_corpora_by_file_hash(tmp_path, capsys):
     )  # fmt: skip
     (row,) = read_rows(results)
     assert code == 0
-    assert json.loads(row["corpus_keys"]) == [f"file:{loaded[0].sha256}"]
+    (key,) = json.loads(row["corpus_keys"])
+    assert key.startswith(f"file:{loaded[0].sha256}+entries:")
     assert row["replay_max_abs_diff"] == "0.0"
+
+
+def test_corpus_key_without_content_hash_still_sees_a_changed_array():
+    from pymc_mfm.training._provenance import corpus_identity, corpus_key
+
+    corpus = make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=9)
+    corpus["identifiability"] = {"signal_metrics": torch.zeros(2).numpy()}
+    changed = dict(corpus, outcome_raw=corpus["outcome_raw"] * 2)
+    keys = [
+        corpus_key({"sha256": "same-file", "actual_inputs": corpus_identity(item)})
+        for item in (corpus, changed)
+    ]
+    assert corpus_identity(corpus)["content_sha256"] is None
+    assert keys[0] is not None and keys[0] != keys[1]
