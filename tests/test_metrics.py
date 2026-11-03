@@ -322,11 +322,25 @@ def test_time_average_coverage_uses_the_interval_of_draw_time_means():
     assert metrics.time_average_coverage(draws, truth) == 0.5
     assert metrics.time_average_coverage(draws[..., 0], truth[:, 0]) == 1.0
     world = metrics.time_average_scores(draws, truth, np.array([1, 0]), prefix="t_")
-    wanted = {"cov80": 0.5, "cov80_live": 1.0, "cov80_dead": 0.0}
     # The central 95% interval of draw means 0, 1, 2 still holds the truth mean 1.
-    wanted |= {key.replace("cov80", "cov95"): value for key, value in wanted.items()}
-    assert world.values == {f"t_{key}": value for key, value in wanted.items()}
-    assert world.weights == {f"t_{key}": 2 if "_" not in key else 1 for key in wanted}
+    values = {
+        "t_cov80": 0.5,
+        "t_cov80_live": 1.0,
+        "t_cov80_dead": 0.0,
+        "t_cov95": 0.5,
+        "t_cov95_live": 1.0,
+        "t_cov95_dead": 0.0,
+    }
+    weights = {
+        "t_cov80": 2,
+        "t_cov80_live": 1,
+        "t_cov80_dead": 1,
+        "t_cov95": 2,
+        "t_cov95_live": 1,
+        "t_cov95_dead": 1,
+    }
+    assert world.values == values
+    assert world.weights == weights
     assert world.undefined == {"t_simcov80_live": "fewer_than_two_live_effects"}
     only_live = metrics.time_average_scores(draws, truth, np.array([1, 1]))
     assert only_live.undefined == {

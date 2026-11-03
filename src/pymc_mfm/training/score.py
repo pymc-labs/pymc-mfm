@@ -37,7 +37,7 @@ import numpy as np
 import torch
 
 from pymc_mfm.model.graph import STRUCT_EDGE_KEYS
-from pymc_mfm.training._provenance import code_record, corpus_identity
+from pymc_mfm.training._provenance import code_record, corpus_identity, corpus_key
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
 from pymc_mfm.training.config import TrainingConfig
 from pymc_mfm.training.evaluation import evaluate_rows, flatten_evaluation, selection_metrics
@@ -67,7 +67,7 @@ RESULT_COLUMNS = (
     "code_source_sha256",
     "model_config_sha256",
     "training_config_sha256",
-    "corpus_content_sha256",
+    "corpus_keys",
     "eval_set_id",
     "mode",
     "row_rule",
@@ -106,39 +106,37 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def eval_set_id(content_sha256: Sequence[str], rule: str, seed: int, draws: int) -> str:
+def eval_set_id(corpus_keys: Sequence[str], rule: str, seed: int, draws: int) -> str:
     """The id of a scored set of worlds and draws; equal inputs give an equal id."""
     return canonical_sha256(
-        {"corpora": list(content_sha256), "rule": rule, "seed": seed, "draws": draws}
+        {"corpora": list(corpus_keys), "rule": rule, "seed": seed, "draws": draws}
     )
 
 
-def corpus_content_hashes(corpora: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Content SHA-256 of each loaded corpus (see ``corpus_identity``)."""
-    hashes = [corpus_identity(corpus)["content_sha256"] for corpus in corpora]
-    if None in hashes:
-        raise ScoreError("a corpus has an array without a canonical byte identity")
-    return hashes
+def loaded_corpus_keys(loaded: Sequence[Any]) -> list[str]:
+    """:func:`corpus_key` of each loaded corpus file."""
+    keys = [
+        corpus_key({"sha256": item.sha256, "actual_inputs": corpus_identity(item.corpus)})
+        for item in loaded
+    ]
+    if None in keys:
+        raise ScoreError("a corpus has neither a content nor a file SHA-256")
+    return keys
 
 
 def verify_run_corpora(
-    payload: Mapping[str, Any], content_sha256: Sequence[str], paths: Sequence[str]
+    payload: Mapping[str, Any], keys: Sequence[str], paths: Sequence[str]
 ) -> None:
     """Refuse corpora that differ from the ones the checkpoint's run consumed."""
-    recorded = [
-        (record.get("actual_inputs") or {}).get("content_sha256")
-        for record in payload["run"]["corpus"]
-    ]
-    if len(recorded) != len(content_sha256):
-        raise ScoreError(
-            f"the run consumed {len(recorded)} corpora, but {len(content_sha256)} were given"
-        )
-    for index, (expected, actual) in enumerate(zip(recorded, content_sha256, strict=True)):
+    recorded = [corpus_key(record) for record in payload["run"]["corpus"]]
+    if len(recorded) != len(keys):
+        raise ScoreError(f"the run consumed {len(recorded)} corpora, but {len(keys)} were given")
+    for index, (expected, actual) in enumerate(zip(recorded, keys, strict=True)):
         if expected is None:
-            raise ScoreError(f"the run recorded no content SHA-256 for corpus {index}")
+            raise ScoreError(f"the run recorded no identity for corpus {index}")
         if expected != actual:
             raise ScoreError(
-                f"corpus {index} ({paths[index]}) content SHA-256 {actual} differs from the "
+                f"corpus {index} ({paths[index]}) identity {actual} differs from the "
                 f"run's recorded {expected}"
             )
 
@@ -230,7 +228,7 @@ def score_checkpoint(
         training = payload["training_config"]
         loaded = load_corpora([str(path) for path in corpus_paths])
         corpora = [item.corpus for item in loaded]
-        content = corpus_content_hashes(corpora)
+        content = loaded_corpus_keys(loaded)
         if mode == "replay":
             if payload["evaluation"] is None:
                 raise ScoreError(f"{checkpoint} has no evaluation record to replay")
@@ -320,7 +318,7 @@ def _row(
         "code_source_sha256": code["source_sha256"],
         "model_config_sha256": canonical_sha256(payload["config"]),
         "training_config_sha256": canonical_sha256(training),
-        "corpus_content_sha256": json.dumps(list(content)),
+        "corpus_keys": json.dumps(list(content)),
         "eval_set_id": eval_set_id(content, rule, seed, draws),
         "mode": mode,
         "row_rule": rule,
