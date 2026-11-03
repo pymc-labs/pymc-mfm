@@ -234,3 +234,17 @@ def export_lineage(run: Mapping[str, Any], checkpoint_sha256: str) -> dict[str, 
         "diagnostics": diagnostics
         or [{"name": "terminal_checkpoint_diagnostics", "status": "not_generated"}],
     }
+
+
+def corpus_key(record: Mapping[str, Any]) -> str | None:
+    """The identity that matches a corpus record across runs, or ``None`` when it has none.
+
+    This is the content SHA-256 of the in-memory arrays when every array has one. Generator
+    corpora hold object arrays, which have no canonical byte identity, so their
+    ``content_sha256`` is ``None``; the ``.npz`` file SHA-256 (``sha256``) identifies them.
+    """
+    content = (record.get("actual_inputs") or {}).get("content_sha256")
+    if content is not None:
+        return content
+    file_sha256 = record.get("sha256")
+    return None if file_sha256 is None else f"file:{file_sha256}"
