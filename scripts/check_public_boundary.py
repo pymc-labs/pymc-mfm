@@ -680,12 +680,23 @@ def collect_items(args: argparse.Namespace, repo: str | None, objects: GitObject
     return tree_items(objects, repo)
 
 
+def default_allowlist(repo: str | None) -> Path | None:
+    """The checked repo's allowlist, else the one beside this script (archives, mirrors)."""
+    candidates = [Path(repo) / DEFAULT_ALLOW] if repo else []
+    candidates.append(Path(__file__).resolve().parents[1] / DEFAULT_ALLOW)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    print(f"warning: no {DEFAULT_ALLOW} found; checking without exceptions", file=sys.stderr)
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo or find_repo_root()
     if repo is None and not args.archive:
         raise UsageError("not inside a git repository (use --repo)")
-    allow_path = Path(args.allow) if args.allow else Path(repo or ".") / DEFAULT_ALLOW
-    allow = load_allowlist(allow_path, required=bool(args.allow))
+    allow_path = Path(args.allow) if args.allow else default_allowlist(repo)
+    allow = load_allowlist(allow_path, required=bool(args.allow)) if allow_path else []
     deny = load_deny_file(Path(args.deny_file)) if args.deny_file else []
     objects = GitObjects(repo) if repo else None
     findings: list[Finding] = []

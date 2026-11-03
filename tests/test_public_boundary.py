@@ -384,3 +384,21 @@ def test_real_repository_tree_is_clean() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stdout
+
+
+def test_archive_mode_outside_repo_uses_allowlist_beside_script(tmp_path):
+    """--archive run from a non-repo directory still applies the repo's allowlist."""
+    notebook = "examples/river_1_quickstart.ipynb"
+    if not (REPO_ROOT / notebook).is_file():
+        pytest.skip("notebook not present")
+    archive = tmp_path / "a.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.write(REPO_ROOT / notebook, notebook)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--archive", str(archive)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
