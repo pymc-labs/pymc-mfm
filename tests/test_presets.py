@@ -1,6 +1,7 @@
 """Mini development plans and training presets: geometry, seeds, CLI defaults, bundle rule."""
 
 import importlib.util
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -132,25 +133,49 @@ def test_mini_and_smoke_preset_values():
     assert smoke.milestone_steps == ()
 
 
-def _args(*extra):
-    parser = training_cli.build_parser(training_cli._preset_name(extra))
-    return parser.parse_args(["--corpus", "c.npz", "--out-dir", "o", *extra])
+@pytest.fixture
+def trained_config(monkeypatch, tmp_path):
+    """Run the training CLI with corpus loading and ``train`` replaced; return a runner.
+
+    The runner returns the ``TrainingConfig`` that the CLI passed to ``train``.
+    """
+    import pymc_mfm.data.recipes as recipes
+
+    passed = {}
+
+    class _Result:
+        run_dir = tmp_path
+        status = "finished"
+        final_step = 0
+        run = {"training_config": {"budget": None}, "best": None, "tracking": None}
+
+    def fake_train(corpora, *, training, **kwargs):
+        passed["training"] = training
+        return _Result()
+
+    monkeypatch.setattr(recipes, "load_corpora", lambda paths: [SimpleNamespace(corpus={})])
+    monkeypatch.setattr(recipes, "provenance", lambda item: {})
+    monkeypatch.setattr(training_cli, "train", fake_train)
+
+    def run(*flags):
+        argv = ["--corpus", "c.npz", "--out-dir", str(tmp_path / "run"), *flags]
+        assert training_cli.main(argv) == 0
+        return passed["training"]
+
+    return run
 
 
-def test_cli_without_a_preset_keeps_the_canonical_defaults():
-    args = _args()
-    assert args.preset == "canonical"
-    assert args.steps == TrainingConfig().steps
-    assert args.milestone_steps is None
+def test_cli_without_a_preset_keeps_the_canonical_defaults(trained_config):
+    assert trained_config() == TrainingConfig()
 
 
-def test_cli_preset_supplies_defaults_and_explicit_flags_override():
-    args = _args("--preset", "mini")
-    assert (args.steps, args.warmup_steps, args.eval_every) == (8000, 400, 1000)
-    args = _args("--preset", "mini", "--steps", "100", "--eval-every", "50")
-    assert (args.steps, args.warmup_steps, args.eval_every) == (100, 400, 50)
+def test_cli_preset_supplies_defaults_and_explicit_flags_override(trained_config):
+    mini = trained_config("--preset", "mini")
+    assert (mini.steps, mini.warmup_steps, mini.eval_every) == (8000, 400, 1000)
+    overridden = trained_config("--preset", "mini", "--steps", "100", "--eval-every", "50")
+    assert (overridden.steps, overridden.warmup_steps, overridden.eval_every) == (100, 400, 50)
 
 
-def test_cli_rejects_an_unknown_preset():
+def test_cli_rejects_an_unknown_preset(trained_config):
     with pytest.raises(SystemExit):
-        training_cli._preset_name(["--preset", "huge"])
+        trained_config("--preset", "huge")
