@@ -112,3 +112,13 @@ maximum R-hat below 1.01. These use the same random seed and the same fixed
 holdout as selection, so they are not an independent performance test. Four
 chains can be slow in the browser. The selected variants share an omitted
 trend and should not be presented as distinct independent benchmarks.
+
+The forecast RMSE compares posterior mean latent sales with observed held-out
+sales, which include simulated observation noise. The displayed 80% intervals
+and fair CRPS instead evaluate the latent expected-sales distribution against
+the simulator's known noise-free `expected` series. Both use all available
+draws (128 River, 4,000 tyMC); the finite-ensemble correction omits self-pairs
+to reduce differences due solely to draw count. The CRPS is averaged across
+held-out weeks in sales units. This is not posterior-predictive CRPS for noisy
+observations: River's output explicitly excludes observation noise. It is not
+an error score for channel decomposition.

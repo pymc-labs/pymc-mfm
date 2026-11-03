@@ -20,9 +20,23 @@ self.onmessage = ({data}) => {
     const width = world.outcome.length-n;
     const count = prediction.values.length/width;
     const mean = Array.from({length:width},(_,t) => {let s=0; for(let d=0;d<count;d++) s+=prediction.values[d*width+t]; return s/count;});
+    // Fair CRPS against the simulator's noise-free latent mean. Both models
+    // supply latent draws: neither includes observation noise in this score.
+    const truth = world.expected;
+    let score = 0;
+    const low: number[] = [], high: number[] = [];
+    for (let t=0; t<width; t++) {
+      const xs = Array.from({length:count}, (_,d) => prediction.values[d*width+t]).sort((a,b)=>a-b);
+      let distance=0, pairs=0;
+      for (let d=0;d<count;d++) { distance+=Math.abs(xs[d]-truth[t]); pairs+=(2*d-count+1)*xs[d]; }
+      score += distance/count-pairs/(count*(count-1));
+      const quantile=(q:number) => {const p=(count-1)*q, i=Math.floor(p); return xs[i]+(xs[Math.ceil(p)]-xs[i])*(p-i);};
+      low.push(quantile(0.1)); high.push(quantile(0.9));
+    }
+    const latentCrps = score/width;
     const summary = run.fitted.result.summary;
     const rhats = summary.map((v:any)=>v.r_hat).filter(Number.isFinite);
     const divergences = run.fitted.result.chains.reduce((sum:number,c:any)=>sum+Array.from(c.divergent).filter(Boolean).length,0);
-    self.postMessage({type:'result',mean, seconds:run.compileSeconds+run.samplingSeconds, divergences, maxRhat:rhats.length?Math.max(...rhats):null, draws:count});
+    self.postMessage({type:'result',mean, low, high, latentCrps, seconds:run.compileSeconds+run.samplingSeconds, divergences, maxRhat:rhats.length?Math.max(...rhats):null, draws:count});
   } catch (err) {self.postMessage({type:'error',message:err instanceof Error?err.message:String(err)});}
 };

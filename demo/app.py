@@ -283,6 +283,9 @@ def scenario_forecast(
             model(), observations, n_samples=128, window="query", channel_names=SCENARIO_CHANNELS
         )
         elapsed = time.perf_counter() - started
+    from demo.scoring import fair_crps
+
+    latent_draws = result.components.sum(axis=2)
     return {
         "case": case,
         "channels": SCENARIO_CHANNELS,
@@ -291,7 +294,12 @@ def scenario_forecast(
         "controls": world.controls.tolist(),
         "outcome": world.outcome.tolist(),
         "expected": world.expected[SCENARIO_CONTEXT:].tolist(),
-        "river": {"forecast": band(result.components.sum(axis=2)), "seconds": elapsed},
+        "river": {
+            "forecast": band(latent_draws),
+            "latent_crps": fair_crps(latent_draws, world.expected[SCENARIO_CONTEXT:]),
+            "draws": int(latent_draws.shape[0]),
+            "seconds": elapsed,
+        },
     }
 
 
