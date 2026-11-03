@@ -27,6 +27,7 @@ def train_run(out: Path, config: TrainingConfig, corpus=None):
         training=config,
         device="cpu",
         tracking=NO_TRACKING,
+        measure_unadopted_acceleration=True,
     )
 
 
@@ -75,7 +76,35 @@ def test_resume_refuses_a_changed_precision(tmp_path):
             tmp_path / "resumed",
             training=replace(config, precision="bf16"),
             resume_from=source / "checkpoint_last.pt",
+            measure_unadopted_acceleration=True,
         )
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"precision": "bf16"}, "precision='bf16' are measured and not adopted"),
+        ({"compile": True}, "compile=True are measured and not adopted"),
+    ],
+)
+def test_unadopted_acceleration_is_refused_outside_measurement(tmp_path, change, message):
+    with pytest.raises(ValueError, match=message):
+        train(
+            [make_synthetic_corpus()],
+            out_dir=tmp_path / "run",
+            model_config=TINY,
+            training=replace(reduced(steps=2, eval_every=2, milestone_steps=()), **change),
+            device="cpu",
+            tracking=NO_TRACKING,
+        )
+    assert not (tmp_path / "run").exists()
+
+
+def test_the_training_cli_has_no_precision_or_compile_flag():
+    from pymc_mfm.training.__main__ import build_parser
+
+    flags = {option for action in build_parser()._actions for option in action.option_strings}
+    assert not {"--precision", "--compile", "--no-compile"} & flags
 
 
 def test_bf16_trains_with_finite_losses_on_fp32_master_weights(tmp_path):

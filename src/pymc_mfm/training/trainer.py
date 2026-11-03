@@ -62,6 +62,7 @@ from pymc_mfm.training.observer import TrainingObserver
 from pymc_mfm.training.precision import (
     autocast_context,
     build_loss_fn,
+    check_acceleration_allowed,
     compile_counts,
     compile_record,
 )
@@ -377,6 +378,7 @@ def train(
     holdout_archives: Sequence[str] | None = (),
     resume_from: str | Path | None = None,
     init_from: str | Path | None = None,
+    measure_unadopted_acceleration: bool = False,
 ) -> TrainingResult:
     """Train with durable local evidence and default-enabled optional MLflow.
 
@@ -421,8 +423,13 @@ def train(
     archived fails the run before training, and an invalid value raises
     ``ValueError`` before anything is written. Unset (``()`` or ``None``),
     nothing in the run changes.
+
+    ``precision="bf16"`` and ``compile=True`` are measured and not adopted
+    (:mod:`pymc_mfm.training.precision`); they raise ``ValueError`` before anything
+    is written unless ``measure_unadopted_acceleration`` is set.
     """
     training = TrainingConfig() if training is None else training
+    check_acceleration_allowed(training, measure=measure_unadopted_acceleration)
     tracking = TrackingConfig() if tracking is None else tracking
     archives = _holdout_archive_kinds(holdout_archives)
     out_dir = Path(out_dir)

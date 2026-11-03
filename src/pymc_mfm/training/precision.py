@@ -1,9 +1,21 @@
-"""Training-step forward pass: optional bf16 autocast and ``torch.compile``.
+"""Measurement-only training-step variants: bf16 autocast and ``torch.compile``.
 
-Only the forward pass and loss (``MFM.loss_terms``) run under autocast or in
-the compiled callable. Forward and loss use bf16 autocast. Parameters and
-accumulated parameter gradients remain fp32. Backward runs outside autocast.
-Evaluation never uses either.
+Neither is adopted for training. Both were measured on an L4 (500 updates,
+mini corpus, batch 64, three fp32 seeds as reference):
+
+* bf16 was 1.21x faster, but its held-out monitor was about 2.7x worse than the
+  fp32 spread, so it fails the quality check.
+* compile was 1.70x faster after a 217 s first call, but it is not
+  optimizer-equivalent to eager: a parameter that a batch leaves unused gets a
+  zero gradient instead of ``None``, so AdamW still applies momentum and weight
+  decay to it. Restoring ``None`` for exact-zero gradients made it slower than
+  eager and also dropped genuine zero gradients, so it was not kept.
+
+``train`` therefore refuses either setting unless the caller passes
+``measure_unadopted_acceleration=True``, which ``benchmarks/precision_compile_check.py``
+does. Only the forward pass and loss (``MFM.loss_terms``) run under autocast or in
+the compiled callable. Parameters and accumulated parameter gradients remain fp32,
+backward runs outside autocast, and evaluation uses neither.
 """
 
 from __future__ import annotations
@@ -19,6 +31,24 @@ from pymc_mfm.model.model import MFM
 from pymc_mfm.training.config import TrainingConfig
 
 LossFn = Callable[[Mapping[str, Any]], dict[str, torch.Tensor]]
+
+
+def check_acceleration_allowed(training: TrainingConfig, *, measure: bool) -> None:
+    """Refuse bf16 or compile unless the caller is measuring them (see the module doc)."""
+    unadopted = [
+        name
+        for name, active in (
+            ("precision='bf16'", training.precision == "bf16"),
+            ("compile=True", training.compile),
+        )
+        if active
+    ]
+    if unadopted and not measure:
+        raise ValueError(
+            f"{' and '.join(unadopted)} are measured and not adopted for training "
+            "(bf16 fails held-out quality; compile is not optimizer-equivalent to eager); "
+            "pass measure_unadopted_acceleration=True only to measure them"
+        )
 
 
 def autocast_context(training: TrainingConfig, device_type: str):

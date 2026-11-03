@@ -160,6 +160,7 @@ def main() -> None:
             training=config,
             device=device,
             tracking=TrackingConfig(enabled=False),
+            measure_unadopted_acceleration=True,
         )
         summary = summarize(run_dir, result, peak_memory_mb(device))
         return summary, round_trip_equal(run_dir, result.model) if config.compile else None

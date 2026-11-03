@@ -51,7 +51,7 @@ import numpy as np
 from pymc_mfm.inference import from_pretrained
 from pymc_mfm.training.archive import _evaluate_identity, _sidecar_seed, archive_identity
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
-from pymc_mfm.training.config import PRECISIONS, PRESETS, SELECTION_HEADS, TrainingConfig
+from pymc_mfm.training.config import PRESETS, SELECTION_HEADS, TrainingConfig
 from pymc_mfm.training.evaluation import DECOMPOSITION_HEADS
 from pymc_mfm.training.tracking import TrackingConfig
 from pymc_mfm.training.trainer import (
@@ -64,6 +64,11 @@ from pymc_mfm.training.trainer import (
 if TYPE_CHECKING:
     from pymc_mfm.data.recipes import LoadedCorpus
     from pymc_mfm.model.model import MFM
+
+
+#: TrainingConfig fields with no CLI flag: measured and not adopted for training
+#: (see :mod:`pymc_mfm.training.precision`).
+MEASUREMENT_ONLY_FIELDS = ("precision", "compile")
 
 
 def _milestones(value: str) -> tuple[int, ...]:
@@ -158,10 +163,8 @@ def build_parser(preset: str = "canonical") -> argparse.ArgumentParser:
             parser.add_argument(flag, choices=("cosine", "constant"), default=default)
         elif field.name == "selection_head":
             parser.add_argument(flag, choices=SELECTION_HEADS, default=default)
-        elif field.name == "precision":
-            parser.add_argument(flag, choices=PRECISIONS, default=default)
-        elif field.name == "compile":
-            parser.add_argument(flag, action=argparse.BooleanOptionalAction, default=default)
+        elif field.name in MEASUREMENT_ONLY_FIELDS:
+            continue  # measured and not adopted; see pymc_mfm.training.precision
         else:
             parser.add_argument(flag, type=type(default), default=default)
     starts = parser.add_mutually_exclusive_group()
@@ -277,7 +280,11 @@ def main(argv: list[str] | None = None) -> int:
     from pymc_mfm.data.recipes import load_corpora, provenance
 
     loaded = load_corpora(args.corpus)
-    values = {field.name: getattr(args, field.name) for field in fields(TrainingConfig)}
+    values = {
+        field.name: getattr(args, field.name)
+        for field in fields(TrainingConfig)
+        if field.name not in MEASUREMENT_ONLY_FIELDS
+    }
     if values["milestone_steps"] is None:
         values["milestone_steps"] = tuple(
             step for step in PRESETS[args.preset].milestone_steps if step <= values["steps"]
