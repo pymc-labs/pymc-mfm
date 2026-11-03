@@ -13,8 +13,10 @@ are container paths such as ``/inputs/shard_550000.npz``.
         --max-minutes 30 --out-dir /tmp/devloop-modal
     modal run -e <environment> benchmarks/modal_devloop.py::profile --corpus shard_550000.npz
 
-The Modal environment has no default here: pass it with ``-e`` (or ``MODAL_ENVIRONMENT``),
-and the entrypoints refuse to start without one.
+The Modal environment has no default here: pass it with ``-e`` (or ``MODAL_ENVIRONMENT``).
+Without it, or without ``DEVLOOP_REVISION`` and ``DEVLOOP_INPUTS``, importing this file under
+``modal run`` raises before any image is built or any function starts, whichever function
+is named. ``DEVLOOP_IMPORT_ONLY=1`` imports it without those checks (tests only).
 
 Every job costs money. Each function has an explicit ``timeout``; ``--max-minutes`` sets it
 (at most 60) and the estimated maximum cost is printed before anything starts. The
@@ -209,7 +211,13 @@ _base = (
 )
 
 SOURCE_SHA = None
-if modal.is_local() and os.environ.get("DEVLOOP_REVISION"):
+ENVIRONMENT = None
+if modal.is_local() and not os.environ.get("DEVLOOP_IMPORT_ONLY"):
+    # Every `modal run` imports this file first, so refuse here, before any image is built
+    # or any function (an entrypoint or a remote function called directly) can start.
+    ENVIRONMENT = chosen_environment()
+    if not (os.environ.get("DEVLOOP_REVISION") and os.environ.get("DEVLOOP_INPUTS")):
+        raise RevisionError("set DEVLOOP_REVISION and DEVLOOP_INPUTS before modal run")
     _tree, SOURCE_SHA = clean_checkout(os.environ["DEVLOOP_REVISION"])
     image = (
         _base.add_local_file(_tree / "pyproject.toml", f"{REMOTE_SRC}/pyproject.toml", copy=True)
@@ -352,10 +360,9 @@ def _start(function, max_minutes: float):
     """Check the inputs, print the maximum cost and return ``function`` with its timeout set."""
     if SOURCE_SHA is None:
         raise RevisionError("set DEVLOOP_REVISION and DEVLOOP_INPUTS before modal run")
-    environment = chosen_environment()
     seconds = container_timeout_seconds(max_minutes)
     print(
-        f"environment {environment}; revision {SOURCE_SHA}; timeout {seconds} s; "
+        f"environment {ENVIRONMENT}; revision {SOURCE_SHA}; timeout {seconds} s; "
         f"estimated maximum cost {estimate_max_cost_usd(seconds):.2f} USD"
     )
     return function.with_options(timeout=seconds), seconds
@@ -363,8 +370,7 @@ def _start(function, max_minutes: float):
 
 @app.local_entrypoint()
 def probe():
-    environment = chosen_environment()
-    print(f"environment {environment}")
+    print(f"environment {ENVIRONMENT}")
     print(json.dumps(probe_remote.remote(), indent=2))
 
 

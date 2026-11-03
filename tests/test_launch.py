@@ -3,6 +3,7 @@
 import csv
 import importlib.util
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -365,9 +366,34 @@ def load_modal_script(modal_module):
     """Import ``benchmarks/modal_devloop.py`` with ``modal_module`` standing in for modal."""
     spec = spec_from_file_location("modal_devloop", MODAL_SCRIPT)
     script = module_from_spec(spec)
-    with mock.patch.dict(sys.modules, {"modal": modal_module}):
+    with (
+        mock.patch.dict(sys.modules, {"modal": modal_module}),
+        mock.patch.dict(os.environ, {"DEVLOOP_IMPORT_ONLY": "1"}),
+    ):
         spec.loader.exec_module(script)
     return script
+
+
+@pytest.mark.parametrize(
+    "missing", ["MODAL_ENVIRONMENT", "DEVLOOP_REVISION", "DEVLOOP_INPUTS"], ids=str.lower
+)
+def test_a_modal_run_without_environment_or_inputs_stops_at_import(missing, monkeypatch):
+    """`modal run` imports the file first: nothing can start, whichever function is named."""
+    stub = mock.MagicMock()
+    stub.is_local.return_value = True
+    stub.config.config.get.return_value = None
+    settings = {"MODAL_ENVIRONMENT": "any-env", "DEVLOOP_REVISION": "abc", "DEVLOOP_INPUTS": "x"}
+    monkeypatch.delenv("DEVLOOP_IMPORT_ONLY", raising=False)
+    for name, value in settings.items():
+        if name == missing:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    spec = spec_from_file_location("modal_devloop_guard", MODAL_SCRIPT)
+    with mock.patch.dict(sys.modules, {"modal": stub}), pytest.raises(Exception) as raised:
+        spec.loader.exec_module(module_from_spec(spec))
+    assert type(raised.value).__name__ == "RevisionError"
+    stub.App.assert_not_called()  # no app, so no function can be registered or started
 
 
 @pytest.fixture(scope="module")
