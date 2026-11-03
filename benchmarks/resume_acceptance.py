@@ -8,10 +8,12 @@ into a new directory. Steps 101..200 of every logged loss key, ``grad_norm`` and
 and the step-200 evaluation. Two negative controls resume with the stream restore, then
 the RNG restore, switched off; each must diverge.
 
-On CUDA, kernels are not bitwise deterministic, so a second uninterrupted run measures
-the noise floor. The resume passes when its largest difference from the uninterrupted
-run is at most ``max(2 x floor, 1e-5)`` and each negative control differs by more than
-ten times that.
+On CUDA the script turns on ``torch.use_deterministic_algorithms`` (with
+``warn_only``), because default kernels are not bitwise reproducible and training
+amplifies their differences. A second uninterrupted run measures the remaining noise
+floor. The resume passes when its largest difference from the uninterrupted run is at
+most ``max(2 x floor, 1e-5)`` and each negative control differs by more than ten times
+that.
 
     OMP_NUM_THREADS=2 uv run --no-sync python benchmarks/resume_acceptance.py \
         [--device cpu|cuda] [--out DIR]
@@ -29,6 +31,8 @@ from pathlib import Path
 
 os.environ.setdefault("OMP_NUM_THREADS", "2")
 os.environ.setdefault("MKL_NUM_THREADS", "2")
+# Needed by deterministic cuBLAS; read when CUDA initializes, ignored on CPU.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import torch  # noqa: E402
 
@@ -105,6 +109,8 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=None, help="run directory (default: temporary)")
     parser.add_argument("--device", default="cpu", help="cpu (bitwise check) or cuda")
     args = parser.parse_args()
+    if args.device != "cpu":
+        torch.use_deterministic_algorithms(True, warn_only=True)
     root = args.out or Path(tempfile.mkdtemp(prefix="resume_acceptance_"))
     corpus = make_synthetic_corpus(
         n_cells=16, draws_per_cell=4, n_weeks=52, context_lengths=(39,), k=4, m=2, j=1, val_cells=4
