@@ -326,6 +326,33 @@ quick probe. Mini is a smoke and development surface only. It is not a
 validated surrogate for full-scale results, and a model bundle cannot record a
 mini plan as its world source.
 
+### Launching several runs
+
+`python -m pymc_mfm.training.launch RUNS.json --root DIR` runs a bounded list of
+training configs, one subprocess each, and appends a scored row per finished run
+to `DIR/results.csv`. Each entry of the JSON list has `name`, `timeout_seconds`,
+`corpus` and optionally `preset`, `training` (any `TrainingConfig` field),
+`device` and `score` (`{"mode": "replay" | "eval-set", "corpus": [...]}`; `eval-set`
+also takes `seed` and `draws`, and keeps score's 128 draws when `draws` is absent,
+which is slow on CPU, so set a small `draws` for local smokes). The file is
+validated before anything starts.
+
+```bash
+python -m pymc_mfm.training.launch runs.json --root out/ --max-parallel 2 \
+    --max-total-seconds 7200 --min-free-host-gib 8
+```
+
+A run past its timeout is terminated and recorded as `timed_out`; a failed or
+skipped run does not stop the others, and the exit status is nonzero unless
+every run finished. `DIR/launch.json` records each run's status, command,
+stderr tail, steps done and worlds per second. `--resume` re-launches the runs
+that did not finish, continuing from `checkpoint_last.pt` in the same run
+directory when it exists. `--measure-concurrency 1,2,4` runs the first entry N
+times at once and records the aggregate worlds per second against the solo run.
+`benchmarks/train_profile.py` profiles training updates with `torch.profiler`,
+and `benchmarks/modal_devloop.py` runs the launcher or the profiler on a Modal
+L4 with a hard time limit.
+
 ## Load a trained model
 
 A model folder holds `config.json`, `model.safetensors` and `manifest.json`.
