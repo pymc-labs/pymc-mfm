@@ -115,3 +115,42 @@ def test_compiled_losses_match_eager_and_the_original_module_is_saved(tmp_path):
             torch.equal(value, compiled.model.state_dict()[key])
             for key, value in loaded.state_dict().items()
         )
+
+
+def test_compiled_training_matches_eager_when_active_families_alternate(tmp_path):
+    # The default corpus mixes worlds with one and several active channels, so batches
+    # alternate between using and not using the channel-to-channel edge parameters.
+    # Eager leaves an unused parameter's gradient None and AdamW skips it; compiled
+    # backward returns zeros, which the trainer must turn back into None.
+    corpus = make_synthetic_corpus()
+    config = reduced(steps=10, eval_every=10, milestone_steps=(), log_every=1)
+    train_run(tmp_path / "eager", config, corpus)
+    train_run(tmp_path / "compiled", replace(config, compile=True), corpus)
+
+    eager = torch.load(tmp_path / "eager" / "checkpoint_last.pt", weights_only=False)
+    compiled = torch.load(tmp_path / "compiled" / "checkpoint_last.pt", weights_only=False)
+    names = [
+        name
+        for name, _ in load_checkpoint(tmp_path / "eager" / "checkpoint_last.pt")[
+            0
+        ].named_parameters()
+    ]
+    eager_state = eager["resume"]["optimizer"]["state"]
+    compiled_state = compiled["resume"]["optimizer"]["state"]
+    assert eager_state.keys() == compiled_state.keys()
+
+    unused_somewhere = [i for i, name in enumerate(names) if eager_state[i]["step"] < config.steps]
+    assert unused_somewhere, "no parameter was skipped in any step; the corpus no longer alternates"
+    # This bias gets a gradient near 1e-6; AdamW turns round-off in it into steps of
+    # order lr, so eager and compiled legitimately differ there. Everything else must agree.
+    noisy = "head.trajectory_loading_net.2.bias"
+    for index, name in enumerate(names):
+        if name.endswith(noisy):
+            continue
+        torch.testing.assert_close(
+            compiled["state_dict"][name], eager["state_dict"][name], rtol=1e-4, atol=1e-5, msg=name
+        )
+        for slot, value in eager_state[index].items():
+            torch.testing.assert_close(
+                compiled_state[index][slot], value, rtol=1e-4, atol=1e-5, msg=f"{name}.{slot}"
+            )

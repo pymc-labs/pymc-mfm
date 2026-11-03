@@ -87,6 +87,32 @@ def within_spread(value: float, reference: list[float]) -> bool:
     return min(reference) <= value <= max(reference)
 
 
+def compare_modes(
+    summaries: dict[str, dict], fp32_seed_names: list[str], round_trips: dict[str, bool]
+) -> dict:
+    """The acceptance checks, from the per-mode summaries."""
+    fp32_runs = [summaries[name] for name in fp32_seed_names]
+    eager_losses = fp32_runs[0]["losses"]
+    compiled_losses = summaries["fp32_compile"]["losses"]
+    bf16 = summaries["bf16"]
+    fp32_losses = [run["loss_final"] for run in fp32_runs]
+    fp32_monitors = [run["final_monitor"] for run in fp32_runs]
+    return {
+        "compiled_vs_eager_max_abs_loss_diff": max(
+            abs(a - b) for a, b in zip(eager_losses, compiled_losses)
+        ),
+        "bf16_final_loss": bf16["loss_final"],
+        "fp32_final_loss_range": [min(fp32_losses), max(fp32_losses)],
+        "bf16_final_loss_within_fp32_spread": within_spread(bf16["loss_final"], fp32_losses),
+        "bf16_final_monitor": bf16["final_monitor"],
+        "fp32_final_monitor_range": [min(fp32_monitors), max(fp32_monitors)],
+        "bf16_final_monitor_within_fp32_spread": within_spread(
+            bf16["final_monitor"], fp32_monitors
+        ),
+        "round_trip_weights_equal": round_trips,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--device", choices=("cpu", "cuda"), required=True)
@@ -121,7 +147,8 @@ def main() -> None:
     )
     root = args.workdir or Path(tempfile.mkdtemp(prefix="precision_compile_"))
 
-    def run_mode(name: str, config: TrainingConfig) -> tuple[dict, Path, torch.nn.Module]:
+    def run_mode(name: str, config: TrainingConfig) -> tuple[dict, bool | None]:
+        """Train one mode; return its summary and, if compiled, the round-trip check."""
         if device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
         run_dir = root / name
@@ -134,48 +161,26 @@ def main() -> None:
             device=device,
             tracking=TrackingConfig(enabled=False),
         )
-        return summarize(run_dir, result, peak_memory_mb(device)), run_dir, result.model
+        summary = summarize(run_dir, result, peak_memory_mb(device))
+        return summary, round_trip_equal(run_dir, result.model) if config.compile else None
 
-    modes = {}
-    for i in range(args.seeds):
-        modes[f"fp32_seed{base.seed + i}"] = run_mode(
-            f"fp32_seed{base.seed + i}", replace(base, seed=base.seed + i)
-        )
+    summaries: dict[str, dict] = {}
+    round_trips: dict[str, bool] = {}
+    fp32_seed_names = [f"fp32_seed{base.seed + i}" for i in range(args.seeds)]
+    for i, name in enumerate(fp32_seed_names):
+        summaries[name], _ = run_mode(name, replace(base, seed=base.seed + i))
     for name, precision, compile_ in (
         ("bf16", "bf16", False),
         ("fp32_compile", "fp32", True),
         ("bf16_compile", "bf16", True),
     ):
-        modes[name] = run_mode(name, replace(base, precision=precision, compile=compile_))
+        summaries[name], round_trip = run_mode(
+            name, replace(base, precision=precision, compile=compile_)
+        )
+        if round_trip is not None:
+            round_trips[name] = round_trip
 
-    eager = modes[f"fp32_seed{base.seed}"][0]["losses"]
-    compiled = modes["fp32_compile"][0]["losses"]
-    fp32_runs = [summary for key, (summary, _, _) in modes.items() if key.startswith("fp32_seed")]
-    bf16 = modes["bf16"][0]
-    checks = {
-        "compiled_vs_eager_max_abs_loss_diff": max(abs(a - b) for a, b in zip(eager, compiled)),
-        "bf16_final_loss": bf16["loss_final"],
-        "fp32_final_loss_range": [
-            min(r["loss_final"] for r in fp32_runs),
-            max(r["loss_final"] for r in fp32_runs),
-        ],
-        "bf16_final_loss_within_fp32_spread": within_spread(
-            bf16["loss_final"], [r["loss_final"] for r in fp32_runs]
-        ),
-        "bf16_final_monitor": bf16["final_monitor"],
-        "fp32_final_monitor_range": [
-            min(r["final_monitor"] for r in fp32_runs),
-            max(r["final_monitor"] for r in fp32_runs),
-        ],
-        "bf16_final_monitor_within_fp32_spread": within_spread(
-            bf16["final_monitor"], [r["final_monitor"] for r in fp32_runs]
-        ),
-        "round_trip_weights_equal": {
-            name: round_trip_equal(run_dir, model)
-            for name, (_, run_dir, model) in modes.items()
-            if name.endswith("compile")
-        },
-    }
+    checks = compare_modes(summaries, fp32_seed_names, round_trips)
     report = {
         "device": str(device),
         "torch": torch.__version__,
@@ -183,7 +188,7 @@ def main() -> None:
         "batch_size": args.batch_size,
         "corpus": [str(path) for path in args.corpus],
         "model": "small" if args.small_model else "default",
-        "modes": {name: summary for name, (summary, _, _) in modes.items()},
+        "modes": summaries,
         "checks": checks,
     }
     args.out.write_text(json.dumps(report, indent=2))
@@ -191,8 +196,8 @@ def main() -> None:
         json.dumps(
             {
                 "modes": {
-                    k: {m: v for m, v in s.items() if m != "losses"}
-                    for k, s in report["modes"].items()
+                    name: {key: value for key, value in summary.items() if key != "losses"}
+                    for name, summary in summaries.items()
                 },
                 "checks": checks,
             },

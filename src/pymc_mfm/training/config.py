@@ -65,8 +65,9 @@ class TrainingConfig:
     log_every: int = 100
     milestone_steps: tuple[int, ...] = (25_000, 50_000)
     prefetch_batches: int = 4
-    #: ``"bf16"`` runs the forward pass and loss under bfloat16 autocast; the
-    #: backward pass, clipping, AdamW and evaluation stay fp32.
+    #: ``"bf16"`` runs the forward pass and loss under bfloat16 autocast.
+    #: Parameters and accumulated parameter gradients remain fp32. Backward runs
+    #: outside autocast. Evaluation stays fp32.
     precision: str = "fp32"
     #: Compile the forward pass and loss with ``torch.compile`` (see the trainer).
     compile: bool = False
