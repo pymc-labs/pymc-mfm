@@ -507,6 +507,8 @@ def _recorded_world(value: object) -> None:
 
     world = exact_keys(value, {"plan", "shard", "shard_seed", "row"}, "recorded world")
     plan = SHARD_PLANS.get(world["plan"]) if isinstance(world["plan"], str) else None
+    if plan is not None and plan.development:
+        raise ValueError("recorded world cannot come from a development plan")
     # ``plan.seed`` raises ValueError unless the shard is an index of the plan.
     if (
         plan is None

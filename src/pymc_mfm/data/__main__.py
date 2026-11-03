@@ -2,7 +2,11 @@
 
 ``--profile {A,B} --shard I`` writes shard ``I`` of that profile's plan in
 ``pymc_mfm.data.recipes.SHARD_PLANS`` and ``--evaluation-shard I`` shard ``I``
-of the evaluation plan. Without either, ``--profile`` with ``--n-cells``,
+of the evaluation plan. ``--mini-shard I`` and ``--mini-evaluation-shard I``
+write shard ``I`` of the ``mini`` and ``mini_evaluation`` development plans, a
+smoke surface and not a validated surrogate for full-scale results; only these
+two accept ``--n-cells`` to probe with fewer cells. Without any selector,
+``--profile`` with ``--n-cells``,
 ``--draws-per-cell``, ``--seed`` and optional ``--override`` values builds a
 custom prior with ``profile_prior``. JSON lists in ``--override`` values become
 tuples because ``SCMPrior`` ranges are tuples. An override must name an
@@ -35,6 +39,11 @@ from pymc_mfm.data.recipes import (
 )
 
 _PROFILES = {PROFILE_A.name: PROFILE_A, PROFILE_B.name: PROFILE_B}
+#: Development-plan selectors: option -> (namespace attribute, plan name).
+_DEVELOPMENT_SELECTORS = {
+    "--mini-shard": ("mini_shard", "mini"),
+    "--mini-evaluation-shard": ("mini_evaluation_shard", "mini_evaluation"),
+}
 
 
 def _tuples(value: Any) -> Any:
@@ -82,7 +91,13 @@ def main(argv: list[str] | None = None) -> int:
     generate.add_argument("--profile", choices=sorted(_PROFILES))
     generate.add_argument("--shard", type=int, help="shard index in the profile's plan")
     generate.add_argument("--evaluation-shard", type=int, help="shard index in the evaluation plan")
-    generate.add_argument("--n-cells", type=int)
+    generate.add_argument("--mini-shard", type=int, help="shard index in the mini plan")
+    generate.add_argument(
+        "--mini-evaluation-shard", type=int, help="shard index in the mini_evaluation plan"
+    )
+    generate.add_argument(
+        "--n-cells", type=int, help="custom corpus size; a cell-count probe for mini plans"
+    )
     generate.add_argument("--draws-per-cell", type=int)
     generate.add_argument("--seed", type=int)
     generate.add_argument(
@@ -115,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             source = f"recipe {recipe_for(profile).name}"
         else:
-            prior = plan.prior(index)
+            prior = plan.prior(index, n_cells=args.n_cells if plan.development else None)
             label = "" if plan.shard_names is None else f" ({plan.shard_names[index]})"
             source = (
                 f"recipe {recipe_for(plan.profile).name}, plan {plan.name} shard {index}{label}"
@@ -139,7 +154,23 @@ def _plan_shard(
         "--seed": args.seed,
         "--override": args.override or None,
     }
-    if args.evaluation_shard is not None:
+    development = [
+        (option, attribute, name)
+        for option, (attribute, name) in _DEVELOPMENT_SELECTORS.items()
+        if getattr(args, attribute) is not None
+    ]
+    if len(development) > 1:
+        command.error(f"{development[0][0]} excludes {development[1][0]}")
+    if development:
+        option, attribute, name = development[0]
+        plan, index = SHARD_PLANS[name], getattr(args, attribute)
+        excluded = {
+            **{flag: value for flag, value in custom.items() if flag != "--n-cells"},
+            "--profile": args.profile,
+            "--shard": args.shard,
+            "--evaluation-shard": args.evaluation_shard,
+        }
+    elif args.evaluation_shard is not None:
         option, plan, index = "--evaluation-shard", SHARD_PLANS["evaluation"], args.evaluation_shard
         excluded = {**custom, "--profile": args.profile, "--shard": args.shard}
     elif args.shard is not None:
@@ -158,7 +189,8 @@ def _plan_shard(
         if missing:
             command.error(
                 f"a custom corpus needs {', '.join(missing)}; "
-                "otherwise pass --shard or --evaluation-shard"
+                "otherwise pass --shard, --evaluation-shard, --mini-shard "
+                "or --mini-evaluation-shard"
             )
         return None, None
     conflicts = [flag for flag, value in excluded.items() if value is not None]

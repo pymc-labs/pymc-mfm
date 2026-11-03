@@ -1,6 +1,9 @@
 """``python -m pymc_mfm.training``: train the canonical model on saved corpora.
 
-Defaults come from :class:`TrainingConfig`; pass a smaller
+Defaults come from :class:`TrainingConfig`, or from the named ``--preset``
+(``canonical``, ``mini`` or ``smoke``; explicit flags override it). The ``mini``
+and ``smoke`` presets are for development on the mini corpus plans and are not
+validated surrogates for the canonical run. Pass a smaller
 ``--steps``/``--batch-size`` for a clearly identified reduced run that exercises
 the same code path. Loading ``.npz`` corpora needs the ``generation`` extra;
 the architecture is sized from corpus geometry. ``--holdout-archives
@@ -38,7 +41,7 @@ import numpy as np
 from pymc_mfm.inference import from_pretrained
 from pymc_mfm.training.archive import _evaluate_identity, _sidecar_seed, archive_identity
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
-from pymc_mfm.training.config import SELECTION_HEADS, TrainingConfig
+from pymc_mfm.training.config import PRESETS, SELECTION_HEADS, TrainingConfig
 from pymc_mfm.training.evaluation import DECOMPOSITION_HEADS
 from pymc_mfm.training.tracking import TrackingConfig
 from pymc_mfm.training.trainer import (
@@ -81,13 +84,27 @@ def _world(value: str) -> tuple[int, int]:
     return int(match[1]), int(match[2])
 
 
-def build_parser() -> argparse.ArgumentParser:
-    defaults = TrainingConfig()
+def _preset_name(argv: Sequence[str]) -> str:
+    """The ``--preset`` value in ``argv``, ``canonical`` when absent; exits on an unknown name."""
+    probe = argparse.ArgumentParser(add_help=False)
+    probe.add_argument("--preset", choices=sorted(PRESETS), default="canonical")
+    return probe.parse_known_args(list(argv))[0].preset
+
+
+def build_parser(preset: str = "canonical") -> argparse.ArgumentParser:
+    """Training parser whose flag defaults are the values of ``PRESETS[preset]``."""
+    defaults = PRESETS[preset]
     parser = argparse.ArgumentParser(
         prog="python -m pymc_mfm.training", description=__doc__.split("\n\n")[0]
     )
     parser.add_argument("--corpus", nargs="+", required=True, help="schema-4 corpus .npz files")
     parser.add_argument("--out-dir", required=True, help="new run directory")
+    parser.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        default=preset,
+        help="named defaults for every training flag below; explicit flags override",
+    )
     parser.add_argument("--device", default="auto", help="auto | cpu | cuda | mps")
     parser.add_argument("--run-name", default=None)
     parser.add_argument(
@@ -119,8 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
                 default=None,
                 metavar="STEP[,STEP...]",
                 help=(
-                    "exact steps to retain; default keeps the canonical %s that fall "
-                    "within --steps; pass '' for none" % ",".join(map(str, default))
+                    "exact steps to retain; default keeps the preset's %s that fall "
+                    "within --steps; pass '' for none" % (",".join(map(str, default)) or "none")
                 ),
             )
         elif field.name == "lr_schedule":
@@ -221,14 +238,14 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["evaluate"]:
         return _evaluate(argv[1:])
-    args = build_parser().parse_args(argv)
+    args = build_parser(_preset_name(argv)).parse_args(argv)
     from pymc_mfm.data.recipes import load_corpora, provenance
 
     loaded = load_corpora(args.corpus)
     values = {field.name: getattr(args, field.name) for field in fields(TrainingConfig)}
     if values["milestone_steps"] is None:
         values["milestone_steps"] = tuple(
-            step for step in TrainingConfig().milestone_steps if step <= values["steps"]
+            step for step in PRESETS[args.preset].milestone_steps if step <= values["steps"]
         )
     training = TrainingConfig(**values)
     result = train(
@@ -248,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         holdout_archives=args.holdout_archives,
     )
     summary = {
+        "preset": args.preset,
         "run_dir": str(result.run_dir),
         "status": result.status,
         "final_step": result.final_step,
