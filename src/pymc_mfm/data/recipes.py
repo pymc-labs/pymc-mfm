@@ -206,8 +206,8 @@ class ShardPlan:
     ``first_seed + i * seed_stride`` and ``n_cells`` cells of ``draws_per_cell``
     worlds each. ``overrides[i]``, when set, holds shard ``i``'s ``SCMPrior``
     field overrides and ``shard_names[i]`` its label. ``development`` marks a
-    smoke and development recipe: it is not a corpus that a published bundle may
-    record as its world source.
+    smoke and development recipe: a published bundle may not record it as its
+    world source.
     """
 
     name: str
@@ -266,6 +266,8 @@ class ShardPlan:
         return int(shard)
 
 
+# K=8, M=4, J=1 and T=104. Profile A's edge budgets (``cy=(5, 5)``, ``zy=(3, 3)``,
+# one treatment without a direct effect) force the reduced active ranges.
 _MINI_GEOMETRY: Mapping[str, Any] = MappingProxyType(
     {
         "n_treatments": 8,
@@ -280,12 +282,7 @@ _MINI_GEOMETRY: Mapping[str, Any] = MappingProxyType(
 #: cells x 10 draws per shard. ``evaluation`` is ten profile-A shards of 32
 #: cells x 4 draws with seeds 540000-549000 in steps of 1000 (1,280 worlds);
 #: shard ``i`` has exactly ``6 + i`` active channels. ``mini`` (seed 550000) and
-#: ``mini_evaluation`` (seed 551000) are development plans: a smoke and
-#: development surface with K=8, M=4, J=1 and T=104. Mini is NOT a validated
-#: ranking surrogate for full-scale results, and a bundle may not record either
-#: plan as its world source. The profile-A edge budgets (``cy=(5, 5)``,
-#: ``zy=(3, 3)``, one treatment without a direct effect) force the reduced
-#: active ranges ``(6, 8)`` and ``(3, 4)``.
+#: ``mini_evaluation`` (seed 551000) are development plans.
 SHARD_PLANS: Mapping[str, ShardPlan] = MappingProxyType(
     {
         plan.name: plan
