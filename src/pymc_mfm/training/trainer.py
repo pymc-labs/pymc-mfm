@@ -431,12 +431,13 @@ def train(
     start: StartPoint | None = None
     inputs = None
     if resume_from is not None or init_from is not None:
-        # Every refusal happens here, before anything is written.
+        # Validate checkpoint compatibility before creating or truncating run files.
         inputs = _resolve_inputs(corpora, model_config, corpus_provenance)
         start = load_start_point(
             resume_from if resume_from is not None else init_from,
             mode="resume" if resume_from is not None else "init",
             out_dir=out_dir,
+            device=resolve_device(device),
             model_config=inputs[1],
             training=training,
             corpus_records=inputs[2],
@@ -772,7 +773,7 @@ def _train_run(
         best_value, best_step = state["best_value"], state["best_step"]
         training_records.extend(read_jsonl(metrics_path))
         evaluation_records.extend(read_jsonl(evaluations_path))
-        restore_rng_state(state["torch_rng"], state["cuda_rng"])
+        restore_rng_state(state)
         first_step = start.step + 1
         run["consumed"] = dict(consumed)
 
@@ -795,6 +796,7 @@ def _train_run(
         resume = None
         if kind != "best":
             resume = build_resume_block(
+                device=resolved_device,
                 optimizer=optimizer,
                 step=step,
                 stream_state=source.consumed_state if source else stream.resume_state(),

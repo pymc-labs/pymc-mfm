@@ -39,11 +39,6 @@ from pymc_mfm.data.recipes import (
 )
 
 _PROFILES = {PROFILE_A.name: PROFILE_A, PROFILE_B.name: PROFILE_B}
-#: Development-plan selectors: option -> (namespace attribute, plan name).
-_DEVELOPMENT_SELECTORS = {
-    "--mini-shard": ("mini_shard", "mini"),
-    "--mini-evaluation-shard": ("mini_evaluation_shard", "mini_evaluation"),
-}
 
 
 def _tuples(value: Any) -> Any:
@@ -154,16 +149,16 @@ def _plan_shard(
         "--seed": args.seed,
         "--override": args.override or None,
     }
-    development = [
-        (option, attribute, name)
-        for option, (attribute, name) in _DEVELOPMENT_SELECTORS.items()
-        if getattr(args, attribute) is not None
+    selectors = [
+        ("--mini-shard", "mini", args.mini_shard),
+        ("--mini-evaluation-shard", "mini_evaluation", args.mini_evaluation_shard),
     ]
+    development = [selector for selector in selectors if selector[2] is not None]
     if len(development) > 1:
         command.error(f"{development[0][0]} excludes {development[1][0]}")
     if development:
-        option, attribute, name = development[0]
-        plan, index = SHARD_PLANS[name], getattr(args, attribute)
+        option, name, index = development[0]
+        plan = SHARD_PLANS[name]
         excluded = {
             **{flag: value for flag, value in custom.items() if flag != "--n-cells"},
             "--profile": args.profile,

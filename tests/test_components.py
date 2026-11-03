@@ -1,8 +1,6 @@
 """Component registry: defaults, contract refusals, research flag and release-path refusals."""
 
 import json
-import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -23,6 +21,7 @@ from pymc_mfm.model.components import (
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.encoder import BiAttentionEncoder
 from pymc_mfm.model.flow import JointFlowHead
+from pymc_mfm.model.graph import GraphConditioner, StructureHead
 from pymc_mfm.model.model import MFM
 from pymc_mfm.model.registry import (
     DEFAULT_COMPONENTS,
@@ -33,6 +32,7 @@ from pymc_mfm.model.registry import (
     register_head,
     resolve_components,
 )
+from pymc_mfm.training.checkpoint import save_checkpoint
 
 RESEARCH_COMPONENTS = {
     "encoder": "bi_attention",
@@ -78,11 +78,9 @@ def build_research_bundle(destination: Path) -> Path:
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(0)
         model = MFM(tiny_config()).eval()
-    with tempfile.TemporaryDirectory() as scratch:
-        bundle = save_pretrained(model, Path(scratch) / "bundle")
-        mark_as_research(bundle, RESEARCH_COMPONENTS)
-        shutil.copytree(bundle, destination)
-    return destination
+    bundle = save_pretrained(model, destination)
+    mark_as_research(bundle, RESEARCH_COMPONENTS)
+    return bundle
 
 
 @pytest.fixture
@@ -138,16 +136,34 @@ def test_components_stay_out_of_the_config(model):
     assert "components" not in model.config.to_dict()
 
 
-def test_default_construction_keeps_the_rng_sequence():
+def test_default_construction_keeps_the_original_rng_sequence():
     config = ModelConfig(d_model=8, n_layers=1, n_heads=2, d_ff=16, flow_hidden=16)
     torch.manual_seed(3)
-    explicit = MFM(config, components=DEFAULT_COMPONENTS)
+    model = MFM(config)
+    rng_after_model = torch.random.get_rng_state()
+
     torch.manual_seed(3)
-    implicit = MFM(config)
-    for (name, a), (_, b) in zip(
-        explicit.state_dict().items(), implicit.state_dict().items(), strict=True
-    ):
-        assert torch.equal(a, b), name
+    modules = {
+        "encoder": BiAttentionEncoder(config),
+        "head": JointFlowHead(config, graph_router=True),
+        "struct_head": StructureHead(
+            d_channel=config.d_model,
+            d_global=config.d_model,
+            n_demand=config.n_demand,
+            n_controls=config.n_controls,
+        ),
+        "graph_conditioner": GraphConditioner(config.d_model, config.d_model),
+        "conditional_head": JointFlowHead(config, graph_router=False),
+    }
+    expected = {
+        f"{name}.{key}": value
+        for name, module in modules.items()
+        for key, value in module.state_dict().items()
+    }
+    assert model.state_dict().keys() == expected.keys()
+    for name, value in model.state_dict().items():
+        assert torch.equal(value, expected[name]), name
+    assert torch.equal(rng_after_model, torch.random.get_rng_state())
 
 
 def test_unknown_slot_and_name_are_refused():
@@ -240,6 +256,41 @@ def test_save_pretrained_refuses_a_research_model(toy_head, tmp_path):
     with pytest.raises(ResearchComponentError, match="research components"):
         save_pretrained(research, tmp_path / "bundle")
     assert not (tmp_path / "bundle").exists()
+
+
+def test_save_checkpoint_refuses_a_research_model_whose_tensors_match_the_default(tmp_path):
+    class ReversedSampling(JointFlowHead):
+        """Same parameters as the default head; different samples."""
+
+        def sample(self, *args, **kwargs):
+            return -super().sample(*args, **kwargs)
+
+    register_head("reversed_sampling", ReversedSampling)
+    try:
+        research = MFM(tiny_config(), components={"conditional_head": "reversed_sampling"})
+    finally:
+        del HEADS["reversed_sampling"]
+    default = MFM(tiny_config())
+    assert research.state_dict().keys() == default.state_dict().keys()
+    with pytest.raises(ResearchComponentError, match="component-aware loading"):
+        _save_checkpoint(research, tmp_path / "research.pt")
+    assert not (tmp_path / "research.pt").exists()
+    _save_checkpoint(default, tmp_path / "default.pt")
+    assert (tmp_path / "default.pt").is_file()
+
+
+def _save_checkpoint(model, path):
+    save_checkpoint(
+        path,
+        model=model,
+        kind="last",
+        step=1,
+        training_config={},
+        run={},
+        consumed={},
+        evaluation=None,
+        selection={},
+    )
 
 
 def test_from_pretrained_refuses_a_research_bundle(research_bundle):
