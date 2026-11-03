@@ -66,6 +66,7 @@ RESULT_COLUMNS = (
     "code_modified_from_revision",
     "code_source_sha256",
     "model_config_sha256",
+    "components",
     "training_config_sha256",
     "corpus_keys",
     "eval_set_id",
@@ -307,6 +308,7 @@ def _row(
     selection = selection_metrics(training["selection_head"])
     head = training["selection_head"]
     code = code_record()
+    components = payload["schemas"].get("components")
     row: dict[str, Any] = {
         "run_name": payload["run"]["run_name"],
         "run_id": payload["run"]["run_id"],
@@ -317,6 +319,7 @@ def _row(
         "code_modified_from_revision": code["modified_from_revision"],
         "code_source_sha256": code["source_sha256"],
         "model_config_sha256": canonical_sha256(payload["config"]),
+        "components": json.dumps(components, sort_keys=True) if components else None,
         "training_config_sha256": canonical_sha256(training),
         "corpus_keys": json.dumps(list(content)),
         "eval_set_id": eval_set_id(content, rule, seed, draws),
