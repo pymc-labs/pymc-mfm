@@ -184,6 +184,31 @@ def test_recordings_made_before_the_corp_keys_still_pass(setup):
     assert not {key.rsplit("/", 1)[-1] for key in result["keys"]} & corp
 
 
+def test_recordings_made_before_cov95_still_pass_and_new_ones_are_compared(setup):
+    pytest.importorskip("scipy")
+    model, corpora, worlds, _, means = setup
+    # A record from main's key set: the evaluator's cov95 keys are absent and not compared.
+    old = {key: value for key, value in means.items() if "cov95" not in key}
+    assert len(old) < len(means)
+    model.provenance = {"training_evaluation": recorded(worlds, old)}
+    result = check_recorded_evaluation(model, corpora)
+    assert result["passed"] is True
+    assert not [key for key in result["keys"] if "cov95" in key]
+    model.provenance = {"training_evaluation": recorded(worlds, means)}
+    result = check_recorded_evaluation(model, corpora)
+    assert result["passed"] is True
+    assert any(key.endswith("_cov95") for key in result["keys"])
+
+
+def test_cov95_shares_the_family_and_resolution_of_cov80():
+    key = "joint/query/contribution_{}"
+    assert compatibility._family(key.format("cov95")) == compatibility._family(key.format("cov80"))
+    assert compatibility._family(key.format("cov95")) == "joint/query/contribution"
+    assert compatibility._family("joint/query/timeavg_contribution_cov95_live") == (
+        "joint/query/timeavg_coverage"
+    )
+
+
 def test_slot_pooled_values_are_compared_with_slot_pooled_replicates(setup):
     pytest.importorskip("scipy")
     model, corpora, worlds, records, means = setup

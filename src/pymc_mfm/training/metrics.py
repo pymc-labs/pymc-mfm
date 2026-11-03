@@ -59,7 +59,17 @@ LATENT_SALES_KEYS = (
     "latent_sales_r2",
 )
 #: Keys of :func:`time_average_scores` (after its prefix).
-TIME_AVERAGE_KEYS = ("cov80", "cov80_live", "cov80_dead", "simcov80_live")
+TIME_AVERAGE_KEYS = (
+    "cov80",
+    "cov80_live",
+    "cov80_dead",
+    "simcov80_live",
+    "cov95",
+    "cov95_live",
+    "cov95_dead",
+)
+#: Central-interval ``(low, high)`` quantiles of the pointwise coverage keys, by level name.
+COVERAGE_BOUNDS = {"cov80": (0.1, 0.9), "cov95": (0.025, 0.975)}
 #: Keys of :func:`graph_scores` that compare the draws with the true graph.
 _TRUTH_GRAPH_KEYS = (
     "shd_mean",
@@ -907,7 +917,8 @@ def time_average_scores(
     """Pointwise and simultaneous 80% window coverage for one effect family.
 
     ``cov80``, ``cov80_live`` and ``cov80_dead`` (after ``prefix``) are
-    :func:`time_average_coverage`, weighted by the group's slot count.
+    :func:`time_average_coverage`, weighted by the group's slot count; ``cov95``,
+    ``cov95_live`` and ``cov95_dead`` are the same at the central 95% interval.
     ``simcov80_live`` is :func:`simultaneous_coverage` on truth-live effects,
     with world weight 1; dead effects never enter that joint event.
     ``live`` ``(C,)`` holds graph labels, ``None`` without graph truth.
@@ -919,25 +930,30 @@ def time_average_scores(
     if target.shape[1] < 1:
         raise ValueError("time-average coverage needs at least one slot")
     world = WorldScores()
-    all_key, live_key, dead_key, simultaneous_key = (prefix + key for key in TIME_AVERAGE_KEYS)
+    simultaneous_key = prefix + "simcov80_live"
     live_mask = None if live is None else _graph_labels(live, target.shape[1])
-    if not _all_finite(draws, target):
-        _skip_all(world, (all_key, live_key, dead_key), NONFINITE)
-    else:
-        world.put(all_key, time_average_coverage(draws, target), target.shape[1])
+    finite = _all_finite(draws, target)
+    for level, (low, high) in COVERAGE_BOUNDS.items():
+        all_key, live_key, dead_key = (prefix + level + suffix for suffix in ("", "_live", "_dead"))
+        if not finite:
+            _skip_all(world, (all_key, live_key, dead_key), NONFINITE)
+            continue
+        world.put(all_key, time_average_coverage(draws, target, low, high), target.shape[1])
         if live_mask is None:
             _skip_all(world, (live_key, dead_key), "missing_graph_truth")
-        else:
-            for key, mask, empty in (
-                (live_key, live_mask, "no_live_effects"),
-                (dead_key, ~live_mask, "no_dead_effects"),
-            ):
-                if mask.any():
-                    world.put(
-                        key, time_average_coverage(draws[..., mask], target[:, mask]), mask.sum()
-                    )
-                else:
-                    world.skip(key, empty)
+            continue
+        for key, mask, empty in (
+            (live_key, live_mask, "no_live_effects"),
+            (dead_key, ~live_mask, "no_dead_effects"),
+        ):
+            if mask.any():
+                world.put(
+                    key,
+                    time_average_coverage(draws[..., mask], target[:, mask], low, high),
+                    mask.sum(),
+                )
+            else:
+                world.skip(key, empty)
     if live_mask is None:
         world.skip(simultaneous_key, "missing_graph_truth")
     else:

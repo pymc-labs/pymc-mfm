@@ -68,7 +68,7 @@ _FAMILIES = (
     "indirect_dc",
     "indirect_total",
 )
-_FAMILY_STATS = ("scaled_mae", "crps", "cov80")
+_FAMILY_STATS = ("scaled_mae", "crps", "cov80", "cov95")
 _ENERGY_METRICS = (
     "decomposition_energy_score",
     "latent_sales_temporal_energy_score",
@@ -87,7 +87,9 @@ _ATTRIBUTION_METRICS = tuple(
     for key in metrics.DEAD_ATTRIBUTION_KEYS
 )
 _CONDITIONAL_COVERAGE_METRICS = tuple(
-    f"attribution_live_{effect}_conditional_cov80" for effect in _ATTRIBUTION_EFFECTS
+    f"attribution_live_{effect}_conditional_{level}"
+    for effect in _ATTRIBUTION_EFFECTS
+    for level in metrics.COVERAGE_BOUNDS
 )
 _TEMPORAL_METRICS = tuple(f"contribution_{key}" for key in metrics.TEMPORAL_KEYS)
 _TIME_AVERAGE_METRICS = tuple(f"timeavg_contribution_{key}" for key in metrics.TIME_AVERAGE_KEYS)
@@ -147,7 +149,7 @@ _CORRELATION = (-1.0, 1.0)
 #: last component of a flat key). No other names are valid.
 METRIC_BOUNDS: dict[str, tuple[float, float]] = {
     **{
-        f"{family}_{stat}": _PROBABILITY if stat == "cov80" else _NONNEGATIVE
+        f"{family}_{stat}": _PROBABILITY if stat.startswith("cov") else _NONNEGATIVE
         for family in _FAMILIES
         for stat in _FAMILY_STATS
     },
@@ -213,7 +215,7 @@ BOUNDS_SLACK = 1e-12
 #: probabilities, rates, coverage, correlations, relative errors and R².
 METRIC_UNITS: dict[str, str] = {
     **{
-        f"{family}_{stat}": "dimensionless" if stat == "cov80" else "sales_scale"
+        f"{family}_{stat}": "dimensionless" if stat.startswith("cov") else "sales_scale"
         for family in _FAMILIES
         for stat in _FAMILY_STATS
     },
@@ -563,7 +565,8 @@ def _score_decomposition(
             return
         world.put(names[0], np.mean(np.abs(p.mean(axis=0) - t)), weight)
         world.put(names[1], metrics.empirical_crps(p, t), weight)
-        world.put(names[2], metrics.coverage(p, t), weight)
+        for stat, (low, high) in metrics.COVERAGE_BOUNDS.items():
+            world.put(f"{name}_{stat}", metrics.coverage(p, t, low, high), weight)
 
     pred_contrib = pred[..., contrib][..., active_c]
     true_contrib = truth[:, contrib][:, active_c]
@@ -667,6 +670,8 @@ def _score_decomposition(
             )
         )
 
+    levels = metrics.COVERAGE_BOUNDS
+
     def conditional_coverage(
         effect: str,
         samples: np.ndarray,
@@ -674,19 +679,19 @@ def _score_decomposition(
         live: np.ndarray,
         graph: np.ndarray | None,
     ) -> None:
-        key = f"attribution_live_{effect}_conditional_cov80"
+        keys = {level: f"attribution_live_{effect}_conditional_{level}" for level in levels}
         if not live.any():
-            world.skip(key, "no_live_effects")
+            skip(keys.values(), "no_live_effects")
             return
         if graph is None:
-            world.skip(key, "missing_graph_draws")
+            skip(keys.values(), "missing_graph_draws")
             return
         if graph.shape != (n_samples, live.size):
             raise ValueError(f"{effect} graph draws must have shape {(n_samples, live.size)}")
         if not _finite(graph[:, live]):
-            world.skip(key, metrics.NONFINITE)
+            skip(keys.values(), metrics.NONFINITE)
             return
-        covered = []
+        covered: dict[str, list[bool]] = {level: [] for level in levels}
         for slot in np.flatnonzero(live):
             edge_on = graph[:, slot] == 1
             if edge_on.sum() < 2:
@@ -694,14 +699,16 @@ def _score_decomposition(
             total_draws = samples[edge_on, :, slot].sum(axis=1)
             total_truth = target[:, slot].sum()
             if not _finite(total_draws, np.asarray(total_truth)):
-                world.skip(key, metrics.NONFINITE)
+                skip(keys.values(), metrics.NONFINITE)
                 return
-            low, high = np.quantile(total_draws, (0.1, 0.9))
-            covered.append(low <= total_truth <= high)
-        if covered:
-            world.put(key, np.mean(covered), len(covered))
-        else:
-            world.skip(key, "needs_edge_on_draws_ge_2")
+            for level, (low_q, high_q) in levels.items():
+                low, high = np.quantile(total_draws, (low_q, high_q))
+                covered[level].append(low <= total_truth <= high)
+        for level, key in keys.items():
+            if covered[level]:
+                world.put(key, np.mean(covered[level]), len(covered[level]))
+            else:
+                world.skip(key, "needs_edge_on_draws_ge_2")
 
     conditional_coverage(
         "media",
