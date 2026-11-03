@@ -437,6 +437,11 @@ def _mostly_nul(sample: bytes) -> bool:
     return len(sample) >= 4 and sample.count(0) >= 0.9 * len(sample)
 
 
+# Control bytes that do not occur in text: everything below 0x20 except tab, newline,
+# form feed, carriage return and escape (terminal colours), plus DEL.
+CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0e-\x1a\x1c-\x1f\x7f]")
+
+
 def decode_wide_text(data: bytes) -> bytes | None:
     """Return UTF-8 bytes for UTF-16 or UTF-32 text (BOM or NUL-interleaved ASCII).
 
@@ -477,12 +482,12 @@ def inspect_content(data: bytes) -> tuple[list[bytes], bool]:
     except UnicodeDecodeError:
         return [data], True
     if wide is not None:
-        return [wide, data], False
+        return [wide, data], CONTROL_BYTES.search(wide) is not None
     try:
         data.decode("utf-8")
     except UnicodeDecodeError:
         return [data], True
-    return [data], False
+    return [data], CONTROL_BYTES.search(data) is not None
 
 
 def check_content_rules(item: Item, data: bytes) -> list[Finding]:
@@ -490,7 +495,9 @@ def check_content_rules(item: Item, data: bytes) -> list[Finding]:
     findings = []
     if opaque:
         findings.append(
-            Finding("binary", item.path, None, "not UTF-8, UTF-16 or UTF-32 text: cannot be read")
+            Finding(
+                "binary", item.path, None, "not plain UTF-8, UTF-16 or UTF-32 text: cannot be read"
+            )
         )
     else:
         findings += check_embedded_payload(item.path, texts[0])

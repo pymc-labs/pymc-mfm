@@ -471,7 +471,7 @@ def test_opaque_binary_needs_an_allowlist_entry(repo: Path) -> None:
     commit(repo)
     result = check(repo)
     assert result.returncode == 1
-    assert "binary logo.bin2 not UTF-8" in result.stdout
+    assert "binary logo.bin2 not plain UTF-8" in result.stdout
     sha = hashlib.sha256(payload).hexdigest()
     entry = (
         f'[[allow]]\npath = "logo.bin2"\nrules = ["binary"]\nreason = "image"\nsha256 = "{sha}"\n'
@@ -581,5 +581,24 @@ def test_ascii_token_after_wide_header_is_still_found(repo: Path) -> None:
 
 def test_latin_text_in_utf8_passes(repo: Path) -> None:
     write(repo, "notes.md", "Café, naïve, Zürich: résumé\n".encode())
+    commit(repo)
+    assert check(repo).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"\x0a\x0bAlice Smith\x10\x00", "\x0bAlice\x01".encode("utf-16")],
+    ids=["utf8-control", "utf16-control"],
+)
+def test_binary_records_with_control_bytes_need_an_entry(repo: Path, payload: bytes) -> None:
+    write(repo, "record.pb", payload)
+    commit(repo)
+    result = check(repo)
+    assert result.returncode == 1
+    assert "binary record.pb" in result.stdout
+
+
+def test_text_with_tabs_and_ansi_colours_passes(repo: Path) -> None:
+    write(repo, "log.txt", "a\tb\r\n\x1b[31mred\x1b[0m\f\n")
     commit(repo)
     assert check(repo).returncode == 0
