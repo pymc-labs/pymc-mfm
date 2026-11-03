@@ -240,27 +240,42 @@ def test_score_is_not_started_when_the_budget_is_spent(corpus, tmp_path):
 
 
 def test_a_queued_score_takes_its_timeout_after_the_previous_score(corpus, tmp_path, monkeypatch):
-    """Two scores share the budget: the second one's timeout is what is left after the first."""
+    """A score that waits for the lock gets the budget left when it starts, not when it queued."""
+    import threading
+
     import pymc_mfm.training.launch as launch_module
 
     specs = parse_launch_file(write_runs(tmp_path, [run_spec(corpus, "a"), run_spec(corpus, "b")]))
     manifest = Manifest(
         tmp_path / "launch.json", {"runs": {"a": {"status": "trained"}, "b": {"status": "trained"}}}
     )
-    launcher = Launcher(tmp_path, Limits(max_total_seconds=100), manifest)
-    clock = {"left": 100.0}
+    launcher = Launcher(tmp_path, Limits(max_total_seconds=1000), manifest)
+    clock = {"left": 500.0}
     monkeypatch.setattr(launcher, "remaining_seconds", lambda: clock["left"])
-    timeouts = []
+    first_running, release_first = threading.Event(), threading.Event()
+    timeouts = {}
 
     def fake_run(command, log, timeout, stop, on_start):
-        timeouts.append(timeout)
-        clock["left"] -= 60.0  # each score uses 60 s of the budget
-        return launch_module.Outcome(status="failed", returncode=1, seconds=60.0)
+        name = "a" if "a" not in timeouts else "b"
+        timeouts[name] = timeout
+        if name == "a":
+            first_running.set()
+            release_first.wait(10)
+        return launch_module.Outcome(status="failed", returncode=1, seconds=0.0)
 
     monkeypatch.setattr(launch_module, "run_command", fake_run)
-    for spec in specs:
-        launcher.score(spec, tmp_path / "runs" / spec.name)
-    assert timeouts == [min(Limits().score_timeout_seconds, 100.0), 40.0]
+    first = threading.Thread(target=launcher.score, args=(specs[0], tmp_path / "runs" / "a"))
+    first.start()
+    assert first_running.wait(10)
+    second = threading.Thread(target=launcher.score, args=(specs[1], tmp_path / "runs" / "b"))
+    second.start()  # blocks on the score lock while the first score runs
+    second.join(0.2)
+    assert second.is_alive() and "b" not in timeouts
+    clock["left"] = 120.0  # the first score used the budget down to 120 s
+    release_first.set()
+    first.join(10)
+    second.join(10)
+    assert timeouts == {"a": min(Limits().score_timeout_seconds, 500.0), "b": 120.0}
 
 
 @pytest.mark.parametrize(
