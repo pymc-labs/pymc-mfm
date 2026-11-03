@@ -28,6 +28,7 @@ from .graph import (
     empirical_full_graph_mode,
     structure_active_masks,
 )
+from .primitives import value_checks_enabled
 from .registry import build_encoder, build_head, is_research, resolve_components
 
 if TYPE_CHECKING:
@@ -189,6 +190,8 @@ class MFM(nn.Module):
             ("active_c_mask", "media channels", active_c),
             ("active_m_mask", "controls", active_m),
         ):
+            if not value_checks_enabled():
+                continue  # Value checks split a compiled graph; eager steps keep them.
             if not torch.isfinite(active).all() or ((active != 0) & (active != 1)).any():
                 raise ValueError(f"{name} must be finite and binary")
             if active.shape[-1] > 0 and (active.sum(dim=-1) == 0).any():
@@ -208,10 +211,11 @@ class MFM(nn.Module):
         active_j = batch["active_j_mask"]
         if active_j.ndim != 2 or active_j.shape[0] != active_c.shape[0]:
             raise ValueError("active_j_mask must be rank-2 with the shared batch axis")
-        if not torch.isfinite(active_j).all() or ((active_j != 0) & (active_j != 1)).any():
-            raise ValueError("active_j_mask must be finite and binary")
-        if active_j.shape[-1] > 0 and (active_j.sum(dim=-1) == 0).any():
-            raise ValueError("joint graph has a task with no active demand entities")
+        if value_checks_enabled():
+            if not torch.isfinite(active_j).all() or ((active_j != 0) & (active_j != 1)).any():
+                raise ValueError("active_j_mask must be finite and binary")
+            if active_j.shape[-1] > 0 and (active_j.sum(dim=-1) == 0).any():
+                raise ValueError("joint graph has a task with no active demand entities")
         layout = _edge_slot_layout(n_channels, n_controls, int(active_j.shape[-1]))
         slot_mask = layout.active_slot_mask(active_c, active_m, active_j)
         return torch.cat([prefix, slot_mask], dim=-1).unsqueeze(1)
@@ -264,15 +268,14 @@ class MFM(nn.Module):
         allowed = (shape,) if n_samples is None else (shape, (n_samples, *shape))
         if tuple(graph.shape) not in allowed:
             raise ValueError(f"graph shape must be one of {allowed}, got {tuple(graph.shape)}")
-        if (
-            graph.is_complex()
-            or not torch.isfinite(graph).all()
-            or ((graph != 0) & (graph != 1)).any()
+        if graph.is_complex() or (
+            value_checks_enabled()
+            and (not torch.isfinite(graph).all() or ((graph != 0) & (graph != 1)).any())
         ):
             raise ValueError("graph must contain only finite binary values 0 or 1")
         graph = graph.to(device=state_mask.device, dtype=state_mask.dtype)
         active_slots = state_mask[:, 0, -layout.n_slots :]
-        if ((graph != 0) & (active_slots == 0)).any():
+        if value_checks_enabled() and ((graph != 0) & (active_slots == 0)).any():
             raise ValueError("graph has live edges incident to padded inactive nodes")
         if n_samples is not None and graph.ndim == 2:
             graph = graph.unsqueeze(0).expand(n_samples, -1, -1)

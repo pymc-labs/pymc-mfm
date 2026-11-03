@@ -15,7 +15,7 @@ from pymc_mfm.data.features import (
 )
 from pymc_mfm.model.components import Encoder
 from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.primitives import MultiHeadAttention, RMSNorm, SwiGLU
+from pymc_mfm.model.primitives import MultiHeadAttention, RMSNorm, SwiGLU, value_checks_enabled
 
 # value, spend mean, spend std, is_query, is_revenue, week; then is_control.
 N_CELL_BASE_FEATURES = 6
@@ -174,10 +174,11 @@ class BiAttentionEncoder(nn.Module, Encoder):
         active_c = active_c.to(device=device)
         if active_c.shape != (b, c):
             raise ValueError(f"active_c_mask must have shape {(b, c)}, got {tuple(active_c.shape)}")
-        if ((active_c != 0) & (active_c != 1)).any():
-            raise ValueError("active_c_mask must be binary")
-        if (active_c.sum(dim=-1) == 0).any():
-            raise ValueError("encoder batch contains a task with no active media channels")
+        if value_checks_enabled():
+            if ((active_c != 0) & (active_c != 1)).any():
+                raise ValueError("active_c_mask must be binary")
+            if (active_c.sum(dim=-1) == 0).any():
+                raise ValueError("encoder batch contains a task with no active media channels")
         active_m = batch.get("active_m_mask")
         if active_m is None:
             active_m = torch.ones(b, n_controls, device=device, dtype=dtype)
@@ -186,10 +187,11 @@ class BiAttentionEncoder(nn.Module, Encoder):
             raise ValueError(
                 f"active_m_mask must have shape {(b, n_controls)}, got {tuple(active_m.shape)}"
             )
-        if ((active_m != 0) & (active_m != 1)).any():
-            raise ValueError("active_m_mask must be binary")
-        if n_controls > 0 and (active_m.sum(dim=-1) == 0).any():
-            raise ValueError("encoder batch contains a task with no active controls")
+        if value_checks_enabled():
+            if ((active_m != 0) & (active_m != 1)).any():
+                raise ValueError("active_m_mask must be binary")
+            if n_controls > 0 and (active_m.sum(dim=-1) == 0).any():
+                raise ValueError("encoder batch contains a task with no active controls")
         active_parts = [active_c, active_m, torch.ones(b, 1, device=device, dtype=dtype)]
         entity_active = torch.cat(active_parts, dim=-1).to(torch.bool)
         cells = cells * entity_active[:, None, :, None].to(cells.dtype)

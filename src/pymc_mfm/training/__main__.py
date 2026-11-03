@@ -51,7 +51,7 @@ import numpy as np
 from pymc_mfm.inference import from_pretrained
 from pymc_mfm.training.archive import _evaluate_identity, _sidecar_seed, archive_identity
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
-from pymc_mfm.training.config import PRESETS, SELECTION_HEADS, TrainingConfig
+from pymc_mfm.training.config import PRECISIONS, PRESETS, SELECTION_HEADS, TrainingConfig
 from pymc_mfm.training.evaluation import DECOMPOSITION_HEADS
 from pymc_mfm.training.tracking import TrackingConfig
 from pymc_mfm.training.trainer import (
@@ -158,6 +158,10 @@ def build_parser(preset: str = "canonical") -> argparse.ArgumentParser:
             parser.add_argument(flag, choices=("cosine", "constant"), default=default)
         elif field.name == "selection_head":
             parser.add_argument(flag, choices=SELECTION_HEADS, default=default)
+        elif field.name == "precision":
+            parser.add_argument(flag, choices=PRECISIONS, default=default)
+        elif field.name == "compile":
+            parser.add_argument(flag, action=argparse.BooleanOptionalAction, default=default)
         else:
             parser.add_argument(flag, type=type(default), default=default)
     starts = parser.add_mutually_exclusive_group()

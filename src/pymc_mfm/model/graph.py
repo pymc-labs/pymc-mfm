@@ -106,7 +106,7 @@ class EdgeSlotLayout:
         gather: list[int] = []
         offset = 0
         for et in STRUCT_EDGE_KEYS:
-            size = int(np.prod(self._block_shapes[et])) if self._block_shapes[et] else 0
+            size = math.prod(self._block_shapes[et]) if self._block_shapes[et] else 0
             if et in SQUARE_EDGE_TYPES:
                 n = self._block_shapes[et][0]
                 gather += [offset + i * n + k for i in range(n) for k in range(n) if i != k]
@@ -155,7 +155,7 @@ class EdgeSlotLayout:
         offset = 0
         for et in STRUCT_EDGE_KEYS:
             shape = self._block_shapes[et]
-            size = int(np.prod(shape)) if shape else 0
+            size = math.prod(shape) if shape else 0
             out[et] = full[..., offset : offset + size].reshape(*lead, *shape)
             offset += size
         return out

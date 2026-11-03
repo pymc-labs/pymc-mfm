@@ -59,6 +59,12 @@ from pymc_mfm.training.evaluation import (
     within_bounds,
 )
 from pymc_mfm.training.observer import TrainingObserver
+from pymc_mfm.training.precision import (
+    autocast_context,
+    build_loss_fn,
+    compile_counts,
+    compile_record,
+)
 from pymc_mfm.training.resume import (
     EMPTY_ROW_SEQUENCE,
     ROW_SEQUENCE_SCHEME,
@@ -1148,6 +1154,15 @@ def _train_run(
             if "resumed_from" in run:
                 run["resumed_from"]["best_checkpoint_copied"] = True
 
+    loss_fn = build_loss_fn(model, loss_weights, training, resolved_device.type)
+    run["compile"] = compile_record(training)
+
+    def note_compiled_step(seconds: float) -> None:
+        """Record the first compiled step's duration (forward, backward, update) and the counts."""
+        if run["compile"]["first_call_seconds"] is None:
+            run["compile"]["first_call_seconds"] = seconds
+        run["compile"].update(compile_counts())
+
     status = "failed"
     error: str | None = None
     step = first_step - 1
@@ -1179,16 +1194,21 @@ def _train_run(
                     group["lr"] = lr
                 step_start = time.perf_counter()
                 if step == 1:
-                    terms, trace = model.loss_terms(batch, weights=loss_weights, return_trace=True)
+                    with autocast_context(training, resolved_device.type):
+                        terms, trace = model.loss_terms(
+                            batch, weights=loss_weights, return_trace=True
+                        )
                     _write_json(
                         out_dir / "objective_trace.json", objective_trace_to_jsonable(trace)
                     )
                 else:
-                    terms = model.loss_terms(batch, weights=loss_weights)
+                    terms = loss_fn(batch)
                 optimizer.zero_grad(set_to_none=True)
                 terms["loss"].backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(parameters, training.grad_clip)
                 optimizer.step()
+                if training.compile and step != 1:
+                    note_compiled_step(time.perf_counter() - step_start)
                 completed_updates = step
                 note_consumed(step, provenance_record)
                 step_seconds = time.perf_counter() - step_start

@@ -5,6 +5,14 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 
+def value_checks_enabled() -> bool:
+    """Whether to check tensor values; a check syncs with the device and splits a compiled graph.
+
+    Compiled training steps skip the checks. Step 1 and evaluation run eagerly and keep them.
+    """
+    return not torch.compiler.is_compiling()
+
+
 class RMSNorm(nn.Module):
     def __init__(self, d: int, eps: float = 1e-6):
         super().__init__()

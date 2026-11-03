@@ -19,6 +19,7 @@ from .components import ConditionalHead
 from .config import ModelConfig
 from .graph import N_NODE_TYPES, STRUCT_EDGE_KEYS, EdgeSlotLayout
 from .ode import integrate_flow
+from .primitives import value_checks_enabled
 
 DECOMPOSITION_FIXED_TARGETS = (
     "confounder_contribution_total",
@@ -342,7 +343,7 @@ class JointFlowHead(nn.Module, ConditionalHead):
                 ) from error
         entity_count = entity_active.sum(dim=-1, keepdim=True)
         if self.graph_router:
-            if (entity_count == 0).any():
+            if value_checks_enabled() and (entity_count == 0).any():
                 raise ValueError("flow state has a task/week with no active entities")
         else:
             # An all-off conditioning graph leaves only baseline stochastic.
@@ -758,14 +759,14 @@ class JointFlowHead(nn.Module, ConditionalHead):
             denominator = effective_mask[..., :n_dec].sum()
             graph_weights = effective_mask[..., n_dec:]
             graph_mass = graph_weights.sum()
-            if float(graph_mass.detach()) <= 0.0:
+            if value_checks_enabled() and float(graph_mass.detach()) <= 0.0:
                 raise ValueError("graph_loss_weight requires active graph coordinates")
             graph_weights.mul_(graph_budget * denominator / graph_mass)
         else:
             denominator = effective_mask.sum()
         sq_err = (pred_velocity - target_velocity).square()
         numerator = (sq_err * effective_mask).sum()
-        if float(denominator.detach().item()) <= 0.0:
+        if value_checks_enabled() and float(denominator.detach().item()) <= 0.0:
             raise ValueError("flow objective has no active state coordinates")
         return numerator / denominator
 

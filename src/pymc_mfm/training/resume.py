@@ -30,7 +30,7 @@ import torch
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
-from pymc_mfm.training.config import TrainingConfig
+from pymc_mfm.training.config import LATE_FIELD_DEFAULTS, TrainingConfig
 from pymc_mfm.training.stream import SeenRows
 
 #: Name of the checkpoint a same-directory resume may start from.
@@ -40,6 +40,8 @@ ROW_SEQUENCE_SCHEME = "chained_sha256_v1"
 #: ``row_sequence_sha256`` before any batch: the digest of no bytes.
 EMPTY_ROW_SEQUENCE = hashlib.sha256(b"").hexdigest()
 #: Training-config fields that do not change numerics; a resume may differ in them.
+#: ``compile`` is not free: a compiled step gives parameters that a batch leaves unused a
+#: zero gradient instead of ``None``, so AdamW still moves them.
 RESUME_FREE_FIELDS = ("prefetch_batches",)
 
 _JSONL_FILES = ("metrics.jsonl", "evaluations.jsonl", "diagnostics.jsonl")
@@ -218,7 +220,9 @@ def _check_resumable(
             f"resume_from: {start.path} is a {payload['kind']!r} checkpoint without resume "
             "state; resume from a 'last' or 'milestone' checkpoint"
         )
-    recorded, current = payload["training_config"], training.to_dict()
+    # A checkpoint written before a field existed ran with that field's default.
+    recorded = {**LATE_FIELD_DEFAULTS, **payload["training_config"]}
+    current = training.to_dict()
     differing = _differing(recorded, current, ignore=RESUME_FREE_FIELDS)
     if differing:
         raise ValueError(

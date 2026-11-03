@@ -26,6 +26,11 @@ from pymc_mfm.model.config import LossWeights
 CANONICAL_STEPS = 62_500
 CANONICAL_BATCH_SIZE = 64
 SELECTION_HEADS = ("conditional", "joint")
+PRECISIONS = ("fp32", "bf16")
+#: Fields added after the first records were written; a record without them used the default.
+LATE_FIELD_DEFAULTS: Mapping[str, object] = MappingProxyType(
+    {"precision": "fp32", "compile": False}
+)
 _LOSS_WEIGHT_FIELDS = tuple(field.name for field in fields(LossWeights))
 
 
@@ -60,6 +65,11 @@ class TrainingConfig:
     log_every: int = 100
     milestone_steps: tuple[int, ...] = (25_000, 50_000)
     prefetch_batches: int = 4
+    #: ``"bf16"`` runs the forward pass and loss under bfloat16 autocast; the
+    #: backward pass, clipping, AdamW and evaluation stay fp32.
+    precision: str = "fp32"
+    #: Compile the forward pass and loss with ``torch.compile`` (see the trainer).
+    compile: bool = False
 
     def __post_init__(self) -> None:
         for name in ("steps", "batch_size", "eval_every", "eval_worlds", "log_every"):
@@ -96,6 +106,10 @@ class TrainingConfig:
             object.__setattr__(self, name, value)
         if self.lr_schedule not in ("constant", "cosine"):
             raise ValueError("lr_schedule must be 'constant' or 'cosine'")
+        if self.precision not in PRECISIONS:
+            raise ValueError(f"precision must be one of {PRECISIONS}")
+        if type(self.compile) is not bool:
+            raise ValueError("compile must be a bool")
         if self.selection_head not in SELECTION_HEADS:
             raise ValueError(f"selection_head must be one of {SELECTION_HEADS}")
         # The held-out energy score that selects checkpoints needs two draws.
@@ -148,17 +162,21 @@ class TrainingConfig:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Self:
-        """Rebuild from :meth:`to_dict`; derived and constant fields are checked."""
+        """Rebuild from :meth:`to_dict`; derived and constant fields are checked.
+
+        Records written before ``precision`` and ``compile`` existed lack them
+        and rebuild with the defaults.
+        """
         names = {field.name for field in fields(cls)}
         derived = {"adam_betas", "adam_eps", "budget"}
-        missing = names - payload.keys()
+        missing = names - payload.keys() - LATE_FIELD_DEFAULTS.keys()
         unknown = payload.keys() - names - derived
         if missing or unknown:
             raise ValueError(
                 f"invalid training configuration fields: missing={sorted(missing)}, "
                 f"unknown={sorted(unknown, key=str)}"
             )
-        values = {name: payload[name] for name in names}
+        values = {name: payload[name] for name in names if name in payload}
         values["milestone_steps"] = tuple(values["milestone_steps"])
         config = cls(**values)
         if "adam_betas" in payload and tuple(payload["adam_betas"]) != cls.adam_betas:
