@@ -15,6 +15,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from .components import ConditionalHead
 from .config import ModelConfig
 from .graph import N_NODE_TYPES, STRUCT_EDGE_KEYS, EdgeSlotLayout
 from .ode import integrate_flow
@@ -125,7 +126,7 @@ def _map_batches[T](
         return list(pool.map(run, bounds))
 
 
-class JointFlowHead(nn.Module):
+class JointFlowHead(nn.Module, ConditionalHead):
     """Rectified flow over the full additive decomposition of each week.
 
     The router appends the complete graph in ``EdgeSlotLayout`` order and
@@ -134,6 +135,9 @@ class JointFlowHead(nn.Module):
     supplied by the model's graph conditioner. Both use a rank-four coherent
     base distribution and pool the live trajectory state at every drift step.
     """
+
+    n_controls: int
+    n_demand: int
 
     def __init__(self, config: ModelConfig, *, graph_router: bool):
         super().__init__()

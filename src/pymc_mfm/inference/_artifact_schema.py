@@ -22,6 +22,7 @@ from pymc_mfm.data.features import (
     RESPONSE_MOMENT_DECAYS,
     RESPONSE_MOMENT_L_MAX,
 )
+from pymc_mfm.model.components import ResearchComponentError
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.flow import (
     _TRAJECTORY_CONSTANT_LOADING_SCALE,
@@ -699,9 +700,26 @@ def semantic_schema(config: ModelConfig) -> dict:
 
 
 def validate_semantic_schema(
-    value: object, config: ModelConfig | None = None, *, label: str
+    value: object,
+    config: ModelConfig | None = None,
+    *,
+    label: str,
+    allow_components: bool = False,
 ) -> None:
-    """Check the representation version, then its full contract when geometry is known."""
+    """Check the representation version, then its full contract when geometry is known.
+
+    A ``components`` entry records which registered model components produced the
+    weights. Only training checkpoints may carry one (``allow_components=True``);
+    a release bundle that carries one is refused as a research bundle. The entry
+    is not part of the semantic schema that ``semantic_schema`` returns.
+    """
+    if isinstance(value, dict) and "components" in value:
+        if not allow_components:
+            raise ResearchComponentError(
+                f"{label} carries research components {value['components']!r}: research "
+                "components never reach a release bundle"
+            )
+        value = {key: item for key, item in value.items() if key != "components"}
     if (
         not isinstance(value, dict)
         or type(value.get("version")) is not int

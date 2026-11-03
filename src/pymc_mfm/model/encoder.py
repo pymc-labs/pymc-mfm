@@ -13,6 +13,7 @@ from pymc_mfm.data.features import (
     MEDIA_FEATURE_BLOCKS,
     MOMENT_FEATURE_BLOCKS,
 )
+from pymc_mfm.model.components import Encoder
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.primitives import MultiHeadAttention, RMSNorm, SwiGLU
 
@@ -96,7 +97,7 @@ class TimelineRepresentations:
     query: SplitRepresentations
 
 
-class BiAttentionEncoder(nn.Module):
+class BiAttentionEncoder(nn.Module, Encoder):
     """One token per week and media/control entity, plus a revenue cell.
 
     The shared projection and entity attention are permutation-equivariant.
