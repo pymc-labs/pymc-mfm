@@ -382,6 +382,28 @@ conda activate ./.conda
 python -m pip install --group dev -e .
 ```
 
+### What may be committed
+
+This repository will be public, history included. Commit library code, tests,
+synthetic fixtures and docs. Never commit trained weights, credentials, user data,
+internal deployment names or private results. [AGENTS.md](AGENTS.md) has the full
+table and the boundary check, which CI runs on every pull request:
+
+```bash
+python3 scripts/check_public_boundary.py
+```
+
+Maintainers can pair a private companion checkout, linked at an ignored `.private`
+path. The library never needs it:
+
+```text
+<parent>/
+├── pymc-mfm/            this repository: install, test and build here
+│   ├── .private ──┐     ignored link, maintainers only
+│   └── .venv/     │     one environment for both checkouts
+└── <companion>/  ◄┘     private repository with its own setup.sh
+```
+
 ## Status
 
 Version `0.0.1.dev0`, not a published release. Code and model licenses are not
