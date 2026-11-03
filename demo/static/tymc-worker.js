@@ -31796,7 +31796,7 @@ self.onmessage = ({ data }) => {
     const date = (i) => new Date(Date.UTC(2020, 0, 6 + 7 * i)).toISOString().slice(0, 10);
     const dates = world.outcome.map((_2, i) => date(i));
     const dataset2 = { dates: dates.slice(0, n), channels: world.channels, controls: ["promotion"], x: world.spend.slice(0, n), z: world.controls.slice(0, n), y: world.outcome.slice(0, n) };
-    const config = { lag: 8, seasonality: true, priorScale: 2, chains: 2, tune: 500, draws: 500, targetAccept: 0.95, seed: 42 };
+    const config = { lag: 8, seasonality: true, priorScale: 2, chains: 4, tune: 1e3, draws: 1e3, targetAccept: 0.99, seed: 42 };
     const run = sampleTymcModel(
       dataset2,
       config,

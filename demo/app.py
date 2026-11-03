@@ -257,7 +257,11 @@ def showcase(case: Literal["91", "92"] = "91"):
 
 
 @app.get("/api/scenario")
-def scenario_forecast(case: Literal["baseline", "promotion", "halo"] = "baseline"):
+def scenario_forecast(
+    case: Literal[
+        "baseline", "promotion", "halo", "baseline_trend", "promotion_trend", "halo_trend"
+    ] = "baseline",
+):
     """Forecast the same withheld weeks that a browser MMM can evaluate."""
     from demo.scenario_world import CHANNELS as SCENARIO_CHANNELS
     from demo.scenario_world import N_CONTEXT as SCENARIO_CONTEXT

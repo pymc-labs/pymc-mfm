@@ -92,3 +92,11 @@ NODE_PATH=/path/to/mixlab/node_modules /path/to/mixlab/node_modules/.bin/esbuild
   demo/frontend/worker.ts --bundle --format=esm --platform=browser \
   --target=es2022 --outfile=demo/static/tymc-worker.js
 ```
+
+Three additional scenarios add a positive linear demand trend to each original
+world. These were selected after inspecting a small exploratory screen: they
+favor River against the existing default tyMC specification, which has no
+trend term. They are not representative or evidence that River beats an MMM
+with an appropriate trend. The original examples remain available. The browser
+fit now uses four chains, 1,000 warmup and 1,000 draws with target acceptance
+0.99. Trend slopes are fixed in `scenario_world.py`.

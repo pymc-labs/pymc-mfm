@@ -8,7 +8,7 @@ self.onmessage = ({data}) => {
     const date = (i: number) => new Date(Date.UTC(2020, 0, 6 + 7*i)).toISOString().slice(0,10);
     const dates = world.outcome.map((_: number,i: number) => date(i));
     const dataset = {dates: dates.slice(0,n), channels: world.channels, controls: ['promotion'], x: world.spend.slice(0,n), z: world.controls.slice(0,n), y: world.outcome.slice(0,n)};
-    const config = {lag: 8, seasonality: true, priorScale: 2, chains: 2, tune: 500, draws: 500, targetAccept: 0.95, seed: 42};
+    const config = {lag: 8, seasonality: true, priorScale: 2, chains: 4, tune: 1000, draws: 1000, targetAccept: 0.99, seed: 42};
     const run = sampleTymcModel(dataset, config,
       phase => self.postMessage({type:'phase', phase}),
       event => { if (event.iteration % 25 === 0) self.postMessage({type:'progress', chain:event.chain+1, phase:event.phase, iteration:event.iteration+1}); return true; });

@@ -5,7 +5,9 @@ from typing import Literal
 
 import numpy as np
 
-Scenario = Literal["baseline", "promotion", "halo"]
+Scenario = Literal[
+    "baseline", "promotion", "halo", "baseline_trend", "promotion_trend", "halo_trend"
+]
 CHANNELS = ("Search", "Social", "Video", "TV", "Audio", "Display")
 N_CONTEXT = 166
 N_WEEKS = 208
@@ -21,8 +23,17 @@ class ScenarioWorld:
 
 
 def make_scenario(scenario: Scenario, seed: int = 21) -> ScenarioWorld:
-    if scenario not in ("baseline", "promotion", "halo"):
+    if scenario not in (
+        "baseline",
+        "promotion",
+        "halo",
+        "baseline_trend",
+        "promotion_trend",
+        "halo_trend",
+    ):
         raise ValueError(f"Unknown scenario: {scenario}")
+    trend = scenario.endswith("_trend")
+    scenario = scenario.removesuffix("_trend")
     rng = np.random.default_rng(seed)
     t = np.arange(N_WEEKS)
     promotion = ((t % 13) < 3).astype(float)
@@ -45,6 +56,8 @@ def make_scenario(scenario: Scenario, seed: int = 21) -> ScenarioWorld:
     if scenario == "halo":
         # A separate observed interaction makes the additive default misspecified.
         baseline += 800 * np.tanh(adstock[:, 0] / 180) * np.tanh(adstock[:, 3] / 180)
+    if trend:
+        baseline += 10 * t
     expected = baseline + contributions.sum(axis=1)
     outcome = expected + rng.normal(0, 180, N_WEEKS)
     return ScenarioWorld(spend, promotion[:, None], outcome, expected, contributions)
