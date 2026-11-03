@@ -1,6 +1,9 @@
 """Exact resume, same-directory resume and weights-only warm start."""
 
 import json
+import signal
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -23,7 +26,10 @@ from pymc_mfm.training.checkpoint import CHECKPOINT_FORMAT_VERSION, file_sha256
 from pymc_mfm.training.resume import (
     EMPTY_ROW_SEQUENCE,
     ROW_SEQUENCE_SCHEME,
+    capture_rng_state,
     chain_row_sequence,
+    check_rng_fits_device,
+    restore_rng_state,
 )
 from pymc_mfm.training.stream import CorpusStream, PrefetchingStream, SeenRows
 from pymc_mfm.training.trainer import LOSS_TERMS
@@ -189,13 +195,14 @@ def test_negative_control_diverges_when_state_restoration_is_skipped(
 # ---- same-directory resume ----
 
 
-@pytest.mark.parametrize("hard_kill", [False, True], ids=["interrupt", "hard-kill"])
+@pytest.mark.parametrize("hard_kill", [False, True], ids=["interrupt", "stale-run-json"])
 def test_same_directory_resume_equals_the_uninterrupted_run(tmp_path, hard_kill):
     config = reduced(steps=9, eval_every=3, milestone_steps=(2, 5))
     run_train(tmp_path / "full", training=config)
     out = tmp_path / "run"
     interrupted_run(out, 6, training=config)
     original = json.loads((out / "run.json").read_text())
+    checkpoint_sha256 = file_sha256(out / "checkpoint_last.pt")
     # What a run that outlived its checkpoint left: later steps, a torn line, a later
     # milestone and a later evaluation table.
     with (out / "metrics.jsonl").open("a") as handle:
@@ -220,7 +227,7 @@ def test_same_directory_resume_equals_the_uninterrupted_run(tmp_path, hard_kill)
     assert run["run_id"] == original["run_id"] and run["created_at"] == original["created_at"]
     assert "resumed_from" not in run
     assert [(r["from_step"], r["checkpoint_sha256"]) for r in run["resumes"]] == [
-        (6, run["resumes"][0]["checkpoint_sha256"])
+        (6, checkpoint_sha256)
     ]
     listed = [(e["kind"], e["step"], e["file"]) for e in run["checkpoints"]]
     assert [item for item in listed if item[0] != "best"] == [
@@ -234,6 +241,20 @@ def test_same_directory_resume_equals_the_uninterrupted_run(tmp_path, hard_kill)
     best = next(e for e in run["checkpoints"] if e["kind"] == "best")
     assert run["best"]["step"] == best["step"]
     assert (out / "objective_trace.json").is_file()
+
+
+def test_same_directory_resume_after_a_sigkill_equals_the_uninterrupted_run(tmp_path):
+    config = reduced(steps=9, eval_every=3, milestone_steps=())
+    run_train(tmp_path / "full", training=config)
+    out = tmp_path / "run"
+    script = Path(__file__).with_name("hard_kill_run.py")
+    killed = subprocess.run([sys.executable, str(script), str(out), "6"], capture_output=True)
+    assert killed.returncode == -signal.SIGKILL, killed.stderr.decode()
+    assert json.loads((out / "run.json").read_text())["status"] == "running"
+
+    run_train(out, training=config, resume_from=out / "checkpoint_last.pt")
+
+    assert_resumed_equals_full(tmp_path / "full", out, 6)
 
 
 def test_same_directory_resume_writes_the_best_checkpoint_the_interruption_preceded(tmp_path):
@@ -438,6 +459,65 @@ def test_resume_and_init_are_exclusive(tmp_path, full_run):
         run_train(tmp_path / "run", resume_from=path, init_from=path)
 
 
+# ---- accelerator RNG ----
+
+
+def resume_block(device_type, accelerator_rng):
+    return {"device_type": device_type, "accelerator_rng": accelerator_rng}
+
+
+def test_cpu_capture_holds_no_accelerator_state():
+    captured = capture_rng_state(torch.device("cpu"))
+    assert captured["device_type"] == "cpu" and captured["accelerator_rng"] is None
+    assert torch.equal(captured["torch_rng"], torch.random.get_rng_state())
+
+
+@pytest.mark.parametrize(
+    ("saved", "device", "message"),
+    [
+        (resume_block("cuda", [torch.zeros(1)]), "cpu", "written on a cuda device.*cpu device"),
+        (resume_block("mps", torch.zeros(1)), "cuda", "written on a mps device.*cuda device"),
+        (resume_block("cpu", None), "mps", "written on a cpu device.*mps device"),
+    ],
+    ids=["cuda-to-cpu", "mps-to-cuda", "cpu-to-mps"],
+)
+def test_resume_refuses_a_checkpoint_from_another_device_type(saved, device, message):
+    with pytest.raises(ValueError, match=message):
+        check_rng_fits_device(saved, torch.device(device))
+
+
+def test_resume_refuses_a_cuda_checkpoint_when_the_device_count_differs(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 1)
+    saved = resume_block("cuda", [torch.zeros(1), torch.zeros(1)])
+    with pytest.raises(ValueError, match="RNG states of 2 CUDA devices, but 1 are visible"):
+        check_rng_fits_device(saved, torch.device("cuda"))
+    check_rng_fits_device(resume_block("cuda", [torch.zeros(1)]), torch.device("cuda"))
+
+
+def test_restore_sets_only_the_saved_devices_accelerator_rng(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        torch.cuda, "set_rng_state_all", lambda states: calls.append(("cuda", states))
+    )
+    monkeypatch.setattr(torch.mps, "set_rng_state", lambda state: calls.append(("mps", state)))
+    cpu_rng = torch.random.get_rng_state()
+    for kind, state in (("cuda", [torch.ones(1)]), ("mps", torch.ones(1)), ("cpu", None)):
+        restore_rng_state({"torch_rng": cpu_rng, **resume_block(kind, state)})
+    assert [kind for kind, _ in calls] == ["cuda", "mps"]
+
+
+def test_a_resume_from_another_device_type_is_refused_before_anything_is_written(tmp_path):
+    part = tmp_path / "part"
+    interrupted_run(part, 3)
+    payload = torch.load(part / "checkpoint_last.pt", weights_only=True)
+    payload["resume"].update(device_type="cuda", accelerator_rng=[torch.zeros(1)])
+    foreign = tmp_path / "foreign.pt"
+    torch.save(payload, foreign)
+    with pytest.raises(ValueError, match="written on a cuda device"):
+        run_train(tmp_path / "run", resume_from=foreign)
+    assert not (tmp_path / "run").exists()
+
+
 # ---- stream, digest and seen rows ----
 
 
@@ -470,10 +550,7 @@ def test_stream_snapshot_is_small_and_validated(corpus):
     assert len(json.dumps(state, default=int)) < 1500
     for name, other in (("seed", 4), ("batch_size", 4), ("split", "all"), ("n_rows", 99)):
         with pytest.raises(ValueError, match=name):
-            tampered = {**state, name: other}
-            kwargs = {"batch_size": 2, "seed": 3, "split": "train"}
-            kwargs.update({k: v for k, v in tampered.items() if k in kwargs and k != name})
-            CorpusStream([corpus], **kwargs).restore({**state, name: other})
+            CorpusStream([corpus], batch_size=2, seed=3).restore({**state, name: other})
     wrong = CorpusStream([corpus], batch_size=2, seed=3)
     with pytest.raises(ValueError, match="buckets"):
         wrong.restore({**state, "cursor": {1: 0}})
@@ -541,9 +618,7 @@ def test_same_directory_resume_continues_the_mlflow_run_and_new_directory_starts
     resumed = result.run["tracking"]
     assert resumed["run_id"] == first["run_id"]
     assert resumed["delivery_status"] == "healthy"
-    client = MlflowClient(
-        tracking_uri=resumed["tracking_uri"].replace("sqlite:////", "sqlite:////")
-    )
+    client = MlflowClient(tracking_uri=resumed["tracking_uri"])
     run = client.get_run(first["run_id"])
     assert run.info.status == "FINISHED"
     assert run.data.tags["mfm.resumed"] == "true"

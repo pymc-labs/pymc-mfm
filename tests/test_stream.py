@@ -139,6 +139,9 @@ def test_prefetched_order_equals_direct_order_and_producer_errors_surface(corpus
         prefetched.next_batch()
 
     class Broken:
+        def resume_state(self):
+            return {}
+
         def next_batch(self):
             raise ValueError("unusable row")
 

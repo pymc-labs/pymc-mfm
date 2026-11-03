@@ -9,7 +9,7 @@ checkpoint, and starts a new run at step 1 with a fresh optimizer.
 
 This module holds the pieces that do not need the training loop: refusal
 checks that run before any file is written, the chained consumption digest,
-RNG capture, and the reconciliation of a run directory's records with a
+RNG capture and its device check, and the reconciliation of a run directory's records with a
 checkpoint step.
 """
 
@@ -64,28 +64,53 @@ def evaluation_sha256(evaluation: Mapping[str, Any]) -> str:
     ).hexdigest()
 
 
-def capture_rng_state() -> dict[str, Any]:
-    """Torch CPU RNG state, plus CUDA states when CUDA is initialised.
+def capture_rng_state(device: torch.device) -> dict[str, Any]:
+    """RNG state of the training device, plus the CPU torch RNG.
 
-    The training path draws no NumPy or Python global random numbers: the stream
-    owns its generator and evaluation forks and restores the torch RNG.
+    ``device_type`` names the accelerator whose state is held in ``accelerator_rng``:
+    all CUDA devices' states for ``cuda``, the MPS state for ``mps``, ``None`` for
+    ``cpu``. The training path draws no NumPy or Python global random numbers: the
+    stream owns its generator and evaluation forks and restores the torch RNG.
     """
+    accelerator_rng = None
+    if device.type == "cuda":
+        accelerator_rng = torch.cuda.get_rng_state_all()
+    elif device.type == "mps":
+        accelerator_rng = torch.mps.get_rng_state()
     return {
         "torch_rng": torch.random.get_rng_state(),
-        "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_initialized() else None,
+        "device_type": device.type,
+        "accelerator_rng": accelerator_rng,
     }
 
 
-def restore_rng_state(torch_rng: torch.Tensor, cuda_rng: Sequence[torch.Tensor] | None) -> None:
-    """Set the torch RNGs. CUDA states apply only when CUDA is present with as many devices."""
-    torch.random.set_rng_state(torch_rng)
-    if cuda_rng is not None and torch.cuda.is_available():
-        if torch.cuda.device_count() == len(cuda_rng):
-            torch.cuda.set_rng_state_all(list(cuda_rng))
+def check_rng_fits_device(resume: Mapping[str, Any], device: torch.device) -> None:
+    """Refuse a resume whose saved accelerator RNG cannot continue on ``device``."""
+    saved = resume["device_type"]
+    if saved != device.type:
+        raise ValueError(
+            f"resume_from: the checkpoint was written on a {saved} device and cannot "
+            f"continue its RNG on a {device.type} device"
+        )
+    if saved == "cuda" and len(resume["accelerator_rng"]) != torch.cuda.device_count():
+        raise ValueError(
+            f"resume_from: the checkpoint holds RNG states of {len(resume['accelerator_rng'])} "
+            f"CUDA devices, but {torch.cuda.device_count()} are visible"
+        )
+
+
+def restore_rng_state(resume: Mapping[str, Any]) -> None:
+    """Set the torch RNGs from a resume block that :func:`check_rng_fits_device` accepted."""
+    torch.random.set_rng_state(resume["torch_rng"])
+    if resume["device_type"] == "cuda":
+        torch.cuda.set_rng_state_all(list(resume["accelerator_rng"]))
+    elif resume["device_type"] == "mps":
+        torch.mps.set_rng_state(resume["accelerator_rng"])
 
 
 def build_resume_block(
     *,
+    device: torch.device,
     optimizer: torch.optim.Optimizer,
     step: int,
     stream_state: Mapping[str, Any],
@@ -98,7 +123,7 @@ def build_resume_block(
     return {
         "optimizer": optimizer.state_dict(),
         "step": step,
-        **capture_rng_state(),
+        **capture_rng_state(device),
         "stream": dict(stream_state),
         "consumption": {
             "scheme": ROW_SEQUENCE_SCHEME,
@@ -163,6 +188,7 @@ def load_start_point(
     *,
     mode: str,
     out_dir: Path,
+    device: torch.device,
     model_config: ModelConfig,
     training: TrainingConfig,
     corpus_records: Sequence[Mapping[str, Any]],
@@ -172,7 +198,8 @@ def load_start_point(
     Nothing is written. Raises ``ValueError`` when the checkpoint cannot serve the
     mode: a dimensional or unreadable file, a model configuration that differs, and
     for a resume also a format 2 file, a checkpoint without resume state, a
-    ``training_config`` that differs, a different corpus, or a same-directory
+    ``training_config`` that differs, a different corpus, RNG state that does not fit
+    ``device``, or a same-directory
     request that does not start from the directory's own ``checkpoint_last.pt``.
     """
     path = Path(path)
@@ -196,13 +223,14 @@ def load_start_point(
         same_directory=same_directory and mode == "resume",
     )
     if mode == "resume":
-        _check_resumable(start, out_dir, training, corpus_records)
+        _check_resumable(start, out_dir, device, training, corpus_records)
     return start
 
 
 def _check_resumable(
     start: StartPoint,
     out_dir: Path,
+    device: torch.device,
     training: TrainingConfig,
     corpus_records: Sequence[Mapping[str, Any]],
 ) -> None:
@@ -218,6 +246,7 @@ def _check_resumable(
             f"resume_from: {start.path} is a {payload['kind']!r} checkpoint without resume "
             "state; resume from a 'last' or 'milestone' checkpoint"
         )
+    check_rng_fits_device(payload["resume"], device)
     recorded, current = payload["training_config"], training.to_dict()
     differing = _differing(recorded, current, ignore=RESUME_FREE_FIELDS)
     if differing:
