@@ -55,7 +55,7 @@ exact dataset and draws' summaries used by the demo.
 
 ## Selected whitepaper examples
 
-`/compare` (also available at `/showcase`) runs River-1 on one-week query views from two fixed whitepaper test
+`/showcase` runs River-1 on one-week query views from two fixed whitepaper test
 worlds. It shows 207 weeks of historical observations plus known week-208
 inputs, withholding week-208 sales. The first example (World 91) was selected
 for favorable contribution recovery; the second (World 92) is a mixed case.
@@ -68,57 +68,37 @@ load; the saved NPZ fixtures contain only the synthetic inputs, masks and truth.
 checkpoint and reduced fixture hashes, which the server verifies before use.
 The harder constructed promotion comparison remains available at `/stress-test`.
 
-## Three-world forecast comparison
+## Channel contribution comparison
 
-`/compare` generates three deterministic six-channel worlds (baseline,
-correlated promotion, and a channel interaction). The models are given 166
-historical outcomes and the full set of known spend and promotion inputs; both
-predict the following 42 weeks, evaluated against observed synthetic sales.
-The River forecast is generated on the server. The tyMC-Marketing model is fit
-in a browser worker with the Mixlab default adstock, saturation, seasonality,
-and priors, two chains, 500 tuning and 500 posterior draws. The page reports
-RMSE, divergences and maximum R-hat; no convergence is implied. These fixed
-worlds are not a representative benchmark. This compares predictive accuracy,
-not causal effects or inferred structures, and does not yet implement an
-oracle structure-aware MMM.
+`/compare` compares River-1 and a browser-run tyMC-Marketing MMM on six fixed,
+hand-built worlds. Both models receive the same 166 observed sales weeks and corresponding spend
+and promotion. River additionally receives the next week of spend and promotion,
+without its sales, as required by the API. Both estimate contributions in the
+166-week observed context. The plot displays posterior means and central 80%
+intervals. Reveal shows the generator's direct channel contributions and two
+metrics: MAE of posterior means averaged over channels, and fair CRPS over each
+channel's posterior for its 166-week average, averaged across channels. The
+finite-ensemble correction reduces draw-count bias (128 River, 4,000 tyMC).
 
-Worker sources and exact TyMC/TyMC-Marketing revisions are in `frontend/`.
-The generated `static/tymc-worker.js` is committed for deployment. To rebuild,
-install Mixlab's vendored npm dependencies at the revisions recorded in
-`frontend/vendor-manifest.json`, then from this repository run:
+The default browser MMM has geometric adstock, logistic saturation, seasonality
+and the promotion control. It runs four chains, 1,000 warmup and 1,000 draws at
+target acceptance 0.99. Check diagnostics; zero divergences do not alone prove
+convergence. Interactions in the two interaction worlds are explicitly not
+allocated to channel direct truth, and the two models may allocate them
+differently. These estimates are not a real-world causal validation.
+
+Three scenarios add an upward linear demand trend to the original three. They
+were selected after inspecting the previous **forecasting** errors on the same
+holdout, not contribution errors, and share a trend omitted by the default
+MMM. They are not independent cases or a representative benchmark. The original
+three remain available. No structure-aware or trend-aware MMM is implemented.
+
+Worker sources, dependency revisions and licenses are in `frontend/`; the
+bundled `static/tymc-worker.js` is committed for deployment. Rebuild with the
+pinned Mixlab npm dependencies described by `frontend/vendor-manifest.json`:
 
 ```sh
 NODE_PATH=/path/to/mixlab/node_modules /path/to/mixlab/node_modules/.bin/esbuild \
   demo/frontend/worker.ts --bundle --format=esm --platform=browser \
   --target=es2022 --outfile=demo/static/tymc-worker.js
 ```
-
-Three additional scenarios add a positive linear demand trend to each original
-world. These were selected after inspecting a small exploratory screen: they
-favor River against the existing default tyMC specification, which has no
-trend term. They are not representative or evidence that River beats an MMM
-with an appropriate trend. The original examples remain available. The browser
-fit now uses four chains, 1,000 warmup and 1,000 draws with target acceptance
-0.99. Trend slopes are fixed in `scenario_world.py`.
-
-Selection record (November 3): after seeing the three original worlds' results,
-we screened additive trend slopes 5, 10, 20, 30, -5, -10, -20 and -30 on the
-baseline, then screened slopes +10 and -10 on promotion and interaction. We
-selected the +10 variants of all three worlds after seeing forecast errors.
-For those three, a separate local run with four chains, 1,000 tuning and 1,000
-posterior draws at target acceptance 0.99 produced River RMSE 798, 443, 555 and
-tyMC RMSE 1,124, 1,127, 1,117, respectively; all three had zero divergences and
-maximum R-hat below 1.01. These use the same random seed and the same fixed
-holdout as selection, so they are not an independent performance test. Four
-chains can be slow in the browser. The selected variants share an omitted
-trend and should not be presented as distinct independent benchmarks.
-
-The forecast RMSE compares posterior mean latent sales with observed held-out
-sales, which include simulated observation noise. The displayed 80% intervals
-and fair CRPS instead evaluate the latent expected-sales distribution against
-the simulator's known noise-free `expected` series. Both use all available
-draws (128 River, 4,000 tyMC); the finite-ensemble correction omits self-pairs
-to reduce differences due solely to draw count. The CRPS is averaged across
-held-out weeks in sales units. This is not posterior-predictive CRPS for noisy
-observations: River's output explicitly excludes observation noise. It is not
-an error score for channel decomposition.

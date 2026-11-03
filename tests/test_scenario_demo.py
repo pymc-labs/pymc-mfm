@@ -12,10 +12,19 @@ def test_scenario_forecast_does_not_provide_future_sales_to_river(monkeypatch):
 
     def decompose(_model, observations, **kwargs):
         observed.append(observations)
-        assert kwargs["window"] == "query"
+        assert kwargs["window"] == "context"
+        assert observations["spend"].shape == (N_CONTEXT + 1, 6)
+        assert len(observations["context_outcome"]) == N_CONTEXT
 
         class Result:
-            components = np.ones((128, N_WEEKS - N_CONTEXT, 7))
+            components = np.broadcast_to(np.arange(7, dtype=float), (128, N_CONTEXT, 7))
+            component_names = (
+                "baseline",
+                *(
+                    f"channel:{name}"
+                    for name in ("Search", "Social", "Video", "TV", "Audio", "Display")
+                ),
+            )
 
         return Result()
 
@@ -33,7 +42,11 @@ def test_scenario_forecast_does_not_provide_future_sales_to_river(monkeypatch):
         result = client.get("/api/scenario", params={"case": name}).json()
         source = make_scenario(name)
         np.testing.assert_array_equal(observed[-1]["context_outcome"], source.outcome[:N_CONTEXT])
-        assert len(result["river"]["forecast"]["mean"]) == N_WEEKS - N_CONTEXT
+        np.testing.assert_allclose(result["river"]["contributions"]["mean"], np.arange(1, 7))
+        assert len(result["outcome"]) == N_CONTEXT
+        np.testing.assert_allclose(
+            result["contribution_truth"], source.contributions[:N_CONTEXT].mean(axis=0)
+        )
         assert result["context_weeks"] == N_CONTEXT
         assert len(result["channels"]) == 6
     assert client.get("/api/scenario?case=bad").status_code == 422

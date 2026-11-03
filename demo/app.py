@@ -262,7 +262,7 @@ def scenario_forecast(
         "baseline", "promotion", "halo", "baseline_trend", "promotion_trend", "halo_trend"
     ] = "baseline",
 ):
-    """Forecast the same withheld weeks that a browser MMM can evaluate."""
+    """Estimate direct channel contributions in the observed context."""
     from demo.scenario_world import CHANNELS as SCENARIO_CHANNELS
     from demo.scenario_world import N_CONTEXT as SCENARIO_CONTEXT
     from demo.scenario_world import make_scenario
@@ -271,8 +271,8 @@ def scenario_forecast(
     controls = np.zeros((len(world.outcome), 10))
     controls[:, 0] = world.controls[:, 0]
     observations = {
-        "spend": world.spend,
-        "controls": controls,
+        "spend": world.spend[: SCENARIO_CONTEXT + 1],
+        "controls": controls[: SCENARIO_CONTEXT + 1],
         "context_outcome": world.outcome[:SCENARIO_CONTEXT],
         "control_mask": [1] + [0] * 9,
     }
@@ -280,24 +280,31 @@ def scenario_forecast(
         torch.manual_seed(0)
         started = time.perf_counter()
         result = decompose(
-            model(), observations, n_samples=128, window="query", channel_names=SCENARIO_CHANNELS
+            model(), observations, n_samples=128, window="context", channel_names=SCENARIO_CHANNELS
         )
         elapsed = time.perf_counter() - started
     from demo.scoring import fair_crps
 
-    latent_draws = result.components.sum(axis=2)
+    channel_draws = np.stack(
+        [
+            result.components[:, :, result.component_names.index(f"channel:{name}")].mean(axis=1)
+            for name in SCENARIO_CHANNELS
+        ],
+        axis=1,
+    )
+    truth = world.contributions[:SCENARIO_CONTEXT].mean(axis=0)
     return {
         "case": case,
         "channels": SCENARIO_CHANNELS,
         "context_weeks": SCENARIO_CONTEXT,
-        "spend": world.spend.tolist(),
-        "controls": world.controls.tolist(),
-        "outcome": world.outcome.tolist(),
-        "expected": world.expected[SCENARIO_CONTEXT:].tolist(),
+        "spend": world.spend[:SCENARIO_CONTEXT].tolist(),
+        "controls": world.controls[:SCENARIO_CONTEXT].tolist(),
+        "outcome": world.outcome[:SCENARIO_CONTEXT].tolist(),
+        "contribution_truth": truth.tolist(),
         "river": {
-            "forecast": band(latent_draws),
-            "latent_crps": fair_crps(latent_draws, world.expected[SCENARIO_CONTEXT:]),
-            "draws": int(latent_draws.shape[0]),
+            "contributions": band(channel_draws),
+            "contribution_crps": fair_crps(channel_draws, truth),
+            "draws": int(channel_draws.shape[0]),
             "seconds": elapsed,
         },
     }
