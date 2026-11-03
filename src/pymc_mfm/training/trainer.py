@@ -64,7 +64,6 @@ from pymc_mfm.training.precision import (
     build_loss_fn,
     compile_counts,
     compile_record,
-    drop_zero_gradients,
 )
 from pymc_mfm.training.resume import (
     EMPTY_ROW_SEQUENCE,
@@ -1208,8 +1207,6 @@ def _train_run(
                     terms = loss_fn(batch)
                 optimizer.zero_grad(set_to_none=True)
                 terms["loss"].backward()
-                if training.compile and step != 1:
-                    drop_zero_gradients(parameters)
                 grad_norm = torch.nn.utils.clip_grad_norm_(parameters, training.grad_clip)
                 optimizer.step()
                 if training.compile and step != 1:

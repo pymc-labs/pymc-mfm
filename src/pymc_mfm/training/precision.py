@@ -8,7 +8,7 @@ Evaluation never uses either.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import torch
@@ -36,10 +36,12 @@ def build_loss_fn(
     code draw its noise from the eager RNG stream, so compiled and eager
     losses agree to float32 round-off while every parameter takes part.
 
-    Two differences remain. A parameter that a batch leaves unused gets a zero
-    gradient instead of ``None``, so AdamW still applies momentum and weight decay
-    to it and the runs drift apart. Compiled steps also skip the mask value checks,
-    which step 1 and evaluation still run eagerly.
+    Two differences remain, so compiled training is not optimizer-equivalent to eager.
+    A parameter that a batch leaves unused gets a zero gradient instead of ``None``,
+    so AdamW still applies momentum and weight decay to it and the runs drift apart.
+    Turning exact-zero gradients back into ``None`` was tried and made compiled
+    steps slower than eager on an L4, so it is not done. Compiled steps also skip
+    the mask value checks, which step 1 and evaluation still run eagerly.
     """
 
     def loss_fn(batch):
@@ -77,19 +79,3 @@ def compile_counts() -> dict[str, int]:
         "graphs": counters["stats"]["unique_graphs"],
         "graph_breaks": sum(counters["graph_break"].values()),
     }
-
-
-def drop_zero_gradients(parameters: Sequence[torch.nn.Parameter]) -> None:
-    """Set ``grad = None`` on parameters whose gradient is exactly zero.
-
-    Eager autograd leaves a parameter outside the batch's graph at ``None``, and
-    AdamW skips it. Compiled backward returns zeros instead, so AdamW would still
-    apply momentum and weight decay. One batched norm and one host sync restore
-    the eager behaviour. Edge case: a parameter that is used but whose gradient is
-    exactly zero is skipped too, where eager would still apply decay.
-    """
-    with_grad = [parameter for parameter in parameters if parameter.grad is not None]
-    norms = torch.stack(torch._foreach_norm([parameter.grad for parameter in with_grad]))
-    for parameter, is_zero in zip(with_grad, (norms == 0).tolist(), strict=True):
-        if is_zero:
-            parameter.grad = None
