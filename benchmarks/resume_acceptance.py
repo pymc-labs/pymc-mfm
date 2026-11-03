@@ -1,4 +1,4 @@
-"""Resume acceptance on CPU: interrupted-then-resumed equals uninterrupted, bitwise.
+"""Resume acceptance: interrupted-then-resumed equals uninterrupted (bitwise on CPU).
 
 Toy geometry (T=52, K=4, M=2, J=1; 16 cells x 4 worlds, 4 held out), the canonical
 architecture, 200 updates of 4 worlds, evaluation every 100, prefetch on. The run is
@@ -8,7 +8,13 @@ into a new directory. Steps 101..200 of every logged loss key, ``grad_norm`` and
 and the step-200 evaluation. Two negative controls resume with the stream restore, then
 the RNG restore, switched off; each must diverge.
 
-    OMP_NUM_THREADS=2 uv run --no-sync python benchmarks/resume_acceptance.py [--out DIR]
+On CUDA, kernels are not bitwise deterministic, so a second uninterrupted run measures
+the noise floor. The resume passes when its largest difference from the uninterrupted
+run is at most ``max(2 x floor, 1e-5)`` and each negative control differs by more than
+ten times that.
+
+    OMP_NUM_THREADS=2 uv run --no-sync python benchmarks/resume_acceptance.py \
+        [--device cpu|cuda] [--out DIR]
 """
 
 from __future__ import annotations
@@ -63,6 +69,10 @@ def weights_equal(a: Path, b: Path) -> bool:
     return all(torch.equal(first[key], second[key]) for key in first)
 
 
+def largest_diff(comparison: dict) -> float:
+    return max(comparison["max_abs_diff_by_key"].values())
+
+
 def compare(full: Path, other: Path) -> dict:
     reference, resumed = metrics(full), metrics(other)
     steps = range(INTERRUPT_AT + 1, STEPS + 1)
@@ -93,6 +103,7 @@ def compare(full: Path, other: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=None, help="run directory (default: temporary)")
+    parser.add_argument("--device", default="cpu", help="cpu (bitwise check) or cuda")
     args = parser.parse_args()
     root = args.out or Path(tempfile.mkdtemp(prefix="resume_acceptance_"))
     corpus = make_synthetic_corpus(
@@ -105,7 +116,7 @@ def main() -> int:
     kwargs = dict(
         model_config=ModelConfig(n_controls=2, n_demand=1),
         training=config,
-        device="cpu",
+        device=args.device,
         tracking=TrackingConfig(enabled=False),
     )
     seconds = {}
@@ -138,6 +149,18 @@ def main() -> int:
     report["seconds"] = seconds
 
     resumed = report["resumed"]
+    controls = ("control_no_stream_restore", "control_no_rng_restore")
+    if args.device != "cpu":
+        timed("full_repeat")
+        floor = largest_diff(compare(root / "full", root / "full_repeat"))
+        tolerance = max(2 * floor, 1e-5)
+        report["device"] = torch.cuda.get_device_name(0) if args.device == "cuda" else args.device
+        report["noise_floor"], report["tolerance"] = floor, tolerance
+        report["passed"] = largest_diff(resumed) <= tolerance and all(
+            largest_diff(report[name]) > 10 * tolerance for name in controls
+        )
+        print(json.dumps(report, indent=2))
+        return 0 if report["passed"] else 1
     passed = (
         resumed["steps_bitwise_identical"] == resumed["steps_compared"]
         and resumed["provenance_equal"]
@@ -146,7 +169,7 @@ def main() -> int:
         and resumed["step200_seen_rows_equal"]
         and all(
             report[name]["steps_bitwise_identical"] == 0 and not report[name]["final_weights_equal"]
-            for name in ("control_no_stream_restore", "control_no_rng_restore")
+            for name in controls
         )
     )
     report["passed"] = passed
