@@ -22,6 +22,7 @@ from typing import Any
 import torch
 
 from pymc_mfm.inference._artifact_schema import semantic_schema, validate_semantic_schema
+from pymc_mfm.model.components import ResearchComponentError
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
 
@@ -110,6 +111,11 @@ def save_checkpoint(
         raise ValueError(f"kind must be one of {CHECKPOINT_KINDS}, got {kind!r}")
     if type(step) is not int or step < 1:
         raise ValueError("step must be a positive integer")
+    if model.is_research:
+        raise ResearchComponentError(
+            "training checkpoints of research components need component-aware loading, "
+            "which a later change adds"
+        )
     if resume is not None:
         _check_resume_block(resume, step)
     previous = getattr(model, "artifact_metadata", {})

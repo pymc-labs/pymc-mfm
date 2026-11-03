@@ -74,12 +74,7 @@ def _refuse_research(components: Mapping[str, str] | None, *, label: str) -> Non
         )
 
 
-def _canonical_model(config: ModelConfig, components: Mapping[str, str] | None = None) -> MFM:
-    """The release architecture for ``config``, built on the meta device.
-
-    ``components`` is what a bundle's metadata declares; a research choice is refused.
-    """
-    _refuse_research(components, label="artifact")
+def _canonical_model(config: ModelConfig) -> MFM:
     # No random initialization, allocation, or RNG advancement on restoration.
     with torch.device("meta"):
         return MFM(config)
@@ -452,7 +447,7 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
         # x86 BLAS kernels round unaligned operands differently: a bundle would not
         # reproduce the saved model's outputs bit for bit. Own fresh allocations.
         state = {name: stream.get_tensor(name).clone() for name in stream.keys()}
-    model = _canonical_model(config, metadata["schemas"].get("components"))
+    model = _canonical_model(config)
     catalog = _validate_state(model, state, specs=manifest["tensors"])
     model.load_state_dict(state, strict=True, assign=True)
     parameters = dict(model.named_parameters())
