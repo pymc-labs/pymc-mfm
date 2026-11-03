@@ -100,3 +100,15 @@ trend term. They are not representative or evidence that River beats an MMM
 with an appropriate trend. The original examples remain available. The browser
 fit now uses four chains, 1,000 warmup and 1,000 draws with target acceptance
 0.99. Trend slopes are fixed in `scenario_world.py`.
+
+Selection record (November 3): after seeing the three original worlds' results,
+we screened additive trend slopes 5, 10, 20, 30, -5, -10, -20 and -30 on the
+baseline, then screened slopes +10 and -10 on promotion and interaction. We
+selected the +10 variants of all three worlds after seeing forecast errors.
+For those three, a separate local run with four chains, 1,000 tuning and 1,000
+posterior draws at target acceptance 0.99 produced River RMSE 798, 443, 555 and
+tyMC RMSE 1,124, 1,127, 1,117, respectively; all three had zero divergences and
+maximum R-hat below 1.01. These use the same random seed and the same fixed
+holdout as selection, so they are not an independent performance test. Four
+chains can be slow in the browser. The selected variants share an omitted
+trend and should not be presented as distinct independent benchmarks.
