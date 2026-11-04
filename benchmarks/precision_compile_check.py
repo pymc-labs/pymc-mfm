@@ -2,8 +2,9 @@
 
 Runs the real ``train()`` (tracking off) for the same number of updates in each mode:
 fp32 for ``--seeds`` seeds, then bf16, fp32 + compile and bf16 + compile at the first
-seed. Per mode it reports median step seconds after warm-up, first-call seconds,
-graph breaks, peak memory, a loss summary and the final evaluation monitor. The checks:
+seed. Per mode it reports median step and wall-clock seconds after warm-up,
+first-call seconds, graph breaks, peak memory, a loss summary and the final
+evaluation monitor. The checks:
 
 * compiled vs eager: max abs loss difference between fp32 and fp32 + compile (same seed);
 * bf16 final loss and final monitor lie within the spread of the fp32 seeds;
@@ -53,11 +54,17 @@ def summarize(run_dir: Path, result, peak_mb: float) -> dict:
     steps = read_jsonl(run_dir / "metrics.jsonl")
     losses = [record["loss"] for record in steps]
     step_seconds = [record["step_seconds"] for record in steps]
+    warm_steps = steps[WARMUP_STEPS:]
+    wall_seconds = [
+        current["elapsed_seconds"] - previous["elapsed_seconds"]
+        for previous, current in zip(warm_steps, warm_steps[1:])
+    ]
     monitor = result.run["selection_policy"]["monitor"]
     final_evaluation = read_jsonl(run_dir / "evaluations.jsonl")[-1]
     compile_block = result.run["compile"]
     return {
         "median_step_seconds": statistics.median(step_seconds[WARMUP_STEPS:]),
+        "median_wall_seconds": statistics.median(wall_seconds) if wall_seconds else None,
         "first_call_seconds": compile_block["first_call_seconds"] or step_seconds[0],
         "graphs": compile_block["graphs"],
         "graph_breaks": compile_block["graph_breaks"],

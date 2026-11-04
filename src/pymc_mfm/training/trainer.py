@@ -168,6 +168,12 @@ def resolve_device(device: str | torch.device) -> torch.device:
     return resolved
 
 
+def _step_clock(device: torch.device, *, measure: bool) -> float:
+    if measure and device.type == "cuda":
+        torch.cuda.synchronize(device)
+    return time.perf_counter()
+
+
 def corpus_geometry(corpora: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     """Shared padded ``(K, M, J, T)`` of the corpora plus derived slot count."""
     if not corpora:
@@ -426,7 +432,8 @@ def train(
 
     ``precision="bf16"`` and ``compile=True`` are measured and not adopted
     (:mod:`pymc_mfm.training.precision`); they raise ``ValueError`` before anything
-    is written unless ``measure_unadopted_acceleration`` is set.
+    is written unless ``measure_unadopted_acceleration`` is set. That flag also
+    synchronizes CUDA before and after each timed step.
     """
     training = TrainingConfig() if training is None else training
     check_acceleration_allowed(training, measure=measure_unadopted_acceleration)
@@ -520,6 +527,7 @@ def train(
             holdout_archives=archives,
             start=start,
             inputs=inputs,
+            measure_unadopted_acceleration=measure_unadopted_acceleration,
         )
     except BaseException as exc:
         if run["status"] == "running":
@@ -567,6 +575,7 @@ def _train_run(
     holdout_archives: tuple[str, ...] = (),
     start: StartPoint | None = None,
     inputs: tuple[dict[str, int], ModelConfig, list[dict[str, Any]]] | None = None,
+    measure_unadopted_acceleration: bool,
 ) -> TrainingResult:
     """Train the canonical model on loaded schema-4 corpora.
 
@@ -1201,7 +1210,7 @@ def _train_run(
                 lr = training.learning_rate(step)
                 for group in optimizer.param_groups:
                     group["lr"] = lr
-                step_start = time.perf_counter()
+                step_start = _step_clock(resolved_device, measure=measure_unadopted_acceleration)
                 if step == 1:
                     with autocast_context(training, resolved_device.type):
                         terms, trace = model.loss_terms(
@@ -1216,11 +1225,14 @@ def _train_run(
                 terms["loss"].backward()
                 grad_norm = torch.nn.utils.clip_grad_norm_(parameters, training.grad_clip)
                 optimizer.step()
+                step_seconds = (
+                    _step_clock(resolved_device, measure=measure_unadopted_acceleration)
+                    - step_start
+                )
                 if training.compile and step != 1:
-                    note_compiled_step(time.perf_counter() - step_start)
+                    note_compiled_step(step_seconds)
                 completed_updates = step
                 note_consumed(step, provenance_record)
-                step_seconds = time.perf_counter() - step_start
 
                 if step in training.milestone_steps:
                     record_checkpoint(

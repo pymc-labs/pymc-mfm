@@ -35,14 +35,11 @@ LossFn = Callable[[Mapping[str, Any]], dict[str, torch.Tensor]]
 
 def check_acceleration_allowed(training: TrainingConfig, *, measure: bool) -> None:
     """Refuse bf16 or compile unless the caller is measuring them (see the module doc)."""
-    unadopted = [
-        name
-        for name, active in (
-            ("precision='bf16'", training.precision == "bf16"),
-            ("compile=True", training.compile),
-        )
-        if active
-    ]
+    unadopted = []
+    if training.precision == "bf16":
+        unadopted.append("precision='bf16'")
+    if training.compile:
+        unadopted.append("compile=True")
     if unadopted and not measure:
         raise ValueError(
             f"{' and '.join(unadopted)} are measured and not adopted for training "
@@ -59,19 +56,8 @@ def autocast_context(training: TrainingConfig, device_type: str):
 def build_loss_fn(
     model: MFM, weights: LossWeights, training: TrainingConfig, device_type: str
 ) -> LossFn:
-    """Return ``batch -> loss terms`` for every step after the traced first one.
-
-    ``MFM`` has no custom ``forward``, so the compiled callable wraps
-    ``loss_terms`` instead of the module. ``fallback_random`` makes compiled
-    code draw its noise from the eager RNG stream, so compiled and eager
-    losses agree to float32 round-off while every parameter takes part.
-
-    Two differences remain, so compiled training is not optimizer-equivalent to eager.
-    A parameter that a batch leaves unused gets a zero gradient instead of ``None``,
-    so AdamW still applies momentum and weight decay to it and the runs drift apart.
-    Turning exact-zero gradients back into ``None`` was tried and made compiled
-    steps slower than eager on an L4, so it is not done. Compiled steps also skip
-    the mask value checks, which step 1 and evaluation still run eagerly.
+    """Build the measurement loss callable. Compile preserves eager RNG draws but
+    changes unused-parameter gradients; see the module documentation.
     """
 
     def loss_fn(batch):

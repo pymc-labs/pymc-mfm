@@ -213,3 +213,13 @@ PRESETS: Mapping[str, TrainingConfig] = MappingProxyType(
         ),
     }
 )
+
+
+#: TrainingConfig fields with no CLI flag or launch-file key: measured and not adopted
+#: for training (see :mod:`pymc_mfm.training.precision`).
+MEASUREMENT_ONLY_FIELDS = frozenset({"precision", "compile"})
+
+
+def training_cli_fields() -> frozenset[str]:
+    """The ``TrainingConfig`` fields that the training CLI and launch files accept."""
+    return frozenset(field.name for field in fields(TrainingConfig)) - MEASUREMENT_ONLY_FIELDS

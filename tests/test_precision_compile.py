@@ -2,8 +2,10 @@
 
 import json
 import math
+import runpy
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -105,6 +107,72 @@ def test_the_training_cli_has_no_precision_or_compile_flag():
 
     flags = {option for action in build_parser()._actions for option in action.option_strings}
     assert not {"--precision", "--compile", "--no-compile"} & flags
+
+
+def test_training_cli_fields_exclude_measurement_only_fields():
+    from dataclasses import fields
+
+    from pymc_mfm.training.config import training_cli_fields
+
+    names = training_cli_fields()
+    assert isinstance(names, frozenset)
+    assert names == {field.name for field in fields(TrainingConfig)} - {"precision", "compile"}
+
+
+def test_measured_cuda_step_clock_synchronizes(monkeypatch):
+    from pymc_mfm.training import trainer
+
+    calls = []
+    device = torch.device("cuda:0")
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda value: calls.append(value))
+    monkeypatch.setattr(trainer.time, "perf_counter", lambda: 12.5)
+
+    assert trainer._step_clock(device, measure=True) == 12.5
+    assert trainer._step_clock(device, measure=True) == 12.5
+    assert calls == [device, device]
+
+    trainer._step_clock(device, measure=False)
+    trainer._step_clock(torch.device("cpu"), measure=True)
+    assert calls == [device, device]
+
+
+def test_train_calls_step_clock_at_both_step_boundaries(tmp_path, monkeypatch):
+    from pymc_mfm.training import trainer
+
+    calls = []
+    step_clock = trainer._step_clock
+
+    def record_clock(device, *, measure):
+        calls.append((device.type, measure))
+        return step_clock(device, measure=measure)
+
+    monkeypatch.setattr(trainer, "_step_clock", record_clock)
+    train_run(tmp_path / "run", reduced(steps=2, eval_every=2, milestone_steps=()))
+
+    assert calls == [("cpu", True)] * 4
+
+
+def test_benchmark_summary_reports_wall_clock_between_post_warmup_logs(tmp_path):
+    benchmark = Path(__file__).resolve().parents[1] / "benchmarks/precision_compile_check.py"
+    summarize = runpy.run_path(str(benchmark))["summarize"]
+
+    elapsed = [1, 2, 3, 4, 7, 9]
+    records = [
+        {"loss": 1.0, "step_seconds": 0.1, "elapsed_seconds": seconds} for seconds in elapsed
+    ]
+    (tmp_path / "metrics.jsonl").write_text("\n".join(map(json.dumps, records)))
+    (tmp_path / "evaluations.jsonl").write_text(json.dumps({"flat": {"monitor": 0.5}}))
+    result = SimpleNamespace(
+        run={
+            "selection_policy": {"monitor": "monitor"},
+            "compile": {"first_call_seconds": None, "graphs": None, "graph_breaks": None},
+        }
+    )
+
+    summary = summarize(tmp_path, result, 100.0)
+
+    assert summary["median_step_seconds"] == pytest.approx(0.1)
+    assert summary["median_wall_seconds"] == pytest.approx(2.5)
 
 
 def test_bf16_trains_with_finite_losses_on_fp32_master_weights(tmp_path):
