@@ -13,8 +13,8 @@ A checkpoint is scored in one of two modes, and the row records which:
 ``eval-set``
     Scores a frozen set: every row of every given corpus, in corpus order, with a
     seed and draw count from the command line. It does not reproduce the in-loop
-    record. Its id is the SHA-256 of the corpora content SHA-256 values, the row
-    rule, the seed and the draw count, so the same inputs always give the same id.
+    record. Its id is the SHA-256 of the corpus keys, ordered selected rows, row
+    rule, seed and draw count, so the same inputs always give the same id.
 
 Rows are appended to a results CSV with a stable header; a CSV with another header
 is refused.
@@ -107,10 +107,18 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def eval_set_id(corpus_keys: Sequence[str], rule: str, seed: int, draws: int) -> str:
-    """The id of a scored set of worlds and draws; equal inputs give an equal id."""
+def eval_set_id(
+    corpus_keys: Sequence[str], rule: str, seed: int, draws: int, rows: Sequence[tuple[int, int]]
+) -> str:
+    """Hash the corpus keys, ordered selected rows, rule, seed and draws."""
     return canonical_sha256(
-        {"corpora": list(corpus_keys), "rule": rule, "seed": seed, "draws": draws}
+        {
+            "corpora": list(corpus_keys),
+            "rule": rule,
+            "seed": seed,
+            "draws": draws,
+            "rows": list(rows),
+        }
     )
 
 
@@ -156,11 +164,12 @@ def compare_with_record(
     """
     keys = sorted(key for key in recorded if key.startswith("holdout/"))
     exact, max_diff = 0, 0.0
+    missing = object()
     for key in keys:
-        old, new = recorded[key], replayed.get(key, math.nan)
+        old, new = recorded[key], replayed.get(key, missing)
         if old is None and new is None:
             diff = 0.0
-        elif old is None or new is None or key not in replayed:
+        elif old is None or new is None or new is missing:
             diff = math.inf
         else:
             diff = abs(old - new)
@@ -175,9 +184,15 @@ def median_step_seconds(checkpoint: Path, step: int) -> float | None:
     if not path.is_file():
         return None
     seconds = []
-    for line in path.read_text().splitlines():
-        record = json.loads(line)
-        if record.get("step", step + 1) <= step and "step_seconds" in record:
+    lines = path.read_text().splitlines()
+    for index, line in enumerate(lines):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            if index == len(lines) - 1:
+                break
+            raise
+        if record["step"] <= step and "step_seconds" in record:
             seconds.append(record["step_seconds"])
     return statistics.median(seconds) if seconds else None
 
@@ -210,9 +225,11 @@ def score_checkpoint(
 ) -> dict[str, Any]:
     """Score ``checkpoint`` on the corpora and return one results row (see the module doc).
 
-    ``seed`` and ``draws`` are used by ``eval-set`` mode (default: the trainer's held-out draw
-    seed and draw count) and are refused in ``replay`` mode, where the checkpoint decides them.
+    ``seed`` and ``draws`` are used by ``eval-set`` mode (default: ``TrainingConfig()``)
+    and are refused in ``replay`` mode, where the checkpoint decides them.
     ``threads`` sets the torch thread count for the call; ``None`` keeps the current one.
+    Eval-set scores all rows in one evaluation call per context length, so peak memory
+    grows with the number of worlds.
     A checkpoint with research components is refused unless ``allow_research`` is true; the
     module that registers them must already be imported.
     """
@@ -264,18 +281,21 @@ def score_checkpoint(
     if mode == "replay":
         comparison = compare_with_record(payload["evaluation"]["flat"], flat)
     return _row(
-        checkpoint,
         payload,
         mode=mode,
         rule=rule,
         seed=seed,
         draws=draws,
         content=content,
+        rows=rows,
         worlds=record["n_worlds"],
         device=str(resolved),
         threads=threads_used,
         metrics=_leg_free(flat, _LEGS[mode]),
         comparison=comparison,
+        checkpoint_sha256=file_sha256(checkpoint),
+        code=code_record(),
+        step_seconds=median_step_seconds(checkpoint, payload["step"]),
     )
 
 
@@ -293,7 +313,6 @@ def _replay_rows(corpora: Sequence[Mapping[str, Any]], training: Mapping[str, An
 
 
 def _row(
-    checkpoint: Path,
     payload: Mapping[str, Any],
     *,
     mode: str,
@@ -301,23 +320,26 @@ def _row(
     seed: int,
     draws: int,
     content: Sequence[str],
+    rows: Sequence[tuple[int, int]],
     worlds: int,
     device: str,
     threads: int,
     metrics: Mapping[str, float | None],
     comparison: Mapping[str, Any] | None,
+    checkpoint_sha256: str,
+    code: Mapping[str, Any],
+    step_seconds: float | None,
 ) -> dict[str, Any]:
     training = payload["training_config"]
     selection = selection_metrics(training["selection_head"])
     head = training["selection_head"]
-    code = code_record()
     components = payload["schemas"].get("components")
     row: dict[str, Any] = {
         "run_name": payload["run"]["run_name"],
         "run_id": payload["run"]["run_id"],
         "step": payload["step"],
         "checkpoint_kind": payload["kind"],
-        "checkpoint_sha256": file_sha256(checkpoint),
+        "checkpoint_sha256": checkpoint_sha256,
         "code_revision": code["revision"],
         "code_modified_from_revision": code["modified_from_revision"],
         "code_source_sha256": code["source_sha256"],
@@ -325,7 +347,7 @@ def _row(
         "components": json.dumps(components, sort_keys=True) if components else None,
         "training_config_sha256": canonical_sha256(training),
         "corpus_keys": json.dumps(list(content)),
-        "eval_set_id": eval_set_id(content, rule, seed, draws),
+        "eval_set_id": eval_set_id(content, rule, seed, draws, rows),
         "mode": mode,
         "row_rule": rule,
         "seed": seed,
@@ -344,7 +366,7 @@ def _row(
         "crps": _headline(metrics, head, "crps"),
         "router_shd_mean": metrics.get("joint_router/graph/shd_mean"),
         "router_normalized_shd_mean": metrics.get("joint_router/graph/normalized_shd_mean"),
-        "step_seconds_median": median_step_seconds(checkpoint, payload["step"]),
+        "step_seconds_median": step_seconds,
         "replay_keys_compared": None if comparison is None else comparison["compared"],
         "replay_keys_exact": None if comparison is None else comparison["exact"],
         "replay_max_abs_diff": None if comparison is None else comparison["max_abs_diff"],
@@ -400,7 +422,8 @@ def build_score_parser() -> argparse.ArgumentParser:
             "Score a training checkpoint into one row of a results CSV. --replay reproduces "
             "the trainer's in-loop held-out record of the checkpoint's step. --eval-set scores "
             "every row of the given corpora with --seed and --draws; it does NOT reproduce the "
-            "in-loop record."
+            "in-loop record. Eval-set defaults use TrainingConfig(); replay uses the "
+            "checkpoint's recorded settings."
         ),
     )
     parser.add_argument("--checkpoint", required=True, metavar="PATH", help="training checkpoint")
@@ -433,15 +456,14 @@ def build_score_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         metavar="S",
-        help="eval-set draw seed (default: %d, the trainer's held-out draw seed)"
-        % (defaults.eval_seed + 1),
+        help="eval-set draw seed (default: %d from TrainingConfig())" % (defaults.eval_seed + 1),
     )
     parser.add_argument(
         "--draws",
         type=int,
         default=None,
         metavar="N",
-        help="eval-set draws per world (default: %d)" % defaults.eval_samples,
+        help="eval-set draws per world (default: %d from TrainingConfig())" % defaults.eval_samples,
     )
     add_research_arguments(parser)
     parser.add_argument(
@@ -479,7 +501,7 @@ def main(argv: Sequence[str]) -> int:
             print("repeated scorings gave different rows", file=sys.stderr)
             return 1
         append_row(args.results, rows[0])
-    except (ScoreError, RuntimeError, FileNotFoundError, ValueError, ImportError) as exc:
+    except (FileNotFoundError, ValueError, ImportError) as exc:
         parser.error(str(exc))
     summary = {
         key: rows[0][key]

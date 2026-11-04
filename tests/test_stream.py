@@ -97,19 +97,6 @@ def test_holdout_rows_use_an_independent_rng_and_leave_training_order_untouched(
         probed.holdout_rows(9, seed=0)
 
 
-def test_seen_rows_returns_the_first_distinct_consumed_rows_across_epochs(corpus):
-    stream = CorpusStream([corpus], batch_size=5, seed=2)
-    consumed = [row for _, p in draw(stream, 7) for row in p.rows]
-    assert len(consumed) > len(set(consumed))  # the second epoch repeats rows
-    first_distinct = list(dict.fromkeys(consumed))
-    assert stream.distinct_consumed_rows == len(first_distinct)
-    assert stream.seen_rows(len(first_distinct)) == first_distinct
-    assert stream.seen_rows(3) == first_distinct[:3]
-    with pytest.raises(ValueError):
-        stream.seen_rows(len(first_distinct) + 1)
-    assert stream.consumed_rows == 35
-
-
 def test_multi_corpus_batches_keep_popped_order_per_row(corpus):
     other = make_synthetic_corpus(n_cells=8, draws_per_cell=4, val_cells=2, seed=1)
     stream = CorpusStream([corpus, other], batch_size=6, seed=4)

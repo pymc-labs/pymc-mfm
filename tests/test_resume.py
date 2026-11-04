@@ -271,6 +271,31 @@ def test_same_directory_resume_writes_the_best_checkpoint_the_interruption_prece
     assert (out / "checkpoint_best.pt").is_file()
 
 
+def test_finished_run_refuses_resume_without_writing(tmp_path):
+    out = tmp_path / "run"
+    config = reduced(steps=3, eval_every=3, milestone_steps=())
+    run_train(out, training=config)
+    before = snapshot(out, include_tracking=True)
+    with pytest.raises(ValueError, match="finished"):
+        run_train(out, training=config, resume_from=out / "checkpoint_last.pt")
+    assert snapshot(out, include_tracking=True) == before
+
+
+def test_resume_after_interrupted_export_replaces_partial_model(tmp_path):
+    out = tmp_path / "run"
+    config = reduced(steps=3, eval_every=3, milestone_steps=())
+    run_train(out, training=config)
+    record = json.loads((out / "run.json").read_text())
+    record["status"] = "running"
+    (out / "run.json").write_text(json.dumps(record))
+    (out / "model/manifest.json").unlink()
+
+    result = run_train(out, training=config, resume_from=out / "checkpoint_last.pt")
+
+    assert result.status == "finished"
+    assert (out / "model/manifest.json").is_file()
+
+
 def test_same_directory_resume_only_starts_from_checkpoint_last(tmp_path):
     config = reduced(steps=9, eval_every=3, milestone_steps=(3,))
     out = tmp_path / "run"
@@ -288,11 +313,11 @@ def test_same_directory_resume_only_starts_from_checkpoint_last(tmp_path):
 # ---- refusals ----
 
 
-def snapshot(directory):
+def snapshot(directory, *, include_tracking=False):
     return {
         str(path.relative_to(directory)): file_sha256(path)
         for path in sorted(directory.rglob("*"))
-        if path.is_file() and "tracking" not in path.parts
+        if path.is_file() and (include_tracking or "tracking" not in path.parts)
     }
 
 
@@ -392,7 +417,8 @@ def test_init_from_a_format_3_checkpoint_resets_the_optimizer_and_step(tmp_path,
     config = reduced(steps=2, eval_every=2, milestone_steps=())
     result = run_train(tmp_path / "run", training=config, init_from=full_run / "checkpoint_best.pt")
     assert result.run["initialized_from"]["format_version"] == 3
-    assert result.run["initialized_from"]["step"] in (3, 6, 9)
+    best_step = json.loads((full_run / "run.json").read_text())["best"]["step"]
+    assert result.run["initialized_from"]["step"] == best_step
     assert [r["step"] for r in jsonl(tmp_path / "run/metrics.jsonl")] == [1, 2]
     _, payload = load_checkpoint(tmp_path / "run/checkpoint_last.pt")
     assert payload["resume"]["step"] == 2
@@ -687,6 +713,45 @@ def test_same_directory_resume_continues_the_mlflow_run_and_new_directory_starts
     assert tags["mfm.resume_from_local_run_id"] == result.run["run_id"]
     assert tags["mfm.resume_from_run_id"] == first["run_id"]
     assert tags["mfm.resume_from_step"] == "9"
+
+
+def test_same_directory_resume_without_mlflow_keeps_local_events(tmp_path):
+    out = tmp_path / "run"
+    config = interrupted_run(out, 3)
+    events_dir = out / "tracking/events"
+    before = {path.name: path.read_bytes() for path in events_dir.glob("*.json")}
+
+    run_train(out, training=config, resume_from=out / "checkpoint_last.pt")
+
+    after = {path.name: path.read_bytes() for path in events_dir.glob("*.json")}
+    assert all(after[name] == content for name, content in before.items())
+    numbers = sorted(int(name[:7]) for name in after)
+    assert len(numbers) > len(before)
+    assert numbers == list(range(1, len(numbers) + 1))
+
+
+def test_missing_best_checkpoint_is_recorded_on_new_directory_resume(tmp_path):
+    config = reduced(steps=9, eval_every=4, milestone_steps=(), prefetch_batches=2)
+    source = tmp_path / "source"
+    run_train(source, training=config)
+    best_step = json.loads((source / "run.json").read_text())["best"]["step"]
+    assert best_step < config.steps
+    moved = tmp_path / "moved"
+    moved.mkdir()
+    (moved / "checkpoint_last.pt").write_bytes((source / "checkpoint_last.pt").read_bytes())
+
+    result = run_train(
+        tmp_path / "resumed", training=config, resume_from=moved / "checkpoint_last.pt"
+    )
+
+    assert result.status == "finished"
+    assert result.run["best"]["step"] == best_step
+    assert result.run["resumed_from"]["best_checkpoint_copied"] is False
+    assert (
+        result.run["resumed_from"]["best_checkpoint_reason"]
+        == "source best checkpoint is unavailable"
+    )
+    assert not (result.run_dir / "checkpoint_best.pt").exists()
 
 
 def test_resume_into_new_directory_from_a_run_whose_history_is_gone(tmp_path):
