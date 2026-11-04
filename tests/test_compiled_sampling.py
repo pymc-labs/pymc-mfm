@@ -55,30 +55,53 @@ def test_compiled_draws_match_eager_draws(model, batch, traced, window):
     assert status.compiles is None or status.compiles >= 1
 
 
-def test_a_compiling_call_keeps_the_seeded_draw_order(model, batch, traced, monkeypatch):
+def test_a_compiling_call_keeps_the_seeded_draw_order(model, batch, monkeypatch):
+    """A compiler that draws random benchmark inputs must not shift the sampler's draws."""
+    torch._dynamo.reset()
+    real_compile = torch.compile
+
+    drawn = []
+
+    def drawing_backend(graph, example_inputs):
+        drawn.append(torch.randn(7))  # as an autotuning compiler would
+        return graph.forward
+
+    def compile_drawing(function, *, mode=None, dynamic=None):
+        return real_compile(function, backend=drawing_backend, dynamic=dynamic)
+
+    monkeypatch.setattr(compiled_module.torch, "compile", compile_drawing)
+    try:
+        torch.manual_seed(3)
+        eager = model.sample_disentangled(batch, 19)
+        after_eager = torch.get_rng_state()
+        model.compile_sampling()
+        torch.manual_seed(3)
+        cold = model.sample_disentangled(batch, 19)
+        assert drawn and model.sampling_status.compiles >= 1
+        torch.testing.assert_close(torch.get_rng_state(), after_eager, rtol=0, atol=0)
+        torch.manual_seed(3)
+        warm = model.sample_disentangled(batch, 19)
+        torch.testing.assert_close(cold, warm, rtol=0, atol=0)
+        torch.testing.assert_close(cold, eager, **ROUND_OFF)
+    finally:
+        torch._dynamo.reset()
+
+
+def test_warm_compiled_calls_never_touch_the_random_state(model, batch, traced, monkeypatch):
+    """Another thread's draws can never be rewound by a warm compiled call."""
     model.compile_sampling()
-    real = compiled_module.CompiledVelocity._function
-    consumed = []
+    _draws(model, batch)  # compiles
 
-    def compile_that_draws(self):
-        function = real(self)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("a warm compiled call read or wrote the random state")
 
-        def run(*args):
-            # Autotuning compilers draw random benchmark inputs; the sampler must not see it.
-            if not consumed:
-                consumed.append(torch.randn(7))
-            return function(*args)
-
-        return run
-
-    monkeypatch.setattr(compiled_module.CompiledVelocity, "_function", compile_that_draws)
+    for name in ("get_rng_state", "set_rng_state"):
+        monkeypatch.setattr(torch, name, forbidden)
+        monkeypatch.setattr(torch.cuda, name + "_all", forbidden)
+    before = model.sampling_status.compiles
     torch.manual_seed(3)
-    cold = model.sample_disentangled(batch, 19)
-    after_cold = torch.get_rng_state()
-    torch.manual_seed(3)
-    warm = model.sample_disentangled(batch, 19)
-    torch.testing.assert_close(cold, warm, rtol=0, atol=0)
-    torch.testing.assert_close(after_cold, torch.get_rng_state(), rtol=0, atol=0)
+    model.sample_disentangled(batch, 19)
+    assert model.sampling_status.compiles == before
 
 
 def test_compiled_calls_preserve_the_global_random_state(model, batch, traced):

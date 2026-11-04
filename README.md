@@ -211,8 +211,8 @@ either window:
 
 A long-running process that samples many times, such as a service, can compile the
 sampler once with `torch.compile`. On an NVIDIA L4 with River-1 and 1,000 draws, warm
-compiled calls ran about 1.4 times as fast as eager calls (1.36–1.48x across four
-inputs); the first compilation took 20–30 s.
+compiled calls ran about 1.4 times as fast as eager calls on four test inputs; the first
+compilation took 20–30 s.
 
 ```python
 from pymc_mfm.inference import warm_up_sampling
@@ -229,8 +229,8 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
   every compilation, so a later increase shows an input the warm-up did not cover.
 - Compiled draws follow the eager distribution; they agree with eager draws up to
   float round-off but are not bit-identical. With a fixed seed, serialized calls on one
-  device repeat their draws, including a call that compiles. Warm-up restores the
-  random state.
+  device repeat their draws, including a call that compiles. Sampling uses PyTorch's
+  process-wide random generator, so run warm-up before other threads sample.
 - PyTorch's compile cache (`TORCHINDUCTOR_CACHE_DIR`) lets a restarted process reuse
   earlier compilations. A compiler failure warns, returns the model to eager sampling and
   shows in `sampling_status.fallback`. `model.disable_compiled_sampling()` switches it off.

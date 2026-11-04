@@ -71,7 +71,8 @@ def warm_up_sampling(
     mode and seed. Use worlds, draw counts and modes like the ones you will serve: which
     graphs the router samples also decides which variants compile, so several seeds
     cover more of them. The global random state is restored afterwards, so warm-up does
-    not change later seeded draws.
+    not change later seeded draws. Warm up before other threads sample or draw random
+    numbers: warm-up seeds and restores the process-wide generators.
     """
     windows, modes, seeds = tuple(windows), tuple(modes), tuple(seeds)
     worlds = list(observations or [])
