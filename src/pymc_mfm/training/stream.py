@@ -115,13 +115,16 @@ def batches_for_rows(
     rows: Sequence[Row],
     *,
     device: str | torch.device = "cpu",
+    max_batch_worlds: int | None = None,
 ) -> list[tuple[dict[str, Tensor], list[Row]]]:
     """Encode arbitrary ``(corpus_index, row)`` pairs as context-length-homogeneous batches.
 
     Rows are grouped by context length (batches are returned in increasing context
     length); inside a batch the input order is kept, and the returned row list is
     aligned with dim 0 of that batch. Every input row appears exactly once across the
-    returned batches. Used by evaluation, which selects rows by other means than the
+    returned batches. ``max_batch_worlds`` splits each context length into
+    consecutive batches of at most that many worlds; ``None`` keeps one batch per
+    length. Used by evaluation, which selects rows by other means than the
     training stream. Raises ``ValueError`` on an empty selection or an index outside
     the corpora.
     """
@@ -141,7 +144,15 @@ def batches_for_rows(
                 f"of corpus {corpus_index}"
             )
         groups.setdefault(int(lengths[corpus_index][row]), []).append((corpus_index, row))
-    return [(_build_batch(corpora, group, device), group) for _, group in sorted(groups.items())]
+    if max_batch_worlds is not None and max_batch_worlds < 1:
+        raise ValueError("max_batch_worlds must be a positive integer")
+    batches = []
+    for _, group in sorted(groups.items()):
+        size = max_batch_worlds or len(group)
+        for start in range(0, len(group), size):
+            chunk = group[start : start + size]
+            batches.append((_build_batch(corpora, chunk, device), chunk))
+    return batches
 
 
 class CorpusStream:
