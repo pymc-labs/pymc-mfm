@@ -39,8 +39,10 @@ PAYLOAD_RUN_BYTES = 4096
 WIDE_SNIFF_BYTES = 8192
 SCAN_LIMIT_BYTES = 32 * 1024 * 1024
 MAX_FINDINGS_PER_RULE_AND_FILE = 10
+GITMODULES_NAME = ".gitmodules"
 RULES = (
     "symlink",
+    "gitlink",
     "weights-suffix",
     "large-file",
     "embedded-payload",
@@ -206,7 +208,8 @@ class GitObjects:
 
     def blob_item(self, path: str, mode: str, oid: str, where: str = "") -> Item | None:
         if mode == SUBMODULE_MODE:
-            return None
+            # A gitlink has no blob to read; report it by path.
+            return Item(path=path, mode=mode, size=0, reader=None, match_path=path, where=where)
         info = self.info(oid)
         if info is None or info[0] != "blob":
             return None
@@ -413,11 +416,24 @@ def mask(text: bytes) -> str:
     return text[:4].decode(errors="replace") + "***"
 
 
+def check_gitlink_rule(item: Item, name: str) -> list[Finding]:
+    """Flag submodule pointers (mode 160000) and `.gitmodules` files at any depth."""
+    findings = []
+    if item.mode == SUBMODULE_MODE:
+        findings.append(
+            Finding("gitlink", item.path, None, "gitlink (nested repository or submodule)")
+        )
+    if name.replace("\\", "/").rsplit("/", 1)[-1].casefold() == GITMODULES_NAME:
+        findings.append(Finding("gitlink", item.path, None, ".gitmodules file"))
+    return findings
+
+
 def check_path_rules(item: Item) -> list[Finding]:
     findings = []
     name = item.match_path or item.path
     if item.mode == SYMLINK_MODE:
         findings.append(Finding("symlink", item.path, None, "symlink is not allowed"))
+    findings += check_gitlink_rule(item, name)
     if name.lower().endswith(WEIGHT_SUFFIXES):
         suffix = "." + name.rsplit(".", 1)[-1].lower()
         findings.append(Finding("weights-suffix", item.path, None, f"{suffix} file"))

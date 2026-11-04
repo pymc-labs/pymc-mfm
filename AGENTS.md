@@ -31,7 +31,8 @@ you can. Large or binary files need an allowlist entry with a reason (below).
 ## The boundary check
 
 `scripts/check_public_boundary.py` checks what Git tracks, not the working tree. It
-flags tracked symlinks, weight-like files, binary files it cannot read, files over
+flags tracked symlinks, gitlinks (nested repositories, submodule pointers) and
+`.gitmodules` files, weight-like files, binary files it cannot read, files over
 1 MiB, large embedded base64 payloads, credential patterns, and `.private` anywhere
 in a path. Range checks also read commit messages. CI runs it on every pull request
 over the whole tree, over every commit in the pull request and over the built sdist

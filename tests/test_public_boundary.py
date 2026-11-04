@@ -602,3 +602,82 @@ def test_text_with_tabs_and_ansi_colours_passes(repo: Path) -> None:
     write(repo, "log.txt", "a\tb\r\n\x1b[31mred\x1b[0m\f\n")
     commit(repo)
     assert check(repo).returncode == 0
+
+
+# ------------------------------------------------------- gitlinks and submodules
+
+POINTED_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def stage_gitlink(repo: Path, path: str = "sub") -> None:
+    git(repo, "update-index", "--add", "--cacheinfo", f"160000,{POINTED_SHA},{path}")
+
+
+def commit_index(repo: Path, message: str = "gitlink") -> str:
+    """Commit the index as it is; `commit()` would run `git add -A` and drop the gitlink."""
+    git(repo, "commit", "-q", "-m", message)
+    return git(repo, "rev-parse", "HEAD")
+
+
+def test_staged_gitlink_fires_without_full_sha(repo: Path) -> None:
+    stage_gitlink(repo)
+    result = check(repo, "--staged")
+    assert result.returncode == 1
+    assert "gitlink sub " in result.stdout
+    assert POINTED_SHA[8:] not in result.stdout
+
+
+def test_committed_gitlink_fires_in_tree_range_and_all_refs(repo: Path) -> None:
+    base = git(repo, "rev-parse", "HEAD")
+    stage_gitlink(repo)
+    head = commit_index(repo)
+    for args in (("--tree",), ("--range", f"{base}..{head}"), ("--all-refs",)):
+        result = check(repo, *args)
+        assert result.returncode == 1, args
+        assert "gitlink sub " in result.stdout, args
+
+
+def test_gitlink_found_in_all_refs_after_it_is_removed(repo: Path) -> None:
+    stage_gitlink(repo)
+    commit_index(repo)
+    git(repo, "rm", "-q", "--cached", "sub")
+    commit_index(repo, "remove gitlink")
+    assert check(repo, "--tree").returncode == 0
+    assert "gitlink sub " in check(repo, "--all-refs").stdout
+
+
+def test_gitmodules_file_fires_at_any_depth(repo: Path) -> None:
+    write(repo, ".gitmodules", '[submodule "x"]\n\tpath = x\n')
+    write(repo, "deep/dir/.gitmodules", "\n")
+    commit(repo)
+    result = check(repo, "--tree")
+    assert result.returncode == 1
+    assert "gitlink .gitmodules " in result.stdout
+    assert "gitlink deep/dir/.gitmodules " in result.stdout
+
+
+def test_gitmodules_in_archive_fires(tmp_path: Path) -> None:
+    archive = tmp_path / "pkg-1.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        info = tarfile.TarInfo("pkg-1/vendor/.gitmodules")
+        info.size = 1
+        bundle.addfile(info, io.BytesIO(b"\n"))
+    result = check(None, "--archive", str(archive))
+    assert result.returncode == 1
+    assert "gitlink pkg-1.tar.gz!pkg-1/vendor/.gitmodules" in result.stdout
+
+
+def test_file_named_like_gitmodules_passes(repo: Path) -> None:
+    write(repo, "docs/gitmodules.md", "notes on submodules\n")
+    write(repo, "my.gitmodules.txt", "x\n")
+    commit(repo)
+    result = check(repo, "--tree")
+    assert result.returncode == 0, result.stdout
+
+
+def test_gitlink_rule_can_be_allowlisted(repo: Path) -> None:
+    stage_gitlink(repo)
+    commit_index(repo)
+    allow = write_allow(repo, '[[allow]]\npath = "sub"\nrules = ["gitlink"]\nreason = "r"\n')
+    result = check(repo, "--allow", str(allow))
+    assert result.returncode == 0, result.stdout
