@@ -1,15 +1,16 @@
 """Measurement-only training-step variants: bf16 autocast and ``torch.compile``.
 
-Neither is adopted for training. Both were measured on an L4 (500 updates,
-mini corpus, batch 64, three fp32 seeds as reference):
+Neither is adopted for training. Both were measured on an L4 (300 updates,
+mini corpus, batch 64, one fp32 seed as reference, CUDA synchronized around each
+timed update):
 
-* bf16 was 1.21x faster, but its held-out monitor was about 2.7x worse than the
-  fp32 spread, so it fails the quality check.
-* compile was 1.70x faster after a 217 s first call, but it is not
+* bf16 was 1.51x faster, but its held-out monitor was about 2.7x worse than
+  fp32, so it fails the quality check.
+* compile was 1.20x faster after a 163 s first call, but it is not
   optimizer-equivalent to eager: a parameter that a batch leaves unused gets a
   zero gradient instead of ``None``, so AdamW still applies momentum and weight
-  decay to it. Restoring ``None`` for exact-zero gradients made it slower than
-  eager and also dropped genuine zero gradients, so it was not kept.
+  decay to it. Restoring ``None`` for exact-zero gradients also drops genuine
+  zero gradients, so it was not kept.
 
 ``train`` therefore refuses either setting unless the caller passes
 ``measure_unadopted_acceleration=True``, which ``benchmarks/precision_compile_check.py``
