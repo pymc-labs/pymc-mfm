@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import signal
 import subprocess
@@ -14,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import torch
+
+from pymc_mfm.training.resume import read_jsonl
 
 STDERR_TAIL_LINES = 40
 #: Seconds a terminated run gets to exit before it is killed.
@@ -38,12 +39,11 @@ def uses_cuda(device: str) -> bool:
 
 
 def read_progress(run_dir: Path) -> dict[str, Any]:
-    """Steps done and worlds per second from the last record of the run's ``metrics.jsonl``."""
-    path = run_dir / "metrics.jsonl"
-    lines = path.read_text().splitlines() if path.is_file() else []
-    if not lines:
+    """Steps done and worlds per second from the last whole record of ``metrics.jsonl``."""
+    records = read_jsonl(run_dir / "metrics.jsonl")
+    if not records:
         return {"steps_done": 0, "worlds_per_second": None}
-    last = json.loads(lines[-1])
+    last = records[-1]
     return {"steps_done": last["step"], "worlds_per_second": last["worlds_per_second"]}
 
 

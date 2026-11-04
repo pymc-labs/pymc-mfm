@@ -601,6 +601,13 @@ def test_interrupted_bench_ends_its_process_group(modal_script, tmp_path, monkey
     assert started[0].poll() is not None
 
 
+def test_progress_skips_a_torn_last_metrics_line(tmp_path):
+    (tmp_path / "metrics.jsonl").write_text(
+        '{"step": 3, "worlds_per_second": 9.5}\n{"step": 4, "worlds_'
+    )
+    assert read_progress(tmp_path) == {"steps_done": 3, "worlds_per_second": 9.5}
+
+
 def test_eval_set_seed_and_draws_are_passed_to_score(corpus, tmp_path):
     runs = [run_spec(corpus, "a")]
     runs[0]["score"] = {"mode": "eval-set", "seed": 7, "draws": 5}
