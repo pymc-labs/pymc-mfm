@@ -34,7 +34,10 @@ you can. Large or binary files need an allowlist entry with a reason (below).
 flags tracked symlinks, gitlinks (nested repositories, submodule pointers) and
 `.gitmodules` files, weight-like files, binary files it cannot read, files over
 1 MiB, large embedded base64 payloads, credential patterns, and `.private` anywhere
-in a path. Range checks also read commit messages. CI runs it on every pull request
+in a path. Notebooks (`*.ipynb`) may hold base64 only as code-cell image outputs
+(PNG, JPEG or GIF, at most 2 MiB each, checked by file type and PNG metadata); all
+other notebook strings are scanned as text. Range checks also read commit messages and
+fail on a root commit that the base branch does not contain. CI runs it on every pull request
 over the whole tree, over every commit in the pull request and over the built sdist
 and wheels. Exceptions are read from the committed allowlist, not your working copy.
 
@@ -58,6 +61,10 @@ checkout. Git ignores that link. If it exists, also read the `AGENTS.md` inside 
 Write private material only through that link, never into tracked paths here. Do
 not name the companion repo, its paths or its contents in tracked files, commit
 messages or pull request text.
+
+To package or share the public tree, use `git archive` or `uv build`. Do not archive
+or copy the checkout root with tools that follow links (`tar -h`, `zip`, `7z`,
+`rsync -L`, `cp -rL`, `grep -R`): they follow the private link and copy its contents.
 
 The link is a convenience. GitHub permissions are the access control. Hooks are
 local and can be bypassed, so CI repeats the generic checks.

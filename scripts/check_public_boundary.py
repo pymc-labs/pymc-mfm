@@ -7,7 +7,8 @@ working tree. Only generic rules live here; internal names come in through --den
 Modes (pick one):
   --tree          tracked files at HEAD (default)
   --staged        the index
-  --range A..B    every blob added or modified in the commits A..B, plus the net diff
+  --range A..B    every blob added or modified in the commits A..B, plus the net diff,
+                  and a check that A..B brings no new root commit (foreign history)
   --archive PATH  members of wheels, zips and tar(.gz) files
   --all-refs      every blob reachable from all refs (read-only publication audit)
 
@@ -18,14 +19,18 @@ Exit codes: 0 clean, 1 violations, 2 usage or configuration error.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import codecs
 import hashlib
+import json
 import re
 import subprocess
 import sys
 import tarfile
 import tomllib
 import zipfile
+import zlib
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +55,7 @@ RULES = (
     "private-path",
     "deny",
     "binary",
+    "foreign-history",
 )
 WEIGHT_SUFFIXES = (
     ".safetensors",
@@ -92,6 +98,19 @@ BASE64_LINE_PATTERN = re.compile(rb"[A-Za-z0-9+/]+={0,2}")
 WRAPPED_LINE_MIN_BYTES = 20
 PRIVATE_LINK_NAME = ".private"
 BASE64_RUN_PATTERN = re.compile(rb"[A-Za-z0-9+/]{%d,}={0,2}" % PAYLOAD_RUN_BYTES)
+
+NOTEBOOK_SUFFIX = ".ipynb"
+NOTEBOOK_IMAGE_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+}
+NOTEBOOK_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+PNG_TEXT_INFLATE_LIMIT = 1024 * 1024
+PNG_CHUNKS = frozenset(
+    "IHDR PLTE IDAT IEND tRNS cHRM gAMA iCCP sBIT sRGB bKGD hIST pHYs sPLT tIME "
+    "tEXt zTXt iTXt eXIf acTL fcTL fdAT".split()
+)
 
 
 class UsageError(Exception):
@@ -312,6 +331,15 @@ def range_items(objects: GitObjects, repo: str, revision_range: str) -> Iterator
     yield from changes_to_items(objects, changes)
 
 
+def foreign_history_findings(repo: str, revision_range: str) -> list[Finding]:
+    """Flag root commits inside A..B: they come from a history that A does not contain."""
+    roots = run_git(repo, "rev-list", "--max-parents=0", revision_range).decode().split()
+    return [
+        Finding("foreign-history", f"commit:{root[:7]}", None, "new root commit: unrelated history")
+        for root in roots
+    ]
+
+
 def commit_message_findings(
     repo: str, deny: list[DenyPattern], *revision_args: str
 ) -> list[Finding]:
@@ -506,7 +534,8 @@ def inspect_content(data: bytes) -> tuple[list[bytes], bool]:
     return [data], CONTROL_BYTES.search(data) is not None
 
 
-def check_content_rules(item: Item, data: bytes) -> list[Finding]:
+def check_content_rules(item: Item, data: bytes, notebook: bool = False) -> list[Finding]:
+    """Content rules. A parsed notebook gets its payload check from `check_notebook`."""
     texts, opaque = inspect_content(data)
     findings = []
     if opaque:
@@ -515,7 +544,7 @@ def check_content_rules(item: Item, data: bytes) -> list[Finding]:
                 "binary", item.path, None, "not plain UTF-8, UTF-16 or UTF-32 text: cannot be read"
             )
         )
-    else:
+    elif not notebook:
         findings += check_embedded_payload(item.path, texts[0])
     for text in texts:
         findings += check_text_rules(item.path, text)
@@ -625,6 +654,190 @@ def check_deny_rules(item: Item, data: bytes | None, deny: list[DenyPattern]) ->
     return findings
 
 
+# ------------------------------------------------------------------- notebooks
+
+
+def is_notebook(item: Item) -> bool:
+    return (item.match_path or item.path).lower().endswith(NOTEBOOK_SUFFIX)
+
+
+def png_chunks(image: bytes) -> list[tuple[bytes, bytes]]:
+    """Split a PNG into chunks. Raises ValueError unless it ends exactly at IEND."""
+    chunks, offset = [], 8
+    while offset + 12 <= len(image):
+        length = int.from_bytes(image[offset : offset + 4], "big")
+        kind = image[offset + 4 : offset + 8]
+        end = offset + 12 + length
+        if end > len(image):
+            raise ValueError("truncated chunk")
+        body = image[offset + 8 : offset + 8 + length]
+        if zlib.crc32(kind + body) != int.from_bytes(image[end - 4 : end], "big"):
+            raise ValueError("bad chunk checksum")
+        chunks.append((kind, body))
+        offset = end
+        if kind == b"IEND":
+            break
+    if not chunks or chunks[-1][0] != b"IEND" or offset != len(image):
+        raise ValueError("data after IEND or missing IEND")
+    return chunks
+
+
+def _inflate(blob: bytes) -> bytes:
+    inflater = zlib.decompressobj()
+    text = inflater.decompress(blob, PNG_TEXT_INFLATE_LIMIT)
+    if inflater.unconsumed_tail:
+        raise ValueError("text chunk inflates past the limit")
+    return text
+
+
+def png_text_chunks(chunks: list[tuple[bytes, bytes]]) -> list[bytes]:
+    """Keyword and text of every tEXt, zTXt and iTXt chunk. Raises ValueError or zlib.error."""
+    texts = []
+    for kind, body in chunks:
+        if kind == b"tEXt":
+            texts.append(body.replace(b"\0", b" "))
+        elif kind == b"zTXt":
+            keyword, _, rest = body.partition(b"\0")
+            texts.append(keyword + b" " + _inflate(rest[1:]))
+        elif kind == b"iTXt":
+            keyword, _, rest = body.partition(b"\0")
+            compressed = rest[:1] == b"\x01"
+            # Skip flag, method, language tag and translated keyword.
+            parts = rest[2:].split(b"\0", 2)
+            text = parts[2] if len(parts) == 3 else b""
+            texts.append(keyword + b" " + (_inflate(text) if compressed else text))
+    return texts
+
+
+def inspect_png(image: bytes) -> tuple[list[bytes], str | None]:
+    """Return (metadata texts to scan, problem or None)."""
+    try:
+        chunks = png_chunks(image)
+        unknown = sorted({k.decode("latin-1") for k, _ in chunks} - PNG_CHUNKS)
+        if unknown:
+            return [], f"unknown PNG chunk {unknown[0]!r}"
+        return png_text_chunks(chunks), None
+    except (ValueError, zlib.error) as error:
+        return [], f"malformed PNG ({error})"
+
+
+def decode_notebook_image(mime: str, value: object) -> tuple[bytes | None, str | None]:
+    """Decode an image output. Return (image bytes, None) or (None, problem)."""
+    if isinstance(value, list) and all(isinstance(part, str) for part in value):
+        value = "".join(value)
+    if not isinstance(value, str):
+        return None, "image output is not a string"
+    try:
+        image = base64.b64decode("".join(value.split()), validate=True)
+    except (binascii.Error, ValueError):
+        return None, "image output is not valid base64"
+    if not image.startswith(NOTEBOOK_IMAGE_MAGIC[mime]):
+        return None, f"decoded data is not a {mime} file"
+    if len(image) > NOTEBOOK_IMAGE_MAX_BYTES:
+        return None, f"image of {len(image)} bytes, limit {NOTEBOOK_IMAGE_MAX_BYTES}"
+    return image, None
+
+
+def image_slot(path: tuple[str | int, ...], cell_types: dict[int, str]) -> str | None:
+    """The image MIME type when `path` is cells[i].outputs[j].data[mime] of a code cell."""
+    if len(path) != 6 or path[0] != "cells" or path[2] != "outputs" or path[4] != "data":
+        return None
+    index, mime = path[1], path[5]
+    is_code = isinstance(index, int) and cell_types.get(index) == "code"
+    return mime if is_code and mime in NOTEBOOK_IMAGE_MAGIC else None
+
+
+def json_path(path: tuple[str | int, ...]) -> str:
+    return "".join(f"[{part!r}]" if isinstance(part, str) else f"[{part}]" for part in path)
+
+
+def walk_strings(document: object) -> Iterator[tuple[tuple[str | int, ...], str | list[str]]]:
+    """Yield (path, value) for each string, and each list of strings, in a JSON document.
+
+    Iterative so that a deeply nested notebook cannot exhaust the stack.
+    """
+    stack: list[tuple[tuple[str | int, ...], object]] = [((), document)]
+    while stack:
+        path, node = stack.pop()
+        if isinstance(node, str):
+            yield path, node
+        elif isinstance(node, list):
+            if node and all(isinstance(part, str) for part in node):
+                yield path, node
+            else:
+                stack += [((*path, i), child) for i, child in reversed(list(enumerate(node)))]
+        elif isinstance(node, dict):
+            for key, child in node.items():
+                yield (*path, f"key:{key}"), str(key)
+                stack.append(((*path, key), child))
+
+
+def notebook_cell_types(document: dict) -> dict[int, str]:
+    return {
+        index: cell.get("cell_type", "")
+        for index, cell in enumerate(document["cells"])
+        if isinstance(cell, dict)
+    }
+
+
+def parse_notebook(data: bytes) -> dict | None:
+    try:
+        document = json.loads(data)
+    except (ValueError, RecursionError):
+        return None
+    valid = isinstance(document, dict) and document.get("nbformat") == 4
+    return document if valid and isinstance(document.get("cells"), list) else None
+
+
+def check_notebook(path: str, data: bytes, deny: list[DenyPattern]) -> list[Finding]:
+    """Payload, metadata, secret and deny rules for an nbformat 4 notebook.
+
+    Base64 is allowed only as the value of a code-cell image output whose bytes decode to
+    that image type within the size cap. Every other string is scanned as ordinary text.
+    """
+    document = parse_notebook(data)
+    if document is None:
+        findings = [Finding("embedded-payload", path, None, "unparseable notebook")]
+        return findings + check_embedded_payload(path, data)
+    findings: list[Finding] = []
+    extra_texts: list[bytes] = []
+    cell_types = notebook_cell_types(document)
+    for index, cell in enumerate(document["cells"]):
+        if isinstance(cell, dict) and cell.get("attachments"):
+            reason = f"cell attachments at cells[{index}]"
+            findings.append(Finding("embedded-payload", path, None, reason))
+    for where, value in walk_strings(document):
+        mime = image_slot(where, cell_types)
+        if mime is not None:
+            image, problem = decode_notebook_image(mime, value)
+            if problem is not None:
+                findings.append(
+                    Finding("embedded-payload", path, None, f"{problem} at {json_path(where)}")
+                )
+            elif image is not None:
+                texts, flaw = inspect_png(image) if mime == "image/png" else ([image], None)
+                extra_texts += texts
+                if flaw:
+                    findings.append(
+                        Finding("embedded-payload", path, None, f"{flaw} at {json_path(where)}")
+                    )
+            continue
+        text = "".join(value).encode() if isinstance(value, list) else value.encode()
+        for found in check_embedded_payload(path, text):
+            reason = f"{found.reason} at {json_path(where)}"
+            findings.append(Finding(found.rule, path, None, reason))
+        if text not in data:
+            extra_texts.append(text)  # JSON escapes hid it from the raw scan
+    for text in extra_texts:
+        findings += check_text_rules(path, text, with_lines=False)
+        findings += [
+            Finding("deny", path, None, f"deny-file line {entry.line_number} (in notebook content)")
+            for entry in deny
+            if entry.byte_pattern.search(text)
+        ]
+    return findings
+
+
 def cap_findings(findings: list[Finding]) -> list[Finding]:
     """Keep the first few findings per rule and file; summarise the rest on one line."""
     kept: list[Finding] = []
@@ -646,7 +859,10 @@ def check_item(item: Item, deny: list[DenyPattern]) -> list[Finding]:
     data = item.content()
     texts: list[bytes | None] = [None]
     if data is not None:
-        findings += check_content_rules(item, data)
+        notebook = is_notebook(item)
+        findings += check_content_rules(item, data, notebook)
+        if notebook:
+            findings += check_notebook(item.path, data, deny)
         texts = list(inspect_content(data)[0])
     for index, text in enumerate(texts):
         deny_hits = check_deny_rules(item, text, deny)
@@ -844,6 +1060,8 @@ def run(args: argparse.Namespace) -> int:
     if repo and (args.range or args.all_refs):
         revisions = ("--all",) if args.all_refs else (args.range,)
         findings += commit_message_findings(repo, deny, *revisions)
+    if repo and args.range:
+        findings += foreign_history_findings(repo, args.range)
     try:
         for item in collect_items(args, repo, objects):
             checked += 1

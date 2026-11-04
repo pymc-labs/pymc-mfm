@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
 import os
 import subprocess
 import sys
 import tarfile
 import zipfile
+import zlib
 from pathlib import Path
 
 import pytest
@@ -681,3 +683,208 @@ def test_gitlink_rule_can_be_allowlisted(repo: Path) -> None:
     allow = write_allow(repo, '[[allow]]\npath = "sub"\nrules = ["gitlink"]\nreason = "r"\n')
     result = check(repo, "--allow", str(allow))
     assert result.returncode == 0, result.stdout
+
+
+# ------------------------------------------------------------------- notebooks
+
+
+def png_chunk(kind: bytes, body: bytes) -> bytes:
+    crc = zlib.crc32(kind + body).to_bytes(4, "big")
+    return len(body).to_bytes(4, "big") + kind + body + crc
+
+
+def make_png(*extra: tuple[bytes, bytes], size: int = 64) -> bytes:
+    """A valid PNG with random pixels and optional extra chunks before the data."""
+    header = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + bytes([8, 0, 0, 0, 0])
+    pixels = zlib.compress(b"\0" + os.urandom(size))
+    chunks = [(b"IHDR", header), *extra, (b"IDAT", pixels), (b"IEND", b"")]
+    return b"\x89PNG\r\n\x1a\n" + b"".join(png_chunk(kind, body) for kind, body in chunks)
+
+
+def notebook(outputs: list[dict], cell_type: str = "code", **cell_extra: object) -> str:
+    cell = {"cell_type": cell_type, "metadata": {}, "source": ["x = 1\n"], **cell_extra}
+    if cell_type == "code":
+        cell |= {"execution_count": 1, "outputs": outputs}
+    document = {"cells": [cell], "metadata": {}, "nbformat": 4, "nbformat_minor": 5}
+    return json.dumps(document, indent=1)
+
+
+def image_output(mime: str, data: bytes | str, **more: object) -> dict:
+    value = data if isinstance(data, str) else base64.b64encode(data).decode()
+    return {"output_type": "display_data", "metadata": {}, "data": {mime: value, **more}}
+
+
+def check_notebook_file(repo: Path, text: str, *args: str) -> subprocess.CompletedProcess[str]:
+    write(repo, "nb.ipynb", text)
+    commit(repo)
+    return check(repo, *args)
+
+
+def test_notebook_with_real_png_output_passes(repo: Path) -> None:
+    text = notebook(
+        [image_output("image/png", make_png(size=6000), **{"text/plain": ["<Figure>"]})]
+    )
+    result = check_notebook_file(repo, text)
+    assert result.returncode == 0, result.stdout
+
+
+def test_notebook_png_split_into_lines_passes(repo: Path) -> None:
+    encoded = base64.b64encode(make_png(size=6000)).decode()
+    lines = [encoded[i : i + 76] + "\n" for i in range(0, len(encoded), 76)]
+    document = json.loads(notebook([image_output("image/png", "")]))
+    document["cells"][0]["outputs"][0]["data"]["image/png"] = lines
+    result = check_notebook_file(repo, json.dumps(document))
+    assert result.returncode == 0, result.stdout
+
+
+def test_notebook_non_image_bytes_in_image_field_fire(repo: Path) -> None:
+    text = notebook([image_output("image/png", bytes(range(256)) * 40)])
+    result = check_notebook_file(repo, text)
+    assert result.returncode == 1
+    assert "embedded-payload nb.ipynb decoded data is not a image/png file" in result.stdout
+
+
+def test_notebook_oversize_image_fires(repo: Path) -> None:
+    text = notebook([image_output("image/png", make_png(size=3 * 1024 * 1024))])
+    assert "limit 2097152" in check_notebook_file(repo, text).stdout
+
+
+def test_notebook_png_with_trailing_data_fires(repo: Path) -> None:
+    text = notebook([image_output("image/png", make_png() + os.urandom(5000))])
+    assert "malformed PNG" in check_notebook_file(repo, text).stdout
+
+
+def test_notebook_png_with_unknown_chunk_fires(repo: Path) -> None:
+    text = notebook([image_output("image/png", make_png((b"prVt", os.urandom(300))))])
+    assert "unknown PNG chunk" in check_notebook_file(repo, text).stdout
+
+
+def test_notebook_base64_in_text_output_fires(repo: Path) -> None:
+    payload = base64.b64encode(bytes(range(256)) * 16).decode()
+    text = notebook([image_output("text/plain", payload)])
+    result = check_notebook_file(repo, text)
+    assert result.returncode == 1
+    assert "embedded-payload nb.ipynb base64 run" in result.stdout
+
+
+def test_notebook_base64_in_markdown_cell_fires(repo: Path) -> None:
+    payload = base64.b64encode(bytes(range(256)) * 16).decode()
+    text = notebook([], cell_type="markdown")
+    document = json.loads(text)
+    document["cells"][0]["source"] = [payload]
+    assert "embedded-payload" in check_notebook_file(repo, json.dumps(document)).stdout
+
+
+def test_notebook_png_in_markdown_data_slot_fires(repo: Path) -> None:
+    document = json.loads(notebook([image_output("image/png", make_png(size=6000))]))
+    document["cells"][0]["cell_type"] = "markdown"
+    result = check_notebook_file(repo, json.dumps(document))
+    assert "embedded-payload" in result.stdout
+
+
+def test_notebook_attachment_fires(repo: Path) -> None:
+    attachments = {"a.png": {"image/png": base64.b64encode(make_png()).decode()}}
+    text = notebook([], cell_type="markdown", attachments=attachments)
+    result = check_notebook_file(repo, text)
+    assert result.returncode == 1
+    assert "embedded-payload nb.ipynb cell attachments" in result.stdout
+
+
+def test_notebook_svg_output_is_scanned_as_text(repo: Path) -> None:
+    svg = f"<svg><text>{FAKE_AWS_KEY}</text></svg>"
+    result = check_notebook_file(repo, notebook([image_output("image/svg+xml", svg)]))
+    assert "secret nb.ipynb" in result.stdout
+
+
+def test_notebook_png_text_chunk_is_scanned_with_deny_rules(repo: Path, tmp_path: Path) -> None:
+    word = "zebrafish" + "-internal"
+    chunks = [
+        (b"tEXt", b"Source\0/srv/" + word.encode()),
+        (b"zTXt", b"Comment\0\0" + zlib.compress(f"see {PRIVATE_LINK}/x".encode())),
+        (b"iTXt", b"Title\0\0\0\0\0" + FAKE_AWS_KEY.encode()),
+    ]
+    text = notebook([image_output("image/png", make_png(*chunks))])
+    deny = tmp_path / "deny.txt"
+    deny.write_text("zebrafish-internal\n")
+    write(repo, "nb.ipynb", text)
+    commit(repo)
+    assert check(repo).stdout.count("secret nb.ipynb") == 1
+    result = check(repo, "--deny-file", str(deny))
+    assert "deny nb.ipynb" in result.stdout
+    assert "private-path nb.ipynb" in result.stdout
+    assert "zebrafish" not in (result.stdout + result.stderr)
+
+
+def test_notebook_escaped_text_is_still_scanned(repo: Path) -> None:
+    escaped = "".join(f"\\u{ord(c):04x}" for c in FAKE_AWS_KEY)
+    text = notebook([]).replace('"x = 1\\n"', f'"{escaped}"')
+    assert "secret nb.ipynb" in check_notebook_file(repo, text).stdout
+
+
+@pytest.mark.parametrize("text", ["{not json", '{"nbformat": 3, "cells": []}', "[]"])
+def test_malformed_notebook_fires(repo: Path, text: str) -> None:
+    result = check_notebook_file(repo, text)
+    assert result.returncode == 1
+    assert "embedded-payload nb.ipynb unparseable notebook" in result.stdout
+
+
+def test_non_notebook_json_with_image_keeps_payload_rule(repo: Path) -> None:
+    text = notebook([image_output("image/png", make_png(size=6000))])
+    write(repo, "plot.json", text)
+    commit(repo)
+    assert "embedded-payload plot.json" in check(repo).stdout
+
+
+def test_notebook_in_archive_is_checked(tmp_path: Path) -> None:
+    payload = base64.b64encode(bytes(range(256)) * 16).decode()
+    text = notebook([image_output("text/plain", payload)])
+    archive = tmp_path / "pkg.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("pkg/nb.ipynb", text)
+    assert "embedded-payload" in check(None, "--archive", str(archive)).stdout
+
+
+# --------------------------------------------------------------- foreign history
+
+
+def add_unrelated_root_merge(repo: Path) -> str:
+    git(repo, "checkout", "-q", "--orphan", "foreign")
+    write(repo, "other.txt", "from elsewhere\n")
+    commit(repo, "foreign root")
+    git(repo, "checkout", "-q", "main")
+    git(repo, "checkout", "-q", "-b", "feature")
+    git(repo, "merge", "-q", "--allow-unrelated-histories", "-m", "merge", "foreign")
+    return git(repo, "rev-parse", "HEAD")
+
+
+def test_range_with_unrelated_root_fires(repo: Path) -> None:
+    base = git(repo, "rev-parse", "main")
+    head = add_unrelated_root_merge(repo)
+    result = check(repo, "--range", f"{base}..{head}")
+    assert result.returncode == 1
+    assert "foreign-history commit:" in result.stdout
+
+
+def test_range_with_whole_new_history_fires(repo: Path) -> None:
+    base = git(repo, "rev-parse", "main")
+    git(repo, "checkout", "-q", "--orphan", "fresh")
+    write(repo, "a.txt", "x\n")
+    head = commit(repo, "new root")
+    assert "foreign-history" in check(repo, "--range", f"{base}..{head}").stdout
+
+
+def test_range_on_ordinary_branch_has_no_foreign_history(repo: Path) -> None:
+    base = git(repo, "rev-parse", "HEAD")
+    write(repo, "a.txt", "x\n")
+    head = commit(repo)
+    assert check(repo, "--range", f"{base}..{head}").returncode == 0
+
+
+def test_existing_second_root_in_base_does_not_fire(repo: Path) -> None:
+    add_unrelated_root_merge(repo)
+    git(repo, "checkout", "-q", "main")
+    git(repo, "merge", "-q", "--ff-only", "feature")
+    base = git(repo, "rev-parse", "HEAD")
+    write(repo, "a.txt", "x\n")
+    head = commit(repo)
+    assert check(repo, "--range", f"{base}..{head}").returncode == 0

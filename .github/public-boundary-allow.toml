@@ -4,8 +4,8 @@
 
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
-rules = ["large-file", "embedded-payload"]
-reason = "Notebook outputs: inline PNG plots and text. It loads weights from the Hub and holds none."
+rules = ["large-file"]
+reason = "Notebook with inline PNG plots. The notebook rule in the script checks each image (type, size, metadata) and scans all other strings as text."
 # No sha256: the notebook is rerun routinely; max_bytes still bounds it.
 max_bytes = 3000000
 
