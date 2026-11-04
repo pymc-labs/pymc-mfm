@@ -1,0 +1,1217 @@
+{
+  "architecture": "mfm-graph-conditional-v1",
+  "bundle_sha256": "9d6de2b09b332ee85fa00d989a7449585dabd1c97cfbf7ee1cdb5a4a5b5503d0",
+  "files": {
+    "config.json": {
+      "sha256": "82097969d8bad08b4c8df7b49ed6128a7610b9ff65059a7608e88c08b951c826",
+      "size": 7935
+    },
+    "model.safetensors": {
+      "sha256": "0d0531c98e07371de16504338851ccfed4d823b99e0404a75df9c17d96e36294",
+      "size": 21148
+    }
+  },
+  "format_version": 1,
+  "profile": "golden",
+  "tensors": [
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.input_proj.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        31
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.input_proj.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.time_norm.weight",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.time_attn.qkv.weight",
+      "requires_grad": true,
+      "shape": [
+        12,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.time_attn.out.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.chan_norm.weight",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.chan_attn.qkv.weight",
+      "requires_grad": true,
+      "shape": [
+        12,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.chan_attn.out.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.ffn_norm.weight",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.ffn.w_gate.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.ffn.w_up.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.blocks.0.ffn.w_down.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "encoder.norm.weight",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.int64",
+      "kind": "buffer",
+      "name": "head.trajectory_feature_version",
+      "shape": []
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_state_proj.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        2
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_state_proj.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_week_proj.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_week_proj.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_token_net.1.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_token_net.1.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_score.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_score.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_loading_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_loading_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_loading_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        3,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.trajectory_loading_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        3
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.base_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        20
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.base_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.base_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.base_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.base_net.4.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.base_net.4.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.contrib_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        42
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.contrib_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.contrib_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.contrib_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.contrib_net.4.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.contrib_net.4.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.entity_type_embed.weight",
+      "requires_grad": true,
+      "shape": [
+        2,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.fixed_slot_embed.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.fixed_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        28
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.fixed_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.fixed_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.fixed_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.fixed_net.4.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.fixed_net.4.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.node_type_embed.weight",
+      "requires_grad": true,
+      "shape": [
+        5,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.demand_node_embed.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.baseline_node_embed.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.sales_node_proj.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.sales_node_proj.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.edge_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        60
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.edge_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.edge_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.edge_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.edge_net.4.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "head.edge_net.4.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_cy.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_cy.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_dc.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_dc.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_db.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_db.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zb.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zb.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_cc.bilinear.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_cc.src_lin.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_cc.src_lin.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_cc.dst_lin.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zc.bilinear.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zc.src_lin.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zc.src_lin.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zc.dst_lin.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zz.bilinear.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zz.src_lin.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zz.src_lin.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_zz.dst_lin.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_dz.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "struct_head.proj_dz.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.weekly_node.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.weekly_node.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.node_type.weight",
+      "requires_grad": true,
+      "shape": [
+        5,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.edge_type.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.message.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        12
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.message.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.message.2.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.message.2.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.node_update.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        12
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.node_update.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.node_update.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.node_update.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.weekly_update.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "graph_conditioner.weekly_update.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.int64",
+      "kind": "buffer",
+      "name": "conditional_head.trajectory_feature_version",
+      "shape": []
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_state_proj.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        2
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_state_proj.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_week_proj.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_week_proj.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_token_net.1.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_token_net.1.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_score.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_score.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_loading_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        8,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_loading_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_loading_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        3,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.trajectory_loading_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        3
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.base_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        20
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.base_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.base_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.base_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.base_net.4.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.base_net.4.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.contrib_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        33
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.contrib_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.contrib_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.contrib_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.contrib_net.4.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.contrib_net.4.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.entity_type_embed.weight",
+      "requires_grad": true,
+      "shape": [
+        2,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.fixed_slot_embed.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        8
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.fixed_net.0.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        28
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.fixed_net.0.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.fixed_net.2.weight",
+      "requires_grad": true,
+      "shape": [
+        4,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.fixed_net.2.bias",
+      "requires_grad": true,
+      "shape": [
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.fixed_net.4.weight",
+      "requires_grad": true,
+      "shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "dtype": "torch.float32",
+      "kind": "parameter",
+      "name": "conditional_head.fixed_net.4.bias",
+      "requires_grad": true,
+      "shape": [
+        1
+      ]
+    }
+  ]
+}
