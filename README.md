@@ -207,6 +207,35 @@ either window:
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
+### Faster repeated sampling (optional)
+
+A long-running process that samples many times, such as a service, can compile the
+sampler once with `torch.compile`. On an NVIDIA L4 with River-1 and 1,000 draws, warm
+compiled calls ran about 1.4 times as fast as eager calls (1.36–1.48x across four
+inputs); the first compilation took 20–30 s.
+
+```python
+from pymc_mfm.inference import warm_up_sampling
+
+model = from_pretrained("pymc-labs/mfm", profile="river-1").to("cuda")
+model.compile_sampling()  # opt-in; sampling stays eager until this call
+warm_up_sampling(model, channels=range(1, 11))  # compile now, not on the first request
+result = decompose(model, observations, n_samples=1000)
+model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=..., fallback=None)
+```
+
+- The first call at a new kind of input compiles, which can take tens of seconds. Warm
+  up with worlds, draw counts and modes like the ones you serve. `compiles` counts
+  every compilation, so a later increase shows an input the warm-up did not cover.
+- Compiled draws follow the eager distribution; they agree with eager draws up to
+  float round-off but are not bit-identical. With a fixed seed, serialized calls on one
+  device repeat their draws, including a call that compiles. Warm-up restores the
+  random state.
+- PyTorch's compile cache (`TORCHINDUCTOR_CACHE_DIR`) lets a restarted process reuse
+  earlier compilations. A compiler failure warns, returns the model to eager sampling and
+  shows in `sampling_status.fallback`. `model.disable_compiled_sampling()` switches it off.
+- On CPU, compiling usually does not speed sampling up.
+
 ## Train an amortized network
 
 ### Training data

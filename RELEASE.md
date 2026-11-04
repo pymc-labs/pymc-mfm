@@ -6,6 +6,12 @@ approved or published release.
 
 ## Changes
 
+- **Opt-in compiled sampling.** `model.compile_sampling()` compiles the per-step flow
+  velocity with `torch.compile`; `warm_up_sampling` compiles representative inputs
+  ahead of use, and `model.sampling_status` reports compilations and any eager
+  fallback. Sampling stays eager unless a caller opts in, and eager draws are unchanged.
+  Compiled draws agree with eager draws up to float round-off. Seeded draws do not depend on whether a call
+  compiled, and compilation adds nothing to checkpoints.
 - **Quickstart actual-spend scenario sweep.** Each channel is varied separately
   from 0% to 200% of its actual eight-week query spend path, with unchanged history
   and other inputs. The notebook plots eight-week channel totals with pointwise
