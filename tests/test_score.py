@@ -21,6 +21,7 @@ from pymc_mfm.training import (
 from pymc_mfm.training.__main__ import main
 from pymc_mfm.training.score import (
     ALL_ROWS,
+    EVAL_SET_BATCH_WORLDS,
     REPLAY_ROWS,
     RESULT_COLUMNS,
     ScoreError,
@@ -163,13 +164,42 @@ def test_eval_set_row_and_stable_id(run_dir, corpus_path, tmp_path, capsys):
     assert first == second
     assert (first["mode"], first["row_rule"], first["seed"], first["draws"]) == (
         "eval-set",
-        "all-rows",
+        ALL_ROWS,
         "7",
         "2",
     )
     assert first["worlds"] == "16"  # every row of the corpus, not only the held-out ones
     assert first["replay_keys_compared"] == ""
     assert first["eval_set_id"]
+
+
+def test_eval_set_batches_hold_at_most_the_cap(run_dir, corpus_path, monkeypatch):
+    from pymc_mfm.training import evaluation
+
+    sizes = []
+    score_batch = evaluation._score_batch
+
+    def recording(model, corpora, batch, batch_rows, *args, **kwargs):
+        sizes.append(len(batch_rows))
+        return score_batch(model, corpora, batch, batch_rows, *args, **kwargs)
+
+    monkeypatch.setattr(evaluation, "_score_batch", recording)
+    row = score_checkpoint(
+        run_dir / "checkpoint_last.pt", [corpus_path], mode="eval-set", seed=7, draws=2
+    )
+    assert max(sizes) <= EVAL_SET_BATCH_WORLDS < 16
+    assert sum(sizes) == int(row["worlds"]) == 16
+
+
+def test_batches_for_rows_splits_each_length_and_keeps_order():
+    from pymc_mfm.training.stream import batches_for_rows
+
+    corpus = make_synthetic_corpus(n_cells=4, draws_per_cell=2, seed=3)
+    rows = [(0, row) for row in range(8)]
+    whole = [group for _, group in batches_for_rows([corpus], rows)]
+    split = [group for _, group in batches_for_rows([corpus], rows, max_batch_worlds=3)]
+    assert all(len(group) <= 3 for group in split)
+    assert [row for group in split for row in group] == [row for group in whole for row in group]
 
 
 def test_eval_set_id_changes_with_corpus_content_seed_and_draws(
