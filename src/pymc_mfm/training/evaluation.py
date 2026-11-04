@@ -563,8 +563,8 @@ def _score_decomposition(
         if not _finite(p, t):
             skip(names, metrics.NONFINITE)
             return
-        world.put(names[0], np.mean(np.abs(p.mean(axis=0) - t)), weight)
-        world.put(names[1], metrics.empirical_crps(p, t), weight)
+        world.put(f"{name}_scaled_mae", np.mean(np.abs(p.mean(axis=0) - t)), weight)
+        world.put(f"{name}_crps", metrics.empirical_crps(p, t), weight)
         for stat, (low, high) in metrics.COVERAGE_BOUNDS.items():
             world.put(f"{name}_{stat}", metrics.coverage(p, t, low, high), weight)
 

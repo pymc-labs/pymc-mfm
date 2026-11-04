@@ -19,7 +19,16 @@ from pymc_mfm.training import (
     train,
 )
 from pymc_mfm.training.__main__ import main
-from pymc_mfm.training.score import RESULT_COLUMNS, ScoreError, score_checkpoint
+from pymc_mfm.training.score import (
+    ALL_ROWS,
+    REPLAY_ROWS,
+    RESULT_COLUMNS,
+    ScoreError,
+    compare_with_record,
+    eval_set_id,
+    median_step_seconds,
+    score_checkpoint,
+)
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("pymc_generator") is None, reason="pymc_generator not installed"
@@ -185,6 +194,53 @@ def test_eval_set_id_changes_with_corpus_content_seed_and_draws(
     same, again, new_corpus, new_seed, new_draws = ids
     assert same == again
     assert len({same, new_corpus, new_seed, new_draws}) == 4
+
+
+@pytest.mark.parametrize("rule", [ALL_ROWS, REPLAY_ROWS])
+def test_eval_set_id_changes_with_selected_rows(rule):
+    first = eval_set_id(["corpus"], rule, 7, 2, [(0, 1), (0, 2)])
+    assert first == eval_set_id(["corpus"], rule, 7, 2, [(0, 1), (0, 2)])
+    assert first != eval_set_id(["corpus"], rule, 7, 2, [(0, 1), (0, 3)])
+    assert first != eval_set_id(["corpus"], rule, 7, 2, [(0, 2), (0, 1)])
+
+
+def test_torn_final_metrics_line_is_ignored(tmp_path):
+    metrics = tmp_path / "metrics.jsonl"
+    metrics.write_text(
+        '{"step": 1, "step_seconds": 0.5}\n'
+        '{"step": 2, "step_seconds": 1.5}\n'
+        '{"step": 3, "step_seconds":'
+    )
+    assert median_step_seconds(tmp_path / "checkpoint_last.pt", 3) == 1.0
+    metrics.write_text('{"step": 1, "step_seconds": 0.5}\n{broken}\n{"step": 3}\n')
+    with pytest.raises(json.JSONDecodeError):
+        median_step_seconds(tmp_path / "checkpoint_last.pt", 3)
+
+
+def test_missing_replay_key_differs_from_undefined_value():
+    result = compare_with_record({"holdout/key": None}, {})
+    assert result["exact"] == 0
+    assert result["max_abs_diff"] == float("inf")
+
+
+def test_main_propagates_unexpected_runtime_error(monkeypatch, tmp_path):
+    def fail(*args, **kwargs):
+        raise RuntimeError("out of memory")
+
+    monkeypatch.setattr("pymc_mfm.training.score.score_checkpoint", fail)
+    with pytest.raises(RuntimeError, match="out of memory"):
+        main(
+            [
+                "score",
+                "--checkpoint",
+                "checkpoint.pt",
+                "--corpus",
+                "corpus.npz",
+                "--eval-set",
+                "--results",
+                str(tmp_path / "results.csv"),
+            ]
+        )
 
 
 def test_replay_rejects_seed_and_draws(run_dir, corpus_path):
