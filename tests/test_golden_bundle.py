@@ -1,26 +1,40 @@
-"""Keep the original dimensional bundle as an incompatible-representation fixture.
+"""Reject a bundle of the retired semantic-schema version 1.
 
-``data/golden_bundle.json`` retains every byte of a tiny semantic-version-1
-bundle. It must be rejected locally and through the real offline Hub cache,
-not re-recorded with a new schema over old weights. Fresh bundles separately
-exercise provenance round-tripping and inference-only imports.
+The bundle is generated from code at test time, so no checkpoint bytes are
+committed: a tiny model with a fixed seed is exported while the semantic
+schema version reads 1, the retired dimensional representation. It must be
+rejected locally and through the real offline Hub cache, not re-recorded with
+the new schema over old weights. Fresh bundles separately exercise provenance
+round-tripping and inference-only imports.
 """
 
-import base64
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import torch
 
+import pymc_mfm.inference._artifact_schema as artifact_schema
 from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.inference.hub import from_pretrained
+from pymc_mfm.model import MFM, ModelConfig
 
-GOLDEN = Path(__file__).resolve().parent / "data" / "golden_bundle.json"
 PROFILE = "golden"
 COMMIT = "a" * 40
 REPO = "test-owner/dimensional-golden"
+RETIRED_SCHEMA_VERSION = 1
+SEED = 20260923
+MODEL = {
+    "d_model": 4,
+    "n_layers": 1,
+    "n_heads": 1,
+    "d_ff": 4,
+    "flow_hidden": 4,
+    "n_controls": 1,
+    "n_demand": 1,
+}
 TRAINING_EVALUATION = {
     "status": "recorded",
     "source": "terminal in-training evaluation",
@@ -59,21 +73,25 @@ PROVENANCE = {
 }
 
 
-def materialize(files: dict[str, dict], directory: Path) -> Path:
-    """Write the recorded files back as the exact bundle bytes."""
-    directory.mkdir(parents=True)
-    for name, entry in files.items():
-        if entry["encoding"] == "base64":
-            data = base64.b64decode("".join(entry["lines"]), validate=True)
-        else:
-            data = "\n".join(entry["lines"]).encode("utf-8")
-        (directory / name).write_bytes(data)
-    return directory
+def write_retired_bundle(directory: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Export a seeded tiny model whose schema carries the retired version 1.
+
+    The patch covers only the export, so the manifest hashes agree with the
+    files and the loader reaches the schema check instead of failing integrity.
+    """
+    with torch.random.fork_rng(devices=[]), monkeypatch.context() as patch:
+        torch.manual_seed(SEED)
+        model = MFM(ModelConfig(**MODEL))
+        patch.setattr(artifact_schema, "SEMANTIC_SCHEMA_VERSION", RETIRED_SCHEMA_VERSION)
+        bundle = save_pretrained(model, directory, provenance=PROVENANCE, profile=PROFILE)
+    recorded = json.loads((bundle / "config.json").read_text())["schemas"]["version"]
+    assert recorded == RETIRED_SCHEMA_VERSION
+    return bundle
 
 
 @pytest.fixture
-def collection(tmp_path):
-    materialize(json.loads(GOLDEN.read_text())["files"], tmp_path / "profiles" / PROFILE)
+def collection(tmp_path, monkeypatch):
+    write_retired_bundle(tmp_path / "profiles" / PROFILE, monkeypatch)
     return tmp_path
 
 
@@ -87,12 +105,12 @@ def test_dimensional_golden_bundle_requires_retraining(collection):
         from_pretrained(collection, profile=PROFILE)
 
 
-def test_offline_hub_cache_cannot_bypass_representation_rejection(tmp_path):
+def test_offline_hub_cache_cannot_bypass_representation_rejection(tmp_path, monkeypatch):
     pytest.importorskip("huggingface_hub")
     cache = tmp_path / "cache"
     repo = cache / "models--test-owner--dimensional-golden"
     snapshot = repo / "snapshots" / COMMIT
-    materialize(json.loads(GOLDEN.read_text())["files"], snapshot / "profiles" / PROFILE)
+    write_retired_bundle(snapshot / "profiles" / PROFILE, monkeypatch)
     (repo / "refs").mkdir()
     (repo / "refs" / "release").write_text(COMMIT)
     with pytest.raises(ValueError, match="(?i)representation.*retrain"):
