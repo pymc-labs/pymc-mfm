@@ -74,12 +74,14 @@ from pymc_mfm.training.resume import (
     chain_row_sequence,
     checkpoint_entry,
     continue_run_record,
+    copy_best_checkpoint,
     copy_run_history,
     evaluation_sha256,
     load_start_point,
     provenance_of_start,
     read_jsonl,
     restore_rng_state,
+    tracking_tags,
     truncate_run_files,
 )
 from pymc_mfm.training.stream import CorpusStream, PrefetchingStream, SeenRows
@@ -404,9 +406,10 @@ def train(
     (``prefetch_batches`` may differ); anything else, a format 2 file, a ``best``
     checkpoint or a dimensional checkpoint raises ``ValueError`` before any file is
     written. With ``out_dir`` the directory of the checkpoint, only its
-    ``checkpoint_last.pt``, the run continues in place (same ``run_id`` and MLflow run):
-    records after the checkpoint are dropped and ``run.json`` gains a ``resumes``
-    entry. In a new ``out_dir`` the run gets a new ``run_id``, a ``resumed_from``
+    ``checkpoint_last.pt``, the run continues in place with the same ``run_id``.
+    It reopens the MLflow run when a run id exists. Records after the checkpoint
+    are dropped and ``run.json`` gains a ``resumes`` entry. In a new ``out_dir``
+    the run gets a new ``run_id``, a ``resumed_from``
     record, and a copy of the source's metrics and evaluations up to the checkpoint.
     ``init_from`` loads weights only from a format 2 or 3 checkpoint into a new run
     at step 1 with a fresh optimizer; ``run.json`` records ``initialized_from``.
@@ -456,7 +459,7 @@ def train(
             training=training,
             corpus_records=inputs[2],
         )
-    in_place = start is not None and start.same_directory
+    in_place = start is not None and start.mode == "resume" and start.same_directory
     if (out_dir / "run.json").exists() and not in_place:
         raise FileExistsError(f"{out_dir} already holds a training run")
     _export_environment()
@@ -479,16 +482,10 @@ def train(
         "checkpoints": [],
         "best": None,
     }
-    tracker_tags: dict[str, str] = {}
-    if start is not None and not in_place:
-        tracker_tags = {f"mfm.{start.mode}_from_step": str(start.step)}
-        if start.source_run_id:
-            tracker_tags[f"mfm.{start.mode}_from_local_run_id"] = start.source_run_id
-        if start.source_tracking_run_id:
-            tracker_tags[f"mfm.{start.mode}_from_run_id"] = start.source_tracking_run_id
+    tracker_tags = tracking_tags(start) if start is not None and not in_place else {}
     if start is not None:
         if in_place:
-            truncate_run_files(out_dir, start.step)
+            truncate_run_files(out_dir, start.step, final_step=training.steps)
             run = continue_run_record(
                 json.loads((out_dir / "run.json").read_text()), start, out_dir
             )
@@ -496,7 +493,8 @@ def train(
             record = "resumed_from" if start.mode == "resume" else "initialized_from"
             run[record] = provenance_of_start(start)
             if start.mode == "resume":
-                run[record]["history_copied"] = copy_run_history(
+                run[record]["history_copied"] = (start.source_dir / "metrics.jsonl").is_file()
+                copy_run_history(
                     start.source_dir,
                     out_dir,
                     step=start.step,
@@ -506,6 +504,7 @@ def train(
         out_dir,
         tracking,
         continue_run_id=start.source_tracking_run_id if in_place else None,
+        continue_local=in_place,
         tags=tracker_tags,
     )
     run["tracking"] = tracker.summary
@@ -811,6 +810,14 @@ def _train_run(
         run["tracking"] = tracker.summary
         resume = None
         if kind != "best":
+            pending = (
+                selection
+                if kind == "last"
+                else {
+                    "best_value": best_value,
+                    "best_step": best_step,
+                }
+            )
             resume = build_resume_block(
                 device=resolved_device,
                 optimizer=optimizer,
@@ -818,9 +825,8 @@ def _train_run(
                 stream_state=source.consumed_state if source else stream.resume_state(),
                 row_sequence=row_sequence,
                 seen=seen,
-                # After a ``last`` event's selection, ``best_*`` still lag until ``best`` is saved.
-                best_value=selection["best_value"] if kind == "last" else best_value,
-                best_step=selection["best_step"] if kind == "last" else best_step,
+                best_value=pending["best_value"],
+                best_step=pending["best_step"],
             )
         digest = save_checkpoint(
             path,
@@ -1141,13 +1147,7 @@ def _train_run(
             ]
 
     def carry_best_checkpoint() -> None:
-        """Give a resumed run the ``checkpoint_best.pt`` its recorded best refers to.
-
-        Present already after a same-directory resume. A best promoted by the
-        checkpoint's own evaluation may not have been written before the
-        interruption; then the checkpoint's weights are the best weights. Otherwise
-        the source run's file is copied when it is that best.
-        """
+        """Carry the recorded best checkpoint when its weights are available."""
         if best_step is None or any(
             entry["kind"] == "best" and entry["step"] == best_step for entry in run["checkpoints"]
         ):
@@ -1162,15 +1162,15 @@ def _train_run(
                 payload["selection"],
             )
             return
-        source_best = start.source_dir / "checkpoint_best.pt"
-        if source_best.is_file() and checkpoint_entry(source_best)["step"] == best_step:
-            shutil.copyfile(source_best, out_dir / source_best.name)
-            run["checkpoints"] = [
-                *run["checkpoints"],
-                checkpoint_entry(out_dir / source_best.name),
-            ]
-            if "resumed_from" in run:
-                run["resumed_from"]["best_checkpoint_copied"] = True
+        entry = copy_best_checkpoint(start, out_dir, best_step)
+        if entry is not None:
+            run["checkpoints"].append(entry)
+        if "resumed_from" in run:
+            run["resumed_from"]["best_checkpoint_copied"] = entry is not None
+            if entry is None:
+                run["resumed_from"]["best_checkpoint_reason"] = (
+                    "source best checkpoint is unavailable"
+                )
 
     loss_fn = build_loss_fn(model, loss_weights, training, resolved_device.type)
     run["compile"] = compile_record(training)

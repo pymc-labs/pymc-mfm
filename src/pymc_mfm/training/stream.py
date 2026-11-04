@@ -5,8 +5,8 @@ bucket choice. Each epoch permutes the selected split, groups rows by context
 length, and draws a batchable bucket in proportion to its remaining rows.
 Rows that cannot fill a batch are dropped at the next reshuffle.
 
-``seen_rows`` returns the first distinct consumed rows. ``holdout_rows`` uses
-an independent RNG, so evaluation probes do not perturb training order.
+``holdout_rows`` uses an independent RNG, so evaluation probes do not perturb
+training order.
 ``PrefetchingStream`` produces the same ordered batches on one background
 thread and re-raises producer errors to the consumer.
 
@@ -222,7 +222,6 @@ class CorpusStream:
         self.epoch = 0
         self.consumed_rows = 0
         self.batches = 0
-        self._first_seen: dict[Row, None] = {}
         self._buckets: dict[int, np.ndarray] = {}
         self._cursor: dict[int, int] = {}
         self._start_epoch()
@@ -284,27 +283,7 @@ class CorpusStream:
         )
         self.consumed_rows += len(rows)
         self.batches += 1
-        for item in rows:
-            self._first_seen.setdefault(item, None)
         return batch, provenance
-
-    @property
-    def distinct_consumed_rows(self) -> int:
-        """Distinct ``(corpus_index, row)`` pairs consumed so far; what ``seen_rows`` can serve."""
-        return len(self._first_seen)
-
-    def seen_rows(self, n: int) -> list[Row]:
-        """First ``n`` distinct consumed rows in consumption order (memorization probe).
-
-        Does not change consumption state. Raises ``ValueError`` when fewer than ``n``
-        distinct rows have been consumed.
-        """
-        if n > self.distinct_consumed_rows:
-            raise ValueError(
-                f"seen_rows({n}) needs {n} distinct consumed rows; "
-                f"{self.distinct_consumed_rows} so far"
-            )
-        return list(self._first_seen)[:n]
 
     def holdout_rows(self, n: int, *, seed: int) -> list[Row]:
         """``n`` rows with ``is_val == 1`` from every corpus, permuted by an independent RNG.
@@ -384,8 +363,6 @@ class CorpusStream:
         self.epoch = int(state["epoch"])
         self.batches = int(state["batches"])
         self.consumed_rows = int(state["consumed_rows"])
-        # The producer-side first-seen record is not restorable; trainers keep SeenRows.
-        self._first_seen = {}
 
 
 class SeenRows:
