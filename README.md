@@ -307,6 +307,9 @@ model = result.model
 Format 3 `last` and `milestone` checkpoints support exact continuation with `--resume-from`.
 Use `--init-from` to start a new run with checkpoint weights only.
 `best` checkpoints hold no resume state.
+A resume into a new directory copies the source's `checkpoint_best.pt` only while it still
+holds the recorded best step. Otherwise `run.json` records `best_checkpoint_copied: false`,
+and the new directory has no `checkpoint_best.pt` until a later evaluation promotes one.
 
 ### Development presets
 
