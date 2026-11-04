@@ -400,10 +400,11 @@ class MlflowTrainingObserver(TrainingObserver):
         config: TrackingConfig | None = None,
         *,
         continue_run_id: str | None = None,
+        continue_local: bool = False,
         tags: Mapping[str, str] | None = None,
     ):
-        """``continue_run_id`` reopens that MLflow run (a same-directory resume) and
-        continues the local event sequence; ``tags`` are added to a newly created run.
+        """``continue_run_id`` reopens an MLflow run. ``continue_local`` continues
+        local events. ``tags`` are added to a newly created run.
         """
         self.out_dir = Path(out_dir).resolve()
         self.config = TrackingConfig() if config is None else config
@@ -444,7 +445,7 @@ class MlflowTrainingObserver(TrainingObserver):
         self._extra_tags = {str(key): str(value) for key, value in (tags or {}).items()}
         # Parameters a reopened run already holds are immutable in MLflow: kept as recorded.
         self._inherited_params: set[str] = set()
-        if continue_run_id is not None:
+        if continue_local:
             self._load_local_continuation()
 
     def _load_local_continuation(self) -> None:
@@ -854,18 +855,18 @@ class MlflowTrainingObserver(TrainingObserver):
             return None
         try:
             existing = self.client.get_run(self._continue_run_id)
-            self.experiment_id = existing.info.experiment_id
-            self.client.update_run(self._continue_run_id, status="RUNNING")
-            for key, value in (
-                ("mfm.start_id", self._start_id),
-                ("mfm.lifecycle_status", "running"),
-                ("mfm.delivery_status", "healthy"),
-                ("mfm.resumed", "true"),
-            ):
-                self.client.set_tag(self._continue_run_id, key, value, synchronous=True)
         except Exception:
             self._extra_tags["mfm.continues_unavailable_run_id"] = self._continue_run_id
             return None
+        self.experiment_id = existing.info.experiment_id
+        self.client.update_run(self._continue_run_id, status="RUNNING")
+        for key, value in (
+            ("mfm.start_id", self._start_id),
+            ("mfm.lifecycle_status", "running"),
+            ("mfm.delivery_status", "healthy"),
+            ("mfm.resumed", "true"),
+        ):
+            self.client.set_tag(self._continue_run_id, key, value, synchronous=True)
         self._inherited_params = set(existing.data.params)
         return existing
 

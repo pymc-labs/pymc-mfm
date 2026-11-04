@@ -214,7 +214,8 @@ def load_start_point(
     for a resume also a format 2 file, a checkpoint without resume state, a
     ``training_config`` that differs, a different corpus, RNG state that does not fit
     ``device``, or a same-directory
-    request that does not start from the directory's own ``checkpoint_last.pt``.
+    request that does not start from the directory's own ``checkpoint_last.pt``,
+    or a same-directory request for a finished run.
     """
     path = Path(path)
     if not path.is_file():
@@ -234,7 +235,7 @@ def load_start_point(
         sha256=file_sha256(path),
         payload=payload,
         model=model,
-        same_directory=same_directory and mode == "resume",
+        same_directory=same_directory,
     )
     if mode == "resume":
         _check_resumable(start, out_dir, device, training, corpus_records)
@@ -286,6 +287,8 @@ def _check_resumable(
             raise ValueError(
                 f"resume_from: {out_dir / 'run.json'} is missing or belongs to another run"
             )
+        if run.get("status") == "finished":
+            raise ValueError("resume_from: a finished run cannot resume in its own directory")
     elif (out_dir / "run.json").exists():
         raise FileExistsError(f"{out_dir} already holds a training run")
 
@@ -308,13 +311,15 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def write_jsonl(path: Path, records: Iterable[Mapping[str, Any]]) -> None:
+    path.write_text("".join(json.dumps(record, allow_nan=False) + "\n" for record in records))
+
+
 def _rewrite_jsonl(path: Path, keep: Callable[[dict[str, Any]], bool]) -> None:
     if not path.is_file():
         return
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(
-        "".join(json.dumps(r, allow_nan=False) + "\n" for r in read_jsonl(path) if keep(r))
-    )
+    write_jsonl(tmp, (record for record in read_jsonl(path) if keep(record)))
     tmp.replace(path)
 
 
@@ -323,11 +328,12 @@ def _step_of(name: str) -> int | None:
     return None if match is None else int(match[1])
 
 
-def truncate_run_files(out_dir: Path, step: int) -> None:
+def truncate_run_files(out_dir: Path, step: int, *, final_step: int) -> None:
     """Drop every record and artifact after ``step`` from a run directory.
 
     Covers the JSONL logs, evaluation tables, diagnostics, archives and milestone
-    checkpoints. ``tracking/`` is append-only delivery evidence and is kept.
+    checkpoints. At the final step, it clears a partial ``model/`` export.
+    ``tracking/`` is append-only delivery evidence and is kept.
     """
     for name in _JSONL_FILES:
         _rewrite_jsonl(out_dir / name, lambda record: int(record.get("step", 0)) <= step)
@@ -339,22 +345,26 @@ def truncate_run_files(out_dir: Path, step: int) -> None:
     ):
         for path in (out_dir / directory).glob(pattern):
             if (found := _step_of(path.name)) is not None and found > step:
-                shutil.rmtree(path) if path.is_dir() else path.unlink()
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+    model_dir = out_dir / "model"
+    if step == final_step and model_dir.is_dir():
+        shutil.rmtree(model_dir)
 
 
-def copy_run_history(source: Path, out_dir: Path, *, step: int, evaluation_step: int) -> bool:
+def copy_run_history(source: Path, out_dir: Path, *, step: int, evaluation_step: int) -> None:
     """Copy a source run's metrics, evaluations, tables and objective trace up to the step.
 
     Metrics keep ``step`` and earlier; evaluations and their tables keep
-    ``evaluation_step`` and earlier. Returns whether the source had a metrics log.
+    ``evaluation_step`` and earlier.
     Diagnostics reports and archives stay in the source directory.
     """
     for name, limit in (("metrics.jsonl", step), ("evaluations.jsonl", evaluation_step)):
         records = [r for r in read_jsonl(source / name) if int(r.get("step", 0)) <= limit]
         if records:
-            (out_dir / name).write_text(
-                "".join(json.dumps(r, allow_nan=False) + "\n" for r in records)
-            )
+            write_jsonl(out_dir / name, records)
     tables = source / "evaluation_tables"
     if tables.is_dir():
         (out_dir / "evaluation_tables").mkdir(exist_ok=True)
@@ -363,7 +373,16 @@ def copy_run_history(source: Path, out_dir: Path, *, step: int, evaluation_step:
                 shutil.copyfile(path, out_dir / "evaluation_tables" / path.name)
     if (source / "objective_trace.json").is_file():
         shutil.copyfile(source / "objective_trace.json", out_dir / "objective_trace.json")
-    return (source / "metrics.jsonl").is_file()
+
+
+def copy_best_checkpoint(start: StartPoint, out_dir: Path, best_step: int) -> dict[str, Any] | None:
+    source = start.source_dir / "checkpoint_best.pt"
+    if not source.is_file() or checkpoint_entry(source)["step"] != best_step:
+        return None
+    target = out_dir / source.name
+    if source != target:
+        shutil.copyfile(source, target)
+    return checkpoint_entry(target)
 
 
 def checkpoint_entry(path: Path) -> dict[str, Any]:
@@ -448,3 +467,12 @@ def provenance_of_start(start: StartPoint) -> dict[str, Any]:
         "run_id": start.source_run_id,
         "kind": start.kind,
     }
+
+
+def tracking_tags(start: StartPoint) -> dict[str, str]:
+    tags = {f"mfm.{start.mode}_from_step": str(start.step)}
+    if start.source_run_id:
+        tags[f"mfm.{start.mode}_from_local_run_id"] = start.source_run_id
+    if start.source_tracking_run_id:
+        tags[f"mfm.{start.mode}_from_run_id"] = start.source_tracking_run_id
+    return tags

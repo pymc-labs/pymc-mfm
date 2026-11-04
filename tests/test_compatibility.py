@@ -200,7 +200,7 @@ def test_recordings_made_before_cov95_still_pass_and_new_ones_are_compared(setup
     assert any(key.endswith("_cov95") for key in result["keys"])
 
 
-def test_cov95_shares_the_family_and_resolution_of_cov80():
+def test_cov95_shares_the_family_of_cov80():
     key = "joint/query/contribution_{}"
     assert compatibility._family(key.format("cov95")) == compatibility._family(key.format("cov80"))
     assert compatibility._family(key.format("cov95")) == "joint/query/contribution"
