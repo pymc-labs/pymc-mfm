@@ -336,7 +336,11 @@ def _signal_group(pid: int, sig: signal.Signals) -> None:
 
 
 def run_benchmark(command: list[str], timeout_seconds: int) -> tuple[str, int]:
-    """Run ``command``; return its stdout and stderr and exit code, or -1 after the timeout."""
+    """Run ``command``; return its stdout and stderr and exit code, or -1 after the timeout.
+
+    The command runs in its own process group, which is always killed on return, so no
+    descendant outlives the call, also when the wait is interrupted.
+    """
     print("+", " ".join(command), flush=True)
     process = subprocess.Popen(
         command,
@@ -345,22 +349,25 @@ def run_benchmark(command: list[str], timeout_seconds: int) -> tuple[str, int]:
         stderr=subprocess.PIPE,
         start_new_session=True,
     )
+    timed_out = False
     try:
-        stdout, stderr = process.communicate(timeout=timeout_seconds)
-    except subprocess.TimeoutExpired as expired:
-        _signal_group(process.pid, signal.SIGTERM)
         try:
-            stdout, stderr = process.communicate(timeout=10)
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            _signal_group(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
-        else:
-            _signal_group(process.pid, signal.SIGKILL)
+            timed_out = True
+            _signal_group(process.pid, signal.SIGTERM)
+            try:
+                stdout, stderr = process.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                _signal_group(process.pid, signal.SIGKILL)
+                stdout, stderr = process.communicate()
+    finally:
+        _signal_group(process.pid, signal.SIGKILL)
         process.wait()
-        return _text(stdout or expired.stdout) + _text(
-            stderr or expired.stderr
-        ) + "\ntimed out\n", -1
-    return _text(stdout) + _text(stderr), process.returncode
+    output = _text(stdout) + _text(stderr)
+    if timed_out:
+        return output + "\ntimed out\n", -1
+    return output, process.returncode
 
 
 @app.function(timeout=container_timeout_seconds(HARD_CAP_MINUTES), **_container)

@@ -582,6 +582,25 @@ def test_bench_that_finishes_returns_stdout_then_stderr_and_its_exit_code(
     assert modal_script.run_benchmark(command, 5) == ("out\nerr\n", 3)
 
 
+def test_interrupted_bench_ends_its_process_group(modal_script, tmp_path, monkeypatch):
+    monkeypatch.setattr(modal_script, "REMOTE_SRC", str(tmp_path))
+    started = []
+    real_popen = subprocess.Popen
+
+    class InterruptedPopen(real_popen):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            started.append(self)
+
+        def communicate(self, *args, **kwargs):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(modal_script.subprocess, "Popen", InterruptedPopen)
+    with pytest.raises(KeyboardInterrupt):
+        modal_script.run_benchmark([sys.executable, "-c", "import time; time.sleep(60)"], 30)
+    assert started[0].poll() is not None
+
+
 def test_eval_set_seed_and_draws_are_passed_to_score(corpus, tmp_path):
     runs = [run_spec(corpus, "a")]
     runs[0]["score"] = {"mode": "eval-set", "seed": 7, "draws": 5}
