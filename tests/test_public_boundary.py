@@ -783,6 +783,16 @@ def test_pinned_notebook_still_reports_malformed_images(repo: Path) -> None:
     assert "cannot be allowlisted" in result.stdout
 
 
+def test_pin_text_in_notebook_metadata_cannot_unlock_a_payload(repo: Path) -> None:
+    """Only the structured image-pin finding is coverable; diagnostic text never decides."""
+    document = json.loads(notebook([image_output("image/png", make_png())]))
+    payload = base64.b64encode(os.urandom(6000)).decode()
+    document["metadata"]["image outputs: pin reviewed bytes with sha256 in the allowlist"] = payload
+    result = check_pinned_notebook(repo, json.dumps(document))
+    assert result.returncode == 1, result.stdout
+    assert "cannot be allowlisted" in result.stdout
+
+
 def test_notebook_jpeg_magic_with_junk_fires(repo: Path) -> None:
     text = notebook([image_output("image/jpeg", b"\xff\xd8\xff" + os.urandom(9600))])
     assert "malformed JPEG" in check_pinned_notebook(repo, text).stdout

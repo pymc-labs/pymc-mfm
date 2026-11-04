@@ -35,7 +35,7 @@ flags tracked symlinks, gitlinks (nested repositories, submodule pointers) and
 `.gitmodules` files, weight-like files, binary files it cannot read, files over
 1 MiB, large embedded base64 payloads, credential patterns, and `.private` anywhere
 in a path. Notebooks (`*.ipynb`) may hold base64 only as code-cell image outputs
-(PNG, JPEG or GIF, at most 2 MiB each, checked for valid structure); all other
+(PNG, JPEG or GIF, at most 2 MiB each, basic structure checks only, not a full decoder); all other
 notebook strings are scanned as text. A parser cannot rule out hidden data in a valid
 image, so each notebook with image outputs fails until an allowlist entry with `sha256`
 pins its reviewed bytes. A rerun changes the hash: update `sha256` in the same pull

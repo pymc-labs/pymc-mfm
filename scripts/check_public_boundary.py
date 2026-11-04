@@ -129,6 +129,9 @@ class Finding:
     path: str
     line: int | None
     reason: str
+    # Set only on the one finding a notebook gets for its image outputs. Only
+    # this finding can be allowlisted (by sha256); text never decides that.
+    notebook_image_pin: bool = False
 
     def render(self) -> str:
         location = self.path if self.line is None else f"{self.path}:{self.line}"
@@ -986,7 +989,7 @@ def check_notebook(path: str, data: bytes, deny: list[DenyPattern]) -> list[Find
             extra_texts.append(text)  # JSON escapes hid it from the raw scan
     if image_outputs:
         reason = f"{image_outputs} image outputs: {NOTEBOOK_PIN_REASON}"
-        findings.append(Finding("embedded-payload", path, None, reason))
+        findings.append(Finding("embedded-payload", path, None, reason, notebook_image_pin=True))
     for text in extra_texts:
         findings += check_text_rules(path, text, with_lines=False)
         findings += [
@@ -1100,7 +1103,7 @@ def entry_covers(entry: AllowEntry, item: Item, finding: Finding) -> str | None:
     if not same_path or finding.rule not in entry.rules:
         return ""
     if is_notebook(item) and finding.rule == "embedded-payload":
-        if NOTEBOOK_PIN_REASON not in finding.reason:
+        if not finding.notebook_image_pin:
             return " (notebook payload findings cannot be allowlisted)"
         if entry.sha256 is None:
             return " (notebook image pin needs an allowlist sha256)"
