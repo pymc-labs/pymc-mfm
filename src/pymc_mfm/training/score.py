@@ -45,8 +45,11 @@ from pymc_mfm.training.stream import CorpusStream
 from pymc_mfm.training.trainer import resolve_device
 
 MODES = ("replay", "eval-set")
-#: Row rule of ``eval-set`` mode: every row of every corpus, corpus order, rows ascending.
-ALL_ROWS = "all-rows"
+#: Row rule of ``eval-set`` mode: every row of every corpus, corpus order, rows ascending,
+#: evaluated in batches of at most ``EVAL_SET_BATCH_WORLDS`` worlds per context length.
+ALL_ROWS = "all-rows-batch4"
+#: Bounds eval-set peak memory; part of the row rule, so it is part of ``eval_set_id``.
+EVAL_SET_BATCH_WORLDS = 4
 #: Row rule of ``replay`` mode: the trainer's in-loop held-out rows.
 REPLAY_ROWS = "replay-holdout"
 #: Leg label of the scored record. ``replay`` must use the trainer's ``holdout`` label to
@@ -227,8 +230,8 @@ def score_checkpoint(
     ``seed`` and ``draws`` are used by ``eval-set`` mode (default: ``TrainingConfig()``)
     and are refused in ``replay`` mode, where the checkpoint decides them.
     ``threads`` sets the torch thread count for the call; ``None`` keeps the current one.
-    Eval-set scores all rows in one evaluation call per context length, so peak memory
-    grows with the number of worlds.
+    Eval-set evaluates at most ``EVAL_SET_BATCH_WORLDS`` worlds at a time, so peak memory
+    does not grow with the number of worlds.
     """
     from pymc_mfm.data.recipes import load_corpora
 
@@ -269,6 +272,7 @@ def score_checkpoint(
             device=resolved,
             leg=_LEGS[mode],
             per_world=True,
+            max_batch_worlds=EVAL_SET_BATCH_WORLDS if mode == "eval-set" else None,
         )
         flat = flatten_evaluation(record)
         threads_used = torch.get_num_threads()

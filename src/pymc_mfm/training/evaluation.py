@@ -801,6 +801,7 @@ def evaluate_rows(
     heads: Sequence[str] = DECOMPOSITION_HEADS,
     per_world: bool = False,
     result_sink: ResultSink | None = None,
+    max_batch_worlds: int | None = None,
 ) -> dict[str, Any]:
     """Score ``rows`` (``(corpus_index, row)`` pairs) on the decomposition ``heads``.
 
@@ -808,7 +809,8 @@ def evaluate_rows(
     structure head and joint router are always scored: they come from the
     structure pass and the joint query draws, which are made even when
     ``"joint"`` is not selected. Batches are built per context length with
-    :func:`pymc_mfm.training.stream.batches_for_rows`; sampling runs under a
+    :func:`pymc_mfm.training.stream.batches_for_rows`, at most ``max_batch_worlds``
+    worlds each when it is set, which bounds peak memory; sampling runs under a
     forked CPU/CUDA RNG seeded with ``seed`` and explicit MPS state restoration.
     Only the CPU and evaluation device are seeded; all caller RNG states and
     the model's ``training`` flag are untouched on return. Truth comes from the
@@ -880,7 +882,7 @@ def evaluate_rows(
     effects: dict[tuple[str, str], list[dict[str, Any]]] = {key: [] for key in decomposition}
     result_capture: dict[str, Any] = {"captured": 0, "failures": []}
 
-    batches = batches_for_rows(corpora, rows, device=device)
+    batches = batches_for_rows(corpora, rows, device=device, max_batch_worlds=max_batch_worlds)
     was_training = model.training
     model.eval()
     try:
