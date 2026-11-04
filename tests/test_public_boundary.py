@@ -793,6 +793,23 @@ def test_pin_text_in_notebook_metadata_cannot_unlock_a_payload(repo: Path) -> No
     assert "cannot be allowlisted" in result.stdout
 
 
+def test_pinned_notebook_passes_in_history_scans(repo: Path) -> None:
+    """The image pin must survive the commit context added by --range and --all-refs."""
+    text = notebook([image_output("image/png", make_png())])
+    base = git(repo, "rev-parse", "HEAD")
+    write(repo, "nb.ipynb", text)
+    commit(repo)
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    entry = (
+        '[[allow]]\npath = "nb.ipynb"\nrules = ["embedded-payload"]\n'
+        f'reason = "test fixture"\nsha256 = "{digest}"\n'
+    )
+    allow = str(write_allow(repo, entry))
+    for mode in (["--range", f"{base}..HEAD"], ["--all-refs"]):
+        result = check(repo, *mode, "--allow", allow)
+        assert result.returncode == 0, (mode, result.stdout)
+
+
 def test_notebook_jpeg_magic_with_junk_fires(repo: Path) -> None:
     text = notebook([image_output("image/jpeg", b"\xff\xd8\xff" + os.urandom(9600))])
     assert "malformed JPEG" in check_pinned_notebook(repo, text).stdout

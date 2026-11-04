@@ -32,7 +32,7 @@ import tomllib
 import zipfile
 import zlib
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 DEFAULT_ALLOW = ".github/public-boundary-allow.toml"
@@ -1127,9 +1127,7 @@ def apply_allowlist(item: Item, findings: list[Finding], allow: list[AllowEntry]
                 break
             note = note or verdict
         if not covered:
-            remaining.append(
-                Finding(finding.rule, finding.path, finding.line, finding.reason + note)
-            )
+            remaining.append(replace(finding, reason=finding.reason + note))
     return remaining
 
 
@@ -1252,7 +1250,7 @@ def run(args: argparse.Namespace) -> int:
             checked += 1
             raw = check_item(item, deny)
             if item.where:
-                raw = [Finding(f.rule, f.path, f.line, f"{f.reason} [{item.where}]") for f in raw]
+                raw = [replace(f, reason=f"{f.reason} [{item.where}]") for f in raw]  # keeps flags
             findings += apply_allowlist(item, raw, allow)
     finally:
         if objects is not None:
