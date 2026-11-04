@@ -78,6 +78,10 @@ def summarize(run_dir: Path, result, peak_mb: float) -> dict:
     }
 
 
+def without_losses(summary: dict) -> dict:
+    return {key: value for key, value in summary.items() if key != "losses"}
+
+
 def weights_equal(a: torch.nn.Module, b: torch.nn.Module) -> bool:
     other = b.state_dict()
     return all(torch.equal(value.cpu(), other[key].cpu()) for key, value in a.state_dict().items())
@@ -174,21 +178,6 @@ def main() -> None:
 
     summaries: dict[str, dict] = {}
     round_trips: dict[str, bool] = {}
-    fp32_seed_names = [f"fp32_seed{base.seed + i}" for i in range(args.seeds)]
-    for i, name in enumerate(fp32_seed_names):
-        summaries[name], _ = run_mode(name, replace(base, seed=base.seed + i))
-    for name, precision, compile_ in (
-        ("bf16", "bf16", False),
-        ("fp32_compile", "fp32", True),
-        ("bf16_compile", "bf16", True),
-    ):
-        summaries[name], round_trip = run_mode(
-            name, replace(base, precision=precision, compile=compile_)
-        )
-        if round_trip is not None:
-            round_trips[name] = round_trip
-
-    checks = compare_modes(summaries, fp32_seed_names, round_trips)
     report = {
         "device": str(device),
         "torch": torch.__version__,
@@ -197,21 +186,27 @@ def main() -> None:
         "corpus": [str(path) for path in args.corpus],
         "model": "small" if args.small_model else "default",
         "modes": summaries,
-        "checks": checks,
+        "checks": None,
     }
+    fp32_seed_names = [f"fp32_seed{base.seed + i}" for i in range(args.seeds)]
+    modes = [(name, replace(base, seed=base.seed + i)) for i, name in enumerate(fp32_seed_names)]
+    for name, precision, compile_ in (
+        ("bf16", "bf16", False),
+        ("fp32_compile", "fp32", True),
+        ("bf16_compile", "bf16", True),
+    ):
+        modes.append((name, replace(base, precision=precision, compile=compile_)))
+    for name, config in modes:
+        summaries[name], round_trip = run_mode(name, config)
+        if round_trip is not None:
+            round_trips[name] = round_trip
+        # Written after every mode, so a run cut short by its time limit keeps what it measured.
+        args.out.write_text(json.dumps(report, indent=2))
+        print(json.dumps({name: without_losses(summaries[name])}), flush=True)
+
+    report["checks"] = compare_modes(summaries, fp32_seed_names, round_trips)
     args.out.write_text(json.dumps(report, indent=2))
-    print(
-        json.dumps(
-            {
-                "modes": {
-                    name: {key: value for key, value in summary.items() if key != "losses"}
-                    for name, summary in summaries.items()
-                },
-                "checks": checks,
-            },
-            indent=2,
-        )
-    )
+    print(json.dumps({"checks": report["checks"]}, indent=2))
     if args.workdir is None:
         shutil.rmtree(root)
 
