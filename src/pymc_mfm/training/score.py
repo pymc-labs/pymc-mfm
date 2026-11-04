@@ -230,8 +230,9 @@ def score_checkpoint(
     ``seed`` and ``draws`` are used by ``eval-set`` mode (default: ``TrainingConfig()``)
     and are refused in ``replay`` mode, where the checkpoint decides them.
     ``threads`` sets the torch thread count for the call; ``None`` keeps the current one.
-    Eval-set evaluates at most ``EVAL_SET_BATCH_WORLDS`` worlds at a time, so peak memory
-    does not grow with the number of worlds.
+    Eval-set samples at most ``EVAL_SET_BATCH_WORLDS`` worlds at a time, so sampling memory
+    does not grow with the number of worlds; only the small encoded inputs of every world
+    are held at once.
     """
     from pymc_mfm.data.recipes import load_corpora
 
