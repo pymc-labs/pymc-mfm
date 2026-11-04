@@ -304,7 +304,9 @@ model = result.model
 | `run.json` | Configuration, corpus summary and run status |
 | `metrics.jsonl`, `evaluations.jsonl` | Training losses and held-out evaluations |
 
-Checkpoints hold no optimizer state, so a run cannot be resumed.
+Format 3 `last` and `milestone` checkpoints support exact continuation with `--resume-from`.
+Use `--init-from` to start a new run with checkpoint weights only.
+`best` checkpoints hold no resume state.
 
 ### Development presets
 
