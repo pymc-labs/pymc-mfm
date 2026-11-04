@@ -60,7 +60,7 @@ def stderr_tail(log_prefix: Path) -> list[str]:
 
 @dataclass
 class Outcome:
-    #: ``finished``, ``failed``, ``timed_out`` or ``interrupted``.
+    #: ``finished``, ``failed``, ``timed_out``, ``interrupted`` or ``skipped_budget``.
     status: str
     returncode: int | None
     seconds: float
@@ -87,17 +87,19 @@ def run_command(
         log_file(log_prefix, "stderr").open("ab") as err,
     ):
         process = subprocess.Popen(command, stdout=out, stderr=err, start_new_session=True)
-        if on_start:
-            on_start(process.pid)
-        status = None
-        while process.poll() is None and status is None:
-            if stop.is_set():
-                status = "interrupted"
-            elif time.monotonic() - started > timeout:
-                status = "timed_out"
-            else:
-                stop.wait(_POLL_SECONDS)
-    _end_group(process)
+        try:
+            if on_start:
+                on_start(process.pid)
+            status = None
+            while process.poll() is None and status is None:
+                if stop.is_set():
+                    status = "interrupted"
+                elif time.monotonic() - started > timeout:
+                    status = "timed_out"
+                else:
+                    stop.wait(_POLL_SECONDS)
+        finally:
+            _end_group(process)
     seconds = time.monotonic() - started
     if status is None:
         status = "finished" if process.returncode == 0 else "failed"

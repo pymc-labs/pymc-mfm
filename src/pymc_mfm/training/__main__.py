@@ -51,7 +51,13 @@ import numpy as np
 from pymc_mfm.inference import from_pretrained
 from pymc_mfm.training.archive import _evaluate_identity, _sidecar_seed, archive_identity
 from pymc_mfm.training.checkpoint import file_sha256, load_checkpoint
-from pymc_mfm.training.config import PRESETS, SELECTION_HEADS, TrainingConfig
+from pymc_mfm.training.config import (
+    PRESETS,
+    SELECTION_HEADS,
+    TrainingConfig,
+    resolve_training,
+    training_cli_fields,
+)
 from pymc_mfm.training.evaluation import DECOMPOSITION_HEADS
 from pymc_mfm.training.tracking import TrackingConfig
 from pymc_mfm.training.trainer import (
@@ -140,7 +146,10 @@ def build_parser(preset: str = "canonical") -> argparse.ArgumentParser:
         action="store_true",
         help="retain evaluation metrics without rendering reports",
     )
+    cli_fields = training_cli_fields()
     for field in fields(TrainingConfig):
+        if field.name not in cli_fields:
+            continue
         flag = "--" + field.name.replace("_", "-")
         default = getattr(defaults, field.name)
         if field.name == "milestone_steps":
@@ -273,12 +282,10 @@ def main(argv: list[str] | None = None) -> int:
     from pymc_mfm.data.recipes import load_corpora, provenance
 
     loaded = load_corpora(args.corpus)
-    values = {field.name: getattr(args, field.name) for field in fields(TrainingConfig)}
+    values = {name: getattr(args, name) for name in training_cli_fields()}
     if values["milestone_steps"] is None:
-        values["milestone_steps"] = tuple(
-            step for step in PRESETS[args.preset].milestone_steps if step <= values["steps"]
-        )
-    training = TrainingConfig(**values)
+        del values["milestone_steps"]
+    training = resolve_training(args.preset, values)
     result = train(
         [item.corpus for item in loaded],
         out_dir=args.out_dir,

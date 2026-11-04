@@ -1,7 +1,7 @@
 """``python -m pymc_mfm.training.launch``: bounded runs, limits, failure isolation and resume."""
 
 import csv
-import importlib.util
+import errno
 import json
 import os
 import signal
@@ -30,10 +30,6 @@ from pymc_mfm.training.launch_spec import (
     train_command,
 )
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pymc_generator") is None, reason="pymc_generator not installed"
-)
-
 #: Training fields that make a run finish in a few seconds on the tiny corpus.
 FAST = {
     "steps": 4,
@@ -49,6 +45,7 @@ NO_MEMORY_LIMIT = ["--min-free-host-gib", "0"]
 
 @pytest.fixture(scope="module")
 def corpus(tmp_path_factory):
+    pytest.importorskip("pymc_generator")
     from pymc_generator import save_corpus
 
     path = tmp_path_factory.mktemp("corpus") / "corpus.npz"
@@ -150,6 +147,24 @@ def test_run_that_does_not_fit_the_remaining_budget_is_not_started(corpus, tmp_p
     assert not (tmp_path / "root" / "runs" / "long").exists()
 
 
+def test_training_timeout_uses_remaining_budget(corpus, tmp_path, monkeypatch):
+    import pymc_mfm.training.launch as launch_module
+
+    spec = parse_launch_file(write_runs(tmp_path, [run_spec(corpus, "a", timeout=120)]))[0]
+    manifest = Manifest(tmp_path / "launch.json", {"runs": {"a": {"status": "pending"}}})
+    launcher = Launcher(tmp_path, Limits(), manifest)
+    monkeypatch.setattr(launcher, "remaining_seconds", lambda: 12.5)
+    timeouts = []
+
+    def fake_run(command, log, timeout, stop, on_start):
+        timeouts.append(timeout)
+        return launch_module.Outcome("finished", 0, 0.0)
+
+    monkeypatch.setattr(launch_module, "run_command", fake_run)
+    launcher.run_training(spec, tmp_path / "runs" / "a", "a")
+    assert timeouts == [12.5]
+
+
 def test_max_runs_limits_how_many_runs_start(corpus, tmp_path):
     runs = [run_spec(corpus, "a"), run_spec(corpus, "b")]
     _, manifest = launch(tmp_path, runs, "--max-runs", "0")
@@ -161,6 +176,22 @@ def test_run_is_skipped_when_host_memory_stays_below_the_minimum(corpus, tmp_pat
     arguments = ["--min-free-host-gib", "1e9", "--memory-wait-seconds", "0"]
     _, manifest = launch(tmp_path, runs, *arguments)
     assert manifest["runs"]["big"]["status"] == "skipped_memory"
+
+
+def test_stop_during_memory_wait_is_interrupted(corpus, tmp_path, monkeypatch):
+    import pymc_mfm.training.launch as launch_module
+
+    spec = parse_launch_file(write_runs(tmp_path, [run_spec(corpus, "a")]))[0]
+    manifest = Manifest(tmp_path / "launch.json", {"runs": {"a": {"status": "pending"}}})
+    launcher = Launcher(tmp_path, Limits(min_free_host_gib=1, memory_wait_seconds=10), manifest)
+    monkeypatch.setattr(launch_module, "host_free_gib", lambda: 0)
+    timer = threading.Timer(0.1, launcher.stop.set)
+    timer.start()
+    try:
+        launcher.run_one(spec, resume=False)
+    finally:
+        timer.join()
+    assert manifest.status("a") == "interrupted"
 
 
 def test_resume_continues_an_interrupted_run_in_its_own_directory(corpus, tmp_path):
@@ -199,6 +230,23 @@ def test_resume_does_not_rerun_a_finished_run(corpus, tmp_path):
     code, _ = launch(tmp_path, runs, "--resume")
     assert code == 0
     assert (tmp_path / "root" / "runs" / "a" / "run.json").stat().st_mtime_ns == before
+
+
+def test_resume_without_checkpoint_moves_old_attempt(corpus, tmp_path):
+    root = tmp_path / "root"
+    run_dir = root / "runs" / "a"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run.json").write_text("old attempt")
+    root.joinpath("launch.json").write_text(json.dumps({"runs": {"a": {"status": "timed_out"}}}))
+
+    code, manifest = launch(tmp_path, [run_spec(corpus, "a", score=None)], "--resume")
+
+    record = manifest["runs"]["a"]
+    assert code == 0 and record["status"] == "finished"
+    assert record["restarted_from_scratch"] is True
+    assert record["previous_run_dir"] == str(root / "runs" / "a.attempt-1")
+    assert (root / "runs" / "a.attempt-1" / "run.json").read_text() == "old attempt"
+    assert (run_dir / "checkpoint_last.pt").is_file()
 
 
 def test_concurrency_runs_every_copy_in_its_own_directory(corpus, tmp_path):
@@ -349,10 +397,57 @@ def test_train_command_passes_training_fields_as_cli_flags(corpus, tmp_path):
     assert command[command.index("--resume-from") + 1] == str(tmp_path / "out/checkpoint_last.pt")
 
 
+def test_launch_fields_match_training_cli(corpus, tmp_path):
+    from pymc_mfm.training.__main__ import build_parser
+    from pymc_mfm.training.config import training_cli_fields
+
+    parser = build_parser()
+    flags = {action.dest for action in parser._actions}
+    assert training_cli_fields() <= flags
+    runs = [run_spec(corpus, "a", training={"compile": True})]
+    with pytest.raises(LaunchFileError, match="unknown training fields"):
+        parse_launch_file(write_runs(tmp_path, runs))
+
+
+@pytest.mark.parametrize("timeout", [float("nan"), float("inf"), float("-inf"), 0])
+def test_launch_rejects_non_finite_or_non_positive_timeout(corpus, tmp_path, timeout):
+    with pytest.raises(LaunchFileError, match="finite positive"):
+        parse_launch_file(write_runs(tmp_path, [run_spec(corpus, "a", timeout=timeout)]))
+
+
+@pytest.mark.parametrize(
+    ("flag", "value"),
+    [
+        ("--max-total-seconds", "nan"),
+        ("--memory-wait-seconds", "inf"),
+        ("--score-timeout-seconds", "-1"),
+    ],
+)
+def test_launcher_rejects_invalid_durations(corpus, tmp_path, flag, value):
+    path = write_runs(tmp_path, [run_spec(corpus, "a")])
+    with pytest.raises(SystemExit) as raised:
+        main([str(path), "--root", str(tmp_path / "root"), flag, value])
+    assert raised.value.code == 2
+    assert not (tmp_path / "root").exists()
+
+
 def test_command_past_its_timeout_is_terminated(tmp_path):
     sleeper = [sys.executable, "-c", "import time; time.sleep(60)"]
     outcome = run_command(sleeper, tmp_path / "logs" / "sleep", 0.5, threading.Event())
     assert outcome.status == "timed_out" and outcome.seconds < 30
+
+
+def test_callback_failure_ends_child_group(tmp_path):
+    pids = []
+
+    def fail(pid):
+        pids.append(pid)
+        raise OSError(errno.ENOSPC, "disk full")
+
+    sleeper = [sys.executable, "-c", "import time; time.sleep(60)"]
+    with pytest.raises(OSError, match="disk full"):
+        run_command(sleeper, tmp_path / "logs" / "failed", 30, threading.Event(), fail)
+    assert not process_alive(pids[0])
 
 
 def test_progress_of_a_run_without_metrics_is_zero_steps(tmp_path):
@@ -459,18 +554,32 @@ def test_only_allowed_benchmarks_can_run_on_modal(modal_script):
         modal_script.check_bench_script("../etc/passwd")
 
 
-def test_bench_timeout_keeps_the_bytes_the_benchmark_printed(modal_script):
-    expired = subprocess.TimeoutExpired("bench", 5, output=b"step 1 done\n", stderr=None)
-    with mock.patch.object(modal_script.subprocess, "run", side_effect=expired):
-        stdout, exit_code = modal_script.run_benchmark(["bench"], 5)
+def test_bench_timeout_ends_descendant_and_keeps_output(modal_script, tmp_path, monkeypatch):
+    monkeypatch.setattr(modal_script, "REMOTE_SRC", str(tmp_path))
+    pid_file = tmp_path / "descendant.pid"
+    child = "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)"
+    parent = (
+        "import pathlib,subprocess,sys,time; "
+        f"p=subprocess.Popen([sys.executable,'-c',{child!r}]); "
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(p.pid)); "
+        "print('step 1 done',flush=True); time.sleep(60)"
+    )
+    stdout, exit_code = modal_script.run_benchmark([sys.executable, "-c", parent], 1)
     assert exit_code == -1
     assert stdout.startswith("step 1 done\n") and stdout.endswith("timed out\n")
+    assert not process_alive(int(pid_file.read_text()))
 
 
-def test_bench_that_finishes_returns_stdout_then_stderr_and_its_exit_code(modal_script):
-    done = subprocess.CompletedProcess("bench", 3, stdout=b"out\n", stderr=b"err\n")
-    with mock.patch.object(modal_script.subprocess, "run", return_value=done):
-        assert modal_script.run_benchmark(["bench"], 5) == ("out\nerr\n", 3)
+def test_bench_that_finishes_returns_stdout_then_stderr_and_its_exit_code(
+    modal_script, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(modal_script, "REMOTE_SRC", str(tmp_path))
+    command = [
+        sys.executable,
+        "-c",
+        "import sys; print('out'); print('err',file=sys.stderr); sys.exit(3)",
+    ]
+    assert modal_script.run_benchmark(command, 5) == ("out\nerr\n", 3)
 
 
 def test_eval_set_seed_and_draws_are_passed_to_score(corpus, tmp_path):

@@ -331,7 +331,7 @@ mini plan as its world source.
 `python -m pymc_mfm.training.launch RUNS.json --root DIR` runs a bounded list of
 training configs, one subprocess each, and appends a scored row per finished run
 to `DIR/results.csv`. Each entry of the JSON list has `name`, `timeout_seconds`,
-`corpus` and optionally `preset`, `training` (any `TrainingConfig` field),
+`corpus` and optionally `preset`, `training` (training CLI fields),
 `device` and `score` (`{"mode": "replay" | "eval-set", "corpus": [...]}`; `eval-set`
 also takes `seed` and `draws`, and keeps score's 128 draws when `draws` is absent,
 which is slow on CPU, so set a small `draws` for local smokes). The file is
@@ -347,7 +347,9 @@ skipped run does not stop the others, and the exit status is nonzero unless
 every run finished. `DIR/launch.json` records each run's status, command,
 stderr tail, steps done and worlds per second. `--resume` re-launches the runs
 that did not finish, continuing from `checkpoint_last.pt` in the same run
-directory when it exists. `--measure-concurrency 1,2,4` runs the first entry N
+directory when it exists. Without a checkpoint, it moves the old directory to
+`<name>.attempt-N` and starts again. The manifest records the old path.
+`--measure-concurrency 1,2,4` runs the first entry N
 times at once and records the aggregate worlds per second against the solo run.
 `benchmarks/train_profile.py` profiles training updates with `torch.profiler`,
 and `benchmarks/modal_devloop.py` runs the launcher or the profiler on a Modal

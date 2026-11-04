@@ -17,20 +17,21 @@ absent, which is slow on CPU, so local smokes should set a small ``draws``.
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pymc_mfm.training.config import PRESETS, TrainingConfig
+from pymc_mfm.training.config import PRESETS, resolve_training, training_cli_fields
 from pymc_mfm.training.resume import LAST_CHECKPOINT
 from pymc_mfm.training.score import MODES
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _RUN_KEYS = {"name", "preset", "training", "corpus", "device", "timeout_seconds", "score"}
 _SCORE_KEYS = {"mode", "corpus", "seed", "draws"}
-_TRAINING_FIELDS = {field.name for field in fields(TrainingConfig)}
+_TRAINING_FIELDS = training_cli_fields()
 
 
 class LaunchFileError(ValueError):
@@ -84,34 +85,23 @@ def _parse_run(index: int, entry: Any) -> RunSpec:
     if unknown := training.keys() - _TRAINING_FIELDS:
         raise LaunchFileError(f"{label}: unknown training fields {sorted(unknown)}")
     try:
-        resolved_training(preset, training)
+        resolve_training(preset, training)
     except (TypeError, ValueError) as exc:
         raise LaunchFileError(f"{label}: {exc}") from exc
     corpus = _existing_files(label, entry.get("corpus"))
     timeout = entry.get("timeout_seconds")
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-        raise LaunchFileError(f"{label}: timeout_seconds must be a positive number")
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
+        raise LaunchFileError(f"{label}: timeout_seconds must be a finite positive number")
     score = _parse_score(label, entry.get("score"), corpus)
     device = entry.get("device", "auto")
     if not isinstance(device, str):
         raise LaunchFileError(f"{label}: device must be a string")
     return RunSpec(name, preset, training, corpus, device, float(timeout), score)
-
-
-def resolved_training(preset: str, overrides: dict[str, Any]) -> TrainingConfig:
-    """The config the training CLI builds from ``preset`` and the explicit flags.
-
-    Without ``milestone_steps`` the CLI keeps the preset's milestones within ``steps``.
-    Raises ``ValueError`` for a value the config refuses.
-    """
-    values = {f.name: getattr(PRESETS[preset], f.name) for f in fields(TrainingConfig)}
-    values.update(overrides)
-    if "milestone_steps" not in overrides and type(values["steps"]) is int:
-        values["milestone_steps"] = tuple(
-            step for step in PRESETS[preset].milestone_steps if step <= values["steps"]
-        )
-    values["milestone_steps"] = tuple(values["milestone_steps"])
-    return TrainingConfig(**values)
 
 
 def _parse_score(label: str, score: Any, run_corpus: tuple[str, ...]) -> dict[str, Any] | None:

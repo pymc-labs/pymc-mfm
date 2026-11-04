@@ -10,8 +10,8 @@ records the state and child process id of every run and is rewritten after each 
 SIGINT and SIGTERM stop the launcher cleanly: every child process group is terminated, then
 killed, the unfinished runs are marked ``interrupted`` and the manifest is written.
 
-``--resume`` re-launches the runs of an existing root that did not finish, continuing a
-run from its ``checkpoint_last.pt`` in the same directory when that file exists.
+``--resume`` re-launches unfinished runs. A checkpoint continues in its run directory.
+Without one, the old directory moves to a numbered attempt and training starts fresh.
 ``--measure-concurrency 1,2,4`` instead runs the first run of the file N times at once
 for each N and records the aggregate worlds per second and its ratio to the solo run.
 """
@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 import shlex
 import signal
@@ -54,7 +55,7 @@ from pymc_mfm.training.resume import LAST_CHECKPOINT
 MANIFEST = "launch.json"
 RESULTS = "results.csv"
 #: Run statuses whose training finished and whose score is still to do.
-TRAINED = ("trained", "score_failed", "score_interrupted")
+SCORE_PENDING = ("trained", "score_failed", "score_interrupted")
 _MEMORY_POLL_SECONDS = 2.0
 STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 #: Seconds of ``--max-total-seconds`` kept back for ending children and writing the manifest.
@@ -125,19 +126,30 @@ class Launcher:
     def run_one(self, spec: RunSpec, resume: bool) -> None:
         """Train and score one run, recording every state change."""
         name, run_dir = spec.name, self.root / "runs" / spec.name
-        if self.manifest.status(name) == "finished":
+        status = self.manifest.status(name)
+        if status == "finished":
             return
-        if self.manifest.status(name) not in TRAINED:
+        if status not in SCORE_PENDING:
             skipped = self.admit(spec)
             if skipped:
                 self.manifest.update_run(name, status=skipped)
                 return
-            self.train(spec, run_dir, resume=resume and (run_dir / LAST_CHECKPOINT).is_file())
-        if self.manifest.status(name) in TRAINED:
+            checkpoint = resume and (run_dir / LAST_CHECKPOINT).is_file()
+            if resume and run_dir.exists() and not checkpoint:
+                self.move_attempt(name, run_dir)
+            status = self.train(spec, run_dir, resume=checkpoint)
+        if status in SCORE_PENDING:
             if spec.score:
                 self.score(spec, run_dir)
             else:
                 self.manifest.update_run(name, status="finished")
+
+    def move_attempt(self, name: str, run_dir: Path) -> None:
+        attempt = 1
+        while (old_dir := run_dir.with_name(f"{name}.attempt-{attempt}")).exists():
+            attempt += 1
+        run_dir.rename(old_dir)
+        self.manifest.update_run(name, restarted_from_scratch=True, previous_run_dir=str(old_dir))
 
     def remaining_seconds(self) -> float:
         """Seconds left in ``--max-total-seconds`` after the cleanup reserve; inf without one."""
@@ -153,25 +165,29 @@ class Launcher:
                 return "interrupted"
             if self.limits.max_runs is not None and self._started >= self.limits.max_runs:
                 return "skipped_max_runs"
-            if not self.wait_for_memory(spec):
-                return "skipped_memory"
+            if refused := self.wait_for_memory(spec):
+                return refused
             if spec.timeout_seconds > self.remaining_seconds():
                 return "skipped_budget"
             self._started += 1
             return None
 
-    def wait_for_memory(self, spec: RunSpec) -> bool:
+    def wait_for_memory(self, spec: RunSpec) -> str | None:
         """Wait for the free memory a start needs, within the memory wait and the budget."""
         wait = min(self.limits.memory_wait_seconds, max(self.remaining_seconds(), 0))
         deadline = time.monotonic() + wait
         while True:
+            if self.stop.is_set():
+                return "interrupted"
             enough = host_free_gib() >= self.limits.min_free_host_gib
             if enough and uses_cuda(spec.device):
                 enough = gpu_free_gib() >= self.limits.min_free_gpu_gib
             if enough:
-                return True
-            if time.monotonic() >= deadline or self.stop.wait(_MEMORY_POLL_SECONDS):
-                return False
+                return None
+            if time.monotonic() >= deadline:
+                return "skipped_memory"
+            if self.stop.wait(_MEMORY_POLL_SECONDS):
+                return "interrupted"
 
     def run_training(
         self, spec: RunSpec, run_dir: Path, log_name: str, *, resume: bool = False, on_start=None
@@ -179,10 +195,13 @@ class Launcher:
         """Run the training subprocess of ``spec``; return its command line and outcome."""
         command = train_command(spec, run_dir, resume=resume)
         log = self.root / "logs" / f"{log_name}.train"
-        outcome = run_command(command, log, spec.timeout_seconds, self.stop, on_start)
+        timeout = min(spec.timeout_seconds, self.remaining_seconds())
+        if timeout <= 0:
+            return command, Outcome("skipped_budget", None, 0.0)
+        outcome = run_command(command, log, timeout, self.stop, on_start)
         return command, outcome
 
-    def train(self, spec: RunSpec, run_dir: Path, *, resume: bool) -> None:
+    def train(self, spec: RunSpec, run_dir: Path, *, resume: bool) -> str:
         self.manifest.update_run(spec.name, status="running")
         record_pid = self.record_pid(spec.name, "pid")
         command, outcome = self.run_training(
@@ -198,6 +217,7 @@ class Launcher:
             stderr_tail=stderr_tail(self.root / "logs" / f"{spec.name}.train"),
             **read_progress(run_dir),
         )
+        return status
 
     def score(self, spec: RunSpec, run_dir: Path) -> None:
         results = self.root / RESULTS
@@ -213,17 +233,18 @@ class Launcher:
             outcome = run_command(
                 command, log, timeout, self.stop, self.record_pid(spec.name, "score_pid")
             )
-            row = count_rows(results) - 1 if outcome.status == "finished" else None
-        if outcome.status == "finished":
-            self.manifest.update_run(spec.name, status="finished", score_row=row)
-        else:
-            failed = "score_interrupted" if outcome.status == "interrupted" else "score_failed"
-            self.manifest.update_run(
-                spec.name,
-                status=failed,
-                score_command=shlex.join(command),
-                stderr_tail=stderr_tail(log),
-            )
+            if outcome.status == "finished":
+                self.manifest.update_run(
+                    spec.name, status="finished", score_row=count_rows(results) - 1
+                )
+            else:
+                failed = "score_interrupted" if outcome.status == "interrupted" else "score_failed"
+                self.manifest.update_run(
+                    spec.name,
+                    status=failed,
+                    score_command=shlex.join(command),
+                    stderr_tail=stderr_tail(log),
+                )
 
     def record_pid(self, name: str, key: str):
         """Callback that stores a child's process id in the manifest as soon as it starts."""
@@ -288,7 +309,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-runs", type=int, default=None, help="start at most N runs")
     parser.add_argument(
         "--max-total-seconds",
-        type=float,
+        type=_positive_seconds,
         default=None,
         help="one deadline for starting, training, scoring and measuring; a run whose timeout "
         "exceeds the time left (less a 30 s cleanup reserve) is not started",
@@ -297,14 +318,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-free-gpu-gib", type=float, default=defaults.min_free_gpu_gib)
     parser.add_argument(
         "--memory-wait-seconds",
-        type=float,
+        type=_nonnegative_seconds,
         default=defaults.memory_wait_seconds,
         help="wait this long for free memory before skipping a run",
     )
     parser.add_argument(
-        "--score-timeout-seconds", type=float, default=defaults.score_timeout_seconds
+        "--score-timeout-seconds", type=_positive_seconds, default=defaults.score_timeout_seconds
     )
     return parser
+
+
+def _positive_seconds(value: str) -> float:
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("expected finite positive seconds")
+    return seconds
+
+
+def _nonnegative_seconds(value: str) -> float:
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds < 0:
+        raise argparse.ArgumentTypeError("expected finite non-negative seconds")
+    return seconds
 
 
 def _counts(value: str) -> tuple[int, ...]:

@@ -30,6 +30,7 @@ import io
 import json
 import os
 import shlex
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -327,13 +328,39 @@ def _text(output: str | bytes | None) -> str:
     return output or ""
 
 
+def _signal_group(pid: int, sig: signal.Signals) -> None:
+    try:
+        os.killpg(pid, sig)
+    except ProcessLookupError:
+        pass
+
+
 def run_benchmark(command: list[str], timeout_seconds: int) -> tuple[str, int]:
     """Run ``command``; return its stdout and stderr and exit code, or -1 after the timeout."""
+    print("+", " ".join(command), flush=True)
+    process = subprocess.Popen(
+        command,
+        cwd=REMOTE_SRC,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
     try:
-        done = _run(command, capture_output=True, timeout=timeout_seconds)
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as expired:
-        return _text(expired.stdout) + _text(expired.stderr) + "\ntimed out\n", -1
-    return _text(done.stdout) + _text(done.stderr), done.returncode
+        _signal_group(process.pid, signal.SIGTERM)
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            _signal_group(process.pid, signal.SIGKILL)
+            stdout, stderr = process.communicate()
+        else:
+            _signal_group(process.pid, signal.SIGKILL)
+        process.wait()
+        return _text(stdout or expired.stdout) + _text(
+            stderr or expired.stderr
+        ) + "\ntimed out\n", -1
+    return _text(stdout) + _text(stderr), process.returncode
 
 
 @app.function(timeout=container_timeout_seconds(HARD_CAP_MINUTES), **_container)
@@ -370,8 +397,8 @@ def _start(function, max_minutes: float):
 
 @app.local_entrypoint()
 def probe():
-    print(f"environment {ENVIRONMENT}")
-    print(json.dumps(probe_remote.remote(), indent=2))
+    function, _ = _start(probe_remote, PROBE_TIMEOUT_SECONDS / 60)
+    print(json.dumps(function.remote(), indent=2))
 
 
 @app.local_entrypoint()

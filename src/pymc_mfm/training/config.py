@@ -19,7 +19,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
 from types import MappingProxyType
-from typing import ClassVar, Self
+from typing import Any, ClassVar, Self
 
 from pymc_mfm.model.config import LossWeights
 
@@ -194,3 +194,24 @@ PRESETS: Mapping[str, TrainingConfig] = MappingProxyType(
         ),
     }
 )
+
+
+def training_cli_fields() -> frozenset[str]:
+    """The ``TrainingConfig`` fields that the training CLI and launch files accept."""
+    return frozenset(field.name for field in fields(TrainingConfig))
+
+
+def resolve_training(preset: str, overrides: Mapping[str, Any]) -> TrainingConfig:
+    """The config the training CLI builds from ``preset`` and explicit overrides.
+
+    Without a ``milestone_steps`` override, the preset's milestones within ``steps`` are kept.
+    Raises ``ValueError`` for a value the config refuses.
+    """
+    values = {name: getattr(PRESETS[preset], name) for name in training_cli_fields()}
+    values.update(overrides)
+    if "milestone_steps" not in overrides and type(values["steps"]) is int:
+        values["milestone_steps"] = tuple(
+            step for step in PRESETS[preset].milestone_steps if step <= values["steps"]
+        )
+    values["milestone_steps"] = tuple(values["milestone_steps"])
+    return TrainingConfig(**values)
