@@ -694,8 +694,8 @@ def png_chunk(kind: bytes, body: bytes) -> bytes:
 
 
 def make_png(*extra: tuple[bytes, bytes], size: int = 64) -> bytes:
-    """A valid PNG with random pixels and optional extra chunks before the data."""
-    header = (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + bytes([8, 0, 0, 0, 0])
+    """A valid size x 1 grey PNG with random pixels and optional extra chunks before the data."""
+    header = size.to_bytes(4, "big") + (1).to_bytes(4, "big") + bytes([8, 0, 0, 0, 0])
     pixels = zlib.compress(b"\0" + os.urandom(size))
     chunks = [(b"IHDR", header), *extra, (b"IDAT", pixels), (b"IEND", b"")]
     return b"\x89PNG\r\n\x1a\n" + b"".join(png_chunk(kind, body) for kind, body in chunks)
@@ -720,11 +720,25 @@ def check_notebook_file(repo: Path, text: str, *args: str) -> subprocess.Complet
     return check(repo, *args)
 
 
+def check_pinned_notebook(
+    repo: Path, text: str, sha: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Check a notebook against an allowlist entry that pins `sha` (default: its own bytes)."""
+    write(repo, "nb.ipynb", text)
+    commit(repo)
+    digest = sha or hashlib.sha256(text.encode()).hexdigest()
+    entry = (
+        '[[allow]]\npath = "nb.ipynb"\nrules = ["embedded-payload"]\n'
+        f'reason = "test fixture"\nsha256 = "{digest}"\n'
+    )
+    return check(repo, "--allow", str(write_allow(repo, entry)))
+
+
 def test_notebook_with_real_png_output_passes(repo: Path) -> None:
     text = notebook(
         [image_output("image/png", make_png(size=6000), **{"text/plain": ["<Figure>"]})]
     )
-    result = check_notebook_file(repo, text)
+    result = check_pinned_notebook(repo, text)
     assert result.returncode == 0, result.stdout
 
 
@@ -733,7 +747,114 @@ def test_notebook_png_split_into_lines_passes(repo: Path) -> None:
     lines = [encoded[i : i + 76] + "\n" for i in range(0, len(encoded), 76)]
     document = json.loads(notebook([image_output("image/png", "")]))
     document["cells"][0]["outputs"][0]["data"]["image/png"] = lines
-    result = check_notebook_file(repo, json.dumps(document))
+    result = check_pinned_notebook(repo, json.dumps(document))
+    assert result.returncode == 0, result.stdout
+
+
+def test_valid_image_notebook_without_pin_fires(repo: Path) -> None:
+    text = notebook([image_output("image/png", make_png(size=600))] * 2)
+    result = check_notebook_file(repo, text)
+    assert result.returncode == 1
+    assert "embedded-payload nb.ipynb 2 image outputs: pin reviewed bytes" in result.stdout
+
+
+def test_notebook_entry_without_sha_does_not_cover_the_pin(repo: Path) -> None:
+    write(repo, "nb.ipynb", notebook([image_output("image/png", make_png())]))
+    commit(repo)
+    entry = '[[allow]]\npath = "nb.ipynb"\nrules = ["embedded-payload"]\nreason = "test"\n'
+    result = check(repo, "--allow", str(write_allow(repo, entry)))
+    assert result.returncode == 1
+    assert "needs an allowlist sha256" in result.stdout
+
+
+def test_notebook_pin_voids_when_bytes_change(repo: Path) -> None:
+    pinned = hashlib.sha256(notebook([image_output("image/png", make_png())]).encode())
+    changed = notebook([image_output("image/png", make_png())])
+    result = check_pinned_notebook(repo, changed, pinned.hexdigest())
+    assert result.returncode == 1
+    assert "sha256 mismatch" in result.stdout
+
+
+def test_pinned_notebook_still_reports_malformed_images(repo: Path) -> None:
+    text = notebook([image_output("image/png", make_png() + os.urandom(50))])
+    result = check_pinned_notebook(repo, text)
+    assert result.returncode == 1
+    assert "malformed PNG" in result.stdout
+    assert "cannot be allowlisted" in result.stdout
+
+
+def test_notebook_jpeg_magic_with_junk_fires(repo: Path) -> None:
+    text = notebook([image_output("image/jpeg", b"\xff\xd8\xff" + os.urandom(9600))])
+    assert "malformed JPEG" in check_pinned_notebook(repo, text).stdout
+
+
+def test_notebook_gif_magic_with_junk_fires(repo: Path) -> None:
+    text = notebook([image_output("image/gif", b"GIF89a" + os.urandom(9600))])
+    assert "malformed GIF" in check_pinned_notebook(repo, text).stdout
+
+
+def make_jpeg() -> bytes:
+    frame = b"\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00"
+    scan = b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00" + b"\x12\xff\x00\x34"
+    return b"\xff\xd8" + b"\xff\xe0\x00\x04hi" + frame + scan + b"\xff\xd9"
+
+
+def make_gif() -> bytes:
+    header = b"GIF89a" + b"\x01\x00\x01\x00\x80\x00\x00" + bytes(6)
+    frame = b"\x2c" + bytes(4) + b"\x01\x00\x01\x00\x00" + b"\x02\x02\x44\x01\x00"
+    return header + frame + b"\x3b"
+
+
+def test_notebook_minimal_jpeg_and_gif_pass_when_pinned(repo: Path) -> None:
+    text = notebook(
+        [image_output("image/jpeg", make_jpeg()), image_output("image/gif", make_gif())]
+    )
+    result = check_pinned_notebook(repo, text)
+    assert result.returncode == 0, result.stdout
+
+
+def test_notebook_jpeg_without_eoi_or_with_tail_fires(repo: Path) -> None:
+    for image in (make_jpeg()[:-2], make_jpeg() + b"tail", make_gif()[:-1], make_gif() + b"x"):
+        mime = "image/jpeg" if image[:2] == b"\xff\xd8" else "image/gif"
+        text = notebook([image_output(mime, image)])
+        assert "malformed" in check_pinned_notebook(repo, text).stdout
+
+
+def test_notebook_png_without_ihdr_fires(repo: Path) -> None:
+    body = zlib.compress(os.urandom(300))
+    chunks = png_chunk(b"IDAT", body) + png_chunk(b"IEND", b"")
+    text = notebook([image_output("image/png", b"\x89PNG\r\n\x1a\n" + chunks)])
+    result = check_pinned_notebook(repo, text)
+    assert "first chunk is not IHDR" in result.stdout
+
+
+def test_notebook_png_idat_size_mismatch_fires(repo: Path) -> None:
+    header = (10).to_bytes(4, "big") + (10).to_bytes(4, "big") + bytes([8, 0, 0, 0, 0])
+    idat = zlib.compress(b"\0" + os.urandom(500))
+    parts = [(b"IHDR", header), (b"IDAT", idat), (b"IEND", b"")]
+    image = b"\x89PNG\r\n\x1a\n" + b"".join(png_chunk(k, b) for k, b in parts)
+    text = notebook([image_output("image/png", image)])
+    assert "IDAT size does not match IHDR" in check_pinned_notebook(repo, text).stdout
+
+
+def test_notebook_interlaced_png_fires(repo: Path) -> None:
+    header = (4).to_bytes(4, "big") + (1).to_bytes(4, "big") + bytes([8, 0, 0, 0, 1])
+    idat = zlib.compress(b"\0" + bytes(4))
+    parts = [(b"IHDR", header), (b"IDAT", idat), (b"IEND", b"")]
+    image = b"\x89PNG\r\n\x1a\n" + b"".join(png_chunk(k, b) for k, b in parts)
+    text = notebook([image_output("image/png", image)])
+    assert "interlaced PNG" in check_pinned_notebook(repo, text).stdout
+
+
+def test_real_notebook_passes_with_its_pin(tmp_path: Path) -> None:
+    notebook_name = "examples/river_1_quickstart.ipynb"
+    allow = REPO_ROOT / ".github" / "public-boundary-allow.toml"
+    if not (REPO_ROOT / notebook_name).is_file() or not allow.is_file():
+        pytest.skip("notebook not present")
+    archive = tmp_path / "nb.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.write(REPO_ROOT / notebook_name, notebook_name)
+    result = check(None, "--archive", str(archive), "--allow", str(allow))
     assert result.returncode == 0, result.stdout
 
 
@@ -871,6 +992,23 @@ def test_range_with_whole_new_history_fires(repo: Path) -> None:
     write(repo, "a.txt", "x\n")
     head = commit(repo, "new root")
     assert "foreign-history" in check(repo, "--range", f"{base}..{head}").stdout
+
+
+def test_allowed_root_accepts_listed_root_only(repo: Path) -> None:
+    base = git(repo, "rev-parse", "main")
+    git(repo, "checkout", "-q", "--orphan", "fresh")
+    write(repo, "a.txt", "x\n")
+    head = commit(repo, "new root")
+    root = git(repo, "rev-list", "--max-parents=0", head)
+    result = check(repo, "--range", f"{base}..{head}", "--allowed-root", root)
+    assert result.returncode == 0, result.stdout
+    other = check(repo, "--range", f"{base}..{head}", "--allowed-root", "0" * 40)
+    assert "foreign-history" in other.stdout
+
+
+def test_allowed_root_needs_range_and_full_sha(repo: Path) -> None:
+    assert check(repo, "--tree", "--allowed-root", "0" * 40).returncode == 2
+    assert check(repo, "--range", "HEAD..HEAD", "--allowed-root", "abc").returncode == 2
 
 
 def test_range_on_ordinary_branch_has_no_foreign_history(repo: Path) -> None:

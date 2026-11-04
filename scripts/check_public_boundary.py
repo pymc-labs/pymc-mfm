@@ -107,6 +107,12 @@ NOTEBOOK_IMAGE_MAGIC: dict[str, tuple[bytes, ...]] = {
 }
 NOTEBOOK_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 PNG_TEXT_INFLATE_LIMIT = 1024 * 1024
+PNG_PIXEL_INFLATE_LIMIT = 64 * 1024 * 1024
+PNG_SAMPLE_CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+PNG_BIT_DEPTHS = {0: (1, 2, 4, 8, 16), 2: (8, 16), 3: (1, 2, 4, 8), 4: (8, 16), 6: (8, 16)}
+# A parser cannot rule out hidden data in a valid image, so every notebook with image
+# outputs yields one finding with this reason. Only an allowlist entry with `sha256` covers it.
+NOTEBOOK_PIN_REASON = "pin reviewed bytes with sha256 in the allowlist"
 PNG_CHUNKS = frozenset(
     "IHDR PLTE IDAT IEND tRNS cHRM gAMA iCCP sBIT sRGB bKGD hIST pHYs sPLT tIME "
     "tEXt zTXt iTXt eXIf acTL fcTL fdAT".split()
@@ -331,12 +337,18 @@ def range_items(objects: GitObjects, repo: str, revision_range: str) -> Iterator
     yield from changes_to_items(objects, changes)
 
 
-def foreign_history_findings(repo: str, revision_range: str) -> list[Finding]:
-    """Flag root commits inside A..B: they come from a history that A does not contain."""
+def foreign_history_findings(
+    repo: str, revision_range: str, allowed_roots: frozenset[str] = frozenset()
+) -> list[Finding]:
+    """Flag root commits inside A..B: they come from a history that A does not contain.
+
+    Roots in `allowed_roots` (full SHAs) are accepted: the caller has authorised them.
+    """
     roots = run_git(repo, "rev-list", "--max-parents=0", revision_range).decode().split()
     return [
         Finding("foreign-history", f"commit:{root[:7]}", None, "new root commit: unrelated history")
         for root in roots
+        if root not in allowed_roots
     ]
 
 
@@ -709,6 +721,40 @@ def png_text_chunks(chunks: list[tuple[bytes, bytes]]) -> list[bytes]:
     return texts
 
 
+def png_pixel_stream_size(header: bytes) -> int:
+    """Bytes of filtered scanlines that a non-interlaced IHDR implies. Raises ValueError."""
+    if len(header) != 13:
+        raise ValueError("bad IHDR length")
+    width = int.from_bytes(header[0:4], "big")
+    height = int.from_bytes(header[4:8], "big")
+    depth, colour, method, filtering, interlace = header[8:13]
+    if width == 0 or height == 0 or width > 2**31 - 1 or height > 2**31 - 1:
+        raise ValueError("bad image size")
+    if depth not in PNG_BIT_DEPTHS.get(colour, ()) or method != 0 or filtering != 0:
+        raise ValueError("bad IHDR fields")
+    if interlace != 0:
+        raise ValueError("interlaced PNG")
+    row_bytes = (width * PNG_SAMPLE_CHANNELS[colour] * depth + 7) // 8
+    size = height * (1 + row_bytes)
+    if size > PNG_PIXEL_INFLATE_LIMIT:
+        raise ValueError("image data past the size limit")
+    return size
+
+
+def check_png_pixel_stream(chunks: list[tuple[bytes, bytes]]) -> None:
+    """The first chunk is IHDR and the IDAT data inflates to exactly the implied size."""
+    if chunks[0][0] != b"IHDR":
+        raise ValueError("first chunk is not IHDR")
+    expected = png_pixel_stream_size(chunks[0][1])
+    stream = b"".join(body for kind, body in chunks if kind == b"IDAT")
+    if not stream:
+        raise ValueError("no IDAT chunk")
+    inflater = zlib.decompressobj()
+    pixels = inflater.decompress(stream, expected + 1)
+    if len(pixels) != expected or not inflater.eof or inflater.unused_data:
+        raise ValueError("IDAT size does not match IHDR")
+
+
 def inspect_png(image: bytes) -> tuple[list[bytes], str | None]:
     """Return (metadata texts to scan, problem or None)."""
     try:
@@ -716,9 +762,114 @@ def inspect_png(image: bytes) -> tuple[list[bytes], str | None]:
         unknown = sorted({k.decode("latin-1") for k, _ in chunks} - PNG_CHUNKS)
         if unknown:
             return [], f"unknown PNG chunk {unknown[0]!r}"
+        check_png_pixel_stream(chunks)
         return png_text_chunks(chunks), None
     except (ValueError, zlib.error) as error:
         return [], f"malformed PNG ({error})"
+
+
+JPEG_NO_LENGTH_MARKERS = frozenset([0x01, 0xD8, 0xD9, *range(0xD0, 0xD8)])
+JPEG_RESTART_MARKERS = frozenset(range(0xD0, 0xD8))
+JPEG_FRAME_MARKERS = frozenset(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+
+
+def _jpeg_marker_at(image: bytes, offset: int) -> tuple[int, int]:
+    """(marker, offset after it). Raises ValueError unless a marker starts here."""
+    if offset >= len(image) or image[offset] != 0xFF:
+        raise ValueError("expected a marker")
+    while offset < len(image) and image[offset] == 0xFF:
+        offset += 1
+    if offset >= len(image) or image[offset] == 0:
+        raise ValueError("bad marker")
+    return image[offset], offset + 1
+
+
+def _skip_jpeg_scan(image: bytes, offset: int) -> int:
+    """Offset of the first marker after entropy-coded data."""
+    while offset + 1 < len(image):
+        following = image[offset + 1]
+        if image[offset] == 0xFF and following != 0 and following not in JPEG_RESTART_MARKERS:
+            return offset
+        offset += 1
+    raise ValueError("no marker after scan data")
+
+
+def inspect_jpeg(image: bytes) -> str | None:
+    """Walk the marker sequence from SOI through SOS to the final EOI. Return a problem or None."""
+    try:
+        marker, offset = _jpeg_marker_at(image, 0)
+        if marker != 0xD8:
+            raise ValueError("no SOI")
+        frames = scans = 0
+        while True:
+            marker, offset = _jpeg_marker_at(image, offset)
+            if marker == 0xD9:
+                break
+            if marker in JPEG_NO_LENGTH_MARKERS:
+                continue
+            length = int.from_bytes(image[offset : offset + 2], "big")
+            if length < 2 or offset + length > len(image):
+                raise ValueError("bad segment length")
+            offset += length
+            frames += marker in JPEG_FRAME_MARKERS
+            if marker == 0xDA:
+                if not frames:
+                    raise ValueError("scan before frame header")
+                scans += 1
+                offset = _skip_jpeg_scan(image, offset)
+        if not scans or offset != len(image):
+            raise ValueError("missing scan or data after EOI")
+    except ValueError as error:
+        return f"malformed JPEG ({error})"
+    return None
+
+
+def _skip_gif_sub_blocks(image: bytes, offset: int) -> int:
+    while True:
+        if offset >= len(image):
+            raise ValueError("truncated block")
+        size = image[offset]
+        offset += 1 + size
+        if size == 0:
+            return offset
+
+
+def _gif_color_table_size(flags: int) -> int:
+    return 3 * 2 ** ((flags & 7) + 1) if flags & 0x80 else 0
+
+
+def inspect_gif(image: bytes) -> str | None:
+    """Walk header, screen descriptor and blocks to the trailer. Return a problem or None."""
+    try:
+        if len(image) < 13:
+            raise ValueError("truncated header")
+        offset = 13 + _gif_color_table_size(image[10])
+        frames = 0
+        while offset < len(image) and image[offset] != 0x3B:
+            kind = image[offset]
+            if kind == 0x21:
+                offset = _skip_gif_sub_blocks(image, offset + 2)
+            elif kind == 0x2C:
+                if offset + 10 > len(image):
+                    raise ValueError("truncated image descriptor")
+                offset += 10 + _gif_color_table_size(image[offset + 9]) + 1
+                offset = _skip_gif_sub_blocks(image, offset)
+                frames += 1
+            else:
+                raise ValueError("unknown block")
+        if offset != len(image) - 1 or not frames:
+            raise ValueError("missing trailer or image")
+    except ValueError as error:
+        return f"malformed GIF ({error})"
+    return None
+
+
+def inspect_image(mime: str, image: bytes) -> tuple[list[bytes], str | None]:
+    """Return (texts to scan, problem or None) for a decoded notebook image."""
+    if mime == "image/png":
+        return inspect_png(image)
+    flaw = inspect_jpeg(image) if mime == "image/jpeg" else inspect_gif(image)
+    return [image], flaw
 
 
 def decode_notebook_image(mime: str, value: object) -> tuple[bytes | None, str | None]:
@@ -793,7 +944,10 @@ def check_notebook(path: str, data: bytes, deny: list[DenyPattern]) -> list[Find
     """Payload, metadata, secret and deny rules for an nbformat 4 notebook.
 
     Base64 is allowed only as the value of a code-cell image output whose bytes decode to
-    that image type within the size cap. Every other string is scanned as ordinary text.
+    a structurally valid image of that type within the size cap. Every other string is
+    scanned as ordinary text. A parser cannot rule out hidden data in a valid image, so a
+    notebook with image outputs also yields one pin finding that only an allowlist entry
+    with `sha256` covers. Malformed-image and other notebook findings are never covered.
     """
     document = parse_notebook(data)
     if document is None:
@@ -802,6 +956,7 @@ def check_notebook(path: str, data: bytes, deny: list[DenyPattern]) -> list[Find
     findings: list[Finding] = []
     extra_texts: list[bytes] = []
     cell_types = notebook_cell_types(document)
+    image_outputs = 0
     for index, cell in enumerate(document["cells"]):
         if isinstance(cell, dict) and cell.get("attachments"):
             reason = f"cell attachments at cells[{index}]"
@@ -815,7 +970,8 @@ def check_notebook(path: str, data: bytes, deny: list[DenyPattern]) -> list[Find
                     Finding("embedded-payload", path, None, f"{problem} at {json_path(where)}")
                 )
             elif image is not None:
-                texts, flaw = inspect_png(image) if mime == "image/png" else ([image], None)
+                image_outputs += 1
+                texts, flaw = inspect_image(mime, image)
                 extra_texts += texts
                 if flaw:
                     findings.append(
@@ -828,6 +984,9 @@ def check_notebook(path: str, data: bytes, deny: list[DenyPattern]) -> list[Find
             findings.append(Finding(found.rule, path, None, reason))
         if text not in data:
             extra_texts.append(text)  # JSON escapes hid it from the raw scan
+    if image_outputs:
+        reason = f"{image_outputs} image outputs: {NOTEBOOK_PIN_REASON}"
+        findings.append(Finding("embedded-payload", path, None, reason))
     for text in extra_texts:
         findings += check_text_rules(path, text, with_lines=False)
         findings += [
@@ -940,6 +1099,11 @@ def entry_covers(entry: AllowEntry, item: Item, finding: Finding) -> str | None:
     same_path = name == entry.path or (item.is_archive and name.endswith("/" + entry.path))
     if not same_path or finding.rule not in entry.rules:
         return ""
+    if is_notebook(item) and finding.rule == "embedded-payload":
+        if NOTEBOOK_PIN_REASON not in finding.reason:
+            return " (notebook payload findings cannot be allowlisted)"
+        if entry.sha256 is None:
+            return " (notebook image pin needs an allowlist sha256)"
     if entry.sha256 is not None and item.sha256() != entry.sha256:
         return " (allowlist sha256 mismatch)"
     if finding.rule == "large-file" and entry.max_bytes is not None:
@@ -979,6 +1143,13 @@ def build_parser() -> argparse.ArgumentParser:
     modes.add_argument("--all-refs", action="store_true", help="every blob in every ref")
     parser.add_argument("--allow", metavar="FILE", help=f"allowlist (default {DEFAULT_ALLOW})")
     parser.add_argument("--deny-file", metavar="FILE", help="extra regexes, one per line")
+    parser.add_argument(
+        "--allowed-root",
+        metavar="SHA",
+        action="append",
+        default=[],
+        help="with --range: accept this root commit (full SHA, repeatable)",
+    )
     parser.add_argument("--release", action="store_true", help="pending allowlist entries fail")
     parser.add_argument("--repo", metavar="DIR", help="repository (default: git toplevel of cwd)")
     return parser
@@ -1048,10 +1219,21 @@ def select_allowlist(args: argparse.Namespace, repo: str | None) -> list[AllowEn
     return []
 
 
+def allowed_roots(args: argparse.Namespace) -> frozenset[str]:
+    roots = [root.lower() for root in args.allowed_root]
+    for root in roots:
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", root):
+            raise UsageError("--allowed-root needs a full commit SHA")
+    if roots and not args.range:
+        raise UsageError("--allowed-root needs --range")
+    return frozenset(roots)
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo or find_repo_root()
     if repo is None and not args.archive:
         raise UsageError("not inside a git repository (use --repo)")
+    roots = allowed_roots(args)
     allow = select_allowlist(args, repo)
     deny = load_deny_file(Path(args.deny_file)) if args.deny_file else []
     objects = GitObjects(repo) if repo else None
@@ -1061,7 +1243,7 @@ def run(args: argparse.Namespace) -> int:
         revisions = ("--all",) if args.all_refs else (args.range,)
         findings += commit_message_findings(repo, deny, *revisions)
     if repo and args.range:
-        findings += foreign_history_findings(repo, args.range)
+        findings += foreign_history_findings(repo, args.range, roots)
     try:
         for item in collect_items(args, repo, objects):
             checked += 1

@@ -35,9 +35,12 @@ flags tracked symlinks, gitlinks (nested repositories, submodule pointers) and
 `.gitmodules` files, weight-like files, binary files it cannot read, files over
 1 MiB, large embedded base64 payloads, credential patterns, and `.private` anywhere
 in a path. Notebooks (`*.ipynb`) may hold base64 only as code-cell image outputs
-(PNG, JPEG or GIF, at most 2 MiB each, checked by file type and PNG metadata); all
-other notebook strings are scanned as text. Range checks also read commit messages and
-fail on a root commit that the base branch does not contain. CI runs it on every pull request
+(PNG, JPEG or GIF, at most 2 MiB each, checked for valid structure); all other
+notebook strings are scanned as text. A parser cannot rule out hidden data in a valid
+image, so each notebook with image outputs fails until an allowlist entry with `sha256`
+pins its reviewed bytes. A rerun changes the hash: update `sha256` in the same pull
+request. Range checks also read commit messages and fail on a root commit that the
+base branch does not contain (`--allowed-root SHA` accepts a listed root). CI runs it on every pull request
 over the whole tree, over every commit in the pull request and over the built sdist
 and wheels. Exceptions are read from the committed allowlist, not your working copy.
 
