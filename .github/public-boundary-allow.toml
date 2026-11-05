@@ -1,0 +1,18 @@
+# Exceptions to scripts/check_public_boundary.py. Each entry needs a reason.
+# `sha256` voids the entry when the file changes. A notebook with image outputs
+# needs an entry with `sha256` (its image bytes are pinned). `pending` passes normal runs
+# and fails `--release`.
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Notebook with inline PNG plots. The notebook rule checks each image's structure and scans all other strings as text, but it cannot rule out hidden data in a valid image, so these exact bytes are pinned. Any rerun must update sha256 in the same pull request so the reviewer sees the new outputs. Malformed-image findings are never covered."
+sha256 = "056ee3d100a906886b5f1f99049095718f9e789ed2ba9edee71578cd47b14e9d"
+max_bytes = 3000000
+
+[[allow]]
+path = "tests/data/golden_bundle.json"
+rules = ["embedded-payload"]
+reason = "Golden-bundle fixture: a tiny safetensors file stored as wrapped base64 lines."
+sha256 = "c6fd9513f0caf3159c8ce6b6ddb2112e4eb0bd59fdf5d99813f730744b1ef2a0"
+pending = "provenance unconfirmed: confirm the embedded tiny safetensors was never a trained checkpoint"

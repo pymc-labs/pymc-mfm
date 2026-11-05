@@ -61,15 +61,19 @@ packages = ["src/pymc_mfm"]
 
 [tool.hatch.build.targets.sdist]
 only-include = [
+    ".dockerignore",
     ".github",
     ".gitignore",
     ".python-version",
+    "AGENTS.md",
+    "CLAUDE.md",
     "README.md",
     "RELEASE.md",
     "benchmarks",
     "environment.yml",
     "examples",
     "pyproject.toml",
+    "scripts",
     "src",
     "tests",
     "uv.lock",
