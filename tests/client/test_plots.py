@@ -1,6 +1,6 @@
 import pytest
 
-from .client_fixtures import curve_result, status_record
+from .client_fixtures import curve_result, result_rows, status_record
 
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
@@ -74,3 +74,49 @@ def test_plots_without_matplotlib_name_the_extra(done, monkeypatch):
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
     with pytest.raises(ImportError, match=r"pymc-mfm\[plot\]"):
         done.plot_curves()
+
+
+def _done_with_rows(client, service, rows_record):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("done")))
+    service.on("GET", "/v1/analyses/an_1/result", (200, rows_record))
+    return client.get("an_1")
+
+
+def test_every_level_of_every_channel_is_kept_without_scenarios(client, service):
+    record = curve_result()
+    record["table"] = [row for row in record["table"] if row["kind"] != "scenario"]
+    points = curve_points(_done_with_rows(client, service, record).table)
+    for channel in ("tv", "search"):
+        levels = points.loc[points["varied_channel"] == channel, "level"].tolist()
+        assert levels == [0.0, 0.5, 1.0, 1.5, 2.0]
+    assert points["mean"].notna().all()
+
+
+def _bar_count(axis):
+    return sum(len(segments.get_segments()) for segments in axis.containers[0].lines[2])
+
+
+def _two_scenarios(se_of_second):
+    record = curve_result()
+    record["table"] += result_rows("double", "scenario", base="baseline", tv_mean=200.0)
+    for row in record["table"]:
+        if row["scenario_id"] == "double":
+            row["simulation_se"] = se_of_second
+    return record
+
+
+def test_plot_compare_omits_bars_where_simulation_error_is_missing(client, service):
+    done = _done_with_rows(client, service, _two_scenarios(None))
+    axis = done.plot_compare().axes[0]
+    labels = [label.get_text() for label in axis.get_yticklabels()]
+    assert "double (simulation error unavailable)" in labels
+    assert "half" in labels  # its own label is unchanged
+    assert _bar_count(axis) == 1  # only "half" has a bar
+    assert len(axis.lines) >= 2  # the open marker for "double" is still drawn
+
+
+def test_plot_compare_draws_a_bar_for_every_row_with_simulation_error(client, service):
+    done = _done_with_rows(client, service, _two_scenarios(0.25))
+    axis = done.plot_compare().axes[0]
+    assert _bar_count(axis) == 2
+    assert not any("unavailable" in label.get_text() for label in axis.get_yticklabels())

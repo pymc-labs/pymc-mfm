@@ -130,6 +130,22 @@ def test_a_huge_retry_after_is_capped(client, service, sleeps):
     assert sleeps == [MAX_RETRY_WAIT]
 
 
+def test_max_retry_after_is_a_client_parameter(service, sleeps):
+    client = Client(
+        BASE_URL, "test-key", max_retry_after=600, transport=httpx.MockTransport(service)
+    )
+    client._http._sleep = sleeps.append
+    service.on(
+        "GET",
+        "/v1/datasets/ds_123",
+        (503, error_body("unavailable", "x"), {"Retry-After": "300"}),
+        (503, error_body("unavailable", "x"), {"Retry-After": "86400"}),
+        (200, dataset_record()),
+    )
+    client.datasets.get("ds_123")
+    assert sleeps == [300.0, 600.0]
+
+
 def test_backoff_doubles_without_retry_after(client, service, sleeps):
     service.on("GET", "/v1/datasets/ds_123", (503, error_body("unavailable", "x")))
     with pytest.raises(ServerError):

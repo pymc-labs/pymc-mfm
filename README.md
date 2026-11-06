@@ -305,7 +305,7 @@ difference only, and `plot_compare()` draws it as "simulation error, not model u
 
 Every request that creates something carries an `Idempotency-Key`, reused when the client
 retries, so a retry never starts the work twice. The client retries HTTP 429, 502, 503 and 504
-and connection errors, and waits as long as `Retry-After` asks. Errors raise `NotFound`,
+and connection errors, and waits as long as `Retry-After` asks, up to `Client(max_retry_after=...)` seconds (default 60). Errors raise `NotFound`,
 `Gone`, `Conflict`, `NotReady`, `RateLimited`, `ValidationError` and others, each with
 `code`, `message` and `field` from the service.
 

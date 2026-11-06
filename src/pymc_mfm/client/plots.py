@@ -32,7 +32,8 @@ def curve_points(table: pd.DataFrame) -> pd.DataFrame:
     """
     curves = table[(table["kind"] == "curve") & (table["component"] == table["varied_channel"])]
     columns = ["varied_channel", "base_scenario_id", "level", "spend_total", "mean", "p05", "p95"]
-    points = curves[columns].copy()
+    points = curves[columns].reset_index(drop=True)
+    baselines = []
     for (channel, base), group in points.groupby(["varied_channel", "base_scenario_id"]):
         if (group["level"] == 1).any():
             continue
@@ -40,13 +41,17 @@ def curve_points(table: pd.DataFrame) -> pd.DataFrame:
         if base_row.empty:
             continue
         row = base_row.iloc[0]
-        points.loc[len(points)] = [
-            channel,
-            base,
-            1.0,
-            row["spend_total"],
-            *row[["mean", "p05", "p95"]],
-        ]
+        baselines.append(
+            {
+                "varied_channel": channel,
+                "base_scenario_id": base,
+                "level": 1.0,
+                "spend_total": row["spend_total"],
+                **row[["mean", "p05", "p95"]].to_dict(),
+            }
+        )
+    if baselines:
+        points = pd.concat([points, pd.DataFrame(baselines)], ignore_index=True)
     points = points.dropna(subset=["mean"])
     position = {name: i for i, name in enumerate(dict.fromkeys(curves["varied_channel"]))}
     points["channel_position"] = points["varied_channel"].map(position)
@@ -114,6 +119,8 @@ def plot_compare(
 
     ``error_bars`` is how many simulation standard errors each bar spans on each side.
     The service gives no interval for a difference between plans, and neither does this plot.
+    A plan with no simulation standard error (for example from one draw) gets an open marker,
+    no bar, and a "simulation error unavailable" label.
     """
     plt = _pyplot()
     kinds = ["scenario", "curve"] if include_curves else ["scenario"]
@@ -122,17 +129,30 @@ def plot_compare(
     if rows.empty:
         raise ValueError(f"No comparable rows for component {component!r}")
     figure, axis = plt.subplots(figsize=(8, 0.5 * len(rows) + 2), layout="constrained")
-    errors = error_bars * rows["simulation_se"].fillna(0.0).to_numpy()
+    positions = np.arange(len(rows))
+    known = rows["simulation_se"].notna().to_numpy()
     axis.errorbar(
-        rows["mean_difference"],
-        np.arange(len(rows)),
-        xerr=errors,
+        rows["mean_difference"].to_numpy()[known],
+        positions[known],
+        xerr=error_bars * rows["simulation_se"].to_numpy()[known],
         fmt="o",
         color=CHANNEL_COLOR,
         capsize=3,
     )
+    if not known.all():
+        axis.plot(
+            rows["mean_difference"].to_numpy()[~known],
+            positions[~known],
+            "o",
+            color=CHANNEL_COLOR,
+            markerfacecolor="none",
+        )
     axis.axvline(0, color="0.45", linestyle="--", linewidth=1)
-    axis.set_yticks(np.arange(len(rows)), rows["scenario_id"])
+    labels = [
+        name if is_known else f"{name} (simulation error unavailable)"
+        for name, is_known in zip(rows["scenario_id"], known, strict=True)
+    ]
+    axis.set_yticks(positions, labels)
     axis.set(
         xlabel=f"Mean difference of {component} versus the base plan",
         title=title or "River: scenarios compared with the base plan",

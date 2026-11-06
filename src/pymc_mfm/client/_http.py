@@ -17,7 +17,7 @@ from ._wire import to_json
 from .errors import ApiConnectionError, ApiError, error_from_response
 
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
-MAX_RETRY_WAIT = 60.0  # seconds; caps a large Retry-After
+MAX_RETRY_WAIT = 60.0  # seconds; default cap on a Retry-After wait
 BACKOFF_BASE = 0.5  # seconds; doubles on each retry when there is no Retry-After
 BACKOFF_CAP = 8.0
 
@@ -56,6 +56,7 @@ class Http:
         *,
         timeout: float = 30.0,
         max_retries: int = 3,
+        max_retry_after: float = MAX_RETRY_WAIT,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         base_url = base_url or os.environ.get("MFM_API_URL")
@@ -66,6 +67,9 @@ class Http:
             raise ValueError("Pass api_key or set the MFM_API_KEY environment variable.")
         if max_retries < 0:
             raise ValueError("max_retries must be 0 or more")
+        if max_retry_after < 0:
+            raise ValueError("max_retry_after must be 0 or more")
+        self.max_retry_after = max_retry_after
         self.base_url = base_url.rstrip("/")
         self.max_retries = max_retries
         self._api_key = api_key
@@ -130,10 +134,9 @@ class Http:
             raise self._error(response, retry_after)
         raise AssertionError("unreachable")  # pragma: no cover
 
-    @staticmethod
-    def _backoff(attempt: int, retry_after: float | None) -> float:
+    def _backoff(self, attempt: int, retry_after: float | None) -> float:
         if retry_after is not None:
-            return min(retry_after, MAX_RETRY_WAIT)
+            return min(retry_after, self.max_retry_after)
         return min(BACKOFF_BASE * 2**attempt, BACKOFF_CAP)
 
     @staticmethod

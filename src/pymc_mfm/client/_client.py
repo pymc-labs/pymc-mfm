@@ -25,7 +25,8 @@ class Client:
 
     ``base_url`` and ``api_key`` default to the environment variables ``MFM_API_URL`` and
     ``MFM_API_KEY``. Requests retry on 429, 502, 503, 504 and connection errors, up to
-    ``max_retries`` times, and wait as long as ``Retry-After`` asks. Each call that creates
+    ``max_retries`` times, and wait as long as ``Retry-After`` asks, up to ``max_retry_after``
+    seconds (default 60) so a huge value cannot stall the call. Each call that creates
     something sends one ``Idempotency-Key``, reused on its retries, so a retry never starts
     the work twice.
 
@@ -39,10 +40,16 @@ class Client:
         *,
         timeout: float = 30.0,
         max_retries: int = 3,
+        max_retry_after: float = 60.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._http = Http(
-            base_url, api_key, timeout=timeout, max_retries=max_retries, transport=transport
+            base_url,
+            api_key,
+            timeout=timeout,
+            max_retries=max_retries,
+            max_retry_after=max_retry_after,
+            transport=transport,
         )
         self.datasets = Datasets(self._http)
 
