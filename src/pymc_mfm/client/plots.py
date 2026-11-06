@@ -87,9 +87,8 @@ def plot_curves(table: pd.DataFrame, *, title: str | None = None) -> Any:
                 label="90% pointwise interval" if len(bases) == 1 else None,
             )
         axis.axvline(100, color="0.45", linestyle="--", linewidth=1, label="Base spend (100%)")
-        base_total = shown.loc[shown["level"] == 1, "spend_total"].iloc[0]
         axis.set(
-            title=f"{channel} — base spend: {base_total:,.1f}",
+            title=channel,
             xlabel="Spend relative to the base plan in the decision window",
             xlim=(0, None),
         )
