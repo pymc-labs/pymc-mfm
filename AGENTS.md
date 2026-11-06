@@ -6,7 +6,7 @@ history, pull request heads, CI logs and built archives, must be safe to publish
 ## Set up
 
 ```bash
-uv sync --locked
+uv sync --locked --extra local --extra client
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
 python3 scripts/check_public_boundary.py
