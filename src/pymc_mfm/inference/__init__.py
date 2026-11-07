@@ -4,6 +4,7 @@ from .api import decompose, observation_batch
 from .checkpoint import save_pretrained
 from .hub import from_pretrained, list_profiles, push_to_hub
 from .result import DecompositionResult
+from .warmup import WarmUp, warm_up_observations, warm_up_sampling
 
 __all__ = [
     "DecompositionResult",
@@ -13,4 +14,7 @@ __all__ = [
     "observation_batch",
     "push_to_hub",
     "save_pretrained",
+    "WarmUp",
+    "warm_up_observations",
+    "warm_up_sampling",
 ]

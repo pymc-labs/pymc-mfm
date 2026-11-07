@@ -1,0 +1,37 @@
+name: Public boundary
+
+# Generic rules only: weights, large files, embedded payloads, foreign history, secrets, symlinks and
+# private-link paths. Internal-name checks need the private deny file and run locally.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Check tracked files
+        run: python3 scripts/check_public_boundary.py --tree
+      - name: Check every blob added in the pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          python3 scripts/check_public_boundary.py --range "origin/${{ github.base_ref }}..HEAD"
+      - name: Check every commit pushed to main
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: python3 scripts/check_public_boundary.py --range "${{ github.event.before }}..HEAD"
+      - name: Build distributions
+        run: uv build
+      - name: Check built distributions
+        run: python3 scripts/check_public_boundary.py --archive dist/*
