@@ -192,36 +192,62 @@ kernel void step_moments(
 }
 
 // First-layer terms of row c that do not vary over weeks: the flow-time projection and
-// the pooled contexts the row reads. One thread per (l, c, 4 hidden units); wct is the
-// context weight transposed to [NC * 8, H].
+// the pooled contexts the row reads, for the rows c in [c0, CT) of every network of one
+// step, side by side as [L, CT, H]. Row c reads rows[c] = (contexts NC, first row of its
+// network's context weights in wct (transposed to [rows, H]), network), the contexts
+// cidx[c, :NC] and its network's flow-time projection. One thread per (4 hidden units,
+// row c, run of D draws) keeps the row's weights in registers while the draws stream
+// past, instead of reloading them for every draw.
 kernel void context_projection(
     device float4* out [[buffer(0)]],
     device const float* ctx [[buffer(1)]],
     constant int* cidx [[buffer(2)]],
-    device const float4* wct [[buffer(3)]],
-    device const float4* tproj [[buffer(4)]],
-    constant int& L [[buffer(5)]],
-    constant int& C [[buffer(6)]],
-    constant int& NC [[buffer(7)]],
-    constant int& NL [[buffer(8)]],
-    constant int& H4 [[buffer(9)]],
+    constant int* rows [[buffer(3)]],
+    device const float4* wct [[buffer(4)]],
+    device const float4* tproj [[buffer(5)]],
+    constant int& L [[buffer(6)]],
+    constant int& CT [[buffer(7)]],
+    constant int& c0 [[buffer(8)]],
+    constant int& NL [[buffer(9)]],
+    constant int& H4 [[buffer(10)]],
+    constant int& D [[buffer(11)]],
     uint2 gid [[thread_position_in_grid]])
 {
-    const int j4 = gid.x;
-    const int lc = gid.y;
-    if (lc >= L * C || j4 >= H4) return;
-    const int l = lc / C, c = lc % C;
-    float4 acc = tproj[j4];
-    for (int k = 0; k < NC; ++k) {
-        device const float* cb = ctx + ((long)l * (NL + 1) + cidx[c * NC + k]) * 8;
-        for (int e = 0; e < 8; ++e) acc += cb[e] * wct[(k * 8 + e) * H4 + j4];
+    constexpr int NCMAX = 3;
+    const int width = CT - c0;
+    const int j4 = gid.x, c = c0 + (int)gid.y % width, l0 = ((int)gid.y / width) * D;
+    if (j4 >= H4 || l0 >= L) return;
+    const int NC = rows[c * 3], wrow = rows[c * 3 + 1], net = rows[c * 3 + 2];
+    float4 w[NCMAX * 8];
+    int ci[NCMAX];
+    #pragma clang loop unroll(full)
+    for (int k = 0; k < NCMAX; ++k) {
+        if (k < NC) {
+            ci[k] = cidx[c * NCMAX + k];
+            #pragma clang loop unroll(full)
+            for (int e = 0; e < 8; ++e) w[k * 8 + e] = wct[(wrow + k * 8 + e) * H4 + j4];
+        }
     }
-    out[(long)lc * H4 + j4] = acc;
+    const float4 t = tproj[net * H4 + j4];
+    const int l1 = min(L, l0 + D);
+    for (int l = l0; l < l1; ++l) {
+        float4 acc = t;
+        #pragma clang loop unroll(full)
+        for (int k = 0; k < NCMAX; ++k) {
+            if (k < NC) {
+                device const float* cb = ctx + ((long)l * (NL + 1) + ci[k]) * 8;
+                #pragma clang loop unroll(full)
+                for (int e = 0; e < 8; ++e) acc += cb[e] * w[k * 8 + e];
+            }
+        }
+        out[((long)l * CT + c) * H4 + j4] = acc;
+    }
 }
 
 // One coordinate network on a block of BM rows r = (l * T + w) * C + c:
 //   v[l, w, col0 + c] = w3 . silu(silu(first(r)) @ W2t + b2) + b3,
-//   first(r) = static[r] + cproj[l, c] + scalars(r) @ ws.
+//   first(r) = static[r] + cproj[l, c0 + c] + scalars(r) @ ws,
+// where cproj [L, CT, HN] holds every network's context projections side by side.
 // Each BK-wide slice of the first layer is computed into threadgroup memory as the
 // product needs it, the HN x HN product runs on simdgroup matrices with W2t read through
 // the cache, and the output layer reduces in registers, so no [rows, HN] activation
@@ -246,6 +272,8 @@ kernel void network(
     constant int& NB [[buffer(15)]],
     constant int& NL [[buffer(16)]],
     constant int& col0 [[buffer(17)]],
+    constant int& CT [[buffer(18)]],
+    constant int& c0 [[buffer(19)]],
     uint tgid [[threadgroup_position_in_grid]],
     uint sg [[simdgroup_index_in_threadgroup]],
     uint lane [[thread_index_in_simdgroup]],
@@ -268,7 +296,7 @@ kernel void network(
         if (r < R) {
             const int c = r % C, lw = r / C, w = lw % T, l = lw / T;
             soff[tid] = (((long)static_lead[l] * T + w) * C + c) * HN;
-            coff[tid] = ((long)l * C + c) * HN;
+            coff[tid] = ((long)l * CT + c0 + c) * HN;
             for (int i = 0; i < NS; ++i) {
                 scal[tid * NSMAX + i] = bank[(long)lw * NB + sidx[c * NS + i]];
             }
@@ -362,7 +390,7 @@ template [[host_name("network_" #HN)]] kernel void network<HN, 32, 16, 1, WN>(  
     device const float*, device const int*, device const float*, device const float*,    \
     device const float*, device const float*, device const float*, constant int&,        \
     constant int&, constant int&, constant int&, constant int&, constant int&,           \
-    constant int&, uint, uint, uint, uint);
+    constant int&, constant int&, constant int&, uint, uint, uint, uint);
 NETWORK(16, 2)
 NETWORK(32, 4)
 NETWORK(64, 4)
@@ -375,6 +403,10 @@ _NETWORK_THREADS = {16: 64, 32: 128, 64: 128, 128: 128, 256: 128}
 _BLOCK_ROWS = 32
 #: Most scalar inputs a network row reads.
 _MAX_SCALARS = 8
+#: Most pooled contexts a network row reads (NCMAX of the projection kernel).
+_MAX_CONTEXTS = 3
+#: Draws per context-projection thread.
+_PROJECTION_DRAWS = 8
 #: Threads per Apple GPU simdgroup.
 _SIMD = 32
 
@@ -503,17 +535,31 @@ def _lead_index(shape: torch.Size, lead: torch.Size, device: torch.device) -> Te
     return index.expand(lead).reshape(-1).contiguous()
 
 
+@lru_cache(maxsize=8)
+def _grid_times(times: tuple[float, ...], device: torch.device, dtype: torch.dtype) -> Tensor:
+    """Fourier flow-time features ``[steps, t_dim]`` of the grid times, as the live velocity
+    computes them, made once per grid, device and dtype."""
+    from .flow import _fourier_time
+
+    return torch.stack(
+        [_fourier_time(torch.full((1,), t, device=device, dtype=dtype)) for t in times]
+    ).squeeze(1)
+
+
 class _Network:
     """Kernel-ready tensors of one live coordinate network."""
 
-    def __init__(self, network: _LiveNetwork, weeks: int, column: int, times: Tensor):
+    def __init__(self, network: _LiveNetwork, weeks: int, column: int, offset: int, times: Tensor):
         static = network.static
         self.rows = network.rows
-        self.column = column
+        #: First live state column the network writes; first row of its context projections.
+        self.column, self.offset = column, offset
         self.static_shape = static.shape[:-3]
         self.static = static.reshape(-1, weeks, self.rows, static.shape[-1]).contiguous()
         if network.scalar_index.shape[1] > _MAX_SCALARS:
             raise ValueError(f"GPU sampling kernels read at most {_MAX_SCALARS} scalar inputs")
+        if network.context_index.shape[1] > _MAX_CONTEXTS:
+            raise ValueError(f"GPU sampling kernels read at most {_MAX_CONTEXTS} contexts")
         self.scalar_index = network.scalar_index.to(torch.int32).contiguous()
         self.scalar_weight = network.scalar_weight.t().contiguous()
         self.context_index = network.context_index.to(torch.int32).contiguous()
@@ -522,21 +568,18 @@ class _Network:
         self.hidden_bias = network.hidden_bias.contiguous()
         self.output_weight = network.output_weight.contiguous()
         self.output_bias = network.output_bias.contiguous()
-        # Flow-time projection of the first layer at every grid time, one tensor per step.
-        projected = torch.mm(times, network.time_weight.t())
-        self.time_projections = [row.clone() for row in projected.unbind()]
+        #: Flow-time projection of the first layer at every grid time, ``[steps, hidden]``.
+        self.time_projection = torch.mm(times, network.time_weight.t())
 
 
 class _Prepared:
     """Inputs of one live velocity shared by every batch it transports."""
 
     def __init__(self, live: _LiveVelocity, weeks: int, grid):
-        from .flow import _fourier_time
-
         self.weeks = weeks
         self.grid = tuple(grid)
         reference = live.weight
-        times = torch.stack([_fourier_time(reference.new_full((1,), t)) for t, _, _ in grid])
+        times = _grid_times(tuple(t for t, _, _ in grid), reference.device, reference.dtype)
         token_base = live.token_base  # [..., T, 1, token]
         self.token_shape = token_base.shape[:-3]
         self.token_base = token_base.reshape(-1, weeks, _TOKEN).contiguous()
@@ -551,12 +594,32 @@ class _Prepared:
             ]
         ).contiguous()
         self.networks = []
-        column = 0
+        column = offset = 0
         for network in live.networks:
             if network.rows:
-                self.networks.append(_Network(network, weeks, column, times.squeeze(1)))
+                self.networks.append(_Network(network, weeks, column, offset, times))
+                offset += network.rows
             column += network.rows
         self.hidden = self.networks[0].hidden_weight.shape[0]
+        # Every network's context projections side by side, [lead, coordinates, hidden], in
+        # one dispatch per step. Row c's table entry: contexts, first row of its network's
+        # context weights, network.
+        device = reference.device
+        self.coordinates = offset
+        self.context_index = torch.zeros(offset, _MAX_CONTEXTS, dtype=torch.int32, device=device)
+        table, weight_rows = [], 0
+        for k, network in enumerate(self.networks):
+            n_contexts = network.context_index.shape[1]
+            rows = slice(network.offset, network.offset + network.rows)
+            self.context_index[rows, :n_contexts] = network.context_index
+            table += [(n_contexts, weight_rows, k)] * network.rows
+            weight_rows += n_contexts * 8
+        self.context_rows = to_device_async(torch.tensor(table, dtype=torch.int32), device)
+        self.context_weight = torch.cat([network.context_weight for network in self.networks])
+        #: Every network's time projections, ``[steps, networks, hidden]``.
+        self.time_projections = torch.stack(
+            [network.time_projection for network in self.networks], dim=1
+        )
 
 
 def _prepared(live: _LiveVelocity, weeks: int, grid) -> _Prepared:
@@ -613,10 +676,7 @@ def integrate(
     bank = torch.empty(n_lead, weeks, n_live + 3, device=device, dtype=dtype)
     contexts = torch.empty(n_lead, n_live + 1, _TOKEN, device=device, dtype=dtype)
     velocity = torch.empty(n_lead, weeks, n_live, device=device, dtype=dtype)
-    projections = [
-        torch.empty(n_lead, network.rows, hidden, device=device, dtype=dtype)
-        for network in prepared.networks
-    ]
+    projection = torch.empty(n_lead, prepared.coordinates, hidden, device=device, dtype=dtype)
     # Lanes pooling one coordinate's weeks: about eight weeks per lane, at most a simdgroup.
     lanes = min(_SIMD, 1 << max(0, math.ceil(math.log2(max(1, weeks / 8)))))
     pooled_threads = -(-n_lead * n_live * lanes // _SIMD) * _SIMD
@@ -631,23 +691,27 @@ def integrate(
             threads=pooled_threads, group_size=_SIMD,
         )  # fmt: skip
         last = step == len(grid) - 1
-        for network, static_lead, projection in zip(
-            prepared.networks, static_leads, projections, strict=True
-        ):
-            if last and network.column + network.rows <= final_from:
-                continue
-            rows = n_lead * weeks * network.rows
+        running = [
+            (network, static_lead)
+            for network, static_lead in zip(prepared.networks, static_leads, strict=True)
+            if not (last and network.column + network.rows <= final_from)
+        ]
+        if running:
+            first = running[0][0].offset
             lib.context_projection(
-                projection, contexts, network.context_index, network.context_weight,
-                network.time_projections[step], n_lead, network.rows,
-                network.context_index.shape[1], n_live, h4,
-                threads=(h4, n_lead * network.rows),
+                projection, contexts, prepared.context_index, prepared.context_rows,
+                prepared.context_weight, prepared.time_projections[step], n_lead,
+                prepared.coordinates, first, n_live, h4, _PROJECTION_DRAWS,
+                threads=(h4, (prepared.coordinates - first) * -(-n_lead // _PROJECTION_DRAWS)),
             )  # fmt: skip
+        for network, static_lead in running:
+            rows = n_lead * weeks * network.rows
             kernel(
                 velocity, bank, network.scalar_index, network.scalar_weight, network.static,
                 static_lead, projection, network.hidden_weight, network.hidden_bias,
                 network.output_weight, network.output_bias, rows, weeks, network.rows,
                 network.scalar_index.shape[1], n_live + 3, n_live, network.column,
+                prepared.coordinates, network.offset,
                 threads=-(-rows // _BLOCK_ROWS) * group, group_size=group,
             )  # fmt: skip
         # x <- (x + dt * v) * mask, then the next step's scalar bank.
