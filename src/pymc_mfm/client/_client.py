@@ -74,6 +74,7 @@ class Client:
         draws: int | None = None,
         seed: int | None = None,
         explain_history: bool = False,
+        name: str | None = None,
         preview: bool = False,
         idempotency_key: str | None = None,
     ) -> Analysis | Preview:
@@ -84,7 +85,8 @@ class Client:
         columns, or a dict in the API's form. ``scenarios`` come from ``scenario`` and
         ``grid``, ``curves`` from ``curve``. ``decision_weeks=(i, j)`` (1-based, inclusive)
         limits where steps and curves may change spend. Omitted ``draws`` and ``seed`` take
-        the service's defaults. Pass the same ``idempotency_key`` to repeat a call safely.
+        the service's defaults. ``name`` (1 to 120 characters) labels the analysis on the site
+        and in its export. Pass the same ``idempotency_key`` to repeat a call safely.
         """
         record = self._resolve(dataset)
         body: dict[str, Any] = {
@@ -101,6 +103,8 @@ class Client:
         }
         optional = {"decision_weeks": decision_weeks, "draws": draws, "seed": seed}
         body.update({key: value for key, value in optional.items() if value is not None})
+        if name is not None:
+            body["name"] = name
         if preview:
             body["preview"] = True
         response = self._http.request(
@@ -119,7 +123,13 @@ class Client:
                 **{key: response[key] for key in ("runs_total", "estimate_seconds", "expires_at")},
             }
         )
-        return Analysis(self._http, response["analysis_id"], status)
+        return Analysis(
+            self._http,
+            response["analysis_id"],
+            status,
+            name=response.get("name", name),
+            url=response.get("url"),
+        )
 
     def explore(
         self,
@@ -149,8 +159,14 @@ class Client:
 
     def get(self, analysis_id: str) -> Analysis:
         """Resume an analysis by id. Raises ``NotFound`` or ``Gone`` for a bad or expired id."""
-        status = AnalysisStatus.from_wire(self._http.request("GET", f"/v1/analyses/{analysis_id}"))
-        return Analysis(self._http, analysis_id, status)
+        record = self._http.request("GET", f"/v1/analyses/{analysis_id}")
+        return Analysis(
+            self._http,
+            analysis_id,
+            AnalysisStatus.from_wire(record),
+            name=record.get("name"),
+            url=record.get("url"),
+        )
 
     def list_analyses(self, dataset: Dataset | str | None = None) -> pd.DataFrame:
         """Your analyses, one row each, optionally only those of one dataset."""

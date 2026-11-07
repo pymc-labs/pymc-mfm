@@ -108,6 +108,14 @@ class Http:
         )
         return self._decode(response)
 
+    def download_authenticated(self, path: str) -> bytes:
+        """Fetch the raw bytes of an API path, with the key. Raises ``ApiError`` on failure."""
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "User-Agent": f"pymc-mfm-client/{__version__}",
+        }
+        return self._send("GET", self.base_url + path, headers=headers).content
+
     def download(self, url: str) -> bytes:
         """Fetch a signed URL without credentials. Raises ``ApiError`` on failure."""
         response = self._send("GET", url, headers={"User-Agent": f"pymc-mfm-client/{__version__}"})

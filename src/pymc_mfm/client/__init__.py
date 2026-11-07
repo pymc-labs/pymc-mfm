@@ -17,6 +17,7 @@ needs the ``draws`` extra and plots need the ``plot`` extra.
 """
 
 from ._client import Client
+from ._hash import dataset_content_hash, frame_content_hash
 from .analysis import Analysis, AnalysisStatus, Preview
 from .builders import curve, grid, move, scale, scenario, set_controls, shift
 from .datasets import Dataset
@@ -54,6 +55,8 @@ __all__ = [
     "Unauthorized",
     "ValidationError",
     "curve",
+    "dataset_content_hash",
+    "frame_content_hash",
     "grid",
     "move",
     "scale",
