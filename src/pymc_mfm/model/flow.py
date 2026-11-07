@@ -50,8 +50,13 @@ _FLOW_SAMPLE_ROWS_GPU = 2**19
 # On Apple silicon, where Accelerate runs the products on a separate matrix unit, eight
 # workers share every thread; splitting gained nothing there. In-flight memory scales with
 # the count.
+_APPLE_SILICON = sys.platform == "darwin" and platform.machine() == "arm64"
 _SAMPLE_BATCH_WORKERS = 8
-_SPLIT_SAMPLE_THREADS = not (sys.platform == "darwin" and platform.machine() == "arm64")
+_SPLIT_SAMPLE_THREADS = not _APPLE_SILICON
+#: Off Apple silicon, CPU sampling runs each network's hidden and output layers on row chunks
+#: of this size, so a chunk's activations stay in cache through the product, bias, SiLU and
+#: output layer instead of streaming through memory between them (Apple silicon ran slower).
+_HIDDEN_CHUNK_ROWS = None if _APPLE_SILICON else 4096
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
@@ -1247,6 +1252,7 @@ class _LiveNetwork:
         scalar_index: Tensor,
         context_weight: Tensor,
         context_index: Tensor,
+        chunk_rows: int | None = None,
     ):
         _, act, hidden_layer, act2, output_layer = net
         if not (isinstance(act, nn.SiLU) and isinstance(act2, nn.SiLU)):
@@ -1263,6 +1269,8 @@ class _LiveNetwork:
         self.context_weight = context_weight
         self.context_index = context_index
         self.rows = scalar_index.shape[0]
+        #: Rows per chunk of the hidden and output layers; ``None`` runs them in one call.
+        self.chunk_rows = chunk_rows
 
     def __call__(self, scalars: Tensor, contexts: Tensor, time: Tensor) -> Tensor:
         if self.rows == 0:
@@ -1274,10 +1282,22 @@ class _LiveNetwork:
         hidden = F.linear(state, self.scalar_weight)
         hidden += self.static
         hidden += F.linear(context, self.context_weight, F.linear(time, self.time_weight))
-        hidden = F.silu(hidden, inplace=True).view(-1, hidden.shape[-1])
-        hidden = torch.mm(hidden, self.hidden_weight).add_(self.hidden_bias)
-        hidden = F.silu(hidden, inplace=True)
-        return torch.mv(hidden, self.output_weight).add_(self.output_bias).view(state.shape[:-1])
+        hidden = hidden.view(-1, hidden.shape[-1])
+        chunk = self.chunk_rows
+        if chunk is None or hidden.shape[0] <= chunk:
+            hidden = F.silu(hidden, inplace=True)
+            hidden = torch.mm(hidden, self.hidden_weight).add_(self.hidden_bias)
+            hidden = F.silu(hidden, inplace=True)
+            output = torch.mv(hidden, self.output_weight)
+        else:
+            output = hidden.new_empty(hidden.shape[0])
+            for start in range(0, hidden.shape[0], chunk):
+                # The first layer's SiLU too, while the product is about to read the chunk.
+                part = F.silu(hidden[start : start + chunk], inplace=True)
+                part = torch.mm(part, self.hidden_weight)
+                part = F.silu(part.add_(self.hidden_bias), inplace=True)
+                torch.mv(part, self.output_weight, out=output[start : start + chunk])
+        return output.add_(self.output_bias).view(state.shape[:-1])
 
 
 class _LiveVelocity:
@@ -1307,6 +1327,9 @@ class _LiveVelocity:
         self.compiled = head._compiled_velocity
         self.metal = self.compiled is None and _metal.supported(head, weight)
         device = weekly_repr.device
+        # Eager CPU sampling chunks the networks' hidden layers (see _HIDDEN_CHUNK_ROWS);
+        # compiled sampling traces one call per layer.
+        chunk_rows = _HIDDEN_CHUNK_ROWS if self.compiled is None and device.type == "cpu" else None
         n_channels, n_entities = channel_repr.shape[-2], entity_repr.shape[-2]
         n_fixed = head.n_fixed
         n_decomposition = 1 + n_entities + n_fixed
@@ -1430,6 +1453,7 @@ class _LiveVelocity:
                 scalar_index=columns(1, 0, mean, std),
                 context_weight=base["context"],
                 context_index=columns(1, 0),
+                chunk_rows=chunk_rows,
             )
         ]
 
@@ -1493,6 +1517,7 @@ class _LiveVelocity:
                 scalar_index=columns(n_live_entities, *scalar_columns),
                 context_weight=torch.cat(context_blocks, dim=1),
                 context_index=columns(n_live_entities, *context_columns),
+                chunk_rows=chunk_rows,
             )
         )
 
@@ -1520,6 +1545,7 @@ class _LiveVelocity:
                 scalar_index=columns(live_fixed.numel(), fixed_positions, mean, std),
                 context_weight=fixed["context"],
                 context_index=columns(live_fixed.numel(), fixed_positions),
+                chunk_rows=chunk_rows,
             )
         )
 
@@ -1589,6 +1615,7 @@ class _LiveVelocity:
                         [edge["context"], edge["src_context"], edge["dst_context"]], dim=1
                     ),
                     context_index=slot_rows,
+                    chunk_rows=chunk_rows,
                 )
             )
         self.networks = networks

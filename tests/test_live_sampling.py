@@ -166,6 +166,21 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
     torch.testing.assert_close(concurrent, serial, **ROUND_OFF)
 
 
+@pytest.mark.parametrize("window", ["query", "context"])
+def test_hidden_layer_row_chunks_never_change_a_draw(model64, batch64, monkeypatch, window):
+    monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", None)
+    whole, whole_graphs = _draws(
+        model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
+    )
+    # Seven-row chunks split every network's rows; most counts leave a short last chunk.
+    monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", 7)
+    chunked, chunked_graphs = _draws(
+        model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
+    )
+    assert torch.equal(chunked_graphs, whole_graphs)
+    torch.testing.assert_close(chunked, whole, **ROUND_OFF)
+
+
 @pytest.mark.parametrize("device", GPUS)
 @pytest.mark.parametrize("rows", [2**30, 1])
 @pytest.mark.parametrize("window", ["query", "context"])
