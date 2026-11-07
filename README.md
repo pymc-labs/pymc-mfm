@@ -235,9 +235,9 @@ PyTorch 2.14, median of seven warm calls, `benchmarks/inference_speed.py --query
 | Query weeks | CPU (s) | Apple GPU (s) | Speedup |
 | ---: | ---: | ---: | ---: |
 | 10 | 0.66 | 0.075 | 8.8x |
-| 50 | 2.51 | 0.30 | 8.3x |
-| 150 | 7.25 | 0.87 | 8.3x |
-| 205 | 10.17 | 1.18 | 8.6x |
+| 50 | 2.51 | 0.30 | 8.4x |
+| 150 | 7.25 | 0.86 | 8.4x |
+| 205 | 10.17 | 1.17 | 8.7x |
 
 - GPU sampling draws its base noise with PyTorch's CPU generator: the generator draws the
   uniforms `torch.randn` would use and the GPU turns them into the same normals. A seeded

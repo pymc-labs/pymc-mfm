@@ -14,6 +14,8 @@ import pytest
 import torch
 
 import pymc_mfm.model.flow as flow
+from pymc_mfm.model import _metal
+from pymc_mfm.model.encoder import BiAttentionBlock
 from pymc_mfm.model.flow import _LiveVelocity
 from pymc_mfm.model.graph import EdgeSlotLayout
 
@@ -159,6 +161,29 @@ def test_apple_gpu_draws_the_cpu_samples(model, batch, monkeypatch, rows, window
     assert calls, "the Apple GPU kernels must transport the draws"
     assert torch.equal(gpu_graphs.cpu(), cpu_graphs)
     torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+def test_apple_gpu_attention_kernels_match_masked_attention(monkeypatch):
+    # 16-wide heads run the Metal kernels. 70 weeks span three runs of 32 causal keys;
+    # the two tasks pad different entities and the last entity is active in neither.
+    torch.manual_seed(12)
+    block = BiAttentionBlock(d_model=32, n_heads=2, d_ff=64).to("mps").eval()
+    x = torch.randn(2, 70, 5, 32, device="mps")
+    time_mask = torch.ones(70, 70, dtype=torch.bool, device="mps").tril()
+    active = torch.tensor([[1, 1, 0, 1, 0], [1, 0, 1, 1, 0]], dtype=torch.bool, device="mps")
+    calls = []
+    for name in ("causal_attention", "masked_attention"):
+        kernel = getattr(_metal, name)
+        monkeypatch.setattr(
+            _metal, name, lambda *a, kernel=kernel, name=name: calls.append(name) or kernel(*a)
+        )
+    with torch.no_grad():
+        kernels = block(x, time_mask, active, causal=True)
+        monkeypatch.setattr(_metal, "attention_supported", lambda *_: False)
+        reference = block(x, time_mask, active, causal=True)
+    assert calls == ["causal_attention", "masked_attention"]
+    torch.testing.assert_close(kernels.cpu(), reference.cpu(), rtol=1e-5, atol=1e-5)
 
 
 @pytest.mark.parametrize("window", ["query", "context"])

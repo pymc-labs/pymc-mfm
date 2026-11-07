@@ -13,6 +13,7 @@ from pymc_mfm.data.features import (
     MEDIA_FEATURE_BLOCKS,
     MOMENT_FEATURE_BLOCKS,
 )
+from pymc_mfm.model import _metal
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.primitives import MultiHeadAttention, RMSNorm, SwiGLU
 
@@ -38,7 +39,10 @@ class BiAttentionBlock(nn.Module):
         x: Tensor,
         time_mask: Tensor,
         entity_active: Tensor | None = None,
+        *,
+        causal: bool = False,
     ) -> Tensor:
+        """``causal`` declares ``time_mask`` lower-triangular (see ``MultiHeadAttention``)."""
         b, t, c, d = x.shape
         if entity_active is None:
             entity_active = torch.ones(b, c, dtype=torch.bool, device=x.device)
@@ -50,30 +54,29 @@ class BiAttentionBlock(nn.Module):
         active_grid = active[:, None, :, None].to(x.dtype)
         x = x * active_grid
         xt = x.permute(0, 2, 1, 3).reshape(b * c, t, d)
-        xt = xt + self.time_attn(self.time_norm(xt), time_mask)
+        xt = xt + self.time_attn(self.time_norm(xt), time_mask, causal=causal)
         x = xt.reshape(b, c, t, d).permute(0, 2, 1, 3) * active_grid
 
         xc = x.reshape(b * t, c, d)
         normed = self.chan_norm(xc)
-        qkv = self.chan_attn.qkv(normed).reshape(
-            b * t,
-            c,
-            3,
-            self.chan_attn.n_heads,
-            self.chan_attn.d_head,
-        )
-        query, key, value = qkv.unbind(dim=2)
-        query = query.transpose(1, 2)
-        key = key.transpose(1, 2)
-        value = value.transpose(1, 2)
-        key_active = active[:, None, :].expand(b, t, c).reshape(b * t, 1, 1, c)
-        attended = F.scaled_dot_product_attention(
-            query,
-            key,
-            value,
-            attn_mask=key_active,
-        )
-        attended = attended.transpose(1, 2).reshape(b * t, c, d)
+        packed = self.chan_attn.qkv(normed)
+        if _metal.attention_supported(packed, self.chan_attn.d_head):
+            # Each week's entities attend the active entities of the week's task.
+            attended = _metal.masked_attention(packed, self.chan_attn.n_heads, active)
+        else:
+            qkv = packed.reshape(b * t, c, 3, self.chan_attn.n_heads, self.chan_attn.d_head)
+            query, key, value = qkv.unbind(dim=2)
+            query = query.transpose(1, 2)
+            key = key.transpose(1, 2)
+            value = value.transpose(1, 2)
+            key_active = active[:, None, :].expand(b, t, c).reshape(b * t, 1, 1, c)
+            attended = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=key_active,
+            )
+            attended = attended.transpose(1, 2).reshape(b * t, c, d)
         xc = xc + self.chan_attn.out(attended)
         x = xc.reshape(b, t, c, d) * active_grid
         return (x + self.ffn(self.ffn_norm(x))) * active_grid
@@ -244,7 +247,7 @@ class BiAttentionEncoder(nn.Module):
         n_weeks = n_ctx + n_q
         time_mask = torch.ones(n_weeks, n_weeks, dtype=torch.bool, device=x.device).tril()
         for block in self.blocks:
-            x = block(x, time_mask, entity_active)
+            x = block(x, time_mask, entity_active, causal=True)
         x = self.norm(x)
         return TimelineRepresentations(
             context=self._split(x[:, :n_ctx], n_real),

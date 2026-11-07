@@ -396,6 +396,111 @@ NETWORK(32, 4)
 NETWORK(64, 4)
 NETWORK(128, 4)
 NETWORK(256, 4)
+
+// Encoder self-attention over 16-wide heads, as scaled_dot_product_attention computes it,
+// reading q, k and v from the packed projection [sequences, N, 3, heads, 16] and writing
+// [sequences, N, heads, 16]. Each thread keeps one query's online-softmax state.
+//
+// Causal (attention over weeks): query i attends keys j <= i. One threadgroup of 32
+// threads per (sequence, head, run of 32 queries); runs of 32 keys pass through
+// threadgroup memory.
+kernel void causal_attention16(
+    device float* out [[buffer(0)]],
+    device const float* qkv [[buffer(1)]],
+    constant int& N [[buffer(2)]],
+    constant int& heads [[buffer(3)]],
+    constant int& tiles [[buffer(4)]],
+    uint tgid [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_threadgroup]])
+{
+    threadgroup float K[32 * 16];
+    threadgroup float V[32 * 16];
+    const int tile = tgid % tiles, head = (tgid / tiles) % heads, seq = tgid / (tiles * heads);
+    const int width = heads * 16, stride = 3 * width;
+    device const float* rows = qkv + (long)seq * N * stride + head * 16;
+    const int i = tile * 32 + (int)lane;
+    const bool valid = i < N;
+    float q[16], acc[16];
+    for (int d = 0; d < 16; ++d) {
+        q[d] = valid ? rows[(long)i * stride + d] : 0.0f;
+        acc[d] = 0.0f;
+    }
+    float m = -INFINITY, l = 0.0f;
+    const int keys = min(N, tile * 32 + 32);
+    for (int j0 = 0; j0 < keys; j0 += 32) {
+        const int j = j0 + (int)lane;
+        for (int d = 0; d < 16; ++d) {
+            K[lane * 16 + d] = j < N ? rows[(long)j * stride + width + d] : 0.0f;
+            V[lane * 16 + d] = j < N ? rows[(long)j * stride + 2 * width + d] : 0.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        const int count = valid ? min(32, i - j0 + 1) : 0;
+        for (int c = 0; c < count; ++c) {
+            float s = 0.0f;
+            for (int d = 0; d < 16; ++d) s = fma(q[d], K[c * 16 + d], s);
+            s *= 0.25f;
+            if (s > m) {
+                const float correction = precise::exp(m - s);
+                l *= correction;
+                for (int d = 0; d < 16; ++d) acc[d] *= correction;
+                m = s;
+            }
+            const float p = precise::exp(s - m);
+            l += p;
+            for (int d = 0; d < 16; ++d) acc[d] = fma(p, V[c * 16 + d], acc[d]);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (valid) {
+        device float* o = out + ((long)seq * N + i) * width + head * 16;
+        for (int d = 0; d < 16; ++d) o[d] = acc[d] / l;
+    }
+}
+
+// Key-masked (attention over a week's entities): query i attends the keys j active for
+// its sequence's task, active[(seq / per_task) * N + j]. One thread per (sequence, head,
+// query).
+kernel void masked_attention16(
+    device float* out [[buffer(0)]],
+    device const float* qkv [[buffer(1)]],
+    device const bool* active [[buffer(2)]],
+    constant int& N [[buffer(3)]],
+    constant int& heads [[buffer(4)]],
+    constant int& per_task [[buffer(5)]],
+    constant int& sequences [[buffer(6)]],
+    uint gid [[thread_position_in_grid]])
+{
+    const int i = gid % N, head = (gid / N) % heads, seq = gid / (N * heads);
+    if (seq >= sequences) return;
+    const int width = heads * 16, stride = 3 * width;
+    device const float* rows = qkv + (long)seq * N * stride + head * 16;
+    device const bool* keys = active + (long)(seq / per_task) * N;
+    float q[16], acc[16];
+    for (int d = 0; d < 16; ++d) {
+        q[d] = rows[(long)i * stride + d];
+        acc[d] = 0.0f;
+    }
+    float m = -INFINITY, l = 0.0f;
+    for (int j = 0; j < N; ++j) {
+        if (!keys[j]) continue;
+        device const float* k = rows + (long)j * stride + width;
+        float s = 0.0f;
+        for (int d = 0; d < 16; ++d) s = fma(q[d], k[d], s);
+        s *= 0.25f;
+        if (s > m) {
+            const float correction = precise::exp(m - s);
+            l *= correction;
+            for (int d = 0; d < 16; ++d) acc[d] *= correction;
+            m = s;
+        }
+        const float p = precise::exp(s - m);
+        l += p;
+        device const float* v = k + width;
+        for (int d = 0; d < 16; ++d) acc[d] = fma(p, v[d], acc[d]);
+    }
+    device float* o = out + ((long)seq * N + i) * width + head * 16;
+    for (int d = 0; d < 16; ++d) o[d] = acc[d] / l;
+}
 """
 
 #: Threads per network threadgroup for each compiled hidden width (32 rows per group).
@@ -436,6 +541,15 @@ def to_device_async(host: Tensor, device: torch.device) -> Tensor:
         _READING[:] = [entry for entry in _READING if not entry[0].query()]
         _READING.append((event, host))
     return moved
+
+
+def flush() -> None:
+    """Commit the GPU work queued so far without waiting for it.
+
+    MPS encodes kernels into a command buffer that the GPU starts only once something
+    commits it, such as a read that waits; recording an event commits it at once.
+    """
+    torch.mps.Event().record()
 
 
 @dataclass(frozen=True)
@@ -542,6 +656,52 @@ def uniform_normals() -> bool:
         if not torch.allclose(got, expected, rtol=1e-5, atol=1e-5):
             return False
     return torch.equal(normal.get_state(), uniform.get_state())
+
+
+def attention_supported(qkv: Tensor, head_width: int) -> bool:
+    """Whether the attention kernels can read the packed projection ``qkv[S, N, 3 * D]``."""
+    return (
+        qkv.device.type == "mps"
+        and qkv.dtype == torch.float32
+        and qkv.dim() == 3
+        and qkv.is_contiguous()
+        and head_width == 16
+        and not (torch.is_grad_enabled() and qkv.requires_grad)
+    )
+
+
+def causal_attention(qkv: Tensor, heads: int) -> Tensor:
+    """Causal self-attention of 16-wide heads from ``qkv[S, N, 3 * heads * 16]``.
+
+    Equals ``scaled_dot_product_attention`` under a lower-triangular mask up to float32
+    round-off, without materializing the ``N x N`` scores; returns ``[S, N, heads * 16]``.
+    """
+    sequences, length, _ = qkv.shape
+    out = torch.empty(sequences, length, heads * 16, device=qkv.device, dtype=qkv.dtype)
+    tiles = -(-length // _SIMD)
+    _library().causal_attention16(
+        out, qkv, length, heads, tiles,
+        threads=sequences * heads * tiles * _SIMD, group_size=_SIMD,
+    )  # fmt: skip
+    return out
+
+
+def masked_attention(qkv: Tensor, heads: int, active: Tensor) -> Tensor:
+    """Self-attention of 16-wide heads over each task's active keys.
+
+    ``qkv[S, N, 3 * heads * 16]`` holds ``S = tasks * per_task`` sequences, task-major;
+    ``active[tasks, N]`` marks the keys of each task. Equals
+    ``scaled_dot_product_attention`` with that key mask up to float32 round-off; returns
+    ``[S, N, heads * 16]``.
+    """
+    sequences, length, _ = qkv.shape
+    active = active.to(torch.bool).contiguous()
+    out = torch.empty(sequences, length, heads * 16, device=qkv.device, dtype=qkv.dtype)
+    _library().masked_attention16(
+        out, qkv, active, length, heads, sequences // active.shape[0], sequences,
+        threads=sequences * heads * length,
+    )  # fmt: skip
+    return out
 
 
 def supported(head: JointFlowHead, weight: Tensor) -> bool:
@@ -749,4 +909,6 @@ def integrate(
             n_entities,
             threads=n_lead * weeks,
         )  # fmt: skip
+    # Let the GPU start on this transport while the host prepares the next one.
+    flush()
     return x.reshape(state.shape)
