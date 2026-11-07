@@ -22,7 +22,7 @@ from torch import Tensor
 BLOCK_ROWS = 64
 _ROWS_PER_THREAD = 8
 _SLICE = 16
-_MIN_BLOCKS = 1
+_MIN_BLOCKS = 2
 NETWORK_THREADS = {
     hidden: (BLOCK_ROWS // _ROWS_PER_THREAD) * min(hidden, 32) for hidden in (16, 32, 64, 128, 256)
 }
@@ -199,8 +199,34 @@ extern "C" __global__ void context_projection(
 # Each BK-wide slice of the first layer is computed into shared memory as the product needs
 # it, with the matching slice of W2t; each thread accumulates TM rows x TN columns in
 # registers and the output layer reduces across the warp, so no [rows, HN] activation
-# reaches device memory.
+# reaches device memory. On sm_80 and newer the slices are double-buffered: the next W2t
+# slice is copied asynchronously (cp.async) during the current product and the next
+# first-layer slice is built right after it, with one barrier per slice.
 _NETWORK = r"""
+#if __CUDA_ARCH__ >= 800
+#define BUFFERS 2
+#else
+#define BUFFERS 1
+#endif
+
+// 16-byte global-to-shared copy, asynchronous on sm_80 and newer.
+__device__ __forceinline__ void copy16(float* shared, const float* global) {
+#if __CUDA_ARCH__ >= 800
+    unsigned address;
+    asm volatile("{ .reg .u64 t; cvta.to.shared.u64 t, %1; cvt.u32.u64 %0, t; }"
+                 : "=r"(address) : "l"(shared));
+    asm volatile("cp.async.cg.shared.global [%0], [%1], 16;" :: "r"(address), "l"(global));
+#else
+    *reinterpret_cast<float4*>(shared) = *reinterpret_cast<const float4*>(global);
+#endif
+}
+
+__device__ __forceinline__ void copies_done() {
+#if __CUDA_ARCH__ >= 800
+    asm volatile("cp.async.wait_all;" ::: "memory");
+#endif
+}
+
 template <int HN, int BM, int BK, int TM>
 __device__ __forceinline__ void network_body(
     float* __restrict__ v, const float* __restrict__ bank, const int* __restrict__ sidx,
@@ -214,10 +240,12 @@ __device__ __forceinline__ void network_body(
     const int COLS = HN < 32 ? HN : 32;
     const int TN = HN / COLS;
     const int NT = (BM / TM) * COLS;
+    const int STEPS = HN / BK;
     // With TN a multiple of 4 a thread owns float4 runs of columns, one run per 4*COLS.
     const bool VEC = TN % 4 == 0;
-    __shared__ alignas(16) float As[BK][BM];
-    __shared__ alignas(16) float Bs[BK][HN];
+    // First-layer rows padded by 4 floats: fewer bank conflicts when they are stored.
+    __shared__ alignas(16) float As[BUFFERS][BK][BM + 4];
+    __shared__ alignas(16) float Bs[BUFFERS][BK][HN];
     __shared__ float scal[BM][NSMAX];
     __shared__ i64 soff[BM];
     __shared__ i64 coff[BM];
@@ -239,35 +267,64 @@ __device__ __forceinline__ void network_body(
         }
     }
     __syncthreads();
+    // First-layer slice at k0 into buffer buf: each thread builds 4 consecutive values of one
+    // row from 128-bit loads.
+    auto first = [&](int k0, int buf) {
+        for (int e = tid; e < BM * BK / 4; e += NT) {
+            const int r = e / (BK / 4), q = (e % (BK / 4)) * 4, k = k0 + q;
+            const i64 so = soff[r];
+            float a0 = 0.0f, a1 = 0.0f, a2 = 0.0f, a3 = 0.0f;
+            if (so >= 0) {
+                const float4 s = *reinterpret_cast<const float4*>(stat + so + k);
+                const float4 p = *reinterpret_cast<const float4*>(cproj + coff[r] + k);
+                a0 = s.x + p.x;
+                a1 = s.y + p.y;
+                a2 = s.z + p.z;
+                a3 = s.w + p.w;
+                for (int i = 0; i < NS; ++i) {
+                    const float c = scal[r][i];
+                    const float4 w = *reinterpret_cast<const float4*>(ws + i * HN + k);
+                    a0 += c * w.x;
+                    a1 += c * w.y;
+                    a2 += c * w.z;
+                    a3 += c * w.w;
+                }
+                a0 = silu(a0);
+                a1 = silu(a1);
+                a2 = silu(a2);
+                a3 = silu(a3);
+            }
+            As[buf][q][r] = a0;
+            As[buf][q + 1][r] = a1;
+            As[buf][q + 2][r] = a2;
+            As[buf][q + 3][r] = a3;
+        }
+    };
+    auto weights = [&](int k0, int buf) {
+        float* to = &Bs[buf][0][0];
+        const float* from = w2t + (i64)k0 * HN;
+        for (int e = tid; e < BK * HN / 4; e += NT) copy16(to + 4 * e, from + 4 * e);
+    };
     float acc[TM][TN];
 #pragma unroll
     for (int i = 0; i < TM; ++i) {
 #pragma unroll
         for (int j = 0; j < TN; ++j) acc[i][j] = 0.0f;
     }
-    for (int k0 = 0; k0 < HN; k0 += BK) {
-        for (int e = tid; e < BM * BK; e += NT) {
-            const int r = e / BK, k = k0 + e % BK;
-            const i64 so = soff[r];
-            float a = 0.0f;
-            if (so >= 0) {
-                a = stat[so + k] + cproj[coff[r] + k];
-                for (int i = 0; i < NS; ++i) a += scal[r][i] * ws[i * HN + k];
-                a = silu(a);
-            }
-            As[e % BK][r] = a;
-        }
-        for (int e = tid; e < BK * HN / 4; e += NT) {
-            reinterpret_cast<float4*>(&Bs[0][0])[e] =
-                reinterpret_cast<const float4*>(w2t + (i64)k0 * HN)[e];
-        }
-        __syncthreads();
+    weights(0, 0);
+    first(0, 0);
+    copies_done();
+    __syncthreads();
+    for (int step = 0; step < STEPS; ++step) {
+        const int cur = BUFFERS == 2 ? step & 1 : 0, next = BUFFERS == 2 ? cur ^ 1 : 0;
+        const bool more = step + 1 < STEPS;
+        if (BUFFERS == 2 && more) weights((step + 1) * BK, next);
 #pragma unroll
         for (int kk = 0; kk < BK; ++kk) {
             float a[TM], b[TN];
 #pragma unroll
             for (int h = 0; h < TM / 4; ++h) {
-                const float4 q = *reinterpret_cast<const float4*>(&As[kk][ty * TM + 4 * h]);
+                const float4 q = *reinterpret_cast<const float4*>(&As[cur][kk][ty * TM + 4 * h]);
                 a[4 * h] = q.x;
                 a[4 * h + 1] = q.y;
                 a[4 * h + 2] = q.z;
@@ -277,7 +334,7 @@ __device__ __forceinline__ void network_body(
 #pragma unroll
                 for (int g = 0; g < TN / 4; ++g) {
                     const float4 q =
-                        *reinterpret_cast<const float4*>(&Bs[kk][g * COLS * 4 + tx * 4]);
+                        *reinterpret_cast<const float4*>(&Bs[cur][kk][g * COLS * 4 + tx * 4]);
                     b[4 * g] = q.x;
                     b[4 * g + 1] = q.y;
                     b[4 * g + 2] = q.z;
@@ -285,13 +342,22 @@ __device__ __forceinline__ void network_body(
                 }
             } else {
 #pragma unroll
-                for (int j = 0; j < TN; ++j) b[j] = Bs[kk][j * COLS + tx];
+                for (int j = 0; j < TN; ++j) b[j] = Bs[cur][kk][j * COLS + tx];
             }
 #pragma unroll
             for (int i = 0; i < TM; ++i) {
 #pragma unroll
                 for (int j = 0; j < TN; ++j) acc[i][j] = fmaf(a[i], b[j], acc[i][j]);
             }
+        }
+        if (more) {
+            if (BUFFERS == 1) {
+                // One buffer: every thread must finish reading it before it is refilled.
+                __syncthreads();
+                weights((step + 1) * BK, 0);
+            }
+            first((step + 1) * BK, next);
+            copies_done();
         }
         __syncthreads();
     }

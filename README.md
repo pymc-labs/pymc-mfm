@@ -235,10 +235,10 @@ or `--device cuda`):
 
 | Query weeks | CPU, Apple M3 Max (s) | Apple M3 Max GPU (s) | NVIDIA L4 (s) | NVIDIA A100 (s) | NVIDIA H100 (s) |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 10 | 0.66 | 0.075 | 0.11 | 0.090 | 0.053 |
-| 50 | 2.51 | 0.30 | 0.39 | 0.27 | 0.14 |
-| 150 | 7.25 | 0.86 | 1.09 | 0.73 | 0.40 |
-| 205 | 10.17 | 1.17 | 1.49 | 0.97 | 0.53 |
+| 10 | 0.66 | 0.075 | 0.10 | 0.084 | 0.063 |
+| 50 | 2.51 | 0.30 | 0.35 | 0.23 | 0.13 |
+| 150 | 7.25 | 0.86 | 1.00 | 0.60 | 0.32 |
+| 205 | 10.17 | 1.17 | 1.35 | 0.80 | 0.41 |
 
 - GPU sampling draws its base noise with PyTorch's CPU generator, so a seeded call draws
   the same samples on CPU, Apple and NVIDIA GPUs up to float32 round-off (identical graphs
@@ -249,7 +249,7 @@ or `--device cuda`):
   its hidden product and its output without writing activations to memory: Metal on Apple
   GPUs; CUDA C++ on NVIDIA GPUs, compiled on first use by NVRTC, which PyTorch's CUDA
   wheels include (no CUDA toolkit or compiler). Against PyTorch's GPU operations on the
-  same GPU this is 2.5–4.8x faster at 50–205 query weeks and 2.3–2.9x at 10, where the CPU
+  same GPU this is 2.7–7.2x faster at 50–205 query weeks and 2.5–3.3x at 10, where the CPU
   sets more of the pace (NVIDIA T4 to H100).
 - The NVIDIA kernels run on the current CUDA device. Other devices, ROCm, float64 models,
   compiled sampling and builds whose NVRTC cannot compile for the GPU (sampling warns once)

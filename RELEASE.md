@@ -38,9 +38,9 @@ approved or published release.
   (Apple silicon CPU draws are bitwise unchanged). River-1, 1,000
   query draws on the quickstart world with a 166-week context at 10, 50, 150 and 205 query
   weeks: Apple M3 Max CPU 0.66, 2.51, 7.25 and 10.17 s; its GPU 0.075, 0.30, 0.86 and 1.17 s
-  (8.4–8.8x; the previous MPS path took 0.42, 1.61, 4.50 and 6.15 s); NVIDIA L4 0.11, 0.39,
-  1.09 and 1.49 s; A100 0.090, 0.27, 0.73 and 0.97 s; H100 0.053, 0.14, 0.40 and 0.53 s
-  (2.5–4.8x faster than PyTorch's GPU operations at 50–205 weeks on T4 to H100, 2.3–2.9x at
+  (8.4–8.8x; the previous MPS path took 0.42, 1.61, 4.50 and 6.15 s); NVIDIA L4 0.10, 0.35,
+  1.00 and 1.35 s; A100 0.084, 0.23, 0.60 and 0.80 s; H100 0.063, 0.13, 0.32 and 0.41 s
+  (2.7–7.2x faster than PyTorch's GPU operations at 50–205 weeks on T4 to H100, 2.5–3.3x at
   10). Graphs are identical to the CPU draws on every device and components agree within
   2e-6 of the largest component. `benchmarks/inference_speed.py --query-weeks
   10,50,150,205 --device mps` (or `--device cuda`) reproduces it.
