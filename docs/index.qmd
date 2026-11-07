@@ -51,7 +51,7 @@ css: assets/styles/landing.css
     <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
   </header>
 
-  <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, decomposes the last 13 weeks into 1,000 posterior draws and plots the mean contributions. Illustrative data.">
+  <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, decomposes the last 13 weeks into 1,000 posterior draws, exports an ArviZ DataTree, summarises each channel's total contribution, and plots its distribution, the weekly contributions with 90% intervals and the stacked mean decomposition. Synthetic data; the outputs come from River 1.0.">
     <div class="mfm-stage__bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="mfm-grain" aria-hidden="true"></div>
 
@@ -101,8 +101,17 @@ css: assets/styles/landing.css
   <div class="mfm-cell__main">
     <div class="mfm-cell__box">
       <span class="mfm-cell__bar" aria-hidden="true"></span>
-<pre class="mfm-cell__code"><code><span class="k">import</span> <span class="m">pandas</span> <span class="k">as</span> <span class="m">pd</span>
+<pre class="mfm-cell__code"><code><span class="k">import</span> <span class="m">arviz_stats</span> <span class="k">as</span> <span class="m">azs</span>
+<span class="k">import</span> <span class="m">matplotlib.pyplot</span> <span class="k">as</span> <span class="m">plt</span>
+<span class="k">import</span> <span class="m">numpy</span> <span class="k">as</span> <span class="m">np</span>
+<span class="k">import</span> <span class="m">pandas</span> <span class="k">as</span> <span class="m">pd</span>
 <span class="k">from</span> <span class="m">pymc_mfm</span> <span class="k">import</span> <span class="f">from_pretrained</span>
+
+<span class="m">plt</span>.<span class="v">style</span>.<span class="f">use</span>(<span class="s">"dark_background"</span>)
+<span class="m">plt</span>.<span class="v">rcParams</span>.<span class="f">update</span>({
+    <span class="s">"axes.prop_cycle"</span>: <span class="m">plt</span>.<span class="f">cycler</span>(<span class="p">color</span><span class="o">=</span>[<span class="s">"#b4e7dd"</span>, <span class="s">"#f6ae72"</span>, <span class="s">"#c8b4e7"</span>]),
+    <span class="s">"figure.constrained_layout.use"</span>: <span class="k">True</span>,
+})
 
 <span class="v">df</span> <span class="o">=</span> <span class="m">pd</span>.<span class="f">read_csv</span>(<span class="s">"data/weekly_sales.csv"</span>, <span class="p">parse_dates</span><span class="o">=</span>[<span class="s">"week"</span>])
 <span class="v">df</span>.<span class="f">head</span>()</code></pre>
@@ -110,20 +119,20 @@ css: assets/styles/landing.css
     </div>
     <div class="mfm-cell__output">
       <table class="mfm-df">
-        <thead><tr><th></th><th>week</th><th>tv</th><th>search</th><th>social</th><th>price</th><th>sales</th></tr></thead>
+        <thead><tr><th></th><th>week</th><th>tv</th><th>search</th><th>social</th><th>promo</th><th>sales</th></tr></thead>
         <tbody>
-          <tr><th>0</th><td>2024-01-01</td><td>12400.0</td><td>3180.5</td><td>1920.0</td><td>4.99</td><td>51230.4</td></tr>
-          <tr><th>1</th><td>2024-01-08</td><td>0.0</td><td>3342.1</td><td>2050.0</td><td>4.99</td><td>47915.2</td></tr>
-          <tr><th>2</th><td>2024-01-15</td><td>0.0</td><td>3011.8</td><td>1875.5</td><td>4.79</td><td>46102.7</td></tr>
-          <tr><th>3</th><td>2024-01-22</td><td>15800.0</td><td>3420.0</td><td>2210.0</td><td>4.79</td><td>53877.9</td></tr>
-          <tr><th>4</th><td>2024-01-29</td><td>15800.0</td><td>3605.3</td><td>2190.5</td><td>4.99</td><td>55410.1</td></tr>
+          <tr><th>0</th><td>2021-03-29</td><td>16300.0</td><td>1472.6</td><td>1215.5</td><td>0</td><td>52982.8</td></tr>
+          <tr><th>1</th><td>2021-04-05</td><td>0.0</td><td>1357.7</td><td>763.9</td><td>0</td><td>39306.6</td></tr>
+          <tr><th>2</th><td>2021-04-12</td><td>0.0</td><td>984.3</td><td>4291.7</td><td>0</td><td>48753.2</td></tr>
+          <tr><th>3</th><td>2021-04-19</td><td>0.0</td><td>1329.7</td><td>4668.3</td><td>0</td><td>53429.6</td></tr>
+          <tr><th>4</th><td>2021-04-26</td><td>0.0</td><td>1742.9</td><td>1149.4</td><td>0</td><td>45187.8</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 </div>
 
-<div class="mfm-cell" data-duration="1700">
+<div class="mfm-cell" data-duration="1600">
   <div class="mfm-cell__gutter"><span class="mfm-cell__count">[2]</span></div>
   <div class="mfm-cell__main">
     <div class="mfm-cell__box">
@@ -133,14 +142,14 @@ css: assets/styles/landing.css
     <span class="p">date_column</span><span class="o">=</span><span class="s">"week"</span>,
     <span class="p">target_column</span><span class="o">=</span><span class="s">"sales"</span>,
     <span class="p">channel_columns</span><span class="o">=</span>[<span class="s">"tv"</span>, <span class="s">"search"</span>, <span class="s">"social"</span>],
-    <span class="p">control_columns</span><span class="o">=</span>[<span class="s">"price"</span>],
+    <span class="p">control_columns</span><span class="o">=</span>[<span class="s">"promo"</span>],
 )</code></pre>
       <span class="mfm-cell__status" aria-hidden="true">✓</span>
     </div>
   </div>
 </div>
 
-<div class="mfm-cell" data-duration="2000">
+<div class="mfm-cell" data-duration="1800">
   <div class="mfm-cell__gutter"><span class="mfm-cell__count">[3]</span></div>
   <div class="mfm-cell__main">
     <div class="mfm-cell__box">
@@ -153,21 +162,111 @@ css: assets/styles/landing.css
   </div>
 </div>
 
-<div class="mfm-cell" data-duration="900">
+<div class="mfm-cell" data-duration="1000">
   <div class="mfm-cell__gutter"><span class="mfm-cell__count">[4]</span></div>
   <div class="mfm-cell__main">
     <div class="mfm-cell__box">
       <span class="mfm-cell__bar" aria-hidden="true"></span>
-<pre class="mfm-cell__code"><code><span class="v">mean</span> <span class="o">=</span> <span class="m">pd</span>.<span class="t">DataFrame</span>(
-    <span class="v">query</span>.<span class="v">components</span>.<span class="f">mean</span>(<span class="p">axis</span><span class="o">=</span><span class="n">0</span>), <span class="p">index</span><span class="o">=</span><span class="v">query</span>.<span class="v">time</span>, <span class="p">columns</span><span class="o">=</span><span class="v">query</span>.<span class="v">component_names</span>
-)
-<span class="v">mean</span>[[<span class="s">"baseline"</span>, <span class="s">"channel:tv"</span>, <span class="s">"channel:search"</span>, <span class="s">"channel:social"</span>]].<span class="v">plot</span>.<span class="f">area</span>()</code></pre>
+<pre class="mfm-cell__code"><code><span class="v">idata</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">build_idata</span>()  <span class="c"># ArviZ DataTree with context and query windows</span>
+<span class="v">idata</span>[<span class="s">"query"</span>][<span class="s">"posterior"</span>]</code></pre>
       <span class="mfm-cell__status" aria-hidden="true">✓</span>
     </div>
     <div class="mfm-cell__output">
-      <pre class="mfm-cell__text">&lt;Axes: &gt;</pre>
-      <svg class="mfm-area" data-mfm="area" viewBox="0 0 640 300" aria-hidden="true"></svg>
+      <div class="mfm-xr">
+        <p class="mfm-xr__head">xarray.DataTree <span>'posterior'</span></p>
+        <p class="mfm-xr__sec">▸ Group: /query/posterior</p>
+        <p class="mfm-xr__sec">▾ Dimensions: <span>(chain: 1, draw: 1000, date: 13, channel: 3, control: 1, edge: 18)</span></p>
+        <p class="mfm-xr__sec">▸ Coordinates: <span>(6)</span></p>
+        <p class="mfm-xr__sec">▾ Data variables:</p>
+        <table class="mfm-xr__vars">
+          <tr><th>channel_contribution</th><td>(chain, draw, date, channel)</td><td>float64</td><td>1.585e+04 ...</td></tr>
+          <tr><th>control_contribution</th><td>(chain, draw, date, control)</td><td>float64</td><td>229.1 ...</td></tr>
+          <tr><th>baseline</th><td>(chain, draw, date)</td><td>float64</td><td>2.608e+04 ...</td></tr>
+          <tr><th>latent</th><td>(chain, draw, date)</td><td>float64</td><td>0.0 0.0 ...</td></tr>
+          <tr><th>indirect_cc</th><td>(chain, draw, date)</td><td>float64</td><td>0.0 0.0 ...</td></tr>
+          <tr><th>indirect_zc</th><td>(chain, draw, date)</td><td>float64</td><td>0.0 0.0 ...</td></tr>
+          <tr><th>indirect_dc</th><td>(chain, draw, date)</td><td>float64</td><td>0.0 0.0 ...</td></tr>
+          <tr><th>graph</th><td>(chain, draw, edge)</td><td>float32</td><td>1.0 1.0 ...</td></tr>
+        </table>
+        <p class="mfm-xr__sec">▸ Attributes: <span>(21)</span></p>
+      </div>
     </div>
+  </div>
+</div>
+
+<div class="mfm-cell" data-duration="700">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[5]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="v">total</span> <span class="o">=</span> <span class="v">idata</span>[<span class="s">"query"</span>][<span class="s">"posterior"</span>][<span class="s">"channel_contribution"</span>].<span class="f">sum</span>(<span class="s">"date"</span>)
+<span class="m">azs</span>.<span class="f">summary</span>(<span class="v">total</span>, <span class="p">kind</span><span class="o">=</span><span class="s">"stats"</span>)</code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+    <div class="mfm-cell__output">
+      <table class="mfm-df">
+        <thead><tr><th></th><th>mean</th><th>sd</th><th>eti89_lb</th><th>eti89_ub</th></tr></thead>
+        <tbody>
+          <tr><th>channel_contribution[tv]</th><td>34000</td><td>11000</td><td>20000</td><td>52000</td></tr>
+          <tr><th>channel_contribution[search]</th><td>130000</td><td>53000</td><td>46000</td><td>220000</td></tr>
+          <tr><th>channel_contribution[social]</th><td>60000</td><td>36000</td><td>9100</td><td>120000</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="mfm-cell" data-duration="800">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[6]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="v">fig</span>, <span class="v">ax</span> <span class="o">=</span> <span class="m">plt</span>.<span class="f">subplots</span>(<span class="p">figsize</span><span class="o">=</span>(<span class="n">8</span>, <span class="n">3</span>))
+<span class="k">for</span> <span class="v">channel</span> <span class="k">in</span> <span class="v">total</span>.<span class="v">channel</span>.<span class="v">values</span>:
+    <span class="v">ax</span>.<span class="f">hist</span>(<span class="v">total</span>.<span class="f">sel</span>(<span class="p">channel</span><span class="o">=</span><span class="v">channel</span>).<span class="v">values</span>.<span class="f">ravel</span>(), <span class="p">bins</span><span class="o">=</span><span class="n">60</span>, <span class="p">range</span><span class="o">=</span>(<span class="n">0</span>, <span class="n">3e5</span>),
+            <span class="p">density</span><span class="o">=</span><span class="k">True</span>, <span class="p">histtype</span><span class="o">=</span><span class="s">"stepfilled"</span>, <span class="p">alpha</span><span class="o">=</span><span class="n">0.45</span>, <span class="p">label</span><span class="o">=</span><span class="v">channel</span>)
+<span class="v">ax</span>.<span class="f">set_xlabel</span>(<span class="s">"contribution over the 13 weeks"</span>)
+<span class="v">ax</span>.<span class="f">legend</span>()
+<span class="m">plt</span>.<span class="f">show</span>()</code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+    <div class="mfm-cell__output"><img class="mfm-chart" src="assets/img/show/hist.svg" alt="Histograms of the 13-week contribution of tv, search and social: tv is narrow around 30,000, search wide around 130,000, social wide around 60,000."></div>
+  </div>
+</div>
+
+<div class="mfm-cell" data-duration="800">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[7]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="v">names</span> <span class="o">=</span> <span class="t">list</span>(<span class="v">query</span>.<span class="v">component_names</span>)
+<span class="v">fig</span>, <span class="v">ax</span> <span class="o">=</span> <span class="m">plt</span>.<span class="f">subplots</span>(<span class="p">figsize</span><span class="o">=</span>(<span class="n">8</span>, <span class="n">3</span>))
+<span class="k">for</span> <span class="v">channel</span> <span class="k">in</span> [<span class="s">"tv"</span>, <span class="s">"search"</span>, <span class="s">"social"</span>]:
+    <span class="v">draws</span> <span class="o">=</span> <span class="v">query</span>.<span class="v">components</span>[:, :, <span class="v">names</span>.<span class="f">index</span>(<span class="s">f"channel:</span>{<span class="v">channel</span>}<span class="s">"</span>)]
+    <span class="v">low</span>, <span class="v">mid</span>, <span class="v">high</span> <span class="o">=</span> <span class="m">np</span>.<span class="f">quantile</span>(<span class="v">draws</span>, [<span class="n">0.05</span>, <span class="n">0.5</span>, <span class="n">0.95</span>], <span class="p">axis</span><span class="o">=</span><span class="n">0</span>)
+    (<span class="v">line</span>,) <span class="o">=</span> <span class="v">ax</span>.<span class="f">plot</span>(<span class="v">query</span>.<span class="v">time</span>, <span class="v">mid</span>, <span class="p">label</span><span class="o">=</span><span class="v">channel</span>)
+    <span class="v">ax</span>.<span class="f">fill_between</span>(<span class="v">query</span>.<span class="v">time</span>, <span class="v">low</span>, <span class="v">high</span>, <span class="p">color</span><span class="o">=</span><span class="v">line</span>.<span class="f">get_color</span>(), <span class="p">alpha</span><span class="o">=</span><span class="n">0.2</span>)
+<span class="v">ax</span>.<span class="f">legend</span>()
+<span class="m">plt</span>.<span class="f">show</span>()</code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+    <div class="mfm-cell__output"><img class="mfm-chart" src="assets/img/show/bands.svg" alt="Weekly median contribution of tv, search and social over 13 weeks, each with a shaded 90% interval."></div>
+  </div>
+</div>
+
+<div class="mfm-cell" data-duration="800">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[8]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="v">mean</span> <span class="o">=</span> <span class="m">pd</span>.<span class="t">DataFrame</span>(<span class="v">query</span>.<span class="v">components</span>.<span class="f">mean</span>(<span class="p">axis</span><span class="o">=</span><span class="n">0</span>), <span class="p">index</span><span class="o">=</span><span class="v">query</span>.<span class="v">time</span>, <span class="p">columns</span><span class="o">=</span><span class="v">names</span>)
+<span class="v">mean</span>[[<span class="s">"baseline"</span>, <span class="s">"channel:tv"</span>, <span class="s">"channel:search"</span>, <span class="s">"channel:social"</span>]].<span class="v">plot</span>.<span class="f">area</span>(
+    <span class="p">figsize</span><span class="o">=</span>(<span class="n">8</span>, <span class="n">3</span>), <span class="p">color</span><span class="o">=</span>[<span class="s">"#9faae2"</span>, <span class="s">"#b4e7dd"</span>, <span class="s">"#f6ae72"</span>, <span class="s">"#c8b4e7"</span>]
+)
+<span class="m">plt</span>.<span class="f">show</span>()</code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+    <div class="mfm-cell__output"><img class="mfm-chart" src="assets/img/show/area.svg" alt="Stacked mean decomposition over 13 weeks: baseline about 34,000 a week, with search, social and tv on top."></div>
   </div>
 </div>
           </div>
@@ -178,19 +277,21 @@ css: assets/styles/landing.css
         <span>⎇ main</span>
         <span>⊗ 0 ⚠ 0</span>
         <span class="mfm-ide__spacer"></span>
-        <span data-mfm="cell-of">Cell 4 of 4</span>
+        <span data-mfm="cell-of">Cell 8 of 8</span>
         <span>Python 3.13.9 ('.venv')</span>
       </div>
     </div>
+    <!-- Cell outputs come from running these cells with River 1.0 (pinned revision, torch
+         seed 0) on a synthetic weekly dataset; the figures are the matplotlib SVGs. -->
   </figure>
 
   <div class="mfm-show__install mfm-reveal">
     <div class="mfm-install">
       <span class="mfm-install__prompt" aria-hidden="true">$</span>
-      <code class="mfm-install__cmd">pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
-      <button class="mfm-install__copy" type="button" data-copy="pip install &quot;pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command">Copy</button>
+      <code class="mfm-install__cmd">pip install "pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
+      <button class="mfm-install__copy" type="button" data-copy="pip install &quot;pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command">Copy</button>
     </div>
-    <p class="mfm-show__note">Illustrative data. <a href="guide/examples/river_1_quickstart.html">See the real quickstart →</a></p>
+    <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. <a href="guide/examples/river_1_quickstart.html">See the full quickstart →</a></p>
   </div>
 </section>
 

@@ -12,6 +12,7 @@ project:
     - "blog/**"
   resources:
     - assets/js/*.js
+    - assets/img/show/*.svg
 
 # Written by quartodoc during pre-render.
 metadata-files:

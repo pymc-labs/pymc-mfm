@@ -320,75 +320,13 @@
   }
 
   // 3. The notebook ----------------------------------------------------------------
-  // Illustrative mean contributions over the 13 query weeks (Sep 29 to Dec 22, 2025).
-  const AREA_SERIES = [
-    { name: "baseline", color: "#9faae2", values: [30.2, 30.6, 30.9, 31.1, 31.6, 32.0, 32.3, 33.1, 34.0, 35.2, 36.4, 37.1, 36.2] },
-    { name: "channel:tv", color: "#b4e7dd", values: [0.4, 0.2, 5.8, 10.6, 12.1, 9.4, 5.6, 2.9, 1.2, 7.9, 12.8, 13.4, 8.7] },
-    { name: "channel:search", color: "#f6ae72", values: [4.1, 4.3, 4.6, 5.0, 5.2, 4.9, 4.7, 4.8, 5.3, 5.9, 6.4, 6.6, 6.0] },
-    { name: "channel:social", color: "#c8b4e7", values: [2.0, 2.2, 2.1, 2.5, 2.9, 2.7, 2.4, 2.3, 2.6, 3.0, 3.3, 3.1, 2.8] },
-  ];
-
-  function drawArea(svg) {
-    const NS = "http://www.w3.org/2000/svg";
-    const el = (tag, attrs, parent = svg) => {
-      const node = document.createElementNS(NS, tag);
-      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-      parent.appendChild(node);
-      return node;
-    };
-    const L = 62;
-    const R = 620;
-    const T = 14;
-    const B = 252;
-    const n = AREA_SERIES[0].values.length;
-    const yMax = 70; // thousands
-    const x = (i) => L + (i / (n - 1)) * (R - L);
-    const y = (v) => B - (v / yMax) * (B - T);
-    const text = { fill: "#bdbdbd", "font-size": "11", "font-family": "JetBrains Mono, monospace" };
-
-    for (let v = 0; v <= yMax; v += 10) {
-      el("line", { x1: L - 4, x2: L, y1: y(v), y2: y(v), stroke: "#8a8a8a" });
-      el("text", { ...text, x: L - 8, y: y(v) + 4, "text-anchor": "end" }).textContent = v ? `${v}000` : "0";
-    }
-    [
-      [1, "Oct\n2025"],
-      [5, "Nov"],
-      [10, "Dec"],
-    ].forEach(([i, label]) => {
-      el("line", { x1: x(i), x2: x(i), y1: B, y2: B + 4, stroke: "#8a8a8a" });
-      label.split("\n").forEach((part, j) => {
-        el("text", { ...text, x: x(i), y: B + 17 + j * 13, "text-anchor": "middle" }).textContent = part;
-      });
-    });
-    el("text", { ...text, x: (L + R) / 2, y: 296, "text-anchor": "middle" }).textContent = "time";
-
-    const plot = el("g", { class: "mfm-area__plot" });
-    let lower = new Array(n).fill(0);
-    for (const series of AREA_SERIES) {
-      const upper = lower.map((v, i) => v + series.values[i]);
-      const top = upper.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
-      const bottom = lower.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).reverse();
-      el("polygon", { points: [...top, ...bottom].join(" "), fill: series.color, "fill-opacity": "0.62" }, plot);
-      el("polyline", { points: top.join(" "), fill: "none", stroke: series.color, "stroke-width": "1.4" }, plot);
-      lower = upper;
-    }
-    el("rect", { x: L, y: T, width: R - L, height: B - T, fill: "none", stroke: "#8a8a8a" });
-
-    const legend = el("g", { transform: `translate(${L + 12}, ${T + 10})` });
-    el("rect", { x: 0, y: 0, width: 132, height: 76, rx: 3, fill: "#1f1f1f", "fill-opacity": "0.85", stroke: "#5a5a5a" }, legend);
-    AREA_SERIES.forEach((series, i) => {
-      el("rect", { x: 8, y: 9 + i * 16, width: 18, height: 9, fill: series.color, "fill-opacity": "0.75" }, legend);
-      el("text", { ...text, x: 32, y: 17 + i * 16, fill: "#d4d4d4" }, legend).textContent = series.name;
-    });
-  }
-
+  // Its outputs are static HTML and matplotlib SVGs from a real River 1.0 run; this only
+  // plays the run: cells execute in turn, outputs reveal, the editor follows along.
   function notebook(ide) {
     const cells = [...ide.querySelectorAll(".mfm-cell")];
     const scroller = ide.querySelector('[data-mfm="cells"]');
     const runAll = ide.querySelector('[data-mfm="run-all"]');
     const cellOf = ide.querySelector('[data-mfm="cell-of"]');
-    const area = ide.querySelector('[data-mfm="area"]');
-    if (area) drawArea(area);
     if (reduceMotion) return;
 
     let runId = 0;
@@ -422,11 +360,6 @@
         await wait(700);
         cell.classList.remove("is-focus");
       }
-      const last = cells[cells.length - 1];
-      scroller.scrollTo({
-        top: last.offsetTop + last.offsetHeight - scroller.clientHeight + 48,
-        behavior: "smooth",
-      });
     }
 
     reset();
