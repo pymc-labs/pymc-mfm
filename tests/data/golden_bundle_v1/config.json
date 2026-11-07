@@ -1,0 +1,312 @@
+{
+  "architecture": "mfm-graph-conditional-v1",
+  "compatibility": {
+    "numpy": ">=2.1,<3",
+    "pymc-mfm": ">=0.0.1.dev0,<0.0.2",
+    "python": ">=3.13",
+    "safetensors": ">=0.6.2,<1",
+    "torch": ">=2.6,<3"
+  },
+  "format_version": 1,
+  "inference": {
+    "component_units": "context_sales_scale",
+    "flow_steps": 16,
+    "graph_threshold": 0.0,
+    "head": "conditional",
+    "mode": "model_average",
+    "natural_units": "outcome",
+    "ode_method": "euler",
+    "trajectory_correlation": 0.98
+  },
+  "model_config": {
+    "d_ff": 4,
+    "d_model": 4,
+    "flow_hidden": 4,
+    "format_version": 2,
+    "n_controls": 1,
+    "n_demand": 1,
+    "n_heads": 1,
+    "n_layers": 1
+  },
+  "producer": {
+    "numpy": "2.4.6",
+    "pymc-mfm": "0.0.1.dev0",
+    "safetensors": "0.8.0",
+    "torch": "2.14.0"
+  },
+  "profile": "golden",
+  "provenance": {
+    "source_checkpoint_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "source_step": 40,
+    "status": "recorded",
+    "training_evaluation": {
+      "aggregation": {
+        "counts/worlds": "world",
+        "joint/context/latent_sales_r2": "world",
+        "joint/query/contribution_crps": "slot",
+        "joint/query/decomposition_energy_score": "world",
+        "joint_router/edge/cy/auprc": "pooled_edges",
+        "joint_router/graph/shd_mean": "world",
+        "structure_head/zb/log_score": "pooled_edges"
+      },
+      "eval_seed": 616161,
+      "flow_steps": 16,
+      "head": "joint",
+      "leg": "holdout",
+      "metrics": {
+        "counts/worlds": 2.0,
+        "joint/context/latent_sales_r2": -0.25,
+        "joint/query/contribution_crps": 0.125,
+        "joint/query/decomposition_energy_score": 0.5,
+        "joint_router/edge/cy/auprc": null,
+        "joint_router/graph/shd_mean": 1.5,
+        "structure_head/zb/log_score": 0.75
+      },
+      "n_samples": 8,
+      "n_worlds": 2,
+      "source": "terminal in-training evaluation",
+      "status": "recorded",
+      "step": 40,
+      "worlds": [
+        {
+          "row": 5,
+          "shard_seed": 540000
+        },
+        {
+          "row": 17,
+          "shard_seed": 541000
+        }
+      ]
+    },
+    "training_seed": 7
+  },
+  "schemas": {
+    "geometry": {
+      "channels": "input",
+      "controls": "input",
+      "demand": 1
+    },
+    "graph": {
+      "activity": "both_endpoints_active",
+      "block_shapes": [
+        "K",
+        "J*K",
+        "J*M",
+        "J",
+        "M",
+        "M*K",
+        "K*(K-1)",
+        "M*(M-1)"
+      ],
+      "db_zb_interpretation": "packed_dy_zy_outcome_edges_not_intrinsic_intercept_effects",
+      "families": [
+        "cy",
+        "dc",
+        "dz",
+        "db",
+        "zb",
+        "zc",
+        "cc",
+        "zz"
+      ],
+      "full_graph_mode_ties": "lexicographically_first",
+      "generator_families": [
+        "cy",
+        "dc",
+        "dz",
+        "dy",
+        "zy",
+        "zc",
+        "cc",
+        "zz"
+      ],
+      "node_bank": [
+        "channels",
+        "controls",
+        "demand",
+        "baseline",
+        "sales"
+      ],
+      "sample_rule": "mean_over_window_strictly_greater_than_zero",
+      "training_transform": "2*g-1",
+      "within_block": "row_major_without_square_diagonals"
+    },
+    "normalization": {
+      "control_small_std_replacement": 1.0,
+      "control_std_threshold": 0.001,
+      "control_z_clip": [
+        -10.0,
+        10.0
+      ],
+      "controls": "context_zscore_raw",
+      "outcome": "context_centered_log_without_std_division",
+      "sales_scale_floor": 1e-06,
+      "sales_scale_quantile": 0.95,
+      "spend": "context_zscore_log1p",
+      "spend_mean_affine": [
+        9.5,
+        1.5
+      ],
+      "spend_std_affine": [
+        0.55,
+        0.25
+      ],
+      "spend_std_floor": 1e-06,
+      "target": "signed_natural_components_divided_by_context_p95_abs_outcome",
+      "week": "zero_based_index_divided_by_total_window_length"
+    },
+    "representation": {
+      "adstock_decays": [
+        0.3,
+        0.5,
+        0.7
+      ],
+      "adstock_max_lag": 8,
+      "attention": "causal_over_context_then_query",
+      "base_columns": [
+        "value",
+        "spend_mean",
+        "spend_std",
+        "is_query",
+        "is_revenue",
+        "week",
+        "is_control"
+      ],
+      "cells": [
+        "channels",
+        "controls",
+        "outcome"
+      ],
+      "control_t_divisor": 4.0,
+      "feature_blocks": [
+        {
+          "columns": [
+            "partial_log_sales_correlation_decay_0",
+            "partial_log_sales_correlation_decay_0.3",
+            "partial_log_sales_correlation_decay_0.7",
+            "tanh_standardized_log_sales_slope"
+          ],
+          "name": "response_moments",
+          "width": 4
+        },
+        {
+          "columns": [
+            "signed_log1p_mean_over_sales_scale_decay_0.3",
+            "tanh_partial_slope_decay_0.3",
+            "clipped_level_decay_0.3",
+            "signed_log1p_mean_over_sales_scale_decay_0.5",
+            "tanh_partial_slope_decay_0.5",
+            "clipped_level_decay_0.5",
+            "signed_log1p_mean_over_sales_scale_decay_0.7",
+            "tanh_partial_slope_decay_0.7",
+            "clipped_level_decay_0.7"
+          ],
+          "name": "adstock_moments",
+          "width": 9
+        },
+        {
+          "columns": [
+            "tanh_abs_t_stat_decay_0.3",
+            "tanh_abs_t_stat_decay_0.5",
+            "tanh_abs_t_stat_decay_0.7"
+          ],
+          "name": "control_moments",
+          "width": 3
+        },
+        {
+          "columns": [
+            "raw_mean",
+            "normalization_scale"
+          ],
+          "name": "control_location_scale",
+          "width": 2
+        },
+        {
+          "columns": [
+            "tanh_standardized_slope_decay_0.3",
+            "clipped_level_decay_0.3",
+            "tanh_standardized_slope_decay_0.5",
+            "clipped_level_decay_0.5",
+            "tanh_standardized_slope_decay_0.7",
+            "clipped_level_decay_0.7"
+          ],
+          "name": "control_effect_moments",
+          "width": 6
+        }
+      ],
+      "feature_source": "observed_context_only",
+      "level_limit": 50.0,
+      "query_outcome": "unobserved_zero_cell",
+      "readouts": [
+        "weekly",
+        "channels",
+        "controls"
+      ],
+      "response_decays": [
+        0.0,
+        0.3,
+        0.7
+      ],
+      "response_max_lag": 4
+    },
+    "targets": {
+      "fixed_columns": [
+        "confounder_contribution_total",
+        "indirect_cc",
+        "indirect_zc",
+        "indirect_dc"
+      ],
+      "latent_reduction": "sum",
+      "noise_included": false,
+      "ordered_blocks": [
+        "baseline_intrinsic",
+        "contribution[channel]",
+        "control_contribution[control]",
+        "confounder_contribution_total",
+        "indirect_cc",
+        "indirect_zc",
+        "indirect_dc"
+      ],
+      "support_gates": [
+        {
+          "component": "contribution",
+          "edge_type": "cy",
+          "reduction": "elementwise"
+        },
+        {
+          "component": "control_contribution",
+          "edge_type": "zb",
+          "reduction": "elementwise"
+        },
+        {
+          "component": "confounder_contribution_total",
+          "edge_type": "db",
+          "reduction": "any"
+        },
+        {
+          "component": "indirect_cc",
+          "edge_type": "cc",
+          "reduction": "any"
+        },
+        {
+          "component": "indirect_zc",
+          "edge_type": "zc",
+          "reduction": "any"
+        },
+        {
+          "component": "indirect_dc",
+          "edge_type": "dc",
+          "reduction": "any"
+        }
+      ]
+    },
+    "trajectory": {
+      "constant_loading_scale": 3.5,
+      "context_query": "separately_sampled_marginals_not_paired_full_horizon_draws",
+      "feature_version": 5,
+      "rank": 4
+    },
+    "version": 1
+  },
+  "training_resume": false
+}

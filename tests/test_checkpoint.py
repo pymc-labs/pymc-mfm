@@ -462,7 +462,9 @@ def test_dependencies_admit_only_environments_the_package_supports():
     project = tomllib.loads(pyproject.read_text())["project"]
     dependencies = {
         requirement.name: requirement.specifier
-        for requirement in map(Requirement, project["dependencies"])
+        for requirement in map(
+            Requirement, [*project["dependencies"], *project["optional-dependencies"]["local"]]
+        )
     }
     packages = ("numpy", "torch", "safetensors")
     assert {name: dependencies[name] for name in packages} == {
