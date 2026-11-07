@@ -64,6 +64,10 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
     "spend": {"tv": ["..."], "search": ["..."]}, "controls": {"holiday": ["..."]}}
    ```
 
+   Optional labels for the site: `outcome_name` (1 to 60 characters) and `currency` (3 uppercase
+   letters, ISO 4217 shape, such as `USD`). Neither is part of the content hash; the summary
+   returns them as `summary.outcome` and `summary.currency`. The Python client sends the outcome
+   column name as `outcome_name`.
    Dates are weekly, contiguous, ISO dates. The body is at most 5 MB. `history_ranges` gives, per
    channel and control, the weekly `p05`, `p95` and `max`, `zero_share` and `all_zero`.
 2. Check `history_ranges` against the plan you will send. The weekly `p05` and `p95` are warning

@@ -64,6 +64,7 @@ dataset = client.datasets.create(
     spend=["tv", "search"],
     controls=["holiday"],
     name="weekly-history",
+    # currency="USD",  # optional: three uppercase letters, if the outcome is money
     reuse=True,  # reuse a dataset only when its content_hash matches exactly
 )
 print(dataset.dataset_id, dataset.weeks, dataset.start, dataset.end)

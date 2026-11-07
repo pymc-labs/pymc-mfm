@@ -21,6 +21,7 @@ def test_create_sends_the_wire_body(client, service, history):
     )
     assert json.loads(service.requests[0].content) == {
         "name": "brand-a",
+        "outcome_name": "sales",
         "dates": ["2024-07-01", "2024-07-08", "2024-07-15", "2024-07-22"],
         "outcome": [1000.0, 1100.0, 1050.0, 1200.0],
         "spend": {"tv": [100.0, 0.0, 120.0, 110.0], "search": [50.0, 55.0, 60.0, 45.0]},
@@ -156,3 +157,47 @@ def test_find_returns_none_without_a_match(client, service, history):
         history, date="week", outcome="sales", spend=["tv", "search"], controls=["price"]
     )
     assert found is None
+
+
+def test_create_sends_outcome_name_by_default_and_optional_currency(client, service, history):
+    service.on("POST", "/v1/datasets", (201, dataset_record()))
+    client.datasets.create(history, date="week", outcome="sales", spend="tv", currency="USD")
+    body = json.loads(service.requests[0].content)
+    assert body["outcome_name"] == "sales" and body["currency"] == "USD"
+
+
+def test_create_omits_currency_and_a_too_long_outcome_name(client, service, history):
+    service.on("POST", "/v1/datasets", (201, dataset_record()))
+    long_name = "s" * 61
+    client.datasets.create(
+        history.rename(columns={"sales": long_name}), date="week", outcome=long_name, spend="tv"
+    )
+    body = json.loads(service.requests[0].content)
+    assert "currency" not in body and "outcome_name" not in body
+
+
+@pytest.mark.parametrize("bad", ["usd", "US", "USDX", "U1D", "ÉUR"])
+def test_a_bad_currency_is_refused_before_any_request(client, service, history, bad):
+    with pytest.raises(ValueError, match="currency"):
+        client.datasets.create(
+            history, date="week", outcome="sales", spend="tv", currency=bad, reuse=True
+        )
+    assert service.requests == []
+
+
+def test_summary_labels_are_read_and_default_to_none(client, service):
+    record = dataset_record()
+    service.on("GET", "/v1/datasets/ds_123", (200, record))
+    dataset = client.datasets.get("ds_123")
+    assert dataset.outcome_name is None and dataset.currency is None
+    record["summary"].update(outcome="sales", currency="EUR")
+    dataset = client.datasets.get("ds_123")
+    assert (dataset.outcome_name, dataset.currency) == ("sales", "EUR")
+
+
+def test_labels_do_not_change_reuse_matching(client, service, history):
+    stored = dataset_record(dataset_id="ds_9", content_hash=history_hash(history))
+    stored["summary"].update(outcome="revenue", currency="EUR")  # other labels, same values
+    service.on("GET", "/v1/datasets", (200, {"datasets": [stored]}))
+    dataset = create_reusing(client, history, currency="USD")
+    assert dataset.dataset_id == "ds_9" and not service.sent("POST", "/v1/datasets")

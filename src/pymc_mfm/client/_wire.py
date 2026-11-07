@@ -79,8 +79,14 @@ def dataset_body(
     spend: Sequence[str],
     controls: Sequence[str],
     name: str | None,
+    outcome_name: str | None = None,
+    currency: str | None = None,
 ) -> dict[str, Any]:
-    """Build the body of ``POST /v1/datasets`` from a DataFrame."""
+    """Build the body of ``POST /v1/datasets`` from a DataFrame.
+
+    ``outcome_name`` and ``currency`` are labels for the site; they are optional and are
+    not part of the content hash.
+    """
     require_columns(frame, [date, outcome])
     spend_series, control_series = series_frame(frame, spend=spend, controls=controls)
     body: dict[str, Any] = {
@@ -91,7 +97,24 @@ def dataset_body(
     }
     if name is not None:
         body["name"] = name
+    if outcome_name is not None:
+        body["outcome_name"] = outcome_name
+    if currency is not None:
+        body["currency"] = check_currency(currency)
     return body
+
+
+def check_currency(currency: str) -> str:
+    """Return ``currency`` if it is three uppercase letters (ISO 4217 shape)."""
+    if not (
+        isinstance(currency, str)
+        and len(currency) == 3
+        and currency.isascii()
+        and currency.isalpha()
+        and currency.isupper()
+    ):
+        raise ValueError(f"currency must be 3 uppercase letters such as 'USD', not {currency!r}")
+    return currency
 
 
 def plan_body(

@@ -11,7 +11,9 @@ import pandas as pd
 
 from ._hash import frame_content_hash
 from ._http import Http, new_idempotency_key
-from ._wire import as_names, dataset_body
+from ._wire import as_names, check_currency, dataset_body
+
+MAX_OUTCOME_NAME = 60  # characters the service accepts in ``outcome_name``
 
 
 def parse_datetime(value: str) -> datetime:
@@ -36,7 +38,8 @@ class Dataset:
     dataset, up to a fixed maximum after upload, so read it again with ``datasets.get``
     instead of keeping it. ``content_hash`` identifies the values (see
     ``dataset_content_hash``). ``content_hash``, ``created_at``, ``last_used_at`` and
-    ``analyses`` (the number of live analyses) are ``None`` when an older service does not
+    ``analyses`` (the number of live analyses), ``outcome_name`` and ``currency`` (labels from
+    the summary) are ``None`` when an older service does not
     send them.
     """
 
@@ -55,6 +58,8 @@ class Dataset:
     created_at: datetime | None = None
     last_used_at: datetime | None = None
     analyses: int | None = None
+    outcome_name: str | None = None
+    currency: str | None = None
 
     @classmethod
     def from_wire(
@@ -78,6 +83,8 @@ class Dataset:
             created_at=_optional_datetime(record.get("created_at")),
             last_used_at=_optional_datetime(record.get("last_used_at")),
             analyses=record.get("analyses"),
+            outcome_name=summary.get("outcome"),
+            currency=summary.get("currency"),
         )
 
 
@@ -96,6 +103,7 @@ class Datasets:
         spend: Sequence[str] | str,
         controls: Sequence[str] | str = (),
         name: str | None = None,
+        currency: str | None = None,
         reuse: bool = False,
         idempotency_key: str | None = None,
     ) -> Dataset:
@@ -105,10 +113,16 @@ class Datasets:
         are sent as ISO dates. Pass the same ``idempotency_key`` to repeat a call safely;
         by default each call gets a new key, reused on automatic retries.
 
+        The site labels results with ``outcome_name``, which is the ``outcome`` column name
+        (sent only if it has 1 to 60 characters), and with ``currency``, an optional ISO 4217
+        code of three uppercase letters. Neither is part of the content hash.
+
         With ``reuse=True`` the call first lists your datasets and returns the one whose
         ``content_hash`` equals the hash of this history, and uploads nothing. It never
         matches by name or by number of weeks. If no dataset matches, it uploads as usual.
         """
+        if currency is not None:
+            check_currency(currency)  # refuse a bad code before any request, even when reusing
         if reuse:
             found = self.find(frame, date=date, outcome=outcome, spend=spend, controls=controls)
             if found is not None:
@@ -120,6 +134,8 @@ class Datasets:
             spend=as_names(spend),
             controls=as_names(controls),
             name=name,
+            outcome_name=outcome if 1 <= len(outcome) <= MAX_OUTCOME_NAME else None,
+            currency=currency,
         )
         record = self._http.request(
             "POST",
