@@ -170,14 +170,12 @@ def decompose(
         if (batch["sales_scale"] <= 0).any():
             raise ValueError("sales_scale must be positive")
     else:
-        batch = observation_batch(
-            **observations, model_config=model.config, device=parameter.device
-        )
+        batch = observation_batch(**observations, model_config=model.config, device="cpu")
+    # Checks, hashes and summaries read a CPU copy in the model's dtype, so a GPU model
+    # waits for no device round trip; only sampling reads the device copy.
     batch = {
-        key: (
-            value.to(device="cpu", dtype=torch.float64)
-            if key == "sales_scale"
-            else value.to(device=parameter.device, dtype=parameter.dtype)
+        key: value.to(
+            device="cpu", dtype=torch.float64 if key == "sales_scale" else parameter.dtype
         )
         for key, value in batch.items()
     }
@@ -186,6 +184,10 @@ def decompose(
             raise ValueError(f"{key} exceeds the finite model representation")
     if (batch["sales_scale"] <= 0).any():
         raise ValueError("sales_scale must remain positive")
+    device_batch = {
+        key: value if key == "sales_scale" else value.to(parameter.device)
+        for key, value in batch.items()
+    }
     if graph is not None:
         # Validate the caller's precision before the model converts graph dtype. A
         # copy keeps a caller's (possibly read-only) array out of the tensor.
@@ -232,7 +234,7 @@ def decompose(
     try:
         model.eval()
         components, graphs = model.sample_disentangled(
-            batch,
+            device_batch,
             n_samples=n_samples,
             mode=mode,
             graph=graph,

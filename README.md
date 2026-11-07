@@ -218,6 +218,36 @@ either window:
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
+### Sampling on an Apple GPU
+
+On Apple silicon, load the model on the GPU. The same calls then sample with fused Metal
+kernels and need no training, conversion or warm-up:
+
+```python
+model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")
+result = decompose(model, observations, n_samples=1000)  # or model.inference(...)
+```
+
+River-1, 1,000 draws, the quickstart world with a 166-week context (Apple M3 Max,
+PyTorch 2.14, median of three warm calls, `benchmarks/inference_speed.py --query-weeks
+10,50,150,205`):
+
+| Query weeks | CPU (s) | Apple GPU (s) | Speedup |
+| ---: | ---: | ---: | ---: |
+| 10 | 0.66 | 0.11 | 5.9x |
+| 50 | 2.51 | 0.41 | 6.1x |
+| 150 | 7.25 | 1.13 | 6.4x |
+| 205 | 10.17 | 1.53 | 6.7x |
+
+- GPU sampling draws its base noise with PyTorch's CPU generator, so a seeded call draws
+  the same samples on CPU and GPU up to float32 round-off (identical graphs on these
+  inputs). The noise is drawn on a worker thread while the GPU runs; do not draw random
+  numbers from other threads during a call.
+- Each Euler step runs one kernel per coordinate network that computes its first layer,
+  its hidden product on simdgroup matrices and its output without writing activations
+  to memory. float64 models and compiled sampling use the PyTorch operations instead.
+- Each call above used about 1 GiB of GPU memory.
+
 ### Faster repeated sampling (optional)
 
 A long-running process that samples many times, such as a service, can compile the

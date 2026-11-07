@@ -8,11 +8,12 @@ Noise is drawn per chunk of draws; how draws are then batched for transport, and
 whether batches run concurrently, must not change any draw.
 """
 
+import copy
+
 import pytest
 import torch
 
 import pymc_mfm.model.flow as flow
-import pymc_mfm.model.model as model_module
 from pymc_mfm.model.flow import _LiveVelocity
 from pymc_mfm.model.graph import EdgeSlotLayout
 
@@ -105,7 +106,6 @@ def test_decoder_live_velocity_matches_the_trained_velocity(model64, batch64, gr
 
 def _draws(model, batch, monkeypatch, *, rows, workers, window):
     monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS", rows)
-    monkeypatch.setattr(model_module, "_FLOW_SAMPLE_ROWS", rows)
     monkeypatch.setattr(flow, "_SAMPLE_BATCH_WORKERS", workers)
     torch.manual_seed(41)
     # 19 draws cross the 16-draw noise chunk.
@@ -135,6 +135,28 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
     torch.testing.assert_close(serial, whole, **ROUND_OFF)
     assert torch.equal(concurrent_graphs, serial_graphs)
     assert torch.equal(concurrent, serial)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+@pytest.mark.parametrize("rows", [2**30, 1])
+@pytest.mark.parametrize("window", ["query", "context"])
+def test_apple_gpu_draws_the_cpu_samples(model, batch, monkeypatch, rows, window):
+    # Noise comes from the CPU generator on both devices, so seeded draws agree up to
+    # float32 round-off; a one-row budget draws noise and transports one draw at a time.
+    monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS_MPS", rows)
+    integrate = flow._metal.integrate
+    calls = []
+    monkeypatch.setattr(flow._metal, "integrate", lambda *a: calls.append(1) or integrate(*a))
+    torch.manual_seed(41)
+    cpu, cpu_graphs = model.sample_disentangled(batch, 19, window=window)
+    gpu_model = copy.deepcopy(model).to("mps")
+    torch.manual_seed(41)
+    gpu, gpu_graphs = gpu_model.sample_disentangled(
+        {key: value.to("mps") for key, value in batch.items()}, 19, window=window
+    )
+    assert calls, "the Apple GPU kernels must transport the draws"
+    assert torch.equal(gpu_graphs.cpu(), cpu_graphs)
+    torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
 
 
 @pytest.mark.parametrize("window", ["query", "context"])

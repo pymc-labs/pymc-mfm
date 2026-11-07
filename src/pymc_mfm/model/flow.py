@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 import platform
 import sys
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from numbers import Integral
@@ -15,6 +15,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from . import _metal
 from .compiled import CompiledVelocity
 from .config import ModelConfig
 from .graph import N_NODE_TYPES, STRUCT_EDGE_KEYS, EdgeSlotLayout
@@ -36,6 +37,8 @@ _FLOW_SAMPLE_CHUNK = 16
 #: State rows (draws × tasks × weeks × live coordinates) per sampling velocity evaluation.
 #: It bounds memory without changing base-noise draws; kernel shapes may change rounding.
 _FLOW_SAMPLE_ROWS = 2**15
+#: The Apple GPU runs few, large batches best; its kernels keep no per-row activations.
+_FLOW_SAMPLE_ROWS_MPS = 2**19
 # Apple's BLAS (Accelerate) runs matrix products on a separate matrix unit. On Apple
 # silicon, transporting several batches at once overlaps one batch's products with the
 # others' elementwise work and Python overhead. In-flight memory scales with the count.
@@ -98,6 +101,21 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     return int(value)
 
 
+def _sample_rows(device: torch.device) -> int:
+    """State rows per sampling velocity evaluation on ``device``."""
+    return _FLOW_SAMPLE_ROWS_MPS if device.type == "mps" else _FLOW_SAMPLE_ROWS
+
+
+def _noise_device(device: torch.device) -> torch.device:
+    """Where sampling draws base noise for ``device``.
+
+    MPS sampling draws with the CPU generator and copies the noise to the GPU, so a
+    seeded call draws the same base noise, and the same samples up to round-off, on
+    CPU and MPS.
+    """
+    return torch.device("cpu") if device.type == "mps" else device
+
+
 def _map_batches[T](
     fn: Callable[[int, int], T], total: int, max_size: int, device: torch.device
 ) -> list[T]:
@@ -124,6 +142,75 @@ def _map_batches[T](
 
     with ThreadPoolExecutor(max_workers=min(workers, count)) as pool:
         return list(pool.map(run, bounds))
+
+
+class _OrderedNoise:
+    """Base draws for consecutive draw ranges, taken chunk by chunk as transport asks.
+
+    ``chunks`` yields the noise chunks ``(white, z)`` in draw order, exactly as when all
+    are drawn up front. Each range is mixed on the sampling device, so the GPU transports
+    one batch while the CPU draws the next batch's noise. Ranges must be taken in order.
+    """
+
+    def __init__(
+        self, head: JointFlowHead, chunks: Iterator[tuple[Tensor, Tensor]], weekly_repr: Tensor
+    ):
+        self.head = head
+        self.chunks = chunks
+        self.weekly_repr = weekly_repr
+        self.drawn = self.taken = 0
+        self.white: list[Tensor] = []
+        self.z: list[Tensor] = []
+
+    def __call__(self, start: int, stop: int) -> tuple[Tensor, Tensor]:
+        if start != self.taken:
+            raise RuntimeError("base draws must be taken in draw order")
+        while self.drawn < stop:
+            white, z = next(self.chunks)
+            self.white.append(white)
+            self.z.append(z)
+            self.drawn += white.shape[0]
+        white, z = torch.cat(self.white), torch.cat(self.z)
+        n = stop - start
+        self.white, self.z = [white[n:]], [z[n:]]
+        self.taken = stop
+        device = self.weekly_repr.device
+        return self.head._mix_noise(white[:n].to(device), z[:n].to(device), self.weekly_repr)
+
+
+@dataclass(frozen=True)
+class _NoiseRequest:
+    """Noise chunks of the given shapes, drawn in order by a :class:`_NoisePrefetch`."""
+
+    shapes: tuple[tuple[int, ...], ...]
+    dtype: torch.dtype
+    chunks: tuple[Future, ...]
+
+    def __iter__(self) -> Iterator[tuple[Tensor, Tensor]]:
+        return (chunk.result() for chunk in self.chunks)
+
+
+class _NoisePrefetch:
+    """Draws base-noise chunks with the CPU generator on a worker thread, in request order.
+
+    MPS sampling draws its noise on the CPU (see :func:`_noise_device`). Requesting the
+    chunks as soon as their shapes are known overlaps the generator with GPU work. One
+    worker draws the requests in submission order, so the noise equals drawing it inline,
+    provided nothing else draws random numbers until :meth:`close` returns.
+    """
+
+    def __init__(self):
+        self._worker = ThreadPoolExecutor(max_workers=1)
+
+    def request(self, shapes: list[tuple[int, ...]], dtype: torch.dtype) -> _NoiseRequest:
+        draw = JointFlowHead._draw_noise
+        cpu = torch.device("cpu")
+        chunks = [self._worker.submit(draw, shape, device=cpu, dtype=dtype) for shape in shapes]
+        return _NoiseRequest(tuple(map(tuple, shapes)), dtype, tuple(chunks))
+
+    def close(self) -> None:
+        """Wait for the worker; requests not yet started are dropped."""
+        self._worker.shutdown(wait=True, cancel_futures=True)
 
 
 class JointFlowHead(nn.Module):
@@ -770,6 +857,18 @@ class JointFlowHead(nn.Module):
             raise ValueError("flow objective has no active state coordinates")
         return numerator / denominator
 
+    def noise_shapes(
+        self, lead: tuple[int, ...], n_channels: int, n_controls: int | None, n_samples: int
+    ) -> list[tuple[int, ...]]:
+        """Shapes of the base-noise chunks :meth:`sample` draws, in draw order.
+
+        ``lead`` is the representations' ``weekly_repr.shape[:-1]``.
+        """
+        s = _sample_count(n_samples)
+        d = self.state_dim(n_channels, n_controls)
+        chunk = _FLOW_SAMPLE_CHUNK if self.graph_router else s
+        return [(min(chunk, s - start), *lead, d) for start in range(0, s, chunk)]
+
     @torch.no_grad()
     def sample(
         self,
@@ -779,32 +878,49 @@ class JointFlowHead(nn.Module):
         control_repr: Tensor | None = None,
         state_mask: Tensor | None = None,
         apply_zero_atom: bool = True,
+        *,
+        noise: _NoiseRequest | None = None,
     ) -> Tensor:
         """Draw decomposition trajectories and, for the router, full graph states.
 
         Each draw integrates ``FLOW_STEPS_SAMPLE`` uniform Euler steps. The router
         draws base noise in chunks of ``_FLOW_SAMPLE_CHUNK`` draws; seeded draws
         depend on that chunking but not on how draws are batched for transport.
+        ``noise`` optionally supplies those chunks, prefetched for :meth:`noise_shapes`.
         """
         s = _sample_count(n_samples)
-        c = channel_repr.shape[-2]
-        d = self.state_dim(c, control_repr.shape[-2] if control_repr is not None else None)
-        lead = weekly_repr.shape[:-1]
-        chunk = _FLOW_SAMPLE_CHUNK if self.graph_router else s
-        noise = [
-            self._draw_noise(
-                (min(chunk, s - start), *lead, d),
-                device=weekly_repr.device,
-                dtype=weekly_repr.dtype,
-            )
-            for start in range(0, s, chunk)
-        ]
-        x, trajectory_latent = self._mix_noise(
-            torch.cat([white for white, _ in noise]), torch.cat([z for _, z in noise]), weekly_repr
+        shapes = self.noise_shapes(
+            tuple(weekly_repr.shape[:-1]),
+            channel_repr.shape[-2],
+            control_repr.shape[-2] if control_repr is not None else None,
+            s,
         )
-        return self._transport(
-            x,
-            trajectory_latent,
+        device, noise_device = weekly_repr.device, _noise_device(weekly_repr.device)
+        if noise is None:
+            chunks = (
+                self._draw_noise(shape, device=noise_device, dtype=weekly_repr.dtype)
+                for shape in shapes
+            )
+        else:
+            if noise.shapes != tuple(shapes) or noise.dtype != weekly_repr.dtype:
+                raise ValueError("prefetched noise does not match the sampled draws")
+            chunks = iter(noise)
+        if noise_device == device:
+            drawn = list(chunks)
+            x, trajectory_latent = self._mix_noise(
+                torch.cat([white for white, _ in drawn]),
+                torch.cat([z for _, z in drawn]),
+                weekly_repr,
+            )
+
+            def draws(start: int, stop: int) -> tuple[Tensor, Tensor]:
+                return x[start:stop], trajectory_latent[start:stop]
+
+        else:
+            draws = _OrderedNoise(self, iter(chunks), weekly_repr)
+        return self._transport_draws(
+            draws,
+            s,
             weekly_repr,
             channel_repr,
             control_repr,
@@ -822,26 +938,78 @@ class JointFlowHead(nn.Module):
         state_mask: Tensor | None,
         *,
         apply_zero_atom: bool,
+        representation_index: Tensor | None = None,
     ) -> Tensor:
         """Transport base draws ``x[S, ..., T, D]`` and apply the sampler's support rules.
 
-        Draws are integrated in batches of about ``_FLOW_SAMPLE_ROWS`` evaluated
-        state rows. Every draw is integrated independently, so batching bounds
-        memory without changing any draw.
+        ``representation_index`` optionally maps the batch axis of ``x`` to rows of the
+        representations and ``state_mask``, given once per distinct conditioning.
         """
-        s = x.shape[0]
+        return self._transport_draws(
+            lambda start, stop: (x[start:stop], trajectory_latent[start:stop]),
+            x.shape[0],
+            weekly_repr,
+            channel_repr,
+            control_repr,
+            state_mask,
+            apply_zero_atom=apply_zero_atom,
+            representation_index=representation_index,
+        )
+
+    def _transport_draws(
+        self,
+        draws: Callable[[int, int], tuple[Tensor, Tensor]],
+        s: int,
+        weekly_repr: Tensor,
+        channel_repr: Tensor,
+        control_repr: Tensor | None,
+        state_mask: Tensor | None,
+        *,
+        apply_zero_atom: bool,
+        representation_index: Tensor | None = None,
+    ) -> Tensor:
+        """Transport ``s`` base draws and apply the sampler's support rules.
+
+        ``draws(start, stop)`` returns the base state and trajectory latent of draws
+        ``[start, stop)``, ``[stop - start, ..., T, D]``. Draws are integrated in batches
+        of about ``_FLOW_SAMPLE_ROWS`` evaluated state rows. Every draw is integrated
+        independently, so batching bounds memory without changing any draw.
+        """
         c = channel_repr.shape[-2]
-        lead = weekly_repr.shape[:-1]
-        weight = None
-        if state_mask is not None:
-            weight = state_mask.to(x.dtype)
-            x = x * weight
-            trajectory_latent = trajectory_latent * weight
+        n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
+        device = weekly_repr.device
+        weight = None if state_mask is None else state_mask.to(weekly_repr.dtype)
+        if representation_index is not None and (
+            weight is None
+            or self._compiled_velocity is not None
+            or not _metal.supported(self, weight)
+        ):
+            # Only the GPU kernels read per-conditioning rows; give the rest one row per draw.
+            weekly_repr, channel_repr, control_repr, weight = (
+                None if value is None else value[representation_index]
+                for value in (weekly_repr, channel_repr, control_repr, weight)
+            )
+            representation_index = None
+        if representation_index is None:
+            lead = weekly_repr.shape[:-1]
+            draw_weight = weight
+        else:
+            lead = (representation_index.numel(), *weekly_repr.shape[1:-1])
+            draw_weight = weight[representation_index]
+        if draw_weight is not None:
+            # Decide the support rules before transport: reading a GPU tensor here would
+            # wait for every batch queued below.
+            channel_active = draw_weight[..., 1 : 1 + c] > 0.0
+            control_slice = slice(1 + c, 1 + c + n_controls)
+            control_active = draw_weight[..., control_slice] > 0.0
+            inactive_controls = bool((~control_active).any())
 
         grid = self._time_grid(FLOW_STEPS_SAMPLE)
         if weight is None:
 
-            def flow(x: Tensor, latent: Tensor) -> Tensor:
+            def flow(start: int, stop: int) -> Tensor:
+                x, latent = draws(start, stop)
+
                 def expand(value: Tensor | None) -> Tensor | None:
                     if value is None:
                         return None
@@ -855,32 +1023,26 @@ class JointFlowHead(nn.Module):
 
                 return integrate_flow(x, drift, grid)
 
-            width = x.shape[-1]
+            width = self.state_dim(c, n_controls)
         else:
             live = _LiveVelocity(self, weekly_repr, channel_repr, control_repr, weight)
 
-            def flow(x: Tensor, latent: Tensor) -> Tensor:
-                return live.integrate(x, latent, grid)
+            def flow(start: int, stop: int) -> Tensor:
+                x, latent = draws(start, stop)
+                return live.integrate(
+                    x * draw_weight, latent * draw_weight, grid, representation_index
+                )
 
             width = live.index.numel()
         x = torch.cat(
-            _map_batches(
-                lambda start, stop: flow(x[start:stop], trajectory_latent[start:stop]),
-                s,
-                max(1, _FLOW_SAMPLE_ROWS // (math.prod(lead) * width)),
-                x.device,
-            )
+            _map_batches(flow, s, max(1, _sample_rows(device) // (math.prod(lead) * width)), device)
         )
-        if weight is not None:
-            n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
+        if draw_weight is not None:
             # Direct contributions are nonnegative; padding uses the same natural zero.
-            channel_active = weight[..., 1 : 1 + c] > 0.0
             contribution = x[..., 1 : 1 + c].clamp_min(0.0)
             contribution = torch.where(channel_active, contribution, contribution.new_zeros(()))
             x = torch.cat([x[..., :1], contribution, x[..., 1 + c :]], dim=-1)
-            control_slice = slice(1 + c, 1 + c + n_controls)
-            control_active = weight[..., control_slice] > 0.0
-            if (~control_active).any():
+            if inactive_controls:
                 controls_zeroed = torch.where(
                     control_active,
                     x[..., control_slice],
@@ -898,8 +1060,8 @@ class JointFlowHead(nn.Module):
             x = self.project_zero_atom(
                 x,
                 n_channels=c,
-                n_controls=control_repr.shape[-2] if control_repr is not None else self.n_controls,
-                state_mask=weight,
+                n_controls=n_controls,
+                state_mask=draw_weight,
             )
         return x
 
@@ -990,6 +1152,7 @@ class _LiveVelocity:
     ):
         entity_repr = head._entity_repr(channel_repr, control_repr)
         self.compiled = head._compiled_velocity
+        self.metal = self.compiled is None and _metal.supported(head, weight)
         device = weekly_repr.device
         n_channels, n_entities = channel_repr.shape[-2], entity_repr.shape[-2]
         n_fixed = head.n_fixed
@@ -1292,11 +1455,25 @@ class _LiveVelocity:
         scalars = torch.cat([x, x.new_zeros(*x.shape[:-1], 1), mean, std], dim=-1)
         return torch.cat([network(scalars, contexts, time) for network in self.networks], dim=-1)
 
-    def integrate(self, x: Tensor, trajectory_latent: Tensor, grid) -> Tensor:
-        """Euler-integrate masked ``x``; coordinates masked in every task stay zero."""
+    def integrate(
+        self, x: Tensor, trajectory_latent: Tensor, grid, index: Tensor | None = None
+    ) -> Tensor:
+        """Euler-integrate masked ``x``; coordinates masked in every task stay zero.
+
+        ``index`` maps the last lead axis of ``x`` to the representations' batch rows when
+        those were given once per distinct conditioning (GPU kernels only).
+        """
         weight = self.weight
-        offset = self.trajectory_offset(trajectory_latent)
         compiled = self.compiled
+        state = x.index_select(-1, self.index)
+        if self.metal:
+            live = _metal.integrate(
+                self, state, trajectory_latent.index_select(-1, self.index), grid, index
+            )
+            return x.new_zeros(x.shape).index_copy_(-1, self.index, live)
+        if index is not None:
+            raise ValueError("indexed representations need the GPU sampling kernels")
+        offset = self.trajectory_offset(trajectory_latent)
         # Flow times as tensors: a Python float would recompile at every Euler step.
         times = (
             {} if compiled is None else {t: _fourier_time(x.new_full((), t)) for t, _, _ in grid}
@@ -1308,7 +1485,7 @@ class _LiveVelocity:
             return compiled(self, state, times[t_val], offset)
 
         live = integrate_flow(
-            x.index_select(-1, self.index),
+            state,
             drift,
             grid,
             project=lambda state, _t_next: state * weight,
