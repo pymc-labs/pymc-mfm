@@ -27,10 +27,14 @@ approved or published release.
   on small host copies, copies to the GPU do not wait for queued work, and the router
   skips the work its graphs do not read (the last step of the decomposition networks and
   the support rules). `decompose` checks, hashes and summarizes a CPU copy of the encoded
-  inputs and moves only the sampling copy to the device. The conditional decoder
-  conditions each distinct (task, graph) pair once per call instead of once per batch,
-  and on the GPU keeps its representations, masks and first-layer inputs once per pair
-  rather than once per draw. Sampling on an Apple GPU needs PyTorch 2.9 or newer (2.8 MPS
+  inputs and moves only the sampling copy to the device. On the GPU the conditional
+  decoder conditions each distinct (task, graph) pair once per call instead of once per
+  batch and keeps its representations, masks and first-layer inputs once per pair rather
+  than once per draw; when the pairs outnumber a batch's draws (a model that draws nearly a
+  graph per draw) it conditions per batch, in chunks of a CPU batch, so memory stays bounded
+  (random weights of River-1's architecture at 205 weeks: 4.2 GiB peak on an Apple M3 Max
+  GPU, 1.2 GiB on NVIDIA GPUs). The CPU conditions each batch's pairs in its batch worker,
+  as before. Sampling on an Apple GPU needs PyTorch 2.9 or newer (2.8 MPS
   computes linear layers of column-sliced weights wrongly) and raises otherwise. No
   weights, bundles or training change. Off Apple silicon, CPU sampling transports up to
   eight batches at once, each on its own share of PyTorch's threads (it ran one batch on

@@ -16,6 +16,7 @@ from .config import LossWeights, ModelConfig
 from .encoder import BiAttentionEncoder, SplitRepresentations
 from .flow import (
     _FLOW_SAMPLE_CHUNK,
+    _FLOW_SAMPLE_ROWS,
     DEFAULT_N_SAMPLES,
     JointFlowHead,
     _draw_host_noise,
@@ -844,9 +845,9 @@ class MFM(nn.Module):
                 prefetch.close()
 
         # Conditioning depends only on a draw's task and graph: condition each distinct
-        # (task, graph) pair once, then index it for every draw that shares it. The keys
-        # are few and small, so the host checks router graphs, finds the distinct pairs
-        # and their masks: one copy each way instead of a device round trip per step.
+        # (task, graph) pair once (per call or per transport batch, see below), then index it
+        # for every draw that shares it. The host checks router graphs and finds the distinct
+        # pairs and their masks: on a GPU, a copy each way instead of a round trip per step.
         device = weekly.device
         host_state_mask = state_mask.cpu()
         if mode != "fixed":
@@ -862,36 +863,117 @@ class MFM(nn.Module):
             host_state_mask[tasks][..., :n_dec], distinct[:, 1:], layout
         )
         live_width = int((masks != 0).reshape(-1, n_dec).any(dim=0).sum())
-        live_slots = torch.nonzero((distinct[:, 1:] != 0).any(dim=0)).squeeze(-1)
-        distinct, graphs = _move_together((distinct, graphs), device)
-        tasks, inverse, live_slots = _move_together((tasks, inverse, live_slots), device)
-        conditioned = self._condition_on_graph(
-            SplitRepresentations(
-                weekly[tasks], selected_repr.channels[tasks], selected_repr.controls[tasks]
-            ),
-            distinct[:, 1:],
-            layout,
-            active_nodes[tasks],
-            live_slots,
-        )
+        if device.type == "cpu":
+            # On the CPU each transport batch conditions its own distinct pairs in its
+            # worker: a model drawing many distinct graphs conditions them concurrently,
+            # and every product keeps the shape, and so the round-off, it had before.
+            flat_graphs = graphs.reshape(s * b, layout.n_slots)
 
-        def decode(start: int, stop: int) -> Tensor:
-            n = stop - start
-            rows = slice(start * b, stop * b)
-            index = inverse[rows]
-            x, trajectory_latent = head._mix_noise(
-                white[:, rows], latents[:, rows], conditioned.weekly[index]
-            )
-            return head._transport(
-                x,
-                trajectory_latent,
-                conditioned.weekly,
-                conditioned.channels,
-                conditioned.controls,
-                masks,
-                apply_zero_atom=True,
-                representation_index=index,
-            ).reshape(n, b, t, n_dec)
+            def decode(start: int, stop: int) -> Tensor:
+                n = stop - start
+                rows = slice(start * b, stop * b)
+                pairs, index = _distinct_task_graphs(flat_graphs[rows], b)
+                pair_tasks = pairs[:, 0].long()
+                conditioned = self._condition_on_graph(
+                    SplitRepresentations(
+                        weekly[pair_tasks],
+                        selected_repr.channels[pair_tasks],
+                        selected_repr.controls[pair_tasks],
+                    ),
+                    pairs[:, 1:],
+                    layout,
+                    active_nodes[pair_tasks],
+                )
+                weekly_rows = conditioned.weekly[index]
+                x, trajectory_latent = head._mix_noise(
+                    white[:, rows], latents[:, rows], weekly_rows
+                )
+                return head._transport(
+                    x,
+                    trajectory_latent,
+                    weekly_rows,
+                    conditioned.channels[index],
+                    conditioned.controls[index],
+                    masks[inverse[rows]],
+                    apply_zero_atom=True,
+                ).reshape(n, b, t, n_dec)
+
+        else:
+            # The GPU kernels read conditioned representations once per distinct pair. Pairs
+            # that fit one transport batch are conditioned once per call; otherwise (a diffuse
+            # graph posterior draws nearly one graph per draw) each batch conditions its own,
+            # so conditioned representations never outgrow a batch.
+            host_graphs = graphs.cpu().reshape(s * b, layout.n_slots)
+            (graphs,) = _move_together((graphs,), device)
+            # Pairs per graph-conditioner call: as many as a CPU transport batch holds, which
+            # bounds the conditioner's intermediates (per pair, week and live slot).
+            pair_chunk = max(1, _FLOW_SAMPLE_ROWS // (t * live_width))
+
+            def condition(pairs: Tensor) -> tuple[SplitRepresentations, Tensor]:
+                """Condition the distinct host ``pairs`` on the device; also their host masks."""
+                pair_tasks = pairs[:, 0].long()
+                pair_masks = self._conditioned_state_mask(
+                    host_state_mask[pair_tasks][..., :n_dec], pairs[:, 1:], layout
+                )
+                live_slots = torch.nonzero((pairs[:, 1:] != 0).any(dim=0)).squeeze(-1)
+                (pairs,) = _move_together((pairs,), device)
+                pair_tasks, live_slots = _move_together((pair_tasks, live_slots), device)
+                parts = [
+                    self._condition_on_graph(
+                        SplitRepresentations(
+                            weekly[part_tasks],
+                            selected_repr.channels[part_tasks],
+                            selected_repr.controls[part_tasks],
+                        ),
+                        part_pairs[:, 1:],
+                        layout,
+                        active_nodes[part_tasks],
+                        live_slots,
+                    )
+                    for part_tasks, part_pairs in zip(
+                        pair_tasks.split(pair_chunk), pairs.split(pair_chunk), strict=True
+                    )
+                ]
+                if len(parts) == 1:
+                    return parts[0], pair_masks
+                conditioned = SplitRepresentations(
+                    torch.cat([part.weekly for part in parts]),
+                    torch.cat([part.channels for part in parts]),
+                    torch.cat([part.controls for part in parts]),
+                )
+                return conditioned, pair_masks
+
+            if distinct.shape[0] <= max(1, _sample_rows(device) // (b * t * live_width)) * b:
+                every_pair = condition(distinct)
+                (inverse,) = _move_together((inverse,), device)
+
+                def conditioned_rows(rows: slice) -> tuple[SplitRepresentations, Tensor, Tensor]:
+                    return (*every_pair, inverse[rows])
+
+            else:
+
+                def conditioned_rows(rows: slice) -> tuple[SplitRepresentations, Tensor, Tensor]:
+                    pairs, index = _distinct_task_graphs(host_graphs[rows], b)
+                    (index,) = _move_together((index,), device)
+                    return (*condition(pairs), index)
+
+            def decode(start: int, stop: int) -> Tensor:
+                n = stop - start
+                rows = slice(start * b, stop * b)
+                conditioned, pair_masks, index = conditioned_rows(rows)
+                x, trajectory_latent = head._mix_noise(
+                    white[:, rows], latents[:, rows], conditioned.weekly[index]
+                )
+                return head._transport(
+                    x,
+                    trajectory_latent,
+                    conditioned.weekly,
+                    conditioned.channels,
+                    conditioned.controls,
+                    pair_masks,
+                    apply_zero_atom=True,
+                    representation_index=index,
+                ).reshape(n, b, t, n_dec)
 
         sampled = torch.cat(
             _map_batches(

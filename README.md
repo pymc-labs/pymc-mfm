@@ -262,10 +262,17 @@ or `--device cuda`):
   capped at 8 CPUs the calls above ran 1.9–2.6x faster on AMD EPYC (Zen 3 and 4) and
   1.0–1.2x faster on Intel Xeon (Ice Lake, Skylake or Cascade Lake, Sapphire Rapids), whose
   multi-threaded matrix products already used the cores well; draws agree up to float32
-  round-off. Apple silicon already ran eight batches sharing every thread, so its CPU draws
-  are unchanged.
+  round-off. Apple silicon already ran eight batches sharing every thread, and each batch
+  still conditions its own graphs, so its CPU draws are bitwise unchanged.
 - A call at 205 query weeks used about 1 GiB on the Apple GPU (Metal driver allocation)
-  and 0.3 GiB on NVIDIA GPUs (PyTorch allocation).
+  and 0.3 GiB on NVIDIA GPUs (PyTorch allocation). GPU sampling conditions each distinct
+  graph once per call when they fit one batch (River-1 draws 3–4 on this world), else per
+  batch: random weights of River-1's architecture, which draw a distinct graph almost every
+  draw, peaked at 4.2 GiB on the Apple GPU and 1.2 GiB on NVIDIA GPUs at 205 weeks (main:
+  1.2 and 0.4 GiB) and sampled 3.4x (M3 Max) and 2.5x (T4) faster than main.
+- In a macOS virtual machine (GPU "Apple Paravirtual device", as on GitHub's macOS
+  runners), PyTorch 2.14's MPS computes linear layers with a bias wrongly (46% relative
+  error on a 4,096 × 256 layer), so GPU draws there are wrong; sample on the CPU in a VM.
 
 ### Faster repeated sampling (optional)
 
