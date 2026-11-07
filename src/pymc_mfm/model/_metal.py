@@ -1,13 +1,14 @@
-"""Apple GPU (MPS) kernels for the sampling-time live velocity.
+"""Fused GPU kernels for the sampling-time live velocity: Apple (Metal) and NVIDIA (CUDA).
 
-On MPS, PyTorch runs each small elementwise operation of the live velocity as its own
+On a GPU, PyTorch runs each small elementwise operation of the live velocity as its own
 kernel and writes every intermediate ``[rows, hidden]`` tensor to memory. These kernels
 evaluate the arithmetic of :class:`pymc_mfm.model.flow._LiveVelocity` with a few passes
 per Euler step: the week-pooled trajectory contexts, the entity moments, the per-row
 context projections and one fused kernel per coordinate network that computes its
-first layer, its ``hidden x hidden`` product on simdgroup matrices and its output layer
-without writing activations to memory. Results agree with the eager velocity up to
-float32 round-off.
+first layer, its ``hidden x hidden`` product and its output layer without writing
+activations to memory. This module holds the Metal sources (simdgroup matrices) and the
+transport that launches them; :mod:`pymc_mfm.model._cuda` holds the CUDA sources it
+launches on NVIDIA GPUs. Results agree with the eager velocity up to float32 round-off.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
+
+from . import _cuda
 
 if TYPE_CHECKING:
     from .flow import JointFlowHead, _LiveNetwork, _LiveVelocity
@@ -522,8 +525,13 @@ _SIMD = 32
 
 
 @lru_cache(maxsize=1)
-def _library():
+def _metal_library():
     return torch.mps.compile_shader(_SOURCE)
+
+
+def _library(device: torch.device):
+    """The compiled kernels for ``device``: Metal on an Apple GPU, CUDA on an NVIDIA GPU."""
+    return _cuda.library() if device.type == "cuda" else _metal_library()
 
 
 #: Host tensors that queued copies have yet to read, each with an event recorded after it.
@@ -536,8 +544,10 @@ def to_device_async(host: Tensor, device: torch.device) -> Tensor:
 
     A blocking copy waits for every queued kernel. A non-blocking copy reads the host
     memory only when it runs on the GPU, so ``host`` stays referenced until an event
-    recorded after the copy has completed.
+    recorded after the copy has completed (on CUDA, PyTorch's pinned memory does this).
     """
+    if device.type == "cuda":
+        return _cuda.to_device_async(host, device)
     host = host.contiguous()
     moved = host.to(device, non_blocking=True)
     event = torch.mps.Event()
@@ -633,7 +643,7 @@ def to_device(parts: list[HostNoise], device: torch.device) -> Tensor:
             size = math.prod(first.shape)
             normals = torch.empty(len(group) * size, device=device, dtype=moved.dtype)
             pairs = (size // 16 + (1 if size % 16 else 0)) * 8
-            _library().normal_from_uniform(
+            _metal_library().normal_from_uniform(
                 normals, moved, size, len(group), threads=len(group) * pairs
             )
             moved = normals
@@ -685,7 +695,7 @@ def causal_attention(qkv: Tensor, heads: int) -> Tensor:
     sequences, length, _ = qkv.shape
     out = torch.empty(sequences, length, heads * 16, device=qkv.device, dtype=qkv.dtype)
     tiles = -(-length // _SIMD)
-    _library().causal_attention16(
+    _metal_library().causal_attention16(
         out, qkv, length, heads, tiles,
         threads=sequences * heads * tiles * _SIMD, group_size=_SIMD,
     )  # fmt: skip
@@ -703,18 +713,25 @@ def masked_attention(qkv: Tensor, heads: int, active: Tensor) -> Tensor:
     sequences, length, _ = qkv.shape
     active = active.to(torch.bool).contiguous()
     out = torch.empty(sequences, length, heads * 16, device=qkv.device, dtype=qkv.dtype)
-    _library().masked_attention16(
+    _metal_library().masked_attention16(
         out, qkv, active, length, heads, sequences // active.shape[0], sequences,
         threads=sequences * heads * length,
     )  # fmt: skip
     return out
 
 
+def has_kernels(device: torch.device) -> bool:
+    """Whether sampling on ``device`` runs these fused kernels: an Apple or NVIDIA GPU."""
+    if device.type == "mps":
+        return torch.__version__ >= MIN_TORCH
+    return device.type == "cuda" and _cuda.available(device)
+
+
 def supported(head: JointFlowHead, weight: Tensor) -> bool:
     """Whether :func:`integrate` can transport ``head``'s flow under state mask ``weight``."""
     hidden = head.base_net[2].weight.shape
     return (
-        weight.device.type == "mps"
+        has_kernels(weight.device)
         and weight.dtype == torch.float32
         and weight.dim() >= 2
         and weight.shape[-2] == 1
@@ -840,8 +857,12 @@ def integrate(
     before ``final_from`` are not wanted after the last step: networks that only write
     them skip it, so those columns end one step short.
     """
-    lib = _library()
     device, dtype = state.device, state.dtype
+    lib = _library(device)
+    if device.type == "cuda":
+        block_rows, groups = _cuda.BLOCK_ROWS, _cuda.NETWORK_THREADS
+    else:
+        block_rows, groups = _BLOCK_ROWS, _NETWORK_THREADS
     *lead_shape, weeks, n_live = state.shape
     lead = torch.Size(lead_shape)
     n_lead = math.prod(lead)
@@ -869,7 +890,7 @@ def integrate(
 
     hidden = prepared.hidden
     h4 = hidden // 4
-    kernel, group = getattr(lib, f"network_{hidden}"), _NETWORK_THREADS[hidden]
+    kernel, group = getattr(lib, f"network_{hidden}"), groups[hidden]
     bank = torch.empty(n_lead, weeks, n_live + 3, device=device, dtype=dtype)
     contexts = torch.empty(n_lead, n_live + 1, _TOKEN, device=device, dtype=dtype)
     velocity = torch.empty(n_lead, weeks, n_live, device=device, dtype=dtype)
@@ -909,7 +930,7 @@ def integrate(
                 network.output_weight, network.output_bias, rows, weeks, network.rows,
                 network.scalar_index.shape[1], n_live + 3, n_live, network.column,
                 prepared.coordinates, network.offset,
-                threads=-(-rows // _BLOCK_ROWS) * group, group_size=group,
+                threads=-(-rows // block_rows) * group, group_size=group,
             )  # fmt: skip
         # x <- (x + dt * v) * mask, then the next step's scalar bank.
         lib.step_moments(
@@ -917,6 +938,7 @@ def integrate(
             n_entities,
             threads=n_lead * weeks,
         )  # fmt: skip
-    # Let the GPU start on this transport while the host prepares the next one.
-    flush()
+    if device.type == "mps":
+        # Let the GPU start on this transport while the host prepares the next one.
+        flush()
     return x.reshape(state.shape)

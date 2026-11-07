@@ -218,36 +218,46 @@ either window:
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
-### Sampling on an Apple GPU
+### Sampling on a GPU (Apple or NVIDIA)
 
-On Apple silicon, load the model on the GPU. The same calls then sample with fused Metal
-kernels and need no training, conversion or warm-up:
+Load the model on the GPU. The same calls then sample with fused kernels and need no
+training, conversion, warm-up or compiler:
 
 ```python
-model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")
+model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")  # Apple silicon
+model = from_pretrained("pymc-labs/mfm", profile="river-1", device="cuda")  # NVIDIA GPU
 result = decompose(model, observations, n_samples=1000)  # or model.inference(...)
 ```
 
-River-1, 1,000 draws, the quickstart world with a 166-week context (Apple M3 Max,
-PyTorch 2.14, median of seven warm calls, `benchmarks/inference_speed.py --query-weeks
-10,50,150,205 --repeats 7`):
+River-1, 1,000 draws, the quickstart world with a 166-week context, PyTorch 2.14, median
+of warm calls (`benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps`
+or `--device cuda`):
 
-| Query weeks | CPU (s) | Apple GPU (s) | Speedup |
-| ---: | ---: | ---: | ---: |
-| 10 | 0.66 | 0.075 | 8.8x |
-| 50 | 2.51 | 0.30 | 8.4x |
-| 150 | 7.25 | 0.86 | 8.4x |
-| 205 | 10.17 | 1.17 | 8.7x |
+| Query weeks | CPU, Apple M3 Max (s) | Apple M3 Max GPU (s) | NVIDIA L4 (s) | NVIDIA A100 (s) | NVIDIA H100 (s) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 0.66 | 0.075 | 0.11 | 0.10 | 0.052 |
+| 50 | 2.51 | 0.30 | 0.39 | 0.27 | 0.145 |
+| 150 | 7.25 | 0.86 | 1.10 | 0.73 | 0.40 |
+| 205 | 10.17 | 1.17 | 1.50 | 0.98 | 0.53 |
 
-- GPU sampling draws its base noise with PyTorch's CPU generator: the generator draws the
-  uniforms `torch.randn` would use and the GPU turns them into the same normals. A seeded
-  call therefore draws the same samples on CPU and GPU up to float32 round-off (identical
-  graphs on these inputs). The noise is drawn on a worker thread while the GPU runs; do
-  not draw random numbers from other threads during a call.
+- GPU sampling draws its base noise with PyTorch's CPU generator, so a seeded call draws
+  the same samples on CPU, Apple and NVIDIA GPUs up to float32 round-off (identical graphs
+  on these inputs on an Apple M3 Max and NVIDIA T4, A10G, L4, A100 and H100). The noise is
+  drawn on a worker thread while the GPU runs; do not draw random numbers from other
+  threads during a call. CUDA sampling used to draw with the CUDA generator.
 - Each Euler step runs one kernel per coordinate network that computes its first layer,
-  its hidden product on simdgroup matrices and its output without writing activations
-  to memory. float64 models and compiled sampling use the PyTorch operations instead.
-- Each call above used about 1 GiB of GPU memory.
+  its hidden product and its output without writing activations to memory: Metal on Apple
+  GPUs; CUDA C++ on NVIDIA GPUs, compiled on first use by NVRTC, which PyTorch's CUDA
+  wheels include (no CUDA toolkit or compiler). Against PyTorch's GPU operations on the
+  same GPU this is 2.5–5.4x faster at 50–205 query weeks and 1.9–3.1x at 10, where the CPU
+  sets more of the pace (NVIDIA T4 to H100).
+- The NVIDIA kernels run on the current CUDA device. Other devices, ROCm, float64 models,
+  compiled sampling and builds whose NVRTC cannot compile for the GPU (sampling warns once)
+  use PyTorch's operations, with the same draws.
+- Sampling on an Apple GPU needs PyTorch 2.9 or newer: older MPS releases miscompute
+  sampling (2.8) or lack operations it uses, and raise a clear error.
+- CPU sampling is unchanged: its time is set by its arithmetic.
+- Each call above used about 1 GiB of memory on the Apple GPU.
 
 ### Faster repeated sampling (optional)
 

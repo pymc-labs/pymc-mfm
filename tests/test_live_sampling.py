@@ -20,6 +20,15 @@ from pymc_mfm.model.flow import _LiveVelocity
 from pymc_mfm.model.graph import EdgeSlotLayout
 
 ROUND_OFF = {"rtol": 1e-10, "atol": 1e-12}
+GPUS = [
+    pytest.param(
+        "mps",
+        marks=pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs MPS"),
+    ),
+    pytest.param(
+        "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+    ),
+]
 
 
 @pytest.fixture
@@ -139,13 +148,14 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
     assert torch.equal(concurrent, serial)
 
 
-@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+@pytest.mark.parametrize("device", GPUS)
 @pytest.mark.parametrize("rows", [2**30, 1])
 @pytest.mark.parametrize("window", ["query", "context"])
-def test_apple_gpu_draws_the_cpu_samples(model, batch, monkeypatch, rows, window):
-    # Noise comes from the CPU generator on both devices, so seeded draws agree up to
+def test_gpu_draws_the_cpu_samples(model, batch, monkeypatch, device, rows, window):
+    # Noise comes from the CPU generator on every device, so seeded draws agree up to
     # float32 round-off; a one-row budget draws noise and transports one draw at a time.
-    monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS_MPS", rows)
+    # The fused kernels transport the draws wherever the GPU has them.
+    monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS_GPU", rows)
     integrate = flow._metal.integrate
     calls = []
     monkeypatch.setattr(
@@ -153,18 +163,18 @@ def test_apple_gpu_draws_the_cpu_samples(model, batch, monkeypatch, rows, window
     )
     torch.manual_seed(41)
     cpu, cpu_graphs = model.sample_disentangled(batch, 19, window=window)
-    gpu_model = copy.deepcopy(model).to("mps")
+    gpu_model = copy.deepcopy(model).to(device)
     torch.manual_seed(41)
     gpu, gpu_graphs = gpu_model.sample_disentangled(
-        {key: value.to("mps") for key, value in batch.items()}, 19, window=window
+        {key: value.to(device) for key, value in batch.items()}, 19, window=window
     )
-    assert calls, "the Apple GPU kernels must transport the draws"
+    assert bool(calls) == flow._metal.has_kernels(torch.device(device))
     assert torch.equal(gpu_graphs.cpu(), cpu_graphs)
     torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
 
 
-@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
-def test_apple_gpu_decodes_a_graph_that_turns_every_entity_off(model, batch):
+@pytest.mark.parametrize("device", GPUS)
+def test_gpu_decodes_a_graph_that_turns_every_entity_off(model, batch, device):
     # With every edge off no entity contribution is live: the GPU kernels transport only
     # the baseline and fixed totals, as the CPU path does.
     tasks, _, n_channels = batch["qry_spend_z"].shape
@@ -172,10 +182,10 @@ def test_apple_gpu_decodes_a_graph_that_turns_every_entity_off(model, batch):
     graph = torch.zeros(tasks, layout.n_slots)
     torch.manual_seed(41)
     cpu, _ = model.sample_disentangled(batch, 19, mode="fixed", graph=graph)
-    gpu_model = copy.deepcopy(model).to("mps")
+    gpu_model = copy.deepcopy(model).to(device)
     torch.manual_seed(41)
     gpu, _ = gpu_model.sample_disentangled(
-        {key: value.to("mps") for key, value in batch.items()}, 19, mode="fixed", graph=graph
+        {key: value.to(device) for key, value in batch.items()}, 19, mode="fixed", graph=graph
     )
     torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
 

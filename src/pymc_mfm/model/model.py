@@ -745,17 +745,17 @@ class MFM(nn.Module):
         router_count = _sample_count(
             s if router_samples is None else router_samples, "router_samples"
         )
-        # On MPS the CPU generator draws the base noise (see _noise_device). A worker thread
+        # On a GPU the CPU generator draws the base noise (see _noise_device). A worker thread
         # draws the router's and then the decoder's chunks, in the inline order, while the
         # GPU encodes and transports. The router's chunks follow the query window's shape.
         query = batch["qry_spend_z"]
         prefetch = None
         if mode != "fixed" and _noise_device(query.device) != query.device:
-            prefetch = _NoisePrefetch()
-        # On MPS the host copies the activity masks before the encoder is queued; the host
+            prefetch = _NoisePrefetch(pin=query.device.type == "cuda")
+        # On a GPU the host copies the activity masks before the encoder is queued; the host
         # then decides the live coordinates and graph masks without waiting for the GPU.
         host_masks = None
-        if query.device.type == "mps" and all(key in batch for key in STRUCT_MASK_KEYS):
+        if query.device.type in ("mps", "cuda") and all(key in batch for key in STRUCT_MASK_KEYS):
             host_masks = dict(
                 zip(
                     STRUCT_MASK_KEYS,

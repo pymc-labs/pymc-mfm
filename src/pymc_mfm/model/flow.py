@@ -37,8 +37,9 @@ _FLOW_SAMPLE_CHUNK = 16
 #: State rows (draws × tasks × weeks × live coordinates) per sampling velocity evaluation.
 #: It bounds memory without changing base-noise draws; kernel shapes may change rounding.
 _FLOW_SAMPLE_ROWS = 2**15
-#: The Apple GPU runs few, large batches best; its kernels keep no per-row activations.
-_FLOW_SAMPLE_ROWS_MPS = 2**19
+#: GPUs with the fused sampling kernels (see :mod:`._metal`) run few, large batches best:
+#: the kernels keep no per-row activations.
+_FLOW_SAMPLE_ROWS_GPU = 2**19
 # Apple's BLAS (Accelerate) runs matrix products on a separate matrix unit. On Apple
 # silicon, transporting several batches at once overlaps one batch's products with the
 # others' elementwise work and Python overhead. In-flight memory scales with the count.
@@ -103,22 +104,22 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
 
 def _sample_rows(device: torch.device) -> int:
     """State rows per sampling velocity evaluation on ``device``."""
-    return _FLOW_SAMPLE_ROWS_MPS if device.type == "mps" else _FLOW_SAMPLE_ROWS
+    return _FLOW_SAMPLE_ROWS_GPU if _metal.has_kernels(device) else _FLOW_SAMPLE_ROWS
 
 
 def _noise_device(device: torch.device) -> torch.device:
     """Where sampling draws base noise for ``device``.
 
-    MPS sampling draws with the CPU generator and copies the noise to the GPU, so a
-    seeded call draws the same base noise, and the same samples up to round-off, on
-    CPU and MPS.
+    GPU sampling (MPS and CUDA) draws with the CPU generator and copies the noise to the
+    GPU, so a seeded call draws the same base noise, and the same samples up to round-off,
+    on every device.
     """
-    return torch.device("cpu") if device.type == "mps" else device
+    return torch.device("cpu") if device.type in ("mps", "cuda") else device
 
 
 def _to_device(value: Tensor, device: torch.device) -> Tensor:
-    """``value`` on ``device``; a host-to-MPS copy does not wait for queued GPU work."""
-    if value.device != device and device.type == "mps" and value.device.type == "cpu":
+    """``value`` on ``device``; a host-to-GPU copy does not wait for queued GPU work."""
+    if value.device != device and device.type in ("mps", "cuda") and value.device.type == "cpu":
         return _metal.to_device_async(value, device)
     return value.to(device)
 
@@ -241,15 +242,17 @@ class _NoiseRequest:
 class _NoisePrefetch:
     """Draws base-noise chunks with the CPU generator on a worker thread, in request order.
 
-    MPS sampling draws its noise on the CPU (see :func:`_noise_device`). Requesting the
+    GPU sampling draws its noise on the CPU (see :func:`_noise_device`). Requesting the
     chunks as soon as their shapes are known overlaps the generator with GPU work. One
     worker draws the requests in submission order, so the noise equals drawing it inline,
     provided nothing else draws random numbers until :meth:`close` returns. A request's
-    chunks land end to end in one buffer per kind, which the GPU copy reads directly.
+    chunks land end to end in one buffer per kind, which the GPU copy reads directly;
+    ``pin`` (for CUDA) page-locks those buffers so the copy does not wait.
     """
 
-    def __init__(self):
+    def __init__(self, *, pin: bool = False):
         self._worker = ThreadPoolExecutor(max_workers=1)
+        self._pin = pin
         # Decided here: the check runs GPU work, which stays on the calling thread.
         self._uniform = _metal.uniform_normals()
 
@@ -262,8 +265,10 @@ class _NoisePrefetch:
             for shape in shapes
         ]
         values_dtype = torch.float32 if self._uniform and dtype == torch.float32 else dtype
-        white = torch.empty(sum(size for size, _ in sizes), dtype=values_dtype)
-        z = torch.empty(sum(size for _, size in sizes), dtype=values_dtype)
+        white = torch.empty(
+            sum(size for size, _ in sizes), dtype=values_dtype, pin_memory=self._pin
+        )
+        z = torch.empty(sum(size for _, size in sizes), dtype=values_dtype, pin_memory=self._pin)
         chunks, white_start, z_start = [], 0, 0
         for shape, (white_size, z_size) in zip(shapes, sizes, strict=True):
             out = (white[white_start : white_start + white_size], z[z_start : z_start + z_size])
