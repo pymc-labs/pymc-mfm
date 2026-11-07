@@ -61,11 +61,29 @@ def band(low: float, high: float, top: float) -> dict[str, float]:
 
 
 def dataset_record(
-    channels: tuple[str, ...] = ("tv", "search"), controls: tuple[str, ...] = ("price",)
+    channels: tuple[str, ...] = ("tv", "search"),
+    controls: tuple[str, ...] = ("price",),
+    *,
+    dataset_id: str = "ds_123",
+    content_hash: str | None = None,
+    name: str | None = None,
 ) -> dict[str, Any]:
-    """The 201 and 200 body of the dataset endpoints."""
+    """The 201 and 200 body of the dataset endpoints. Without ``content_hash``, an older
+    server: the lifecycle fields are absent."""
+    lifecycle = (
+        {
+            "content_hash": content_hash,
+            "created_at": "2029-12-25T00:00:00Z",
+            "last_used_at": "2029-12-26T00:00:00Z",
+            "analyses": 2,
+            "name": name,
+        }
+        if content_hash
+        else {}
+    )
     return {
-        "dataset_id": "ds_123",
+        **lifecycle,
+        "dataset_id": dataset_id,
         "expires_at": EXPIRES,
         "summary": {
             "weeks": 4,
@@ -120,6 +138,7 @@ def result_rows(
     spend_total: float = 300.0,
     url: str | None = None,
     url_expires: str = EXPIRES,
+    warnings: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """One plan's rows in the result table, shaped like the service's ``ResultRow``."""
     means = {
@@ -152,7 +171,7 @@ def result_rows(
                 "mean_difference": None if (failed or kind == "baseline") else mean * 0.1,
                 "simulation_se": None if (failed or kind == "baseline") else 0.5,
                 "sensitivity": False,
-                "warnings": [],
+                "warnings": list(warnings or []),
                 "draws_url": url,
                 "draws_url_expires_at": url_expires if url else None,
             }

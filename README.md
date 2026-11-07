@@ -251,7 +251,16 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 `pymc_mfm.client` is an HTTP client for the River API v3.1. It needs no PyTorch.
 Give it the service URL and an API key as arguments or in `MFM_API_URL` and
-`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots.
+`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots. It needs Python 3.13
+or newer and read access to the repository on GitHub; `uv` can fetch Python 3.13:
+
+```bash
+uv venv -p 3.13
+uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+```
+
+The service keeps a dataset 7 days after its last use, at most 30 days after upload. Deleting a
+dataset deletes its analyses.
 
 An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md).
 
@@ -270,8 +279,9 @@ dataset = client.datasets.create(
     spend=["tv", "search"],
     controls=["price"],
     name="brand-a",
+    reuse=True,  # reuse a stored dataset only when its content hash matches exactly
 )
-print(dataset.history_ranges)  # what the history shows, per series
+print(dataset.history_ranges)  # per series; p05 and p95 are warning thresholds, not the data's edge
 
 analysis = client.analyze(
     dataset,
@@ -284,8 +294,11 @@ analysis = client.analyze(
     ],
     decision_weeks=(1, 8),
     seed=7,
+    name="Spend scenarios",  # optional label, shown on the site and in the export
 )
 analysis.wait()
+analysis.url  # the result page for the person; None when the service has no site address
+analysis.export("analysis.json")  # the whole analysis as one JSON file
 analysis.table  # one row per plan and component; mean, p05, p95, window_mean, ...
 ```
 
@@ -294,8 +307,18 @@ nine spend levels (0 to 2 times the baseline in steps of 0.25) and two budget sc
 Pass `preview=True` to `analyze` or `explore` to see the expanded plans, run count and
 warnings without starting anything. `client.get(analysis_id)` resumes an analysis.
 
+`client.datasets.list()` returns your stored datasets with `content_hash`, `created_at`,
+`last_used_at`, `analyses` (the live analyses) and `expires_at`. Those fields are `None` when an
+older service does not send them. `expires_at` moves later each time you use the dataset, so read
+it again instead of keeping it. The content hash covers the dates, outcome, spend and controls,
+not the name. `client.datasets.find(frame, ...)` and `create(..., reuse=True)` reuse a stored
+dataset only when its hash equals that of the frame: never by name or by number of weeks.
+`dataset_content_hash(body)` and `frame_content_hash(frame, ...)` compute the hash locally.
+
 An `Analysis` has `status()`, `wait(timeout=, poll=)`, `table`, `weekly(scenario_id)`,
-`draws(scenario_ids=None)`, `plot_curves()`, `plot_compare()` and `delete()`. `draws()` reads
+`draws(scenario_ids=None)`, `plot_curves()`, `plot_compare()`, `export(path)` and `delete()`.
+It also has `name` and `url`. The plots mark plans that have warnings and print the warnings
+under the chart. `draws()` reads
 each plan's per-draw file into one `xarray.Dataset` stacked along `scenario`; if a signed
 URL has expired it fetches the result again for new URLs and never reruns anything.
 

@@ -31,8 +31,10 @@ Research prototype. Synthetic data. Not for budget decisions on its own.
    (0 or more each), 1 to 10 controls, a positive outcome, and unique column names that are not
    `baseline`, `latent`, `outcome` or `indirect:*`. 75 to 207 weeks of history is the supported
    range (a warning outside it). A dataset body is at most 5 MB.
-4. Tell the user once: the service deletes the data 7 days after you create it. You can delete it
-   earlier when the user no longer needs it.
+4. Tell the user once: the service keeps the data 7 days after last use, at most 30 days after
+   upload. Each analysis you run on a dataset counts as use and moves its expiry later, up to the
+   30-day limit. Read the current deadline from `dataset.expires_at`; do not store it. You can
+   delete the data earlier when the user no longer needs it.
 
 ## The four steps
 
@@ -50,7 +52,10 @@ from pymc_mfm.client import Client, curve, grid, move, scale, scenario, shift
 
 client = Client()  # reads MFM_API_URL and MFM_API_KEY
 
-# 1. Upload the weekly history. The service keeps it for 7 days.
+# 1. Upload the weekly history, unless the service already holds exactly this data.
+#    The service keeps it 7 days after last use, at most 30 days after upload.
+for stored in client.datasets.list():  # your datasets, with content_hash and expires_at
+    print(stored.dataset_id, stored.name, stored.weeks, stored.analyses, stored.expires_at)
 history = pd.read_csv("history.csv", parse_dates=["date"])
 dataset = client.datasets.create(
     history,
@@ -59,9 +64,10 @@ dataset = client.datasets.create(
     spend=["tv", "search"],
     controls=["holiday"],
     name="weekly-history",
+    reuse=True,  # reuse a dataset only when its content_hash matches exactly
 )
 print(dataset.dataset_id, dataset.weeks, dataset.start, dataset.end)
-print(dataset.history_ranges)  # weekly p05 and p95 of each series: what the history shows
+print(dataset.history_ranges)  # weekly p05 and p95 of each series: warning thresholds
 
 # 2. Forecast the baseline plan.
 plan = pd.read_csv("plan.csv", parse_dates=["date"])
@@ -79,9 +85,10 @@ preview = client.analyze(dataset, plan, scenarios=scenarios, preview=True)
 print(preview.runs_total, preview.estimate_seconds, preview.warnings)
 print(preview.spend().groupby(level="scenario_id").sum())
 
-analysis = client.analyze(dataset, plan, scenarios=scenarios, seed=7)
+analysis = client.analyze(dataset, plan, scenarios=scenarios, seed=7, name="Spend scenarios")
 analysis.wait(timeout=600)
-print("analysis id:", analysis.id)  # give this to the user; resume with client.get(analysis.id)
+print("result link:", analysis.url)  # give this link to the user
+print("analysis id:", analysis.id)  # resume with client.get(analysis.id)
 
 # 4. Read the results.
 outcome = analysis.table.query("component == 'outcome'")
@@ -120,28 +127,33 @@ two budget scenarios. Pass `preview=True` to `analyze` or `explore` to see the r
 | `grid(tv=[0.5, 1.5], search=[...])` | One scenario for every combination of spend multiples. |
 | `curve(channel, levels, base="baseline")` | One channel at each spend level, as a multiple of its baseline spend. |
 
-`analyze` also takes `decision_weeks=(i, j)` (the only weeks that steps and curves may change),
+`analyze` also takes `name` (optional, 1 to 120 characters: the label the user sees on the site and
+in the export), `decision_weeks=(i, j)` (the only weeks that steps and curves may change),
 `draws` and `seed`. Use `draws` of 200 to 500 for exploration and 1,000 (the default) for numbers
 you report. At most 2,000. Set `seed` when the user needs a repeatable result. At most 200 different
 plans run per analysis. A plan needs spend for every channel and a value for every control, for every
 forecast week.
 
-Look at `dataset.history_ranges` and the preview warnings before you start. Spend outside the
-history's 5th to 95th percentile gets a warning, and the model has no data there. If
+Look at `dataset.history_ranges` and the preview warnings before you start. The weekly `p05` and
+`p95` are warning thresholds, not the edge of the observed data (`max` is the largest week). Spend
+outside the history's 5th to 95th percentile gets a warning, and the model has little data there. If
 `preview.runs_total` is large, give the user the run count and `estimate_seconds` before you start.
 
 ## Show the results to the user
 
 Do not only print tables. Save `plot_compare()` and `plot_curves()` as PNG (the example does this)
-and show both files to the user. Give the analysis id, so the person can open the analysis on the
-MFM API site (the team gives the address). Say what each chart is:
+and show both files to the user. Give the person the result link, `analysis.url`, to open the
+analysis on the MFM API site. If `url` is `None`, give the analysis id instead. Say what each chart is:
 
 - `plot_compare()` draws each scenario's mean difference from its base plan. The bars are simulation
   error, not model uncertainty.
 - `plot_curves()` draws each channel's contribution at each spend level, with the mean and the
-  pointwise 5th to 95th percentile band.
+  pointwise 5th to 95th percentile band. A red open marker means that plan has a warning, and the
+  warnings are printed under the chart.
 
 If the machine has no display, set `MPLBACKEND=Agg` before you run the script.
+`analysis.export("analysis.json")` saves the whole analysis (request, scenario inputs, warnings,
+results) as one JSON file, once every run has ended.
 
 ## How to read and report numbers
 
@@ -194,9 +206,10 @@ to a `draws_url`.
 
 ## Delete the data
 
-Deleting a dataset deletes all its analyses, including the ones the user opens on the site. So give
-the user the numbers, the charts and the analysis id first, then ask whether to delete now or let the
-data expire after 7 days. When the user says delete:
+Deleting a dataset deletes all its analyses, including the ones the user opens on the site. So report
+the results first: the numbers, the charts and the result link. Then ask before deleting, and say that
+deleting the dataset removes its analyses. Otherwise the data expires 7 days after last use, at most
+30 days after upload. When the user says delete:
 
 <!-- skill-example: delete -->
 ```python

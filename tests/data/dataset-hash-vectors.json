@@ -1,0 +1,406 @@
+{
+  "format": "mfm-dataset-v1",
+  "note": "Synthetic. Shared by service and SDK tests; keep byte-identical in both repos.",
+  "vectors": [
+    {
+      "case": "base",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110
+        ],
+        "spend": {
+          "tv": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:2f57a20b972872c7ed9050cb4107e9b3a959f8a70352d563e57624418dcd86c9"
+    },
+    {
+      "case": "renamed_same_hash",
+      "body": {
+        "name": "other-name",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110
+        ],
+        "spend": {
+          "tv": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:2f57a20b972872c7ed9050cb4107e9b3a959f8a70352d563e57624418dcd86c9"
+    },
+    {
+      "case": "ints_vs_floats_same_hash",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100.0,
+          102.5,
+          98.25,
+          110.0
+        ],
+        "spend": {
+          "tv": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:2f57a20b972872c7ed9050cb4107e9b3a959f8a70352d563e57624418dcd86c9"
+    },
+    {
+      "case": "shuffled_rows_same_hash",
+      "body": {
+        "dates": [
+          "2026-01-19",
+          "2026-01-05",
+          "2026-01-26",
+          "2026-01-12"
+        ],
+        "outcome": [
+          98.25,
+          100,
+          110,
+          102.5
+        ],
+        "spend": {
+          "search": [
+            5.5,
+            5,
+            7,
+            6
+          ],
+          "tv": [
+            12,
+            10,
+            11,
+            0
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:2f57a20b972872c7ed9050cb4107e9b3a959f8a70352d563e57624418dcd86c9"
+    },
+    {
+      "case": "negative_zero_same_hash",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110
+        ],
+        "spend": {
+          "tv": [
+            10,
+            -0.0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:2f57a20b972872c7ed9050cb4107e9b3a959f8a70352d563e57624418dcd86c9"
+    },
+    {
+      "case": "datetime_dates_same_hash",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05T00:00:00",
+          "2026-01-12T00:00:00",
+          "2026-01-19T00:00:00",
+          "2026-01-26T00:00:00"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110
+        ],
+        "spend": {
+          "tv": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:2f57a20b972872c7ed9050cb4107e9b3a959f8a70352d563e57624418dcd86c9"
+    },
+    {
+      "case": "one_value_differs",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110.000001
+        ],
+        "spend": {
+          "tv": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:b42f8916ceb18987f4f9850d5ba65dea36844ad0517e6157b715f7e9c8cdf911"
+    },
+    {
+      "case": "role_swapped",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110
+        ],
+        "spend": {
+          "tv": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ],
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        },
+        "controls": {}
+      },
+      "content_hash": "mfm-dataset-v1:7012e79501f95c4e1319e117ed35092f62213f2bcf2e220ad8070edc988a1c0a"
+    },
+    {
+      "case": "unicode_name_column",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110
+        ],
+        "spend": {
+          "télé": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        },
+        "controls": {
+          "holiday": [
+            0,
+            1,
+            0,
+            0
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:aaeabb42a187f5a9b9c5256ef89048e9ad4c96ab0988d12ad3f243e901e81483"
+    },
+    {
+      "case": "no_controls",
+      "body": {
+        "name": "demo-weekly-history",
+        "dates": [
+          "2026-01-05",
+          "2026-01-12",
+          "2026-01-19",
+          "2026-01-26"
+        ],
+        "outcome": [
+          100,
+          102.5,
+          98.25,
+          110
+        ],
+        "spend": {
+          "tv": [
+            10,
+            0,
+            12,
+            11
+          ],
+          "search": [
+            5,
+            6,
+            5.5,
+            7
+          ]
+        }
+      },
+      "content_hash": "mfm-dataset-v1:e19491fd1a38e9f943be02e01c3b4aa8ce86fddafe76abd54de5badc3298438e"
+    }
+  ]
+}

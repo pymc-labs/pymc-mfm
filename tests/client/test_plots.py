@@ -120,3 +120,46 @@ def test_plot_compare_draws_a_bar_for_every_row_with_simulation_error(client, se
     axis = done.plot_compare().axes[0]
     assert _bar_count(axis) == 2
     assert not any("unavailable" in label.get_text() for label in axis.get_yticklabels())
+
+
+WARNING = "spend above the history's 95th percentile"
+
+
+def _warned_curve_result():
+    record = curve_result()
+    for row in record["table"]:
+        if row["scenario_id"] == "curve:tv:baseline:2":
+            row["warnings"] = [WARNING]
+        if row["scenario_id"] == "half":
+            row["warnings"] = ["half has a warning"]
+    return record
+
+
+def _footnote(figure):
+    return figure._supxlabel.get_text()
+
+
+def test_curve_points_carry_the_plan_warnings(client, service):
+    points = curve_points(_done_with_rows(client, service, _warned_curve_result()).table)
+    flagged = points[points["warnings"].map(len) > 0]
+    assert flagged[["varied_channel", "level"]].values.tolist() == [["tv", 2.0]]
+
+
+def test_plot_curves_marks_levels_with_warnings_and_prints_them(client, service):
+    figure = _done_with_rows(client, service, _warned_curve_result()).plot_curves()
+    tv_axis, search_axis = figure.axes[:2]
+    assert len(tv_axis.collections) == 2  # the band and the warning markers
+    assert tv_axis.collections[-1].get_offsets().tolist() == [[200.0, 200.0]]
+    assert len(search_axis.collections) == 1  # no warning there
+    assert WARNING in _footnote(figure)
+
+
+def test_plot_curves_without_warnings_adds_no_warning_text(done):
+    assert "Warning" not in _footnote(done.plot_curves())
+
+
+def test_plot_compare_marks_a_plan_with_warnings(client, service):
+    figure = _done_with_rows(client, service, _warned_curve_result()).plot_compare()
+    labels = [label.get_text() for label in figure.axes[0].get_yticklabels()]
+    assert "half *" in labels
+    assert "half has a warning" in _footnote(figure)

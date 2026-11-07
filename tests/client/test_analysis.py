@@ -328,3 +328,53 @@ def test_list_analyses_filters_by_dataset(client, service, dataset):
     frame = client.list_analyses(dataset)
     assert service.requests[-1].url.params["dataset_id"] == "ds_123"
     assert frame["analysis_id"].tolist() == ["an_1"]
+
+
+def test_analyze_sends_an_optional_name_and_keeps_name_and_url(client, service, dataset, plan):
+    reply = {**started(), "name": "Spend scenarios", "url": "https://site.example/analyses/an_1"}
+    service.on("POST", "/v1/analyses", (202, reply))
+    analysis = client.analyze(dataset, plan, name="Spend scenarios")
+    assert body_of(service)["name"] == "Spend scenarios"
+    assert analysis.name == "Spend scenarios"
+    assert analysis.url == "https://site.example/analyses/an_1"
+
+
+def test_analyze_omits_the_name_and_an_older_server_has_no_url(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started()))
+    analysis = client.analyze(dataset, plan)
+    assert "name" not in body_of(service)
+    assert analysis.name is None and analysis.url is None
+
+
+def test_get_reads_name_and_url_and_the_expiry_can_move(client, service):
+    first = {
+        **status_record("running"),
+        "name": "Mine",
+        "url": "https://site.example/analyses/an_1",
+    }
+    later = {**status_record("done"), "expires_at": "2030-01-20T00:00:00Z"}
+    service.on("GET", "/v1/analyses/an_1", (200, first), (200, later))
+    analysis = client.get("an_1")
+    assert (analysis.name, analysis.url) == ("Mine", "https://site.example/analyses/an_1")
+    assert analysis.expires_at.day == 8
+    analysis.status()
+    assert analysis.expires_at.day == 20
+    assert analysis.url == "https://site.example/analyses/an_1"  # kept when a reply omits it
+
+
+def test_export_downloads_the_json_file(client, service, tmp_path):
+    document = b'{"format": "mfm-analysis-export-v1", "analysis_id": "an_1"}'
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("done")))
+    service.on("GET", "/v1/analyses/an_1/export", (200, document))
+    path = client.get("an_1").export(tmp_path / "out.json")
+    assert path.read_bytes() == document
+    request = service.sent("GET", "/v1/analyses/an_1/export")[0]
+    assert request.headers["Authorization"] == "Bearer test-key"
+
+
+def test_export_of_an_unfinished_analysis_raises_not_ready(client, service, tmp_path):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("running")))
+    service.on("GET", "/v1/analyses/an_1/export", (409, error_body("not_ready", "still running")))
+    with pytest.raises(NotReady):
+        client.get("an_1").export(tmp_path / "out.json")
+    assert not (tmp_path / "out.json").exists()

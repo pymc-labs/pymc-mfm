@@ -3,6 +3,10 @@
 For agents without Python. The Python client in `SKILL.md` makes the same calls. The reading
 rules, limits and deletion rules in `SKILL.md` apply here too.
 
+To use the Python client instead, install it with `uv` (Python 3.13 or later, GitHub read access):
+`uv venv -p 3.13` and
+`uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"`.
+
 The base URL is in `MFM_API_URL` and the key is in `MFM_API_KEY`. If one is missing, stop and ask the
 user. Never print the key and never write the URL or the key into a file.
 
@@ -14,17 +18,41 @@ deleted resources return `410`.
 
 | Method and path | Purpose |
 | --- | --- |
-| `POST /v1/datasets` | Upload a history. `201` with `dataset_id`, `expires_at`, `summary`, `history_ranges`, `warnings`. |
-| `GET /v1/datasets/{id}` | The summary. |
+| `POST /v1/datasets` | Upload a history. `201` with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `expires_at`, `summary`, `history_ranges`, `warnings`. |
+| `GET /v1/datasets` | List your datasets: `{"datasets": [...]}`, each with the same fields. |
+| `GET /v1/datasets/{id}` | The summary, with the same fields. |
 | `DELETE /v1/datasets/{id}` | Delete the dataset and all its analyses. `202`. |
-| `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded plans, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
-| `GET /v1/analyses/{id}` | Status and counts. |
+| `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded plans, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
+| `GET /v1/analyses/{id}` | Status and counts, with `name`, `url` and `expires_at`. |
 | `GET /v1/analyses/{id}/result` | The result table. `409 not_ready` until the analysis ends. |
 | `GET /v1/analyses/{id}/weekly?scenario_id=` | Weekly rows for one plan. |
+| `GET /v1/analyses/{id}/export` | The whole analysis as one JSON file (`mfm-analysis-export-v1`). `409 not_ready` until every run ends. |
 | `DELETE /v1/analyses/{id}` | Cancel unstarted runs and delete the analysis. `202`. |
 | `GET /v1/analyses?dataset_id=` | List your analyses. |
 
 Do not call other endpoints.
+
+Older servers may leave out `content_hash`, `created_at`, `last_used_at`, `analyses`, `name` and
+`url`. Treat a missing field as unknown. `url` is `null` when the service has no site address.
+
+## Retention
+
+The service keeps a dataset 7 days after last use, at most 30 days after upload. Using a dataset
+(for example, starting an analysis on it) moves `expires_at` later, so read it again; do not treat
+it as a fixed deadline. An analysis has the `expires_at` of its dataset. Deleting a dataset deletes
+all its analyses. Report the results first, then ask before deleting.
+
+## Reusing a dataset
+
+Before you upload, call `GET /v1/datasets`. Reuse a stored dataset only when its `content_hash`
+equals the hash of your data. Never match by name or by number of weeks: one changed value gives a
+different hash. Compute the hash like this: take `dates`, `outcome`, `spend` and `controls` (not
+`name`); write each date as `YYYY-MM-DD`; convert every number to a float (`-0.0` becomes `0.0`;
+NaN and infinity are errors); sort the rows by date and reorder every series the same way; build
+`{"v":1,"dates":[...],"outcome":[...],"spend":{...},"controls":{...}}`; encode it with
+`json.dumps(obj, sort_keys=True, separators=(",", ":"), allow_nan=False, ensure_ascii=False)` as
+UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python client does this in
+`pymc_mfm.client.dataset_content_hash`.
 
 ## Call order
 
@@ -38,8 +66,9 @@ Do not call other endpoints.
 
    Dates are weekly, contiguous, ISO dates. The body is at most 5 MB. `history_ranges` gives, per
    channel and control, the weekly `p05`, `p95` and `max`, `zero_share` and `all_zero`.
-2. Check `history_ranges` against the plan you will send. Spend outside the history's 5th to 95th
-   percentile gets a warning, and the model has no data there.
+2. Check `history_ranges` against the plan you will send. The weekly `p05` and `p95` are warning
+   thresholds, not the edge of the observed data. Spend outside the history's 5th to 95th percentile
+   gets a warning, and the model has little data there.
 3. `POST /v1/analyses` with `"preview": true` first. It needs no `Idempotency-Key`. Show the user
    the run count and the warnings. If `runs_total` is large, give the count and the estimate before
    you start.
@@ -50,7 +79,7 @@ Do not call other endpoints.
     "plan": {"dates": ["2026-07-06", "... 8 weeks"],
              "spend": {"tv": [100, "..."], "search": [50, "..."]},
              "controls": {"holiday": ["..."]}},
-    "decision_weeks": [1, 8],
+    "name": "Spend scenarios", "decision_weeks": [1, 8],
     "scenarios": [
       {"id": "half", "steps": [{"scale": 0.5}]},
       {"id": "tv_to_search", "steps": [{"move": {"from": "tv", "to": "search", "share": 0.2}}]},
@@ -69,6 +98,7 @@ Do not call other endpoints.
    - A curve is `{"channel", "levels", "base"?}`. Each level multiplies that channel's spend in the
      decision window. Level 1 equals the base and does not run again. Level ids are
      `curve:<channel>:<base>:<level>`. For a first look use levels 0 to 2 in steps of 0.25.
+   - `name` is optional: 1 to 120 characters, trimmed; `422` otherwise.
    - `draws` is 1 to 2,000 (default 1,000). Use 200 to 500 for exploration. `seed` is 0 to 2147483647;
      the server picks one if you leave it out.
    - At most 200 different plans per analysis. Equal plans run once.
@@ -79,8 +109,10 @@ Do not call other endpoints.
 6. `GET /v1/analyses/{id}/result` for the table, and `GET /v1/analyses/{id}/weekly?scenario_id=` for one
    plan's weekly rows (`scenario_id`, `rows` with `date`, `component`, `mean`, `p05`, `p95`). Each
    `table[*].draws_url` is a signed link to that plan's draws file.
-7. Give the user the numbers and the analysis id. Then `DELETE /v1/analyses/{id}` or
-   `DELETE /v1/datasets/{id}` (this also deletes all its analyses). A `410` after the delete is expected.
+7. Give the user the numbers and the result link (`url` from the analysis record; give the
+   analysis id if `url` is `null`). Then ask before deleting. `GET /v1/analyses/{id}/export` saves the
+   whole analysis as JSON. `DELETE /v1/analyses/{id}` or `DELETE /v1/datasets/{id}` (this also
+   deletes all its analyses) when the user agrees. A `410` after the delete is expected.
 
 ## Steps
 

@@ -53,6 +53,7 @@ def analysis_id(number: int) -> dict:
 def service() -> FakeService:
     """The routes the example calls, in order: forecast, preview, compare, curves."""
     fake = FakeService()
+    fake.on("GET", "/v1/datasets", (200, {"datasets": []}))
     fake.on("POST", "/v1/datasets", (201, dataset_record(controls=("holiday",))))
     plans = [{"scenario_id": "baseline", "spend": {"tv": [100.0, 100.0], "search": [50.0, 50.0]}}]
     preview = {"plans": plans, "runs_total": 8, "estimate_seconds": 40.0, "warnings": []}
