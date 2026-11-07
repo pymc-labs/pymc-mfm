@@ -98,6 +98,7 @@ only-include = [
     "examples",
     "pyproject.toml",
     "scripts",
+    "skills",
     "src",
     "tests",
     "uv.lock",
