@@ -253,6 +253,8 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 Give it the service URL and an API key as arguments or in `MFM_API_URL` and
 `MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots.
 
+An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md).
+
 ```python
 import pandas as pd
 
