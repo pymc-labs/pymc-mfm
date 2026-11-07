@@ -84,7 +84,9 @@ print("analysis id:", analysis.id)  # give this to the user; resume with client.
 # 4. Read the results.
 outcome = analysis.table.query("component == 'outcome'")
 print(outcome[["scenario_id", "spend_total", "mean", "p05", "p95", "mean_difference"]])
-print(analysis.weekly("tv_to_search").query("component == 'outcome'")[["date", "mean", "p05", "p95"]])
+print(
+    analysis.weekly("tv_to_search").query("component == 'outcome'")[["date", "mean", "p05", "p95"]]
+)
 print(analysis.labels)  # how the service says to read these numbers
 
 # Response curves: each channel alone at spend levels 0 to 2 times the baseline.
@@ -96,7 +98,6 @@ print("curves analysis id:", curves.id)
 # Show the results: save both charts as PNG, then show the files to the user.
 analysis.plot_compare().savefig("compare.png", dpi=150)
 curves.plot_curves().savefig("curves.png", dpi=150)
-
 ```
 
 Do not delete the dataset in the same script: deleting it also deletes the analyses the user opens
