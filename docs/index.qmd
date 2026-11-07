@@ -13,177 +13,212 @@ css: assets/styles/landing.css
 
 ```{=html}
 <script>
-  // Hides the hero copy until landing.js plays the intro; a CSS fallback reveals it anyway.
+  // Hides the hero until landing.js plays the intro; a CSS fallback reveals it anyway.
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("mfm-intro");
 </script>
 <div class="mfm">
 
-<!-- Hero ------------------------------------------------------------------ -->
+<!-- 1. Hero: one name, one line ------------------------------------------------ -->
 <section class="mfm-hero" aria-labelledby="mfm-hero-title">
-  <canvas class="mfm-hero__waves" data-mfm="waves" aria-hidden="true"></canvas>
+  <canvas class="mfm-hero__fog" data-mfm="fog" aria-hidden="true"></canvas>
+  <div class="mfm-grain" aria-hidden="true"></div>
   <div class="mfm-hero__copy">
-    <p class="mfm-kicker"><span class="mfm-kicker__dot" aria-hidden="true"></span>Python library · by PyMC Labs</p>
-    <h1 id="mfm-hero-title" class="mfm-hero__title">Train once.<br><span class="mfm-grad">Decompose</span> any time&nbsp;series.</h1>
-    <p class="mfm-hero__lede">
-      PyMC MFM trains neural networks on simulated marketing worlds. Hand one your spend,
-      controls and sales: it returns posterior draws of every contribution, and the causal
-      graph behind each draw. No MCMC. No refit.
-    </p>
+    <p class="mfm-hero__kicker">Marketing Foundation Models · by PyMC Labs</p>
+    <h1 id="mfm-hero-title" class="mfm-hero__title">PyMC MFM</h1>
+    <p class="mfm-hero__line">Train once. Decompose any time series.</p>
     <div class="mfm-hero__actions">
       <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <span aria-hidden="true">→</span></a>
-      <a class="mfm-btn mfm-btn--ghost" href="https://github.com/pymc-labs/pymc-mfm">View on GitHub</a>
+      <a class="mfm-btn mfm-btn--ghost" href="https://github.com/pymc-labs/pymc-mfm">GitHub</a>
     </div>
   </div>
-
-  <figure class="mfm-hero__figure" aria-label="Observed weekly series flow through a neural network that samples causal graphs and returns posterior components.">
-    <canvas class="mfm-hero__canvas" data-mfm="hero" aria-hidden="true"></canvas>
-    <figcaption class="mfm-hero__captions" aria-hidden="true">
-      <span>spend · controls · sales</span>
-      <span>encoder · graph router · flow</span>
-      <span>posterior components</span>
-    </figcaption>
-  </figure>
+  <a class="mfm-hero__scroll" href="#mfm-statement">Scroll to explore<span aria-hidden="true"></span></a>
 </section>
 
-<!-- API ------------------------------------------------------------------- -->
-<section class="mfm-section mfm-reveal" aria-labelledby="mfm-api-title">
-  <header class="mfm-section__head">
+<!-- 2. What it does, in one statement -------------------------------------------- -->
+<section class="mfm-statement" id="mfm-statement">
+  <p class="mfm-statement__text" data-mfm="statement">
+    PyMC MFM trains neural networks on simulated marketing worlds. Hand one your weekly
+    spend, controls and sales, and it returns posterior draws of every contribution, with the
+    causal graph behind each draw. No MCMC. No refit.
+  </p>
+</section>
+
+<!-- 3. The library at work: a notebook in an editor --------------------------------- -->
+<section class="mfm-show" aria-labelledby="mfm-show-title">
+  <header class="mfm-show__head mfm-reveal">
     <p class="mfm-eyebrow">The library</p>
-    <h2 id="mfm-api-title">History in. Posterior out.</h2>
-    <p class="mfm-section__lede">
-      Load a trained network, give it your history as context, ask about the weeks ahead.
-      Three calls, no training loop, no sampler to tune.
-    </p>
+    <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
+  </header>
+
+  <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, decomposes the last 13 weeks into 1,000 posterior draws and plots the mean contributions. Illustrative data.">
+    <div class="mfm-stage__bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="mfm-grain" aria-hidden="true"></div>
+
+    <div class="mfm-ide" data-mfm="notebook">
+      <div class="mfm-ide__titlebar">
+        <span class="mfm-ide__lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="mfm-ide__command"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>pymc-mfm</span>
+      </div>
+
+      <div class="mfm-ide__body">
+        <nav class="mfm-ide__activity" aria-hidden="true">
+          <svg class="is-active" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+          <svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+          <svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-11 7"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </nav>
+
+        <aside class="mfm-ide__explorer" aria-hidden="true">
+          <p class="mfm-ide__explorer-title">Explorer</p>
+          <ul>
+            <li class="is-folder">pymc-mfm</li>
+            <li class="is-folder is-l1">data</li>
+            <li class="is-l2 is-csv">weekly_sales.csv</li>
+            <li class="is-l1 is-ipynb is-active">quickstart.ipynb</li>
+            <li class="is-l1 is-toml">pyproject.toml</li>
+            <li class="is-l1 is-md">README.md</li>
+          </ul>
+        </aside>
+
+        <div class="mfm-ide__editor">
+          <div class="mfm-ide__tabs">
+            <span class="mfm-ide__tab is-active"><i class="is-ipynb"></i>quickstart.ipynb</span>
+            <span class="mfm-ide__tab"><i class="is-csv"></i>weekly_sales.csv</span>
+          </div>
+          <div class="mfm-ide__toolbar">
+            <span>+ Code</span>
+            <span>+ Markdown</span>
+            <button class="mfm-ide__runall" type="button" data-mfm="run-all"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>Run All</button>
+            <span class="mfm-ide__dim">Restart</span>
+            <span class="mfm-ide__kernel">Python 3.13 (.venv)</span>
+          </div>
+
+          <div class="mfm-ide__cells" data-mfm="cells">
+<div class="mfm-cell" data-duration="900">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[1]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="k">import</span> <span class="m">pandas</span> <span class="k">as</span> <span class="m">pd</span>
+<span class="k">from</span> <span class="m">pymc_mfm</span> <span class="k">import</span> <span class="f">from_pretrained</span>
+
+<span class="v">df</span> <span class="o">=</span> <span class="m">pd</span>.<span class="f">read_csv</span>(<span class="s">"data/weekly_sales.csv"</span>, <span class="p">parse_dates</span><span class="o">=</span>[<span class="s">"week"</span>])
+<span class="v">df</span>.<span class="f">head</span>()</code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+    <div class="mfm-cell__output">
+      <table class="mfm-df">
+        <thead><tr><th></th><th>week</th><th>tv</th><th>search</th><th>social</th><th>price</th><th>sales</th></tr></thead>
+        <tbody>
+          <tr><th>0</th><td>2024-01-01</td><td>12400.0</td><td>3180.5</td><td>1920.0</td><td>4.99</td><td>51230.4</td></tr>
+          <tr><th>1</th><td>2024-01-08</td><td>0.0</td><td>3342.1</td><td>2050.0</td><td>4.99</td><td>47915.2</td></tr>
+          <tr><th>2</th><td>2024-01-15</td><td>0.0</td><td>3011.8</td><td>1875.5</td><td>4.79</td><td>46102.7</td></tr>
+          <tr><th>3</th><td>2024-01-22</td><td>15800.0</td><td>3420.0</td><td>2210.0</td><td>4.79</td><td>53877.9</td></tr>
+          <tr><th>4</th><td>2024-01-29</td><td>15800.0</td><td>3605.3</td><td>2190.5</td><td>4.99</td><td>55410.1</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="mfm-cell" data-duration="1700">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[2]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="v">model</span> <span class="o">=</span> <span class="f">from_pretrained</span>(<span class="s">"pymc-labs/mfm"</span>, <span class="p">profile</span><span class="o">=</span><span class="s">"river-1"</span>).<span class="f">add_context</span>(
+    <span class="v">df</span>[:<span class="n">-13</span>],
+    <span class="p">date_column</span><span class="o">=</span><span class="s">"week"</span>,
+    <span class="p">target_column</span><span class="o">=</span><span class="s">"sales"</span>,
+    <span class="p">channel_columns</span><span class="o">=</span>[<span class="s">"tv"</span>, <span class="s">"search"</span>, <span class="s">"social"</span>],
+    <span class="p">control_columns</span><span class="o">=</span>[<span class="s">"price"</span>],
+)</code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+  </div>
+</div>
+
+<div class="mfm-cell" data-duration="2000">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[3]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="v">query</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">inference</span>(<span class="v">df</span>[<span class="n">-13</span>:], <span class="p">n_samples</span><span class="o">=</span><span class="n">1_000</span>)
+<span class="v">query</span>.<span class="v">components</span>.<span class="v">shape</span>  <span class="c"># draws, weeks, components</span></code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+    <div class="mfm-cell__output"><pre class="mfm-cell__text">(1000, 13, 18)</pre></div>
+  </div>
+</div>
+
+<div class="mfm-cell" data-duration="900">
+  <div class="mfm-cell__gutter"><span class="mfm-cell__count">[4]</span></div>
+  <div class="mfm-cell__main">
+    <div class="mfm-cell__box">
+      <span class="mfm-cell__bar" aria-hidden="true"></span>
+<pre class="mfm-cell__code"><code><span class="v">mean</span> <span class="o">=</span> <span class="m">pd</span>.<span class="t">DataFrame</span>(
+    <span class="v">query</span>.<span class="v">components</span>.<span class="f">mean</span>(<span class="p">axis</span><span class="o">=</span><span class="n">0</span>), <span class="p">index</span><span class="o">=</span><span class="v">query</span>.<span class="v">time</span>, <span class="p">columns</span><span class="o">=</span><span class="v">query</span>.<span class="v">component_names</span>
+)
+<span class="v">mean</span>[[<span class="s">"baseline"</span>, <span class="s">"channel:tv"</span>, <span class="s">"channel:search"</span>, <span class="s">"channel:social"</span>]].<span class="v">plot</span>.<span class="f">area</span>()</code></pre>
+      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+    </div>
+    <div class="mfm-cell__output">
+      <pre class="mfm-cell__text">&lt;Axes: &gt;</pre>
+      <svg class="mfm-area" data-mfm="area" viewBox="0 0 640 300" aria-hidden="true"></svg>
+    </div>
+  </div>
+</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mfm-ide__statusbar" aria-hidden="true">
+        <span>⎇ main</span>
+        <span>⊗ 0 ⚠ 0</span>
+        <span class="mfm-ide__spacer"></span>
+        <span data-mfm="cell-of">Cell 4 of 4</span>
+        <span>Python 3.13.9 ('.venv')</span>
+      </div>
+    </div>
+  </figure>
+
+  <div class="mfm-show__install mfm-reveal">
     <div class="mfm-install">
       <span class="mfm-install__prompt" aria-hidden="true">$</span>
       <code class="mfm-install__cmd">pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
       <button class="mfm-install__copy" type="button" data-copy="pip install &quot;pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command">Copy</button>
     </div>
-  </header>
-
-  <div class="mfm-shot">
-    <div class="mfm-window">
-      <div class="mfm-window__bar">
-        <span class="mfm-window__dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span class="mfm-window__name">decompose.py</span>
-      </div>
-<pre class="mfm-code"><code><span class="k">from</span> pymc_mfm <span class="k">import</span> from_pretrained
-
-model <span class="o">=</span> <span class="f">from_pretrained</span>(<span class="s">"pymc-labs/mfm"</span>, profile<span class="o">=</span><span class="s">"river-1"</span>)
-
-model.<span class="f">add_context</span>(
-    history,                  <span class="c"># weekly DataFrame</span>
-    date_column<span class="o">=</span><span class="s">"week"</span>,
-    target_column<span class="o">=</span><span class="s">"sales"</span>,
-    channel_columns<span class="o">=</span>[<span class="s">"tv"</span>, <span class="s">"search"</span>, <span class="s">"social"</span>],
-    control_columns<span class="o">=</span>[<span class="s">"price"</span>],
-)
-
-query <span class="o">=</span> model.<span class="f">inference</span>(next_quarter, n_samples<span class="o">=</span><span class="n">1_000</span>)
-query.components              <span class="c"># draws × weeks × components</span>
-idata <span class="o">=</span> model.<span class="f">build_idata</span>()   <span class="c"># ArviZ DataTree</span></code></pre>
-    </div>
-
-    <figure class="mfm-plot">
-      <canvas class="mfm-plot__canvas" data-mfm="decomposition" role="img"
-        aria-label="Illustrative stacked weekly decomposition: baseline, tv, search, social and price contributions with posterior intervals, wider in the query weeks than in the context weeks."></canvas>
-      <figcaption class="mfm-plot__legend">
-        <span><i style="--c: var(--mfm-periwinkle)"></i>baseline</span>
-        <span><i style="--c: var(--mfm-aqua)"></i>tv</span>
-        <span><i style="--c: var(--mfm-peach)"></i>search</span>
-        <span><i style="--c: var(--mfm-violet)"></i>social</span>
-        <span><i style="--c: #4A9EDE"></i>price</span>
-        <span class="mfm-plot__note">illustrative</span>
-      </figcaption>
-    </figure>
+    <p class="mfm-show__note">Illustrative data. <a href="guide/examples/river_1_quickstart.html">See the real quickstart →</a></p>
   </div>
 </section>
 
-<!-- Benefits -------------------------------------------------------------- -->
-<section class="mfm-section mfm-reveal" aria-labelledby="mfm-why-title">
-  <header class="mfm-section__head">
-    <p class="mfm-eyebrow">Why amortize</p>
-    <h2 id="mfm-why-title">The fit happens once. You get the posterior.</h2>
-  </header>
-
-  <ol class="mfm-why">
-    <li>
-      <h3 class="mfm-why__word">Amortized</h3>
-      <p>Training is paid once, on simulated worlds with known answers. A new dataset is
+<!-- 4. Why amortize: one word per screen --------------------------------------------- -->
+<section class="mfm-chapters" data-mfm="chapters" aria-label="Why amortize">
+  <div class="mfm-chapters__track">
+    <article class="mfm-chapter" style="--tone: 180, 231, 221">
+      <p class="mfm-chapter__index">01 / 03</p>
+      <h2 class="mfm-chapter__word">Amortized.</h2>
+      <p class="mfm-chapter__line">Training is paid once, on simulated worlds with known answers. A new dataset is
         context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p>
-    </li>
-    <li>
-      <h3 class="mfm-why__word">Causal</h3>
-      <p>Every draw carries the causal graph it was sampled with, over channels, controls and
+    </article>
+    <article class="mfm-chapter" style="--tone: 246, 174, 114">
+      <p class="mfm-chapter__index">02 / 03</p>
+      <h2 class="mfm-chapter__word">Causal.</h2>
+      <p class="mfm-chapter__line">Every draw carries the causal graph it was sampled with, over channels, controls and
         latent demand. Average over graphs, take the most frequent one, or fix your own.</p>
-    </li>
-    <li>
-      <h3 class="mfm-why__word">Bayesian</h3>
-      <p>Draws, not point estimates: each contribution in outcome units with its uncertainty,
+    </article>
+    <article class="mfm-chapter" style="--tone: 200, 180, 231">
+      <p class="mfm-chapter__index">03 / 03</p>
+      <h2 class="mfm-chapter__word">Bayesian.</h2>
+      <p class="mfm-chapter__line">Draws, not point estimates: each contribution in outcome units with its uncertainty,
         exported as an ArviZ DataTree for the rest of your PyMC workflow.</p>
-    </li>
-  </ol>
-</section>
-
-<!-- How it works: pinned scroll story on wide screens, autoplay elsewhere ------ -->
-<section class="mfm-story" aria-labelledby="mfm-how-title">
-  <div class="mfm-story__inner">
-    <header class="mfm-section__head mfm-story__head">
-      <p class="mfm-eyebrow">Under the hood</p>
-      <h2 id="mfm-how-title">Attention over time. Flows over graphs and contributions.</h2>
-    </header>
-
-    <div class="mfm-story__grid">
-      <ol class="mfm-story__steps">
-        <li class="is-active" data-step="0">
-          <button type="button" class="mfm-story__step">
-            <span class="mfm-story__num">01</span>
-            <span class="mfm-story__body">
-              <span class="mfm-story__title">Encoder</span>
-              <span class="mfm-story__text">Attention across weeks, causal in time, and across
-                channels and controls within each week. One token per week and entity.</span>
-            </span>
-          </button>
-        </li>
-        <li data-step="1">
-          <button type="button" class="mfm-story__step">
-            <span class="mfm-story__num">02</span>
-            <span class="mfm-story__body">
-              <span class="mfm-story__title">Graph router</span>
-              <span class="mfm-story__text">Samples a causal graph per draw over eight edge
-                families, from latent demand to sales. Equivariant in channels, so their number
-                is not fixed.</span>
-            </span>
-          </button>
-        </li>
-        <li data-step="2">
-          <button type="button" class="mfm-story__step">
-            <span class="mfm-story__num">03</span>
-            <span class="mfm-story__body">
-              <span class="mfm-story__title">Flow decoder</span>
-              <span class="mfm-story__text">A rectified flow, conditioned on the graph, carries
-                noise to each week's additive decomposition in 16 fixed Euler steps.</span>
-            </span>
-          </button>
-        </li>
-      </ol>
-
-      <figure class="mfm-story__figure">
-        <canvas class="mfm-story__canvas" data-mfm="story" role="img"
-          aria-label="Animated, illustrative: an attention grid over weeks and entities, then sampled causal graphs between latent demand, price, three channels and sales, then particles flowing from noise into a stacked weekly decomposition."></canvas>
-        <figcaption class="mfm-story__caption" aria-hidden="true">
-          <span class="mfm-story__readout">causal attention</span>
-          <span class="mfm-story__track"><i></i></span>
-        </figcaption>
-      </figure>
-    </div>
-
-    <p class="mfm-section__more"><a href="guide/concepts.html">How it works, in detail <span aria-hidden="true">→</span></a></p>
+    </article>
   </div>
 </section>
 
-<!-- Latest model ---------------------------------------------------------- -->
-<section class="mfm-section mfm-section--tight mfm-reveal" aria-labelledby="mfm-model-title">
+<!-- 5. Latest model -------------------------------------------------------------- -->
+<section class="mfm-section mfm-reveal" aria-labelledby="mfm-model-title">
   <div class="mfm-release">
     <div class="mfm-release__name">
       <p class="mfm-eyebrow">Latest model</p>
@@ -192,7 +227,6 @@ idata <span class="o">=</span> model.<span class="f">build_idata</span>()   <spa
     <div class="mfm-release__body">
       <p>PyMC Labs' first published network: 2.4M parameters, any number of channels, posterior
         draws in seconds on a CPU.</p>
-      <code class="mfm-release__code">from_pretrained("pymc-labs/mfm", profile="river-1")</code>
       <p class="mfm-release__links">
         <a href="models/river-1/index.html">Release notes <span aria-hidden="true">→</span></a>
         <a href="https://huggingface.co/pymc-labs/mfm">Hugging Face <span aria-hidden="true">↗</span></a>
@@ -201,7 +235,7 @@ idata <span class="o">=</span> model.<span class="f">build_idata</span>()   <spa
   </div>
 </section>
 
-<!-- Explore --------------------------------------------------------------- -->
+<!-- 6. Explore ----------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
   <nav class="mfm-explore">
     <a href="guide/index.html"><span class="mfm-explore__title">Guide <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
@@ -217,8 +251,8 @@ idata <span class="o">=</span> model.<span class="f">build_idata</span>()   <spa
 </section>
 
 </div>
-<!-- GSAP 3.15.1 (free standard license) for the intro and the pinned story. Without it the
-     page still works: landing.js falls back to CSS reveals and an autoplaying story. -->
+<!-- GSAP 3.15.1 (free standard license) for the intro and scroll scenes. Without it the page
+     still works: landing.js falls back to static layouts and CSS reveals. -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/gsap.min.js" integrity="sha384-3vCAhD+a3BOliP3QqjQINn6ZWiZxoqu0WFxX5ZQZgqekDZuSb1mJBrrLMmu94H8f" crossorigin="anonymous" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/ScrollTrigger.min.js" integrity="sha384-H2WL1iy/jKQQ7MTHU2hskZKNHTYWWD/KgKE1vCNnaWY8An2ESTh23KN/fTp8XS3j" crossorigin="anonymous" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/SplitText.min.js" integrity="sha384-e98MX/fxZrUXA/6T+aCptryLfHgR2FpEmWxDbbPloHT0Qg79dEXKdLJ/iwD2lzxs" crossorigin="anonymous" defer></script>
