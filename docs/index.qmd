@@ -1,6 +1,6 @@
 ---
 title: "PyMC MFM"
-pagetitle: "PyMC MFM · Train once. Decompose any time series."
+pagetitle: "PyMC MFM · Train once, decompose many."
 description: "Amortized neural networks for Bayesian marketing-mix decomposition: posterior draws of every contribution, with the causal graph behind each draw."
 page-layout: custom
 title-block-style: none
@@ -20,12 +20,13 @@ css: assets/styles/landing.css
 
 <!-- 1. Hero: one name, one line ------------------------------------------------ -->
 <section class="mfm-hero" aria-labelledby="mfm-hero-title">
-  <canvas class="mfm-hero__fog" data-mfm="fog" aria-hidden="true"></canvas>
+  <canvas class="mfm-hero__field" data-mfm="field" aria-hidden="true"></canvas>
   <div class="mfm-grain" aria-hidden="true"></div>
   <div class="mfm-hero__copy">
     <p class="mfm-hero__kicker">Marketing Foundation Models · by PyMC Labs</p>
-    <h1 id="mfm-hero-title" class="mfm-hero__title">PyMC MFM</h1>
-    <p class="mfm-hero__line">Train once. Decompose any time series.</p>
+    <!-- Now and then the first word glitches into "Bayesian" for a second. -->
+    <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>
+    <p class="mfm-hero__line">Train once, decompose many.</p>
     <div class="mfm-hero__actions">
       <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <span aria-hidden="true">→</span></a>
       <a class="mfm-btn mfm-btn--ghost" href="https://github.com/pymc-labs/pymc-mfm">GitHub</a>

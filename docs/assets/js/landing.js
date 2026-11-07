@@ -1,6 +1,6 @@
 /* Landing page motion, one scene per section:
-   1. Hero: a WebGL fog with a river of light behind the name; the name assembles, then
-      dissolves as you scroll away.
+   1. Hero: a WebGL ridgeline of drifting distributions behind the name; the name rises
+      in, now and then glitches "PyMC" into "Bayesian", and dissolves as you scroll away.
    2. Statement: its words light up as they pass.
    3. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
    4. Chapters: the section pins and three words cross-fade in one place.
@@ -28,8 +28,11 @@
     }, options).observe(element);
   }
 
-  // 1. Hero fog --------------------------------------------------------------------
-  function fog(canvas, hero) {
+  // Shared by the title glitch and the field behind it: 0 calm, 1 full glitch.
+  const glitch = { level: 0 };
+
+  // 1. Hero field: rows of drifting distributions, a ridgeline plot in motion --------
+  function field(canvas, hero) {
     const gl = canvas.getContext("webgl", { alpha: false, antialias: false });
     if (!gl) return;
     const vertex = "attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }";
@@ -40,52 +43,74 @@
       uniform vec2 uMouse;
       uniform float uFade;
       uniform float uScroll;
-      float hash(vec2 p) {
-        p = fract(p * vec2(123.34, 456.21));
-        p += dot(p, p + 45.32);
-        return fract(p.x * p.y);
+      uniform float uGlitch;
+      const int ROWS = 34;
+      float hash(float n) { return fract(sin(n) * 43758.5453); }
+      float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      // One row: three Gaussian bumps whose centres drift like a wave travelling through
+      // the rows. Flat at the edges, like a ridgeline plot.
+      float ridge(float i, float x, float t) {
+        float h = 0.0;
+        for (int k = 0; k < 3; k++) {
+          float fk = float(k);
+          float s = i * 7.13 + fk * 3.71;
+          float c = 0.36 * sin(t * (0.09 + 0.04 * fk) - i * 0.19 + fk * 2.1) + 0.16 * (hash(s) - 0.5);
+          float w = 0.045 + 0.06 * hash(s + 1.3);
+          float a = (0.35 + 0.65 * hash(s + 2.7)) * (0.65 + 0.35 * sin(t * 0.27 + i * 0.41 + fk * 1.7));
+          float z = (x - c) / w;
+          h += a * exp(-0.5 * z * z);
+        }
+        float e = x / 0.52;
+        return h * exp(-e * e * e * e);
       }
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        vec2 u = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-                   mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
-      }
-      float fbm(vec2 p) {
-        float v = 0.0;
-        float a = 0.5;
-        mat2 m = mat2(1.6, 1.2, -1.2, 1.6);
-        for (int i = 0; i < 5; i++) { v += a * noise(p); p = m * p; a *= 0.5; }
-        return v;
+      // Rows run front (bottom) to back (top); a row's line shows only above every row in
+      // front of it, so nearer distributions hide the ones behind.
+      vec3 scene(vec2 p, float t) {
+        float px = 1.25 / uRes.y;
+        vec3 col = vec3(0.0);
+        float front = -10.0;
+        for (int j = 0; j < ROWS; j++) {
+          float i = float(j);
+          float depth = i / float(ROWS - 1);
+          float scale = 1.0 - 0.38 * depth;
+          float base = -0.5 + depth * 0.44 + uScroll * 0.1;
+          if (p.y < base - 2.0 * px) break;              // every later row sits higher
+          if (p.y > base + 0.24 * scale) continue;        // this row cannot reach the pixel
+          float x = (p.x - (uMouse.x - 0.5) * 0.05 * depth) / scale;
+          float y = base + ridge(i, x, t) * 0.12 * scale;
+          float visible = smoothstep(front - px, front + px, p.y);
+          float d = abs(p.y - y);
+          float line = smoothstep(px * 1.4, 0.0, d);
+          float glow = smoothstep(px * 12.0, 0.0, d) * 0.12;
+          vec3 c = mix(vec3(0.706, 0.906, 0.867), vec3(0.624, 0.667, 0.886), smoothstep(0.0, 0.55, depth));
+          c = mix(c, vec3(0.784, 0.706, 0.906), smoothstep(0.55, 1.0, depth));
+          float fade = (1.0 - 0.72 * depth) * smoothstep(0.95, 0.6, abs(x));
+          col += c * (line * 0.85 + glow) * visible * fade;
+          front = max(front, y);
+        }
+        return col;
       }
       void main() {
         vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
-        p += (uMouse - 0.5) * vec2(0.05, 0.03);
-        float t = uTime * 0.035;
-        vec2 q = vec2(fbm(p * 1.3 + vec2(t, -t * 0.5)), fbm(p * 1.3 + vec2(5.2, 1.3) - t * 0.7));
-        vec2 r = vec2(fbm(p * 1.7 + 2.8 * q + vec2(1.7, 9.2) + t),
-                      fbm(p * 1.7 + 2.8 * q + vec2(8.3, 2.8) - t));
-        float f = fbm(p * 1.1 + 2.2 * r + vec2(t * 2.0, 0.0));
-        // A meandering river of light across the lower half.
-        float y = -0.26 + 0.07 * sin(p.x * 1.4 + uTime * 0.06)
-                + 0.035 * sin(p.x * 3.3 - uTime * 0.045) + (f - 0.5) * 0.24 + uScroll * 0.12;
-        float d = p.y - y;
-        float river = exp(-d * d / 0.008);
-        float haze = exp(-d * d / 0.08);
+        float t = uTime;
+        vec3 col;
+        if (uGlitch > 0.001) {
+          // Torn horizontal bands, a colour split and scanlines.
+          float band = floor(gl_FragCoord.y / uRes.y * 28.0);
+          float tick = floor(t * 20.0);
+          float jump = step(0.6, hash2(vec2(band, tick)));
+          p.x += (hash2(vec2(band + 3.1, tick)) - 0.5) * 0.14 * uGlitch * jump;
+          float off = 0.01 * uGlitch;
+          col = vec3(scene(p + vec2(off, 0.0), t).r, scene(p, t).g, scene(p - vec2(off, 0.0), t).b);
+          col *= 0.88 + 0.12 * sin(gl_FragCoord.y * 2.2 + t * 40.0);
+        } else {
+          col = scene(p, t);
+        }
         vec3 navy = vec3(0.027, 0.078, 0.165);
-        vec3 deep = vec3(0.06, 0.14, 0.28);
-        vec3 aqua = vec3(0.706, 0.906, 0.867);
-        vec3 peri = vec3(0.624, 0.667, 0.886);
-        vec3 peach = vec3(0.965, 0.682, 0.447);
-        vec3 col = mix(navy, deep, smoothstep(0.25, 0.85, f));
-        col += peri * 0.14 * smoothstep(0.55, 0.95, f);
-        col += mix(peri, aqua, smoothstep(-0.7, 0.7, p.x)) * (0.2 * haze + 0.42 * river) * (0.5 + 0.7 * f);
-        col += peach * river * smoothstep(0.6, 0.9, r.y) * 0.3;
-        float vig = smoothstep(1.4, 0.2, length(p * vec2(0.85, 1.15)));
-        col *= mix(0.4, 1.0, vig);
-        col *= 1.0 - 0.6 * uScroll;
-        col = mix(navy * 0.7, col, uFade);
+        float vignette = smoothstep(1.3, 0.2, length(p * vec2(0.8, 1.1)));
+        col = navy + col * mix(0.55, 1.0, vignette);
+        col *= 1.0 - 0.55 * uScroll;
+        col = mix(navy, col, uFade);
         gl_FragColor = vec4(col, 1.0);
       }`;
     const compile = (type, source) => {
@@ -114,26 +139,26 @@
     const uMouse = u("uMouse");
     const uFade = u("uFade");
     const uScroll = u("uScroll");
+    const uGlitch = u("uGlitch");
 
-    // Fog is soft: render at half resolution and let the browser scale it up.
-    const SCALE = 0.5;
+    // Thin lines need full resolution; cap the pixel ratio to bound the cost.
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(rect.width * SCALE));
-      canvas.height = Math.max(1, Math.round(rect.height * SCALE));
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(uRes, canvas.width, canvas.height);
     };
-    const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5 };
+    const mouse = { x: 0.5, tx: 0.5 };
     let start = performance.now();
     const draw = (ms, still = false) => {
       mouse.x += (mouse.tx - mouse.x) * 0.03;
-      mouse.y += (mouse.ty - mouse.y) * 0.03;
-      const scroll = clamp01(window.scrollY / Math.max(1, hero.offsetHeight));
-      gl.uniform1f(uTime, 30 + ms / 1000);
-      gl.uniform2f(uMouse, mouse.x, mouse.y);
-      gl.uniform1f(uFade, still ? 1 : clamp01((ms - start) / 2600));
-      gl.uniform1f(uScroll, scroll);
+      gl.uniform1f(uTime, 20 + ms / 1000);
+      gl.uniform2f(uMouse, mouse.x, 0.5);
+      gl.uniform1f(uFade, still ? 1 : clamp01((ms - start) / 2400));
+      gl.uniform1f(uScroll, clamp01(window.scrollY / Math.max(1, hero.offsetHeight)));
+      gl.uniform1f(uGlitch, glitch.level);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
     resize();
@@ -151,7 +176,6 @@
     hero.addEventListener("pointermove", (event) => {
       const rect = hero.getBoundingClientRect();
       mouse.tx = (event.clientX - rect.left) / rect.width;
-      mouse.ty = 1 - (event.clientY - rect.top) / rect.height;
     });
     start = performance.now();
     let raf = 0;
@@ -171,23 +195,71 @@
     document.addEventListener("visibilitychange", sync);
   }
 
-  // Hero copy: the name assembles letter by letter, then dissolves on scroll ----------
+  // The title glitches: "PyMC" scrambles into "Bayesian", holds a second, and returns.
+  // The field behind tears and splits its colours for the same moments.
+  function titleGlitch(word, hero) {
+    if (reduceMotion) return;
+    const FROM = word.textContent;
+    const TO = "Bayesian";
+    const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#%&$@";
+    const set = (text) => {
+      word.textContent = text;
+      word.dataset.text = text;
+    };
+    const scramble = async (from, to, ms) => {
+      const frames = Math.max(1, Math.round(ms / 45));
+      for (let f = 1; f <= frames; f++) {
+        const progress = f / frames;
+        const length = Math.round(from.length + (to.length - from.length) * progress);
+        let text = "";
+        for (let i = 0; i < length; i++) {
+          text += Math.random() < progress && to[i] ? to[i] : GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+        }
+        set(text);
+        await wait(45);
+      }
+      set(to);
+    };
+    const burst = async (from, to, ms) => {
+      word.classList.add("is-glitching");
+      glitch.level = 1;
+      await scramble(from, to, ms);
+      word.classList.remove("is-glitching");
+      glitch.level = 0.15;
+      await wait(110);
+      glitch.level = 0;
+    };
+    let onScreen = true;
+    whenVisible(hero, (visible) => {
+      onScreen = visible;
+    });
+    const flip = async () => {
+      await burst(FROM, TO, 380);
+      await wait(1100);
+      await burst(TO, FROM, 320);
+    };
+    const schedule = (delay) =>
+      setTimeout(async () => {
+        if (onScreen && !document.hidden && window.scrollY < hero.offsetHeight * 0.4) await flip();
+        schedule(7000 + Math.random() * 3000);
+      }, delay);
+    schedule(3800);
+  }
+
+  // Hero copy: the words rise out of a blur, then dissolve as you scroll away ----------
   function heroCopy(hero) {
     const html = document.documentElement;
     const done = () => html.classList.remove("mfm-intro");
-    if (reduceMotion || !hasGsap() || !window.SplitText) {
+    if (reduceMotion || !hasGsap()) {
       done();
       return;
     }
-    gsap.registerPlugin(ScrollTrigger, SplitText);
-    const title = hero.querySelector(".mfm-hero__title");
-    const split = SplitText.create(title, { type: "chars", charsClass: "mfm-char" });
-    title.classList.add("is-split");
+    gsap.registerPlugin(ScrollTrigger);
     done();
     gsap
       .timeline({ defaults: { ease: "power3.out" } })
       .from(".mfm-hero__kicker", { autoAlpha: 0, y: 8, duration: 1.1 }, 0.4)
-      .from(split.chars, { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 1.5, stagger: 0.07 }, 0.55)
+      .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 1.5, stagger: 0.16 }, 0.55)
       .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 1.2 }, 1.25)
       .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.9, stagger: 0.1 }, 1.6)
       .from(".mfm-hero__scroll", { autoAlpha: 0, duration: 1.2 }, 2.1);
@@ -424,12 +496,14 @@
   }
 
   const hero = root.querySelector(".mfm-hero");
-  const fogCanvas = root.querySelector('[data-mfm="fog"]');
+  const fieldCanvas = root.querySelector('[data-mfm="field"]');
+  const glitchWord = root.querySelector('[data-mfm="glitch"]');
   const statementText = root.querySelector('[data-mfm="statement"]');
   const ide = root.querySelector('[data-mfm="notebook"]');
   const chapterSection = root.querySelector('[data-mfm="chapters"]');
 
-  if (fogCanvas && hero) fog(fogCanvas, hero);
+  if (fieldCanvas && hero) field(fieldCanvas, hero);
+  if (glitchWord && hero) titleGlitch(glitchWord, hero);
   if (ide) notebook(ide);
   reveal();
   copyButtons();

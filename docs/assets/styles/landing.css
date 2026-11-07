@@ -173,15 +173,17 @@ body.mfm-landing .nav-footer a {
 .mfm-hero {
   position: relative;
   display: grid;
-  place-items: center;
+  justify-items: center;
+  align-items: start;
   min-height: calc(100vh - 66px);
   min-height: calc(100svh - 66px);
-  padding: 4rem var(--mfm-gutter) 6rem;
+  padding: clamp(4rem, 14vh, 9rem) var(--mfm-gutter) 6rem;
   isolation: isolate;
   background: var(--mfm-bg);
 }
 
-.mfm-hero__fog {
+/* Ridgeline field: rows of drifting distributions (landing.js, WebGL). */
+.mfm-hero__field {
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -191,7 +193,7 @@ body.mfm-landing .nav-footer a {
   transition: opacity 2.4s ease;
 }
 
-.mfm-hero__fog.is-ready {
+.mfm-hero__field.is-ready {
   opacity: 1;
 }
 
@@ -201,7 +203,7 @@ body.mfm-landing .nav-footer a {
   position: absolute;
   inset: auto 0 0;
   z-index: 1;
-  height: 28%;
+  height: 22%;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(7, 20, 42, 0), var(--mfm-bg));
 }
@@ -209,8 +211,18 @@ body.mfm-landing .nav-footer a {
 .mfm-hero__copy {
   position: relative;
   z-index: 2;
-  max-width: 60rem;
+  max-width: 64rem;
   text-align: center;
+}
+
+.mfm-hero__copy::before {
+  /* A dark halo keeps the copy legible over the field. */
+  content: "";
+  position: absolute;
+  inset: -20% -15%;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(closest-side, rgba(7, 20, 42, 0.78), rgba(7, 20, 42, 0));
 }
 
 .mfm-hero__kicker {
@@ -223,30 +235,85 @@ body.mfm-landing .nav-footer a {
 }
 
 .mfm-hero__title {
-  font-size: clamp(3.6rem, 12vw, 9.5rem);
+  font-size: clamp(2.6rem, 10.5vw, 9rem);
   line-height: 0.95;
   font-weight: 500;
   letter-spacing: -0.055em;
-  background: linear-gradient(180deg, #ffffff 30%, rgba(201, 214, 242, 0.78) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent !important;
-  padding-bottom: 0.06em;
+  color: var(--mfm-fg);
+  white-space: nowrap;
 }
 
-/* After the split each letter paints the gradient itself: background-clip: text on
-   the parent does not reach transformed children. The padding keeps descenders. */
-.mfm-hero__title.is-split {
-  background: none;
-}
-
-.mfm-hero__title .mfm-char {
-  padding-bottom: 0.14em;
-  margin-bottom: -0.14em;
+/* Each word paints its own gradient so it can move on its own. The padding keeps
+   descenders inside the painted box. */
+.mfm-hero__word {
+  position: relative;
+  display: inline-block;
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
   background: linear-gradient(180deg, #ffffff 30%, rgba(201, 214, 242, 0.78) 100%);
   color: transparent;
   -webkit-background-clip: text;
   background-clip: text;
+}
+
+/* Glitch: two tinted copies of the word, sliced and offset, shown only while it flips. */
+.mfm-glitch::before,
+.mfm-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  padding-bottom: inherit;
+  background: none;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.mfm-glitch::before {
+  color: var(--mfm-aqua);
+  -webkit-text-fill-color: var(--mfm-aqua);
+}
+
+.mfm-glitch::after {
+  color: var(--mfm-peach);
+  -webkit-text-fill-color: var(--mfm-peach);
+}
+
+.mfm-glitch.is-glitching {
+  animation: mfm-jitter 0.14s steps(2) infinite;
+}
+
+.mfm-glitch.is-glitching::before {
+  opacity: 0.9;
+  animation: mfm-slice-a 0.36s steps(1) infinite;
+}
+
+.mfm-glitch.is-glitching::after {
+  opacity: 0.85;
+  animation: mfm-slice-b 0.3s steps(1) infinite;
+}
+
+@keyframes mfm-jitter {
+  0% { transform: translate(0, 0) skewX(0deg); }
+  50% { transform: translate(-2px, 1px) skewX(-4deg); }
+  100% { transform: translate(2px, -1px) skewX(3deg); }
+}
+
+@keyframes mfm-slice-a {
+  0% { clip-path: inset(10% 0 72% 0); transform: translate(-6px, 0); }
+  20% { clip-path: inset(58% 0 22% 0); transform: translate(5px, 0); }
+  40% { clip-path: inset(32% 0 46% 0); transform: translate(-3px, 0); }
+  60% { clip-path: inset(80% 0 4% 0); transform: translate(7px, 0); }
+  80% { clip-path: inset(4% 0 86% 0); transform: translate(-5px, 0); }
+  100% { clip-path: inset(44% 0 38% 0); transform: translate(3px, 0); }
+}
+
+@keyframes mfm-slice-b {
+  0% { clip-path: inset(66% 0 14% 0); transform: translate(6px, 0); }
+  25% { clip-path: inset(18% 0 64% 0); transform: translate(-7px, 0); }
+  50% { clip-path: inset(46% 0 30% 0); transform: translate(4px, 0); }
+  75% { clip-path: inset(2% 0 80% 0); transform: translate(-4px, 0); }
+  100% { clip-path: inset(74% 0 8% 0); transform: translate(5px, 0); }
 }
 
 .mfm-hero__line {
