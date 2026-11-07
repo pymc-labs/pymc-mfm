@@ -204,16 +204,26 @@ class _OrderedNoise:
 
 
 def _draw_host_noise(
-    shape: tuple[int, ...], dtype: torch.dtype, uniform: bool
+    shape: tuple[int, ...],
+    dtype: torch.dtype,
+    uniform: bool,
+    out: tuple[Tensor, Tensor] | None = None,
 ) -> tuple[_metal.HostNoise, _metal.HostNoise]:
     """:meth:`JointFlowHead._draw_noise` drawn on the host for the GPU to finish.
 
-    White noise, then the rank-four latents; see :func:`_metal.draw_host`.
+    White noise, then the rank-four latents; see :func:`_metal.draw_host`. ``out``
+    optionally holds the two flat host tensors that receive them.
     """
+    white, z = (None, None) if out is None else out
     return (
-        _metal.draw_host(shape, dtype, uniform),
-        _metal.draw_host((*shape[:-2], shape[-1], _TRAJECTORY_RANK), dtype, uniform),
+        _metal.draw_host(shape, dtype, uniform, white),
+        _metal.draw_host(_latent_shape(shape), dtype, uniform, z),
     )
+
+
+def _latent_shape(shape: tuple[int, ...]) -> tuple[int, ...]:
+    """Shape of the rank-four trajectory latents drawn with white noise of ``shape``."""
+    return (*shape[:-2], shape[-1], _TRAJECTORY_RANK)
 
 
 @dataclass(frozen=True)
@@ -234,7 +244,8 @@ class _NoisePrefetch:
     MPS sampling draws its noise on the CPU (see :func:`_noise_device`). Requesting the
     chunks as soon as their shapes are known overlaps the generator with GPU work. One
     worker draws the requests in submission order, so the noise equals drawing it inline,
-    provided nothing else draws random numbers until :meth:`close` returns.
+    provided nothing else draws random numbers until :meth:`close` returns. A request's
+    chunks land end to end in one buffer per kind, which the GPU copy reads directly.
     """
 
     def __init__(self):
@@ -243,9 +254,24 @@ class _NoisePrefetch:
         self._uniform = _metal.uniform_normals()
 
     def request(self, shapes: list[tuple[int, ...]], dtype: torch.dtype) -> _NoiseRequest:
-        chunks = [
-            self._worker.submit(_draw_host_noise, shape, dtype, self._uniform) for shape in shapes
+        sizes = [
+            (
+                _metal.host_size(tuple(shape), dtype, self._uniform),
+                _metal.host_size(_latent_shape(tuple(shape)), dtype, self._uniform),
+            )
+            for shape in shapes
         ]
+        values_dtype = torch.float32 if self._uniform and dtype == torch.float32 else dtype
+        white = torch.empty(sum(size for size, _ in sizes), dtype=values_dtype)
+        z = torch.empty(sum(size for _, size in sizes), dtype=values_dtype)
+        chunks, white_start, z_start = [], 0, 0
+        for shape, (white_size, z_size) in zip(shapes, sizes, strict=True):
+            out = (white[white_start : white_start + white_size], z[z_start : z_start + z_size])
+            chunks.append(
+                self._worker.submit(_draw_host_noise, tuple(shape), dtype, self._uniform, out)
+            )
+            white_start += white_size
+            z_start += z_size
         return _NoiseRequest(tuple(map(tuple, shapes)), dtype, tuple(chunks))
 
     def close(self) -> None:

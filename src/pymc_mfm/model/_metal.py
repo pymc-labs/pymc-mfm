@@ -451,16 +451,45 @@ class HostNoise:
     uniform: bool
 
 
-def draw_host(shape: tuple[int, ...], dtype: torch.dtype, uniform: bool) -> HostNoise:
+def host_size(shape: tuple[int, ...], dtype: torch.dtype, uniform: bool) -> int:
+    """Number of values :func:`draw_host` keeps for a draw of ``shape``."""
+    count = math.prod(shape)
+    if uniform and dtype == torch.float32 and count >= 16:
+        return count + (16 if count % 16 else 0)
+    return count
+
+
+def draw_host(
+    shape: tuple[int, ...], dtype: torch.dtype, uniform: bool, out: Tensor | None = None
+) -> HostNoise:
     """Consume the CPU generator exactly as ``torch.randn(shape, dtype=dtype)`` does.
 
     ``uniform`` (from :func:`uniform_normals`) draws only the uniforms, about 3.5 times
-    faster on the CPU, for the GPU to transform.
+    faster on the CPU, for the GPU to transform. ``out`` optionally receives the values:
+    a contiguous 1-D host tensor of :func:`host_size` elements and the drawn dtype.
     """
-    count = math.prod(shape)
-    if uniform and dtype == torch.float32 and count >= 16:
-        return HostNoise(torch.rand(count + (16 if count % 16 else 0)), tuple(shape), True)
-    return HostNoise(torch.randn(shape, dtype=dtype), tuple(shape), False)
+    if uniform and dtype == torch.float32 and math.prod(shape) >= 16:
+        size = host_size(shape, dtype, uniform)
+        values = torch.rand(size) if out is None else out.uniform_()
+        return HostNoise(values, tuple(shape), True)
+    values = torch.randn(shape, dtype=dtype) if out is None else out.normal_()
+    return HostNoise(values, tuple(shape), False)
+
+
+def _joined(values: list[Tensor]) -> Tensor:
+    """The flat concatenation of ``values``; a view when they lie end to end in one buffer."""
+    first = values[0]
+    position = first.storage_offset()
+    pointer = first.untyped_storage().data_ptr()
+    for value in values:
+        if (
+            value.dim() != 1
+            or value.untyped_storage().data_ptr() != pointer
+            or value.storage_offset() != position
+        ):
+            return torch.cat([value.reshape(-1) for value in values])
+        position += value.numel()
+    return first.as_strided((position - first.storage_offset(),), (1,))
 
 
 def to_device(parts: list[HostNoise], device: torch.device) -> Tensor:
@@ -480,7 +509,7 @@ def to_device(parts: list[HostNoise], device: torch.device) -> Tensor:
         ):
             stop += 1
         group = parts[start:stop]
-        moved = to_device_async(torch.cat([part.values.reshape(-1) for part in group]), device)
+        moved = to_device_async(_joined([part.values for part in group]), device)
         if first.uniform:
             size = math.prod(first.shape)
             normals = torch.empty(len(group) * size, device=device, dtype=moved.dtype)
