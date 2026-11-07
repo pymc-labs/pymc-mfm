@@ -5,9 +5,11 @@ history.csv and plan.csv from the working directory and writes two PNG files.
 """
 
 import re
+import shutil
 from pathlib import Path
 
 import httpx
+import pandas as pd
 import pytest
 
 from .client_fixtures import (
@@ -76,14 +78,10 @@ def service() -> FakeService:
 
 
 @pytest.fixture
-def workdir(tmp_path, monkeypatch, history, plan, service):
-    """A working directory with the user's CSV files, a fake network and the two variables."""
-    history.rename(columns={"week": "date", "price": "holiday"}).to_csv(
-        tmp_path / "history.csv", index=False
-    )
-    plan.rename(columns={"week": "date", "price": "holiday"}).to_csv(
-        tmp_path / "plan.csv", index=False
-    )
+def workdir(tmp_path, monkeypatch, service):
+    """A work directory with the skill's example CSVs, a fake network and the two variables."""
+    for name in ("history.csv", "plan.csv"):
+        shutil.copy(SKILL_DIR / "examples" / name, tmp_path / name)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MFM_API_URL", BASE_URL)
     monkeypatch.setenv("MFM_API_KEY", "test-key")
@@ -122,3 +120,13 @@ def test_skill_files_name_no_service_address():
     urls = set(re.findall(r"https?://[^\s)\"'`>]+", text))
     assert urls <= set(ALLOWED_URLS)
     assert "MFM_API_URL" in text and "MFM_API_KEY" in text
+
+
+def test_example_data_fits_the_example():
+    history = pd.read_csv(SKILL_DIR / "examples" / "history.csv", parse_dates=["date"])
+    plan = pd.read_csv(SKILL_DIR / "examples" / "plan.csv", parse_dates=["date"])
+    assert list(history.columns) == ["date", "sales", "tv", "search", "holiday"]
+    assert list(plan.columns) == ["date", "tv", "search", "holiday"]
+    assert len(history) == 104 and len(plan) == 8
+    weeks = pd.concat([history["date"], plan["date"]])
+    assert (weeks.diff().dropna() == pd.Timedelta(days=7)).all()

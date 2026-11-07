@@ -36,9 +36,11 @@ Research prototype. Synthetic data. Not for budget decisions on its own.
 
 ## The four steps
 
-Run this example with your own `history.csv` (columns `date`, `sales`, `tv`, `search`, `holiday`)
-and `plan.csv` (the forecast weeks, same columns without `sales`). Change the column names and
-channels to match the data. The plan starts the week after the history ends.
+Run this example with `history.csv` (columns `date`, `sales`, `tv`, `search`, `holiday`) and
+`plan.csv` (the forecast weeks, same columns without `sales`). The plan starts the week after the
+history ends. If the user gives no data, copy the synthetic files in `examples/` next to this skill
+(104 weeks of history, 8 plan weeks). With the user's data, change the column names and channels to
+match.
 
 <!-- skill-example: main -->
 ```python
