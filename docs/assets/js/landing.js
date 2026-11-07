@@ -44,27 +44,28 @@
       uniform float uFade;
       uniform float uScroll;
       uniform float uGlitch;
-      const int ROWS = 34;
+      uniform vec4 uCopy; // centre and half-size of the hero copy, in 0-1 canvas units
+      const int ROWS = 42;
       float hash(float n) { return fract(sin(n) * 43758.5453); }
       float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       // One row: three Gaussian bumps whose centres drift like a wave travelling through
-      // the rows. Flat at the edges, like a ridgeline plot.
+      // the rows. Quieter towards the edges, like a ridgeline plot.
       float ridge(float i, float x, float t) {
         float h = 0.0;
         for (int k = 0; k < 3; k++) {
           float fk = float(k);
           float s = i * 7.13 + fk * 3.71;
-          float c = 0.36 * sin(t * (0.09 + 0.04 * fk) - i * 0.19 + fk * 2.1) + 0.16 * (hash(s) - 0.5);
-          float w = 0.045 + 0.06 * hash(s + 1.3);
-          float a = (0.35 + 0.65 * hash(s + 2.7)) * (0.65 + 0.35 * sin(t * 0.27 + i * 0.41 + fk * 1.7));
+          float c = 0.62 * sin(t * (0.08 + 0.035 * fk) - i * 0.17 + fk * 2.1) + 0.3 * (hash(s) - 0.5);
+          float w = 0.06 + 0.1 * hash(s + 1.3);
+          float a = (0.35 + 0.65 * hash(s + 2.7)) * (0.65 + 0.35 * sin(t * 0.25 + i * 0.37 + fk * 1.7));
           float z = (x - c) / w;
           h += a * exp(-0.5 * z * z);
         }
-        float e = x / 0.52;
+        float e = x / 0.95;
         return h * exp(-e * e * e * e);
       }
-      // Rows run front (bottom) to back (top); a row's line shows only above every row in
-      // front of it, so nearer distributions hide the ones behind.
+      // Rows run front (bottom, partly below the frame) to back (top); a row's line shows
+      // only above every row in front of it, so nearer distributions hide the ones behind.
       vec3 scene(vec2 p, float t) {
         float px = 1.25 / uRes.y;
         vec3 col = vec3(0.0);
@@ -72,31 +73,36 @@
         for (int j = 0; j < ROWS; j++) {
           float i = float(j);
           float depth = i / float(ROWS - 1);
-          float scale = 1.0 - 0.38 * depth;
-          float base = -0.5 + depth * 0.44 + uScroll * 0.1;
+          float scale = 1.0 - 0.45 * depth;
+          float base = -0.68 + depth * 0.8;
           if (p.y < base - 2.0 * px) break;              // every later row sits higher
-          if (p.y > base + 0.24 * scale) continue;        // this row cannot reach the pixel
-          float x = (p.x - (uMouse.x - 0.5) * 0.05 * depth) / scale;
-          float y = base + ridge(i, x, t) * 0.12 * scale;
+          if (p.y > base + 0.4 * scale) continue;         // this row cannot reach the pixel
+          float x = (p.x - (uMouse.x - 0.5) * 0.06 * depth) / scale;
+          float y = base + ridge(i, x, t) * 0.22 * scale;
           float visible = smoothstep(front - px, front + px, p.y);
           float d = abs(p.y - y);
           float line = smoothstep(px * 1.4, 0.0, d);
           float glow = smoothstep(px * 12.0, 0.0, d) * 0.12;
           vec3 c = mix(vec3(0.706, 0.906, 0.867), vec3(0.624, 0.667, 0.886), smoothstep(0.0, 0.55, depth));
           c = mix(c, vec3(0.784, 0.706, 0.906), smoothstep(0.55, 1.0, depth));
-          float fade = (1.0 - 0.72 * depth) * smoothstep(0.95, 0.6, abs(x));
-          col += c * (line * 0.85 + glow) * visible * fade;
+          col += c * (line * 0.85 + glow) * visible * (1.0 - 0.7 * depth);
           front = max(front, y);
         }
         return col;
       }
       void main() {
+        vec2 uv = gl_FragCoord.xy / uRes;
         vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+        // Portrait screens see a wider slice, so the rows still read as distributions.
+        p.x *= max(1.0, 0.85 * uRes.y / uRes.x);
+        // Scrolling away pushes the camera in and lets the field sink behind the page.
+        p *= 1.0 - 0.16 * uScroll;
+        p.y += 0.14 * uScroll;
         float t = uTime;
         vec3 col;
         if (uGlitch > 0.001) {
           // Torn horizontal bands, a colour split and scanlines.
-          float band = floor(gl_FragCoord.y / uRes.y * 28.0);
+          float band = floor(uv.y * 28.0);
           float tick = floor(t * 20.0);
           float jump = step(0.6, hash2(vec2(band, tick)));
           p.x += (hash2(vec2(band + 3.1, tick)) - 0.5) * 0.14 * uGlitch * jump;
@@ -106,10 +112,14 @@
         } else {
           col = scene(p, t);
         }
+        // Rows dissolve as they reach the bottom; the fade climbs the screen as you scroll.
+        float bottom = smoothstep(0.4 * uScroll, 0.3 + 0.45 * uScroll, uv.y);
+        float sides = smoothstep(0.0, 0.1, uv.x) * smoothstep(1.0, 0.9, uv.x);
+        // Quiet behind the copy so it stays legible.
+        float behindCopy = length((uv - uCopy.xy) / max(uCopy.zw * 1.2, vec2(0.01)));
+        float copy = mix(0.22, 1.0, smoothstep(0.75, 1.35, behindCopy));
         vec3 navy = vec3(0.027, 0.078, 0.165);
-        float vignette = smoothstep(1.3, 0.2, length(p * vec2(0.8, 1.1)));
-        col = navy + col * mix(0.55, 1.0, vignette);
-        col *= 1.0 - 0.55 * uScroll;
+        col = navy + col * bottom * sides * copy;
         col = mix(navy, col, uFade);
         gl_FragColor = vec4(col, 1.0);
       }`;
@@ -140,6 +150,8 @@
     const uFade = u("uFade");
     const uScroll = u("uScroll");
     const uGlitch = u("uGlitch");
+    const uCopy = u("uCopy");
+    const copy = hero.querySelector(".mfm-hero__copy");
 
     // Thin lines need full resolution; cap the pixel ratio to bound the cost.
     const resize = () => {
@@ -150,10 +162,24 @@
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.uniform2f(uRes, canvas.width, canvas.height);
     };
+    // The copy's layout box (offsets ignore the intro and scroll transforms), in the
+    // canvas's 0-1 units with y up.
+    const copyBox = () => {
+      const w = Math.max(1, hero.clientWidth);
+      const h = Math.max(1, hero.clientHeight);
+      gl.uniform4f(
+        uCopy,
+        (copy.offsetLeft + copy.offsetWidth / 2) / w,
+        1 - (copy.offsetTop + copy.offsetHeight / 2) / h,
+        copy.offsetWidth / 2 / w,
+        copy.offsetHeight / 2 / h,
+      );
+    };
     const mouse = { x: 0.5, tx: 0.5 };
     let start = performance.now();
     const draw = (ms, still = false) => {
       mouse.x += (mouse.tx - mouse.x) * 0.03;
+      copyBox();
       gl.uniform1f(uTime, 20 + ms / 1000);
       gl.uniform2f(uMouse, mouse.x, 0.5);
       gl.uniform1f(uFade, still ? 1 : clamp01((ms - start) / 2400));

@@ -215,16 +215,6 @@ body.mfm-landing .nav-footer a {
   text-align: center;
 }
 
-.mfm-hero__copy::before {
-  /* A dark halo keeps the copy legible over the field. */
-  content: "";
-  position: absolute;
-  inset: -20% -15%;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(closest-side, rgba(7, 20, 42, 0.78), rgba(7, 20, 42, 0));
-}
-
 .mfm-hero__kicker {
   margin-bottom: 1.6rem !important;
   font-family: var(--mfm-mono);
