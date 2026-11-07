@@ -34,7 +34,7 @@ approved or published release.
   computes linear layers of column-sliced weights wrongly) and raises otherwise. No
   weights, bundles or training change. Off Apple silicon, CPU sampling transports up to
   eight batches at once, each on its own share of PyTorch's threads (it ran one batch on
-  every thread), and runs each network's hidden layer on row chunks that stay in cache: on
+  every thread), and on x86 runs each network's hidden layer on row chunks that stay in cache: on
   Linux x86 capped at 8 CPUs 1.9–2.6x faster on AMD EPYC and 1.0–1.2x on Intel Xeon, draws
   equal up to float32 round-off (Apple silicon keeps eight batches sharing every thread; its
   CPU draws are bitwise unchanged). River-1, 1,000

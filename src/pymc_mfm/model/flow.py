@@ -53,10 +53,11 @@ _FLOW_SAMPLE_ROWS_GPU = 2**19
 _APPLE_SILICON = sys.platform == "darwin" and platform.machine() == "arm64"
 _SAMPLE_BATCH_WORKERS = 8
 _SPLIT_SAMPLE_THREADS = not _APPLE_SILICON
-#: Off Apple silicon, CPU sampling runs each network's hidden and output layers on row chunks
-#: of this size, so a chunk's activations stay in cache through the product, bias, SiLU and
-#: output layer instead of streaming through memory between them (Apple silicon ran slower).
-_HIDDEN_CHUNK_ROWS = None if _APPLE_SILICON else 4096
+#: On x86 CPUs, sampling runs each network's hidden and output layers on row chunks of this
+#: size, so a chunk's activations stay in cache through the product, bias, SiLU and output
+#: layer instead of streaming through memory between them. With ARM BLAS libraries the
+#: chunks ran slower (Accelerate on Apple silicon 13%, NVPL on Linux ARM 1.5-3.5%).
+_HIDDEN_CHUNK_ROWS = 4096 if platform.machine().lower() in ("x86_64", "amd64") else None
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
