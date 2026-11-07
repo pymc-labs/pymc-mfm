@@ -164,6 +164,23 @@ def test_apple_gpu_draws_the_cpu_samples(model, batch, monkeypatch, rows, window
 
 
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
+def test_apple_gpu_decodes_a_graph_that_turns_every_entity_off(model, batch):
+    # With every edge off no entity contribution is live: the GPU kernels transport only
+    # the baseline and fixed totals, as the CPU path does.
+    tasks, _, n_channels = batch["qry_spend_z"].shape
+    layout = EdgeSlotLayout(n_channels, model.config.n_controls, model.config.n_demand)
+    graph = torch.zeros(tasks, layout.n_slots)
+    torch.manual_seed(41)
+    cpu, _ = model.sample_disentangled(batch, 19, mode="fixed", graph=graph)
+    gpu_model = copy.deepcopy(model).to("mps")
+    torch.manual_seed(41)
+    gpu, _ = gpu_model.sample_disentangled(
+        {key: value.to("mps") for key, value in batch.items()}, 19, mode="fixed", graph=graph
+    )
+    torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs an Apple GPU")
 def test_apple_gpu_attention_kernels_match_masked_attention(monkeypatch):
     # 16-wide heads run the Metal kernels. 70 weeks span three runs of 32 causal keys;
     # the two tasks pad different entities and the last entity is active in neither.

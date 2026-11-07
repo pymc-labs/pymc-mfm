@@ -26,6 +26,11 @@ if TYPE_CHECKING:
 
 #: Trajectory token width the kernels are written for (``flow._TRAJECTORY_EMBED_DIM``).
 _TOKEN = 8
+#: Oldest PyTorch whose Apple GPU backend samples this model correctly: on 2.8, MPS computes
+#: linear layers of column-sliced weights wrongly (every draw changes); 2.7 lacks MPS
+#: ``index_copy`` and 2.6 lacks ``torch.mps.compile_shader``. Sampling refuses older releases
+#: and the encoder keeps PyTorch's attention there.
+MIN_TORCH = (2, 9)
 
 _SOURCE = r"""
 #include <metal_stdlib>
@@ -645,7 +650,7 @@ def uniform_normals() -> bool:
     ``normal_from_uniform`` assumes, so the GPU draws equal ``torch.randn`` up to float32
     round-off; otherwise sampling keeps drawing normals on the CPU.
     """
-    if not torch.backends.mps.is_available():
+    if not torch.backends.mps.is_available() or torch.__version__ < MIN_TORCH:
         return False
     device = torch.device("mps")
     normal, uniform = torch.Generator().manual_seed(1), torch.Generator().manual_seed(1)
@@ -662,6 +667,7 @@ def attention_supported(qkv: Tensor, head_width: int) -> bool:
     """Whether the attention kernels can read the packed projection ``qkv[S, N, 3 * D]``."""
     return (
         qkv.device.type == "mps"
+        and torch.__version__ >= MIN_TORCH
         and qkv.dtype == torch.float32
         and qkv.dim() == 3
         and qkv.is_contiguous()
@@ -851,10 +857,12 @@ def integrate(
         token_lead = _lead_index(prepared.token_shape, lead, device)
         static_leads = [_lead_index(net.static_shape, lead, device) for net in prepared.networks]
     else:
+        # One row per distinct conditioning; a graph may leave no entity live (width 0).
+        conditionings = live.weight.numel() // n_live
         lead_rows = index.repeat(n_lead // index.numel())
-        weight = live.weight.reshape(-1, n_live)[lead_rows]
-        active = live.entity_active.reshape(-1, n_entities)[lead_rows]
-        count = live.entity_count.reshape(-1)[lead_rows]
+        weight = live.weight.reshape(conditionings, n_live)[lead_rows]
+        active = live.entity_active.reshape(conditionings, n_entities)[lead_rows]
+        count = live.entity_count.reshape(conditionings)[lead_rows]
         token_lead = lead_rows.to(torch.int32)
         static_leads = [token_lead] * len(prepared.networks)
     weight, active, count = weight.contiguous(), active.contiguous(), count.contiguous()

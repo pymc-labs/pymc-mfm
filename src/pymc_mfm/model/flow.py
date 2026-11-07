@@ -1054,6 +1054,12 @@ class JointFlowHead(nn.Module):
         c = channel_repr.shape[-2]
         n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
         device = weekly_repr.device
+        if device.type == "mps" and torch.__version__ < _metal.MIN_TORCH:
+            raise RuntimeError(
+                f"sampling on an Apple GPU (MPS) needs PyTorch 2.9 or newer, found "
+                f"{torch.__version__}: older MPS releases miscompute or lack operations this "
+                "sampler uses. Upgrade PyTorch or sample on the CPU."
+            )
         weight = None if state_mask is None else state_mask.to(weekly_repr.dtype)
         host_weight = None
         if weight is not None and weight.device != device:
