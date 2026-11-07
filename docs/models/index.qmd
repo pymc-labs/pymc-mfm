@@ -1,23 +1,25 @@
 ---
 title: "Models"
-description: "Trained networks for PyMC MFM, one release note each."
+description: "Trained networks for PyMC MFM. Each model has its own release page."
 listing:
   id: releases
   contents:
     - "*/index.qmd"
   sort: "date desc"
-  type: default
-  categories: false
-  sort-ui: false
-  filter-ui: false
-  feed: true
+  template: models.ejs
   date-format: "MMM D, YYYY"
-  fields: [image, date, title, subtitle, description]
-  image-height: 9rem
+  feed: true
+  fields: [title, date, description, image, family, badge, specs]
 page-layout: article
 toc: false
+css: ../assets/styles/model.css
 ---
 
+
+::: {#releases}
+:::
+
+## Load a model
 A model is a folder with `config.json`, `model.safetensors` and `manifest.json`.
 PyMC Labs publishes models as profiles of a Hugging Face Hub repository, and any
 of them loads with one call:

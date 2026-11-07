@@ -1,0 +1,33 @@
+<%
+// One card per model, grouped by the `family` field of each model page.
+// Card fields: title, date, description, image, and optional `badge` and `specs`.
+// Pandoc reads this output as Markdown: keep HTML lines unindented, without blank lines.
+const families = [];
+for (const item of items) {
+  const family = item.family || "Models";
+  if (!families.includes(family)) families.push(family);
+}
+%>
+<div class="mfm-models">
+<% for (const family of families) { %>
+<section class="mfm-models__family">
+<h2 class="mfm-models__family-name"><%= family %></h2>
+<div class="mfm-models__grid list">
+<% for (const item of items.filter((i) => (i.family || "Models") === family)) { %>
+<article class="mfm-model-card quarto-post" <%= metadataAttrs(item) %>>
+<div class="mfm-model-card__media">
+<% if (item.image) { %><img src="<%- item.image %>" alt="" loading="lazy"><% } %>
+<h3 class="mfm-model-card__name"><%= item.title %></h3>
+</div>
+<div class="mfm-model-card__body">
+<p class="mfm-model-card__meta"><span><%= item.date %></span><% if (item.badge) { %> <span class="mfm-badge"><%= item.badge %></span><% } %></p>
+<p class="mfm-model-card__description"><%= item.description %></p>
+<% if (item.specs && item.specs.length) { %><ul class="mfm-model-card__specs"><% for (const spec of item.specs) { %><li><%= spec %></li><% } %></ul><% } %>
+<p class="mfm-model-card__cta"><a class="stretched-link" href="<%- item.path %>" aria-label="Read the <%= item.title %> release">Read the release <span aria-hidden="true">→</span></a></p>
+</div>
+</article>
+<% } %>
+</div>
+</section>
+<% } %>
+</div>

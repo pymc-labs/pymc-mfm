@@ -179,8 +179,8 @@ body.mfm-landing .nav-footer a {
   display: grid;
   justify-items: center;
   align-items: start;
-  min-height: calc(100vh - 66px);
-  min-height: calc(100svh - 66px);
+  min-height: calc(100vh - var(--mfm-nav-h));
+  min-height: calc(100svh - var(--mfm-nav-h));
   padding: clamp(4rem, 14vh, 9rem) var(--mfm-gutter) 6rem;
   isolation: isolate;
   background: var(--mfm-bg);

@@ -44,8 +44,20 @@ website:
         href: guide/index.qmd
       - text: API
         href: reference/index.qmd
+      # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
+      # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge.
+      # Items with only `text` are column headers; "---" starts the second column.
       - text: Models
-        href: models/index.qmd
+        menu:
+          - text: "River"
+          - text: "River 1.0 NEW"
+            href: models/river-1/index.qmd
+          - text: "---"
+          - text: "Resources"
+          - text: "All models"
+            href: models/index.qmd
+          - text: "Hugging Face"
+            href: https://huggingface.co/pymc-labs/mfm
       - text: Blog
         href: blog/index.qmd
       - icon: github
@@ -171,7 +183,7 @@ format:
       dark: [cosmo, assets/styles/dark.scss]
     css: assets/styles/site.css
     filters:
-      - _scripts/favicons.lua
+      - _scripts/site-head.lua
     toc: true
     toc-depth: 3
     toc-title: On this page

@@ -512,7 +512,7 @@ ignored by Git.
 | Guide | `docs/guide/*.qmd`; listed in `website.sidebar` in `docs/_quarto.yml` |
 | Guide examples | every notebook in `examples/`, with its stored outputs |
 | API reference | docstrings; pages and order in the `quartodoc` section of `docs/_quarto.yml` |
-| Models | one release note per model: `docs/models/<name>/index.qmd` |
+| Models | one page per model: `docs/models/<name>/index.qmd`, with `family`, `badge` and `specs` in its front matter for the Models page cards; add it to the Models menu in `docs/_quarto.yml` |
 | Blog | one folder per post: `docs/blog/posts/<date>-<slug>/index.qmd` or `index.ipynb` |
 
 Nothing executes at build time: notebooks and posts render the outputs they were saved

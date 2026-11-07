@@ -9,7 +9,10 @@ approved or published release.
 - **Documentation website.** `docs/` is a Quarto site in the PyMC Labs palette: a landing
   page, a Guide (written pages plus every notebook in `examples/`, rendered from stored
   outputs), an API reference generated from the docstrings with quartodoc, a Models page
-  with one release note per model (River 1.0 first) and a Blog. A new `docs` dependency
+  with one card and one page per model, and a Blog. The navbar's Models menu opens on
+  hover and links each model directly. River 1.0 has an introduction page with its
+  specification, training, benchmarks, speed, limits and links, drawn from the white
+  paper and the academic paper; a WebGL river scene opens it. A new `docs` dependency
   group holds quartodoc; Quarto itself is a system tool. The `Docs` workflow renders the
   site on every pull request and publishes to GitHub Pages only when run by hand on
   `main`. The landing page loads GSAP 3.15.1 from jsDelivr with subresource integrity and
