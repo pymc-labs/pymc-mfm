@@ -1,0 +1,83 @@
+---
+title: "River 1.0"
+subtitle: "PyMC Labs' first published MFM"
+description: "PyMC Labs' first published network for PyMC MFM: 2.4M parameters, any number of channels, posterior draws in seconds on a CPU."
+date: 2026-11-07
+author: "PyMC Labs"
+categories: [Release, River]
+image: river.svg
+---
+
+River 1.0 is the first network PyMC Labs has trained and published for PyMC MFM. It
+reads one weekly series of media spend, controls and outcome, with any number of
+channels and up to 10 controls, and returns posterior draws of every component (baseline,
+channels, controls, latent and indirect effects) together with the causal graph sampled
+for each draw. Nothing is fitted to your data: `add_context` loads the history and the
+weights stay as published.
+
+![River 1.0: many weekly series, one amortized network.](river.svg){fig-alt="Abstract palette lines flow together across a rounded navy background, representing the River 1.0 model." width="72%" fig-align="center"}
+
+It ships as the profile `river-1` of the Hugging Face repository `pymc-labs/mfm`. The
+profile name is an identifier, not a version number.
+
+## Install and load
+
+Use Python 3.13 or newer. The Hub repository is currently private to the PyMC
+Labs organization. Authenticate with `hf auth login`; `HF_TOKEN` is an
+alternative for environments that provide it.
+
+```bash
+pip install "pymc-mfm[hub] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+hf auth login
+```
+
+Load the profile at its pinned commit:
+
+```python
+from pymc_mfm import from_pretrained
+
+model = from_pretrained("pymc-labs/mfm", profile="river-1", revision="970e6095f14824d7e25ecace7e20a47bebde35b8")
+```
+
+## Artifact specification
+
+The committed quickstart prints the following model configuration; it records
+this artifact rather than making a general product guarantee.
+
+| Specification | Value |
+| --- | --- |
+| Parameters | 2,443,583 |
+| Bundle | About 10 MB |
+| Control slots | 10 |
+| `d_model` | 128 |
+| `n_layers` | 4 |
+| `n_heads` | 8 |
+| `d_ff` | 512 |
+| `flow_hidden` | 256 |
+| `n_demand` | 1 |
+
+## Recorded timing
+
+| Profile | World | Draws | Hardware | Device | Query | Context |
+| --- | --- | ---: | --- | --- | ---: | ---: |
+| River-1 | quickstart world | 1,000 | Apple M3 Max | CPU | 2.0 s | 3.2 s |
+| River-1 | quickstart world | 1,000 | Apple M3 Max | MPS | 1.4 s | 2.3 s |
+
+These are recorded measurements, not a general performance guarantee.
+
+On an NVIDIA L4, warm `torch.compile` calls were approximately 1.4× as fast as
+eager across four test inputs; the first compilation took 20–30 seconds.
+Sampling stays eager unless a caller opts in, and compiling on CPU usually does
+not speed it up.
+
+## Quickstart and limits
+
+The [River-1 quickstart](../../guide/examples/river_1_quickstart.ipynb)
+demonstrates a simulated weekly dataset, an 80% context / 20% query split,
+1,000 draws per window, context and query decompositions, contribution plots,
+and conditional scenario sweeps.
+
+- Context and query are separate marginals.
+- Components exclude observation noise.
+- Conditional scenarios are not identified causal lift.
+- There is no PyPI package, and licenses have not yet been selected.

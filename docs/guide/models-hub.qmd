@@ -1,0 +1,84 @@
+---
+title: "Load and share models"
+description: "Load verified model bundles locally or from Hugging Face Hub profiles, then export or publish them."
+---
+
+## Model folders
+
+A local model bundle is a directory with three files:
+
+| File | Purpose |
+| --- | --- |
+| `config.json` | Versioned model configuration, inference contract, compatibility record, and provenance |
+| `model.safetensors` | Model parameters and persistent buffers in the safetensors format |
+| `manifest.json` | File hashes, tensor metadata, and bundle identity |
+
+[from_pretrained](../reference/inference.from_pretrained.qmd) verifies the folder before constructing an evaluation-mode model. It checks the manifest, configuration, and package compatibility; it does not unpickle code. [save_pretrained](../reference/inference.save_pretrained.qmd) writes only to a new or empty directory. Use [load_checkpoint](../reference/training.load_checkpoint.qmd) to load a training checkpoint for export.
+
+```python
+from pymc_mfm import from_pretrained, save_pretrained
+from pymc_mfm.training import load_checkpoint
+
+model = from_pretrained("runs/my-model/model", device="cpu")
+
+checkpoint, payload = load_checkpoint("runs/my-model/checkpoint_last.pt")
+save_pretrained(checkpoint, "models/my-model")
+```
+
+A training checkpoint contains model state and run records, not optimizer state. Export it as a model folder to load it with the local or Hub interface.
+
+## Load from Hugging Face Hub
+
+Hub operations need `pymc-mfm[hub]`. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
+
+```python
+from pymc_mfm import from_pretrained, list_profiles
+
+profiles = list_profiles("pymc-labs/mfm")
+revision = profiles["river-1"]["revision"]
+river = from_pretrained(
+    "pymc-labs/mfm",
+    profile="river-1",
+    revision=revision,
+)
+```
+
+River-1 is loaded as `from_pretrained("pymc-labs/mfm", profile="river-1", revision=...)`. Its collection is private to the PyMC Labs organization; see the [River-1 release notes](../models/river-1/index.qmd) for the release record.
+
+Use a full commit in `revision=` for reproducibility. A branch or tag is resolved to one immutable commit before the bundle files are loaded, and `model.provenance["hub_revision"]` records that resolved commit. Reuse a listed revision to pin a later load.
+
+Private repositories use `hf auth login`, `HF_TOKEN`, or the `token=` argument. Use `cache_dir=` to choose the cache location and `local_files_only=True` to require a populated cache without network access. Those options and `token=` follow Hugging Face Hub conventions. Local directory loads do not import the Hub client or perform network and authentication I/O.
+
+::: {.callout-note}
+## Pin the artifact
+
+Omitting `revision=` resolves the repository's default branch. A full commit is the reproducible reference; offline loading succeeds only when that snapshot is already cached.
+:::
+
+## Export and publish
+
+Use [push_to_hub](../reference/inference.push_to_hub.qmd) to export one complete bundle and publish its model card in one Hub commit.
+
+```python
+from pymc_mfm import push_to_hub
+
+commit = push_to_hub(
+    model,
+    "org/repo",
+    profile="my-model",
+    license="approved-license-identifier",
+)
+commit_id = commit.oid
+```
+
+New Hub repositories default to private; publication never changes an existing repository's visibility. The returned commit object carries the immutable commit id in `oid`. Publication requires an explicitly approved artifact license identifier. Code and model-weight licenses for this project have not yet been selected.
+
+## Choose an interface
+
+| Need | Interface |
+| --- | --- |
+| Load a verified local folder | `from_pretrained("path/to/model")` |
+| Discover a collection's profiles | `list_profiles("org/repo")` |
+| Load one immutable Hub profile | `from_pretrained("org/repo", profile="name", revision="<full-commit>")` |
+| Export a trained checkpoint | `load_checkpoint(...)` then `save_pretrained(...)` |
+| Publish one bundle | `push_to_hub(...)` |

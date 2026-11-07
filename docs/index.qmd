@@ -1,0 +1,226 @@
+---
+title: "PyMC MFM"
+pagetitle: "PyMC MFM · Train once. Decompose any time series."
+description: "Amortized neural networks for Bayesian marketing-mix decomposition: posterior draws of every contribution, with the causal graph behind each draw."
+page-layout: custom
+title-block-style: none
+toc: false
+section-divs: false
+anchor-sections: false
+body-classes: mfm-landing
+css: assets/styles/landing.css
+---
+
+```{=html}
+<script>
+  // Hides the hero copy until landing.js plays the intro; a CSS fallback reveals it anyway.
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("mfm-intro");
+</script>
+<div class="mfm">
+
+<!-- Hero ------------------------------------------------------------------ -->
+<section class="mfm-hero" aria-labelledby="mfm-hero-title">
+  <canvas class="mfm-hero__waves" data-mfm="waves" aria-hidden="true"></canvas>
+  <div class="mfm-hero__copy">
+    <p class="mfm-kicker"><span class="mfm-kicker__dot" aria-hidden="true"></span>Python library · by PyMC Labs</p>
+    <h1 id="mfm-hero-title" class="mfm-hero__title">Train once.<br><span class="mfm-grad">Decompose</span> any time&nbsp;series.</h1>
+    <p class="mfm-hero__lede">
+      PyMC MFM trains neural networks on simulated marketing worlds. Hand one your spend,
+      controls and sales: it returns posterior draws of every contribution, and the causal
+      graph behind each draw. No MCMC. No refit.
+    </p>
+    <div class="mfm-hero__actions">
+      <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <span aria-hidden="true">→</span></a>
+      <a class="mfm-btn mfm-btn--ghost" href="https://github.com/pymc-labs/pymc-mfm">View on GitHub</a>
+    </div>
+  </div>
+
+  <figure class="mfm-hero__figure" aria-label="Observed weekly series flow through a neural network that samples causal graphs and returns posterior components.">
+    <canvas class="mfm-hero__canvas" data-mfm="hero" aria-hidden="true"></canvas>
+    <figcaption class="mfm-hero__captions" aria-hidden="true">
+      <span>spend · controls · sales</span>
+      <span>encoder · graph router · flow</span>
+      <span>posterior components</span>
+    </figcaption>
+  </figure>
+</section>
+
+<!-- API ------------------------------------------------------------------- -->
+<section class="mfm-section mfm-reveal" aria-labelledby="mfm-api-title">
+  <header class="mfm-section__head">
+    <p class="mfm-eyebrow">The library</p>
+    <h2 id="mfm-api-title">History in. Posterior out.</h2>
+    <p class="mfm-section__lede">
+      Load a trained network, give it your history as context, ask about the weeks ahead.
+      Three calls, no training loop, no sampler to tune.
+    </p>
+    <div class="mfm-install">
+      <span class="mfm-install__prompt" aria-hidden="true">$</span>
+      <code class="mfm-install__cmd">pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
+      <button class="mfm-install__copy" type="button" data-copy="pip install &quot;pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command">Copy</button>
+    </div>
+  </header>
+
+  <div class="mfm-shot">
+    <div class="mfm-window">
+      <div class="mfm-window__bar">
+        <span class="mfm-window__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="mfm-window__name">decompose.py</span>
+      </div>
+<pre class="mfm-code"><code><span class="k">from</span> pymc_mfm <span class="k">import</span> from_pretrained
+
+model <span class="o">=</span> <span class="f">from_pretrained</span>(<span class="s">"pymc-labs/mfm"</span>, profile<span class="o">=</span><span class="s">"river-1"</span>)
+
+model.<span class="f">add_context</span>(
+    history,                  <span class="c"># weekly DataFrame</span>
+    date_column<span class="o">=</span><span class="s">"week"</span>,
+    target_column<span class="o">=</span><span class="s">"sales"</span>,
+    channel_columns<span class="o">=</span>[<span class="s">"tv"</span>, <span class="s">"search"</span>, <span class="s">"social"</span>],
+    control_columns<span class="o">=</span>[<span class="s">"price"</span>],
+)
+
+query <span class="o">=</span> model.<span class="f">inference</span>(next_quarter, n_samples<span class="o">=</span><span class="n">1_000</span>)
+query.components              <span class="c"># draws × weeks × components</span>
+idata <span class="o">=</span> model.<span class="f">build_idata</span>()   <span class="c"># ArviZ DataTree</span></code></pre>
+    </div>
+
+    <figure class="mfm-plot">
+      <canvas class="mfm-plot__canvas" data-mfm="decomposition" role="img"
+        aria-label="Illustrative stacked weekly decomposition: baseline, tv, search, social and price contributions with posterior intervals, wider in the query weeks than in the context weeks."></canvas>
+      <figcaption class="mfm-plot__legend">
+        <span><i style="--c: var(--mfm-periwinkle)"></i>baseline</span>
+        <span><i style="--c: var(--mfm-aqua)"></i>tv</span>
+        <span><i style="--c: var(--mfm-peach)"></i>search</span>
+        <span><i style="--c: var(--mfm-violet)"></i>social</span>
+        <span><i style="--c: #4A9EDE"></i>price</span>
+        <span class="mfm-plot__note">illustrative</span>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- Benefits -------------------------------------------------------------- -->
+<section class="mfm-section mfm-reveal" aria-labelledby="mfm-why-title">
+  <header class="mfm-section__head">
+    <p class="mfm-eyebrow">Why amortize</p>
+    <h2 id="mfm-why-title">The fit happens once. You get the posterior.</h2>
+  </header>
+
+  <ol class="mfm-why">
+    <li>
+      <h3 class="mfm-why__word">Amortized</h3>
+      <p>Training is paid once, on simulated worlds with known answers. A new dataset is
+        context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p>
+    </li>
+    <li>
+      <h3 class="mfm-why__word">Causal</h3>
+      <p>Every draw carries the causal graph it was sampled with, over channels, controls and
+        latent demand. Average over graphs, take the most frequent one, or fix your own.</p>
+    </li>
+    <li>
+      <h3 class="mfm-why__word">Bayesian</h3>
+      <p>Draws, not point estimates: each contribution in outcome units with its uncertainty,
+        exported as an ArviZ DataTree for the rest of your PyMC workflow.</p>
+    </li>
+  </ol>
+</section>
+
+<!-- How it works: pinned scroll story on wide screens, autoplay elsewhere ------ -->
+<section class="mfm-story" aria-labelledby="mfm-how-title">
+  <div class="mfm-story__inner">
+    <header class="mfm-section__head mfm-story__head">
+      <p class="mfm-eyebrow">Under the hood</p>
+      <h2 id="mfm-how-title">Attention over time. Flows over graphs and contributions.</h2>
+    </header>
+
+    <div class="mfm-story__grid">
+      <ol class="mfm-story__steps">
+        <li class="is-active" data-step="0">
+          <button type="button" class="mfm-story__step">
+            <span class="mfm-story__num">01</span>
+            <span class="mfm-story__body">
+              <span class="mfm-story__title">Encoder</span>
+              <span class="mfm-story__text">Attention across weeks, causal in time, and across
+                channels and controls within each week. One token per week and entity.</span>
+            </span>
+          </button>
+        </li>
+        <li data-step="1">
+          <button type="button" class="mfm-story__step">
+            <span class="mfm-story__num">02</span>
+            <span class="mfm-story__body">
+              <span class="mfm-story__title">Graph router</span>
+              <span class="mfm-story__text">Samples a causal graph per draw over eight edge
+                families, from latent demand to sales. Equivariant in channels, so their number
+                is not fixed.</span>
+            </span>
+          </button>
+        </li>
+        <li data-step="2">
+          <button type="button" class="mfm-story__step">
+            <span class="mfm-story__num">03</span>
+            <span class="mfm-story__body">
+              <span class="mfm-story__title">Flow decoder</span>
+              <span class="mfm-story__text">A rectified flow, conditioned on the graph, carries
+                noise to each week's additive decomposition in 16 fixed Euler steps.</span>
+            </span>
+          </button>
+        </li>
+      </ol>
+
+      <figure class="mfm-story__figure">
+        <canvas class="mfm-story__canvas" data-mfm="story" role="img"
+          aria-label="Animated, illustrative: an attention grid over weeks and entities, then sampled causal graphs between latent demand, price, three channels and sales, then particles flowing from noise into a stacked weekly decomposition."></canvas>
+        <figcaption class="mfm-story__caption" aria-hidden="true">
+          <span class="mfm-story__readout">causal attention</span>
+          <span class="mfm-story__track"><i></i></span>
+        </figcaption>
+      </figure>
+    </div>
+
+    <p class="mfm-section__more"><a href="guide/concepts.html">How it works, in detail <span aria-hidden="true">→</span></a></p>
+  </div>
+</section>
+
+<!-- Latest model ---------------------------------------------------------- -->
+<section class="mfm-section mfm-section--tight mfm-reveal" aria-labelledby="mfm-model-title">
+  <div class="mfm-release">
+    <div class="mfm-release__name">
+      <p class="mfm-eyebrow">Latest model</p>
+      <h2 id="mfm-model-title">River 1.0</h2>
+    </div>
+    <div class="mfm-release__body">
+      <p>PyMC Labs' first published network: 2.4M parameters, any number of channels, posterior
+        draws in seconds on a CPU.</p>
+      <code class="mfm-release__code">from_pretrained("pymc-labs/mfm", profile="river-1")</code>
+      <p class="mfm-release__links">
+        <a href="models/river-1/index.html">Release notes <span aria-hidden="true">→</span></a>
+        <a href="https://huggingface.co/pymc-labs/mfm">Hugging Face <span aria-hidden="true">↗</span></a>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Explore --------------------------------------------------------------- -->
+<section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
+  <nav class="mfm-explore">
+    <a href="guide/index.html"><span class="mfm-explore__title">Guide <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
+    <a href="reference/index.html"><span class="mfm-explore__title">API <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Every public class and function, from the docstrings.</span></a>
+    <a href="models/index.html"><span class="mfm-explore__title">Models <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Trained networks and their release notes.</span></a>
+    <a href="blog/index.html"><span class="mfm-explore__title">Blog <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Methods and engineering notes from the team.</span></a>
+  </nav>
+</section>
+
+<section class="mfm-outro mfm-reveal">
+  <p>From the team behind <a href="https://www.pymc-labs.com/open-source">PyMC, PyMC-Marketing and CausalPy</a>.</p>
+  <a class="mfm-btn mfm-btn--ghost" href="https://www.pymc-labs.com">Visit pymc-labs.com <span aria-hidden="true">↗</span></a>
+</section>
+
+</div>
+<!-- GSAP 3.15.1 (free standard license) for the intro and the pinned story. Without it the
+     page still works: landing.js falls back to CSS reveals and an autoplaying story. -->
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/gsap.min.js" integrity="sha384-3vCAhD+a3BOliP3QqjQINn6ZWiZxoqu0WFxX5ZQZgqekDZuSb1mJBrrLMmu94H8f" crossorigin="anonymous" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/ScrollTrigger.min.js" integrity="sha384-H2WL1iy/jKQQ7MTHU2hskZKNHTYWWD/KgKE1vCNnaWY8An2ESTh23KN/fTp8XS3j" crossorigin="anonymous" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/SplitText.min.js" integrity="sha384-e98MX/fxZrUXA/6T+aCptryLfHgR2FpEmWxDbbPloHT0Qg79dEXKdLJ/iwD2lzxs" crossorigin="anonymous" defer></script>
+<script src="assets/js/landing.js" defer></script>
+```

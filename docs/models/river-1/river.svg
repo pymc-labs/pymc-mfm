@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="river-title river-desc">
+  <title id="river-title">River-1 profile</title>
+  <desc id="river-desc">Five colored flowing lines converge on a single point over a rounded deep navy background.</desc>
+  <rect width="1200" height="630" rx="48" fill="#07142a"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M96 132C282 132 386 166 514 276C556 312 592 315 630 315" stroke="#b4e7dd" stroke-width="16"/>
+    <path d="M96 228C268 228 390 244 518 292C562 308 596 315 630 315" stroke="#9faae2" stroke-width="16"/>
+    <path d="M96 315H630" stroke="#f6ae72" stroke-width="16"/>
+    <path d="M96 402C268 402 390 386 518 338C562 322 596 315 630 315" stroke="#c8b4e7" stroke-width="16"/>
+    <path d="M96 498C282 498 386 464 514 354C556 318 592 315 630 315" stroke="#81C240" stroke-width="16"/>
+    <path d="M630 315C784 315 888 279 1104 279" stroke="#154A72" stroke-width="16"/>
+    <path d="M630 315C784 315 888 351 1104 351" stroke="#b4e7dd" stroke-width="16"/>
+  </g>
+  <circle cx="630" cy="315" r="24" fill="#f6ae72"/>
+  <circle cx="630" cy="315" r="9" fill="#07142a"/>
+</svg>

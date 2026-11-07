@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PyMC MFM">
+  <title>PyMC MFM</title>
+  <rect width="64" height="64" rx="14" fill="#0c1f40"/>
+  <path d="M8 42 C 16 42, 18 22, 26 22 S 36 40, 44 34 S 52 18, 56 18" fill="none" stroke="#9faae2" stroke-width="2.4" stroke-linecap="round" opacity="0.55"/>
+  <path d="M26 22 L44 34 M26 22 L44 18 M44 18 L44 34" fill="none" stroke="#b4e7dd" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="26" cy="22" r="5" fill="#b4e7dd"/>
+  <circle cx="44" cy="34" r="5" fill="#f6ae72"/>
+  <circle cx="44" cy="18" r="3.6" fill="#c8b4e7"/>
+  <circle cx="12" cy="42" r="2.6" fill="#f7f7f7"/>
+</svg>

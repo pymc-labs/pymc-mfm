@@ -1,0 +1,932 @@
+/* Landing page only (index.qmd sets body class mfm-landing). Always dark: the
+   pymc-labs.com navy, with aqua, periwinkle, peach and violet as signal colors. */
+
+body.mfm-landing {
+  --mfm-bg: #07142a;
+  --mfm-bg-2: #0c1f40;
+  --mfm-fg: #f7f7f7;
+  --mfm-fg-2: rgba(247, 247, 247, 0.72);
+  --mfm-fg-3: rgba(247, 247, 247, 0.48);
+  --mfm-line: rgba(255, 255, 255, 0.08);
+  --mfm-line-2: rgba(255, 255, 255, 0.14);
+  --mfm-aqua: #b4e7dd;
+  --mfm-periwinkle: #9faae2;
+  --mfm-peach: #f6ae72;
+  --mfm-violet: #c8b4e7;
+  --mfm-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--mfm-bg);
+  color: var(--mfm-fg);
+}
+
+/* Chrome on the landing page ------------------------------------------------- */
+body.mfm-landing #title-block-header {
+  display: none;
+}
+
+body.mfm-landing .navbar {
+  background: rgba(7, 20, 42, 0.72) !important;
+  border-bottom-color: var(--mfm-line);
+  --bs-navbar-color: rgba(247, 247, 247, 0.78);
+  --bs-navbar-hover-color: #ffffff;
+  --bs-navbar-active-color: #ffffff;
+  --bs-navbar-brand-color: #ffffff;
+  --bs-navbar-brand-hover-color: #ffffff;
+}
+
+body.mfm-landing .navbar .nav-link,
+body.mfm-landing .navbar .navbar-title,
+body.mfm-landing .navbar .bi {
+  color: rgba(247, 247, 247, 0.82) !important;
+}
+
+body.mfm-landing .navbar .nav-link:hover {
+  color: #ffffff !important;
+}
+
+body.mfm-landing .navbar .navbar-toggler-icon {
+  filter: brightness(0) invert(0.85);
+}
+
+body.mfm-landing .quarto-color-scheme-toggle {
+  display: none !important;
+}
+
+body.mfm-landing #quarto-search .aa-DetachedSearchButton,
+body.mfm-landing #quarto-search .aa-DetachedSearchButtonIcon,
+body.mfm-landing #quarto-search .aa-SubmitIcon {
+  color: rgba(247, 247, 247, 0.82) !important;
+  fill: currentColor !important;
+}
+
+body.mfm-landing #quarto-content,
+body.mfm-landing main.content {
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  width: 100%;
+}
+
+body.mfm-landing .nav-footer {
+  background: var(--mfm-bg);
+  border-top-color: var(--mfm-line);
+  color: var(--mfm-fg-3);
+}
+
+body.mfm-landing .nav-footer a {
+  color: var(--mfm-fg-2);
+}
+
+/* Layout ---------------------------------------------------------------- */
+.mfm {
+  --mfm-max: 1180px;
+  --mfm-gutter: clamp(1.25rem, 4vw, 2.5rem);
+  position: relative;
+  padding: 0 !important;
+  overflow: hidden;
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+
+.mfm a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.mfm h1,
+.mfm h2,
+.mfm h3 {
+  color: var(--mfm-fg);
+  margin: 0;
+  border: 0;
+}
+
+.mfm p {
+  margin: 0;
+}
+
+.mfm-eyebrow,
+.mfm-kicker {
+  font-family: var(--mfm-mono);
+  font-size: 0.74rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mfm-fg-3);
+  margin-bottom: 1.1rem !important;
+}
+
+.mfm-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: none;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-kicker__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mfm-peach);
+  box-shadow: 0 0 12px rgba(246, 174, 114, 0.8);
+}
+
+.mfm-grad {
+  background: linear-gradient(92deg, var(--mfm-aqua) 0%, #c9e9f2 45%, var(--mfm-periwinkle) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Buttons --------------------------------------------------------------- */
+.mfm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.72rem 1.3rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.mfm-btn span {
+  transition: transform 0.2s ease;
+}
+
+.mfm-btn:hover span {
+  transform: translateX(3px);
+}
+
+.mfm-btn--primary {
+  color: var(--mfm-peach) !important;
+  background: rgba(246, 174, 114, 0.1);
+  border: 1px solid rgba(246, 174, 114, 0.55);
+}
+
+.mfm-btn--primary:hover {
+  background: rgba(246, 174, 114, 0.18);
+  border-color: var(--mfm-peach);
+}
+
+.mfm-btn--ghost {
+  color: var(--mfm-fg-2) !important;
+  border: 1px solid var(--mfm-line-2);
+}
+
+.mfm-btn--ghost:hover {
+  color: var(--mfm-fg) !important;
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+/* Hero ------------------------------------------------------------------ */
+.mfm-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(3rem, 8.5vh, 6.5rem) 0 2.5rem;
+  isolation: isolate;
+}
+
+.mfm-hero::before {
+  /* Dot grid, faded toward the edges. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(rgba(159, 170, 226, 0.16) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 100%);
+}
+
+.mfm-hero::after {
+  /* Two soft glows behind the title and the figure. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(40rem 22rem at 50% 18%, rgba(159, 170, 226, 0.14), transparent 70%),
+    radial-gradient(36rem 18rem at 70% 82%, rgba(180, 231, 221, 0.08), transparent 70%),
+    linear-gradient(180deg, #0a1a36 0%, var(--mfm-bg) 60%);
+}
+
+.mfm-hero__copy {
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: 0 var(--mfm-gutter);
+  text-align: center;
+}
+
+.mfm-hero__title {
+  font-size: clamp(2.5rem, 5.6vw, 5rem);
+  line-height: 1.02;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.mfm-hero__lede {
+  max-width: 40rem;
+  margin: 1.6rem auto 0 !important;
+  font-size: clamp(1.02rem, 1.4vw, 1.17rem);
+  line-height: 1.6;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 2.2rem;
+}
+
+.mfm-hero__figure {
+  position: relative;
+  width: 100%;
+  max-width: 1320px;
+  margin: clamp(2.5rem, 6vh, 4rem) auto 0;
+  padding: 0 var(--mfm-gutter);
+}
+
+.mfm-hero__canvas {
+  display: block;
+  width: 100%;
+  height: clamp(220px, 32vh, 340px);
+}
+
+.mfm-hero__captions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  margin-top: 0.9rem;
+  font-family: var(--mfm-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mfm-fg-3);
+}
+
+.mfm-hero__captions span {
+  text-align: center;
+}
+
+/* Sections -------------------------------------------------------------- */
+.mfm-section {
+  max-width: var(--mfm-max);
+  margin: 0 auto;
+  padding: clamp(5rem, 12vh, 8.5rem) var(--mfm-gutter);
+  border-top: 1px solid var(--mfm-line);
+}
+
+.mfm-section--tight {
+  padding-top: clamp(3.5rem, 8vh, 5rem);
+  padding-bottom: clamp(3.5rem, 8vh, 5rem);
+}
+
+.mfm-section__head {
+  max-width: 44rem;
+  margin-bottom: clamp(2.5rem, 6vh, 3.75rem);
+}
+
+.mfm-section__head h2,
+.mfm-hero__title,
+.mfm-hero__lede,
+.mfm-section__lede {
+  text-wrap: balance;
+}
+
+.mfm-section__head h2 {
+  font-size: clamp(1.9rem, 3.6vw, 3rem);
+  line-height: 1.08;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+}
+
+.mfm-section__lede {
+  margin-top: 1.1rem !important;
+  font-size: 1.08rem;
+  line-height: 1.65;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-section__more {
+  margin-top: 2.75rem !important;
+  font-size: 0.95rem;
+}
+
+.mfm-section__more a {
+  color: var(--mfm-aqua) !important;
+}
+
+.mfm-section__more a:hover span {
+  margin-left: 0.25rem;
+}
+
+/* Code shot ------------------------------------------------------------- */
+.mfm-shot {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+  align-items: stretch;
+}
+
+.mfm-window {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--mfm-line-2);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(12, 31, 64, 0.9), rgba(7, 20, 42, 0.9));
+  box-shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(159, 170, 226, 0.03) inset;
+  overflow: hidden;
+}
+
+.mfm-window__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--mfm-line);
+  font-family: var(--mfm-mono);
+  font-size: 0.74rem;
+  color: var(--mfm-fg-3);
+}
+
+.mfm-window__dots {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.mfm-window__dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mfm .mfm-code {
+  flex: 1;
+  margin: 0;
+  padding: 1.25rem 1.35rem;
+  background: transparent;
+  border: 0;
+  color: #dfe6f2;
+  font-family: var(--mfm-mono);
+  font-size: 0.8rem;
+  line-height: 1.72;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.mfm .mfm-code code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+
+.mfm-code .k { color: var(--mfm-violet); }
+.mfm-code .f { color: var(--mfm-aqua); }
+.mfm-code .s { color: var(--mfm-peach); }
+.mfm-code .n { color: var(--mfm-periwinkle); }
+.mfm-code .o { color: rgba(247, 247, 247, 0.55); }
+.mfm-code .c { color: rgba(247, 247, 247, 0.38); font-style: italic; }
+
+.mfm-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  max-width: 100%;
+  margin-top: 1.6rem;
+  padding: 0.45rem 0.5rem 0.45rem 1rem;
+  border: 1px solid var(--mfm-line-2);
+  border-radius: 999px;
+  background: rgba(12, 31, 64, 0.55);
+  font-family: var(--mfm-mono);
+  font-size: 0.78rem;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-install__prompt {
+  color: var(--mfm-aqua);
+}
+
+.mfm .mfm-install__cmd {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+  scrollbar-width: none;
+}
+
+.mfm-install__copy {
+  flex: none;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--mfm-line-2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mfm-fg-2);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.mfm-install__copy:hover,
+.mfm-install__copy[data-copied] {
+  color: var(--mfm-aqua);
+  border-color: rgba(180, 231, 221, 0.5);
+}
+
+.mfm-plot {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 1.25rem 1.25rem 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--mfm-line);
+  background: radial-gradient(120% 90% at 50% 0%, rgba(159, 170, 226, 0.07), transparent 70%);
+}
+
+.mfm-plot__canvas {
+  flex: 1;
+  width: 100%;
+  min-height: 300px;
+}
+
+.mfm-plot__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin-top: 0.9rem;
+  font-family: var(--mfm-mono);
+  font-size: 0.7rem;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-plot__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mfm-plot__legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--c);
+  opacity: 0.85;
+}
+
+.mfm-plot__note {
+  margin-left: auto;
+  color: var(--mfm-fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Benefits -------------------------------------------------------------- */
+.mfm-why {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mfm-why li {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.9fr) minmax(0, 1.4fr);
+  gap: 2rem;
+  align-items: baseline;
+  padding: 2.1rem 0;
+  border-top: 1px solid var(--mfm-line);
+}
+
+.mfm-why li:last-child {
+  border-bottom: 1px solid var(--mfm-line);
+}
+
+.mfm .mfm-why__word {
+  font-size: clamp(2rem, 4.4vw, 3.4rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  background: linear-gradient(92deg, var(--mfm-fg) 0%, rgba(247, 247, 247, 0.55) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  transition: background 0.3s ease;
+}
+
+.mfm-why li:nth-child(1):hover .mfm-why__word { background-image: linear-gradient(92deg, var(--mfm-aqua), var(--mfm-periwinkle)); }
+.mfm-why li:nth-child(2):hover .mfm-why__word { background-image: linear-gradient(92deg, var(--mfm-peach), var(--mfm-violet)); }
+.mfm-why li:nth-child(3):hover .mfm-why__word { background-image: linear-gradient(92deg, var(--mfm-violet), var(--mfm-aqua)); }
+
+.mfm-why p {
+  font-size: 1.08rem;
+  line-height: 1.65;
+  color: var(--mfm-fg-2);
+  max-width: 34rem;
+}
+
+/* How it works: scroll story ------------------------------------------------ */
+.mfm-story {
+  border-top: 1px solid var(--mfm-line);
+}
+
+.mfm-story__inner {
+  max-width: var(--mfm-max);
+  margin: 0 auto;
+  padding: clamp(5rem, 12vh, 8.5rem) var(--mfm-gutter) clamp(3.5rem, 8vh, 5rem);
+}
+
+/* Pinned (wide screens with GSAP): the section fills the viewport while it scrubs. */
+.mfm-story.is-pinned .mfm-story__inner {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-top: 4.5rem;
+  padding-bottom: 2.5rem;
+}
+
+.mfm-story.is-pinned .mfm-section__head {
+  margin-bottom: 2.25rem;
+}
+
+.mfm-story__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  align-items: center;
+}
+
+.mfm-story__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mfm .mfm-story__step {
+  display: flex;
+  gap: 1.1rem;
+  width: 100%;
+  padding: 1.05rem 0 1.05rem 1.25rem;
+  border: 0;
+  border-left: 1px solid var(--mfm-line-2);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.36;
+  transition: opacity 0.45s ease, border-color 0.45s ease;
+}
+
+.mfm .mfm-story__step:hover {
+  opacity: 0.7;
+}
+
+.mfm .mfm-story__step:focus-visible {
+  outline: 1px solid var(--mfm-aqua);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.mfm-story__steps li.is-active .mfm-story__step {
+  opacity: 1;
+  border-left-color: var(--mfm-periwinkle);
+}
+
+.mfm-story__steps li:nth-child(2).is-active .mfm-story__step { border-left-color: var(--mfm-aqua); }
+.mfm-story__steps li:nth-child(3).is-active .mfm-story__step { border-left-color: var(--mfm-peach); }
+
+.mfm-story__num {
+  flex: none;
+  padding-top: 0.32rem;
+  font-family: var(--mfm-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  color: var(--mfm-fg-3);
+}
+
+.mfm-story__title {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--mfm-fg);
+}
+
+.mfm-story__text {
+  display: block;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-story__figure {
+  position: relative;
+  margin: 0;
+  padding: 1rem 1rem 0.9rem;
+  border: 1px solid var(--mfm-line);
+  border-radius: 18px;
+  background:
+    radial-gradient(100% 80% at 50% 0%, rgba(159, 170, 226, 0.07), transparent 70%),
+    rgba(12, 31, 64, 0.25);
+}
+
+.mfm-story__canvas {
+  display: block;
+  width: 100%;
+  height: clamp(320px, 50vh, 470px);
+}
+
+.mfm-story__caption {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.6rem;
+  font-family: var(--mfm-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mfm-fg-3);
+}
+
+.mfm-story__readout {
+  flex: none;
+  min-width: 17rem;
+}
+
+.mfm-story__track {
+  position: relative;
+  flex: 1;
+  height: 1px;
+  overflow: hidden;
+  background: var(--mfm-line-2);
+}
+
+.mfm-story__track i {
+  position: absolute;
+  inset: 0;
+  transform: scaleX(var(--p, 0));
+  transform-origin: left;
+  background: linear-gradient(90deg, var(--mfm-periwinkle), var(--mfm-aqua), var(--mfm-peach));
+}
+
+/* Hero background lines (WebGL) and intro -------------------------------------- */
+.mfm-hero__waves {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 2s ease;
+}
+
+.mfm-hero__waves.is-ready {
+  opacity: 1;
+}
+
+/* Set by an inline script before first paint; landing.js removes it when the intro starts.
+   If the script never runs, the copy fades in on its own. */
+.mfm-intro .mfm-hero__copy,
+.mfm-intro .mfm-hero__figure {
+  opacity: 0;
+  animation: mfm-failsafe 0.6s ease 2.5s forwards;
+}
+
+@keyframes mfm-failsafe {
+  to {
+    opacity: 1;
+  }
+}
+
+.mfm-hero__title .mfm-word {
+  will-change: transform, filter, opacity;
+}
+
+/* Pointer light on the cards (landing.js adds .mfm-spot and --mx/--my) --------------- */
+.mfm-spot {
+  position: relative;
+}
+
+.mfm-spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), rgba(180, 231, 221, 0.07), transparent 45%);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.mfm-spot:hover::after {
+  opacity: 1;
+}
+
+/* Latest model ---------------------------------------------------------- */
+.mfm-release {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+  gap: 2rem;
+  align-items: center;
+}
+
+.mfm-release__name h2 {
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  background: linear-gradient(92deg, var(--mfm-aqua), var(--mfm-periwinkle) 60%, var(--mfm-violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent !important;
+}
+
+.mfm-release__body p {
+  color: var(--mfm-fg-2);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.mfm .mfm-release__code {
+  display: inline-block;
+  margin: 1.1rem 0 1.2rem;
+  padding: 0.45rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid var(--mfm-line);
+  background: rgba(12, 31, 64, 0.6);
+  color: var(--mfm-aqua);
+  font-family: var(--mfm-mono);
+  font-size: 0.78rem;
+}
+
+.mfm-release__links {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.95rem;
+}
+
+.mfm-release__links a {
+  color: var(--mfm-fg) !important;
+  border-bottom: 1px solid var(--mfm-line-2);
+  padding-bottom: 2px;
+  transition: border-color 0.2s ease;
+}
+
+.mfm-release__links a:hover {
+  border-color: var(--mfm-aqua);
+}
+
+/* Explore --------------------------------------------------------------- */
+.mfm-explore {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+}
+
+.mfm-explore a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.25rem 1.5rem 0.25rem 0;
+}
+
+.mfm-explore a + a {
+  padding-left: 1.5rem;
+  border-left: 1px solid var(--mfm-line);
+}
+
+.mfm-explore__title {
+  font-size: clamp(1.5rem, 2.6vw, 2.1rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  color: var(--mfm-fg);
+}
+
+.mfm-explore__title span {
+  display: inline-block;
+  color: var(--mfm-fg-3);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.mfm-explore a:hover .mfm-explore__title span {
+  transform: translateX(4px);
+  color: var(--mfm-aqua);
+}
+
+.mfm-explore__text {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--mfm-fg-3);
+}
+
+/* Outro ----------------------------------------------------------------- */
+.mfm-outro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+  padding: clamp(4rem, 10vh, 6.5rem) var(--mfm-gutter) clamp(5rem, 12vh, 7rem);
+  border-top: 1px solid var(--mfm-line);
+  text-align: center;
+}
+
+.mfm-outro p {
+  font-size: clamp(1.3rem, 2.4vw, 1.75rem);
+  letter-spacing: -0.02em;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-outro p a {
+  color: var(--mfm-fg) !important;
+  border-bottom: 1px solid rgba(246, 174, 114, 0.6);
+}
+
+/* Reveal on scroll: landing.js marks the root .mfm-js and adds .is-visible; without
+   JavaScript every section stays visible. */
+.mfm-js .mfm-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.mfm-js .mfm-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mfm-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Responsive ------------------------------------------------------------ */
+@media (max-width: 960px) {
+  .mfm-shot,
+  .mfm-release,
+  .mfm-story__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mfm-story__figure {
+    order: -1;
+  }
+
+  .mfm-story__canvas {
+    height: clamp(280px, 62vw, 400px);
+  }
+
+  .mfm-story__readout {
+    min-width: 0;
+  }
+
+  .mfm-explore {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 2rem;
+  }
+
+  .mfm-explore a:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .mfm-hero {
+    min-height: auto;
+  }
+
+  .mfm-hero__captions {
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+  }
+
+  .mfm-why li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.8rem;
+  }
+
+  .mfm-explore {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mfm-explore a,
+  .mfm-explore a + a {
+    padding: 0 0 1.5rem;
+    border-left: 0;
+    border-bottom: 1px solid var(--mfm-line);
+  }
+}

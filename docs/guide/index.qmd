@@ -1,0 +1,87 @@
+---
+title: "Get started"
+description: "Install PyMC MFM and produce posterior component draws for one time series."
+---
+
+## What PyMC MFM does
+
+PyMC MFM trains and runs amortized neural networks for marketing-mix decomposition. A network is trained once on many simulated worlds, then reads a regularly spaced time series of media spend, controls, and observed outcome. It returns posterior draws of baseline, channel, control, and unobserved-factor contributions, together with a causal graph for each draw. [add_context](../reference/model.MFM.qmd) loads observed history for a model; it never trains or refits its weights.
+
+## Install
+
+PyMC MFM requires Python 3.13 or newer. Install local inference from Git:
+
+```bash
+pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+```
+
+A base install is the light River API client: it has NumPy, pandas, httpx, and packaging, but no PyTorch. [pymc_mfm.client](../reference/client.Client.qmd) is the only part that runs with that install.
+
+| Extra | Adds |
+| --- | --- |
+| `local` | PyTorch and safetensors for local model loading and inference |
+| `draws` | `xarray`, `h5netcdf`, and `h5py` for API per-draw files |
+| `plot` | matplotlib for client plots |
+| `client` | `draws` and `plot` |
+| `hub` | `local` and Hugging Face Hub loading and publishing |
+| `training` | `local`, MLflow tracking, and training diagnostics |
+| `diagnostics` | `local`, result diagnostics, plots, and HTML reports |
+| `arviz` | `local` and ArviZ `DataTree` export |
+| `generation` | `local`, `pymc-generator`, and `.npz` corpus support |
+| `examples` | `local` and `pymc-marketing` for the example notebook |
+
+Every extra that runs a model includes `local`. For example, `pymc-mfm[hub]` also installs PyTorch.
+
+## Decompose a time series
+
+Load a local model folder with [from_pretrained](../reference/inference.from_pretrained.qmd), then add history and predict the next periods. This example uses synthetic data only to demonstrate the dataframe API.
+
+```python
+import numpy as np
+import pandas as pd
+import torch
+
+from pymc_mfm import from_pretrained
+
+model = from_pretrained("models/my-model")
+
+rng = np.random.default_rng(0)
+n_weeks, n_context = 104, 80
+spend = rng.gamma(2.0, 50.0, size=(n_weeks, 2))
+data = pd.DataFrame(
+    {
+        "date": pd.date_range("2024-01-01", periods=n_weeks, freq="W-MON"),
+        "search": spend[:, 0],
+        "social": spend[:, 1],
+        "seasonality": np.sin(2 * np.pi * np.arange(n_weeks) / 52),
+        "sales": 1_000 + spend @ [2.0, 1.0] + rng.normal(0, 20, n_weeks),
+    }
+)
+
+model.add_context(
+    data.iloc[:n_context],
+    date_column="date",
+    target_column="sales",
+    channel_columns=["search", "social"],
+    control_columns=["seasonality"],
+)
+future = data.iloc[n_context:].drop(columns="sales")
+torch.manual_seed(0)
+query = model.inference(future, n_samples=500)
+
+query.components.shape  # (500, 24, D): [draw, week, component]
+query.component_names
+# ('baseline', 'channel:search', 'channel:social', ..., 'indirect:dc')
+```
+
+`query` is a [DecompositionResult](../reference/inference.DecompositionResult.qmd). Its `components` array has one decomposition per posterior draw and week; `component_names` labels its final axis. The synthetic data exercises the API and is not an attribution-calibration example.
+
+## Where next
+
+- Read [How it works](concepts.qmd) for the encoder, graph router, decoder, and draw semantics.
+- Read [Decompose a time series](decompose.qmd) for dataframe rules, array inputs, exports, and repeated sampling.
+- Read [Load and share models](models-hub.qmd) to use local folders and Hub profiles.
+- Use the [River API](river-api.qmd) when local PyTorch inference is not the interface you need.
+- Read [Train a network](training.qmd) to prepare a simulated corpus and train a model.
+- Run the [River-1 quickstart](examples/river_1_quickstart.ipynb) for a complete simulated-data workflow.
+- Browse the [API reference](../reference/index.qmd) for signatures and parameter details.
