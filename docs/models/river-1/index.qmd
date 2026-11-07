@@ -37,8 +37,10 @@ notes. Keep every number traceable to one of them.
 ```{=html}
 <section class="mfm-river__hero" aria-labelledby="mfm-river-title">
   <canvas class="mfm-river__canvas" data-mfm="river" aria-hidden="true"></canvas>
+  <div class="mfm-river__numbers" aria-hidden="true"></div>
   <div class="mfm-grain" aria-hidden="true"></div>
   <h1 id="mfm-river-title" class="mfm-river__title">River 1.0</h1>
+  <canvas class="mfm-river__veil" data-mfm="veil" aria-hidden="true"></canvas>
   <a class="mfm-hero__scroll" href="#introducing">Scroll to read<span aria-hidden="true"></span></a>
 </section>
 ```

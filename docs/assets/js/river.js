@@ -1,9 +1,13 @@
 /* River 1.0 page.
-   1. Hero: we drift down a wide river into fog. The camera sits low and moves with the
-      current; the water carries layered waves and ripples, mirrors the banks and a hidden
-      sun, and now and then passes a rock with foam and a wake. Low banks and dark trees
-      fade into drifting mist. Rendered near device resolution, scaled down when frames
-      run slow, paused off screen; reduced motion draws one still frame.
+   1. Hero, three layers over each other:
+      - the scene: a night river under a hazy moon. The camera drifts slowly and low over
+        the water, looking down the current into thick fog. The water carries layered
+        waves and ripples, mirrors the fog and a silver path of moonlight, and now and
+        then passes a rock with foam and a wake. Rendered near device resolution, scaled
+        down when frames run slow;
+      - faint numbers that glitch in and out among the fog;
+      - a veil of fog that drifts in front of everything, the title included.
+      Everything pauses off screen; reduced motion draws one still frame and no numbers.
    2. Navbar: transparent over the hero, filling in as the page scrolls.
    3. Article: sections and charts reveal on scroll; the table of contents follows. */
 (() => {
@@ -25,23 +29,9 @@
     }, options).observe(element);
   }
 
-  // 1. The river ------------------------------------------------------------------------
-  const FRAGMENT = `
-    precision highp float;
-    uniform vec2 uRes;
-    uniform float uTime;
-    uniform vec2 uMouse;
-    uniform float uFade;
-    uniform float uScroll;
-
-    const float W = 2.8;      // half-width of the river
-    const float FLOW = 1.7;   // speed of the water, world units per second
-    const float FOG_DENSITY = 0.05;
-    const vec3 SUN = vec3(-0.12, 0.06, 0.991);
-    const vec3 SUN_COLOR = vec3(1.0, 0.76, 0.52);
-    const vec3 FOG = vec3(0.3, 0.35, 0.43);
-
-    // Value noise on a lattice wrapped at 289 cells, so float precision holds downstream.
+  // Shared GLSL: value noise on a lattice wrapped at 289 cells, so float precision holds
+  // far downstream, and its fractal sums.
+  const NOISE = `
     float hash(vec2 p) {
       p = mod(p, 289.0);
       p = fract(p * vec2(123.34, 456.21));
@@ -55,6 +45,42 @@
       return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
                  mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
     }
+    const mat2 ROT = mat2(0.8, -0.6, 0.6, 0.8);
+    float fbm3(vec2 p) {
+      float v = 0.0; float a = 0.5;
+      for (int i = 0; i < 3; i++) { v += a * noise(p); p = ROT * p * 2.03; a *= 0.5; }
+      return v;
+    }
+    float fbm5(vec2 p) {
+      float v = 0.0; float a = 0.5;
+      for (int i = 0; i < 5; i++) { v += a * noise(p); p = ROT * p * 2.03; a *= 0.5; }
+      return v;
+    }
+    float fbm6(vec2 p) {
+      float v = 0.0; float a = 0.5;
+      for (int i = 0; i < 6; i++) { v += a * noise(p); p = ROT * p * 2.03; a *= 0.5; }
+      return v;
+    }`;
+
+  // 1a. The scene ------------------------------------------------------------------------
+  const SCENE = `
+    precision highp float;
+    uniform vec2 uRes;
+    uniform float uTime;
+    uniform vec2 uMouse;
+    uniform float uFade;
+    uniform float uScroll;
+
+    const float W = 4.0;              // half-width of the river
+    const float FLOW = 0.6;           // speed of the water, world units per second
+    const float FOG_DENSITY = 0.1;
+    const float FAR = 45.0;
+    // Set in main: up and to the left, closer to the centre on narrow screens.
+    vec3 MOON;
+    const vec3 MOON_COLOR = vec3(0.78, 0.86, 1.0);
+    const vec3 FOG = vec3(0.075, 0.1, 0.15);
+    ${NOISE}
+
     // Noise value and its gradient.
     vec3 noised(vec2 x) {
       vec2 i = floor(x);
@@ -70,30 +96,22 @@
       float k4 = a - b - c + d;
       return vec3(a + k1 * u.x + k2 * u.y + k4 * u.x * u.y, du * vec2(k1 + k4 * u.y, k2 + k4 * u.x));
     }
-    const mat2 ROT = mat2(0.8, -0.6, 0.6, 0.8);
-    float fbm3(vec2 p) {
-      float v = 0.0; float a = 0.5;
-      for (int i = 0; i < 3; i++) { v += a * noise(p); p = ROT * p * 2.03; a *= 0.5; }
-      return v;
-    }
-    float fbm6(vec2 p) {
-      float v = 0.0; float a = 0.5;
-      for (int i = 0; i < 6; i++) { v += a * noise(p); p = ROT * p * 2.03; a *= 0.5; }
-      return v;
-    }
 
     // The river's centre line, x as a function of z. The water flows towards +z.
     float riverX(float z) { return 3.2 * sin(z * 0.045) + 1.3 * sin(z * 0.11 + 1.7); }
 
     // Rocks: at most one per cell of a row of cells along the river, (x, z, radius);
     // radius 0 means the cell has none. Two rows of different lengths break the rhythm.
+    // A lane down the middle stays clear for the camera.
     vec3 rockIn(float c, float size, float seed) {
       float a = hash(vec2(c, seed));
       if (a < 0.6) return vec3(0.0);
       float b = hash(vec2(seed, c));
       float e = hash(vec2(c + 0.5 * seed, 7.0));
+      float u = (a - 0.6) / 0.4;
+      float side = u < 0.5 ? -1.0 : 1.0;
       float z = (c + 0.25 + 0.5 * b) * size;
-      float x = riverX(z) + ((a - 0.6) / 0.4 * 2.0 - 1.0) * (W - 0.8);
+      float x = riverX(z) + side * (0.9 + (W - 1.7) * fract(u * 2.0));
       return vec3(x, z, 0.1 + 0.32 * e * e);
     }
     // A boulder: a wobbly outline, a flat-topped profile and a broken surface.
@@ -134,10 +152,11 @@
       return banks(d, fbm6(p * 0.08)) + forest(p, d) * (0.35 + 0.4 * noise(p * 1.3) + 0.1 * noise(p * 5.0));
     }
 
+    // Night fog, brighter around the moon.
     vec3 fogColor(vec3 rd) {
-      float s = max(dot(rd, SUN), 0.0);
-      vec3 col = mix(FOG, vec3(0.05, 0.08, 0.14), smoothstep(0.03, 0.45, rd.y));
-      return col + SUN_COLOR * (pow(s, 8.0) * 0.45 + pow(s, 60.0) * 0.4);
+      float m = max(dot(rd, MOON), 0.0);
+      vec3 col = mix(FOG, vec3(0.012, 0.02, 0.04), smoothstep(0.02, 0.5, rd.y));
+      return col + MOON_COLOR * (pow(m, 6.0) * 0.12 + pow(m, 50.0) * 0.22 + pow(m, 400.0) * 0.35);
     }
 
     vec3 landColor(vec3 p, vec3 rd, float t) {
@@ -147,7 +166,7 @@
         2.0 * e,
         landHi(p.xz - vec2(0.0, e)) - landHi(p.xz + vec2(0.0, e))));
       float d = abs(p.x - riverX(p.z));
-      float dif = clamp(dot(n, SUN), 0.0, 1.0);
+      float dif = clamp(dot(n, MOON), 0.0, 1.0);
       float amb = 0.5 + 0.5 * n.y;
       if (d < W - 0.3) {
         // Stone: wet and dark at the waterline, dry and lichen-grey above it.
@@ -155,14 +174,13 @@
         vec3 stone = mix(vec3(0.03, 0.032, 0.035),
                          mix(vec3(0.2, 0.19, 0.17), vec3(0.22, 0.24, 0.18), noise(p.xz * 7.0)), dry);
         stone *= 0.7 + 0.5 * noise(p.xz * 23.0);
-        float spec = pow(max(dot(n, normalize(SUN - rd)), 0.0), 90.0) * (1.0 - dry);
-        return stone * (dif * SUN_COLOR * 1.6 + amb * vec3(0.42, 0.47, 0.56)) + spec * SUN_COLOR * 0.5;
+        float spec = pow(max(dot(n, normalize(MOON - rd)), 0.0), 90.0) * (1.0 - dry);
+        return stone * (dif * MOON_COLOR * 0.9 + amb * vec3(0.08, 0.1, 0.16)) + spec * MOON_COLOR * 0.5;
       }
       vec3 grass = mix(vec3(0.07, 0.11, 0.06), vec3(0.12, 0.14, 0.08), noise(p.xz * 0.6));
       vec3 base = mix(grass, vec3(0.02, 0.05, 0.035), forest(p.xz, d));
       base = mix(vec3(0.08, 0.075, 0.065), base, smoothstep(W, W + 0.6, d));
-      float rim = pow(clamp(1.0 + dot(rd, n), 0.0, 1.0), 4.0);
-      return base * (dif * SUN_COLOR * 1.8 + amb * vec3(0.3, 0.36, 0.48)) + rim * SUN_COLOR * 0.08;
+      return base * (dif * MOON_COLOR * 0.6 + amb * vec3(0.05, 0.07, 0.12));
     }
 
     // Slope of fourteen travelling waves, mostly along the flow, from 2.4 units down to
@@ -206,7 +224,7 @@
       vec2 dq = p - rk.xy;
       float r = length(dq * vec2(1.0, 0.72)) / rk.z;
       float collar = smoothstep(2.2, 1.0, r);
-      g += normalize(dq + 1e-4) * collar * 0.12 * sin(r * 11.0 - uTime * 6.0);
+      g += normalize(dq + 1e-4) * collar * 0.12 * sin(r * 11.0 - uTime * 2.2);
       foam += smoothstep(1.7, 1.0, r) * 0.7;
       float along = dq.y;
       if (along > 0.0) {
@@ -239,50 +257,47 @@
       vec3 reflected = fogColor(r);
       float glint = 1.0;
       float rt = 0.2;
-      for (int i = 0; i < 28; i++) {
+      for (int i = 0; i < 24; i++) {
         vec3 rp = p + r * rt;
         float h = rp.y - landLo(rp.xz);
         if (h < 0.006 * rt) {
-          float d = abs(rp.x - riverX(rp.z));
-          vec3 land = d < W - 0.3 ? vec3(0.03, 0.032, 0.035)
-                                  : mix(vec3(0.05, 0.07, 0.05), vec3(0.012, 0.03, 0.022), forest(rp.xz, d));
-          reflected = mix(land, fogColor(r), 1.0 - exp(-FOG_DENSITY * (rt + t)));
+          reflected = mix(vec3(0.01, 0.012, 0.018), fogColor(r), 1.0 - exp(-FOG_DENSITY * (rt + t)));
           glint = 0.0;
           break;
         }
         rt += max(0.04, h * 0.5);
-        if (rt > 35.0) break;
+        if (rt > 30.0) break;
       }
 
       float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, -rd), 0.0), 5.0);
-      vec3 body = vec3(0.01, 0.035, 0.04) + vec3(0.0, 0.03, 0.028) * clamp(g.y * 3.0 + 0.5, 0.0, 1.0);
+      vec3 body = vec3(0.004, 0.012, 0.02) + vec3(0.0, 0.008, 0.012) * clamp(g.y * 3.0 + 0.5, 0.0, 1.0);
       vec3 col = mix(body, reflected, fresnel);
-      // A path of light: glints on facets that face the hidden sun.
-      float sp = max(dot(r, SUN), 0.0);
-      col += SUN_COLOR * (pow(sp, 900.0) * 6.0 + pow(sp, 90.0) * 0.45) * glint;
+      // A silver path: glints on facets that face the moon.
+      float sp = max(dot(r, MOON), 0.0);
+      col += MOON_COLOR * (pow(sp, 700.0) * 5.0 + pow(sp, 60.0) * 0.25) * glint;
       // Foam at the banks and around rocks, in lace carried by the current.
       foam += smoothstep(0.1, 0.0, -landLo(p.xz)) * 0.8;
       float lace = smoothstep(0.35, 0.8, noise(vec2(p.x * 9.0, (p.z - uTime * FLOW) * 4.0)));
-      return mix(col, vec3(0.6, 0.64, 0.68) * (0.55 + 0.45 * n.y), clamp(foam * lace, 0.0, 1.0) * 0.75);
+      return mix(col, vec3(0.32, 0.37, 0.45) * (0.55 + 0.45 * n.y), clamp(foam * lace, 0.0, 1.0) * 0.7);
     }
 
     void main() {
       vec2 uv = gl_FragCoord.xy / uRes;
+      MOON = normalize(vec3(-0.24 * clamp(uRes.x / uRes.y / 1.6, 0.3, 1.0), 0.155, 0.958));
       vec2 s = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
-      // Drift with the current: a little slower than the water, rocking gently.
-      float z = uTime * 1.1 + uScroll * 4.0;
-      float bob = 0.035 * sin(uTime * 0.9) + 0.02 * sin(uTime * 1.7 + 1.0);
-      vec3 ro = vec3(riverX(z) + 0.25 * sin(uTime * 0.13), 0.62 + bob + uScroll * 0.6, z);
-      vec3 ta = vec3(riverX(z + 8.0) + (uMouse.x - 0.5) * 2.0, 0.32 + (uMouse.y - 0.5) * 0.5 + uScroll * 0.3, z + 8.0);
+      // Drift slowly and low with the current, looking down the water.
+      float z = uTime * 0.4 + uScroll * 3.0;
+      float bob = 0.02 * sin(uTime * 0.5) + 0.012 * sin(uTime * 0.93 + 1.0);
+      vec3 ro = vec3(riverX(z) + 0.2 * sin(uTime * 0.07), 0.32 + bob + uScroll * 0.4, z);
+      vec3 ta = vec3(riverX(z + 6.0) + (uMouse.x - 0.5) * 1.6, -0.05 + (uMouse.y - 0.5) * 0.4 + uScroll * 0.3, z + 6.0);
       vec3 ww = normalize(ta - ro);
-      float roll = 0.012 * sin(uTime * 0.6);
+      float roll = 0.008 * sin(uTime * 0.4);
       vec3 uu = normalize(cross(vec3(sin(roll), cos(roll), 0.0), ww));
       vec3 vv = cross(ww, uu);
       vec3 rd = normalize(s.x * uu + s.y * vv + 1.55 * ww);
 
       // March the land down to the water plane; refine a hit by bisection. Steps stay
       // short near the water so that small rocks are not skipped.
-      const float FAR = 60.0;
       float tw = rd.y < 0.0 ? -ro.y / rd.y : 1e9;
       float tmax = min(tw, FAR);
       float t = 0.05;
@@ -322,31 +337,63 @@
         dist = 2.0 * FAR;
       }
 
-      // Fog: distance haze, mist that clings to the water, and drifting banks of fog.
+      // Fog: distance haze; the moon, a pale disc behind it; mist that clings to the
+      // water; and banks of fog that drift across the view.
       col = mix(col, fogColor(rd), 1.0 - exp(-FOG_DENSITY * dist));
+      if (dist > FAR) {
+        float disc = smoothstep(0.99955, 0.99968, dot(rd, MOON));
+        col += MOON_COLOR * disc * (0.8 + 0.2 * noise(rd.xy * 900.0)) * 0.5;
+      }
       float py = (ro + rd * min(dist, FAR)).y;
-      col = mix(col, fogColor(rd), exp(-max(py, 0.0) * 3.0) * (1.0 - exp(-dist * 0.06)) * 0.45);
-      for (int k = 0; k < 4; k++) {
+      col = mix(col, fogColor(rd) * 1.15, exp(-max(py, 0.0) * 2.2) * (1.0 - exp(-dist * 0.09)) * 0.6);
+      for (int k = 0; k < 5; k++) {
         float fk = float(k);
-        float tk = 1.5 + fk * 1.2 + fk * fk * 2.2;
+        float tk = 1.0 + fk * 1.4 + fk * fk * 1.6;
         if (tk > dist) break;
         vec3 fp = ro + rd * tk;
-        float dens = smoothstep(0.42, 0.9, fbm3(fp.xz * 0.22 + vec2(uTime * 0.04, -uTime * 0.09) + fk * 3.1));
-        col = mix(col, fogColor(rd) * 1.05, dens * exp(-max(fp.y, 0.0)) * 0.3);
+        float dens = smoothstep(0.38, 0.85, fbm3(fp.xz * 0.2 + vec2(uTime * 0.025, -uTime * 0.04) + fk * 3.1));
+        col = mix(col, fogColor(rd) * 1.2, dens * exp(-max(fp.y, 0.0) * 0.6) * 0.5);
       }
 
-      col = 1.0 - exp(-col * 1.5);
-      col *= 0.45 + 0.55 * pow(16.0 * uv.x * uv.y * (1.0 - uv.x) * (1.0 - uv.y), 0.25);
-      col *= mix(1.0, 0.72, smoothstep(0.72, 1.0, uv.y));
+      col = 1.0 - exp(-col * 1.6);
+      col *= 0.4 + 0.6 * pow(16.0 * uv.x * uv.y * (1.0 - uv.x) * (1.0 - uv.y), 0.3);
+      col *= mix(1.0, 0.75, smoothstep(0.75, 1.0, uv.y));
       col *= 1.0 - 0.55 * uScroll;
       col = mix(vec3(0.02, 0.05, 0.11), col, uFade);
       col += (hash(gl_FragCoord.xy + fract(uTime) * 97.0) - 0.5) * (2.0 / 255.0);
       gl_FragColor = vec4(col, 1.0);
     }`;
 
-  function river(canvas, hero) {
-    const gl = canvas.getContext("webgl", { alpha: false, antialias: false, powerPreference: "high-performance" });
-    if (!gl) return;
+  // 1b. The veil: moonlit fog that drifts in front of the title -------------------------
+  const VEIL = `
+    precision highp float;
+    uniform vec2 uRes;
+    uniform float uTime;
+    uniform float uFade;
+    uniform float uScroll;
+    ${NOISE}
+
+    void main() {
+      vec2 uv = gl_FragCoord.xy / uRes;
+      vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
+      float t = uTime * 0.035;
+      // Billows: fractal noise, warped by itself, sliding slowly sideways, over a thin
+      // haze that never clears.
+      vec2 q = p * vec2(1.5, 3.2) + vec2(t * 1.6, t * 0.3);
+      vec2 w = vec2(fbm5(q + vec2(0.0, t)), fbm5(q + vec2(5.2, 1.3) - t * 0.5));
+      float f = fbm5(q + 1.6 * w + vec2(-t * 0.6, 0.0));
+      float billows = smoothstep(0.32, 0.72, f);
+      float haze = 0.12 + 0.12 * f;
+      // Thickest in a band across the middle, where the title sits.
+      float band = 0.55 + 0.45 * smoothstep(0.5, 0.0, abs(uv.y - 0.5));
+      float a = min(0.75, (haze + billows * 0.6) * band) * uFade * (1.0 - 0.85 * uScroll);
+      vec3 col = vec3(0.6, 0.66, 0.76) * (0.7 + 0.4 * f);
+      gl_FragColor = vec4(col * a, a);
+    }`;
+
+  function layer(canvas, fragment, names, contextOptions) {
+    const gl = canvas.getContext("webgl", contextOptions);
+    if (!gl) return null;
     const compile = (type, source) => {
       const shader = gl.createShader(type);
       gl.shaderSource(shader, source);
@@ -354,56 +401,93 @@
       return gl.getShaderParameter(shader, gl.COMPILE_STATUS) ? shader : null;
     };
     const vs = compile(gl.VERTEX_SHADER, "attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }");
-    const fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
-    if (!vs || !fs) return;
+    const fs = compile(gl.FRAGMENT_SHADER, fragment);
+    if (!vs || !fs) return null;
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return;
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
     gl.useProgram(program);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     const loc = gl.getAttribLocation(program, "p");
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const u = (name) => gl.getUniformLocation(program, name);
-    const uRes = u("uRes");
-    const uTime = u("uTime");
-    const uMouse = u("uMouse");
-    const uFade = u("uFade");
-    const uScroll = u("uScroll");
+    const uniforms = {};
+    for (const name of names) uniforms[name] = gl.getUniformLocation(program, name);
+    const state = {
+      gl,
+      uniforms,
+      scale: 1,
+      resize() {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.max(1, Math.round(rect.width * state.scale));
+        canvas.height = Math.max(1, Math.round(rect.height * state.scale));
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.uniform2f(uniforms.uRes, canvas.width, canvas.height);
+      },
+      draw() {
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      },
+    };
+    canvas.classList.add("is-ready");
+    return state;
+  }
 
-    // Start near device resolution for the water's detail; scale down if frames run slow.
+  function river(hero) {
+    const sceneCanvas = hero.querySelector('[data-mfm="river"]');
+    const veilCanvas = hero.querySelector('[data-mfm="veil"]');
+    if (!sceneCanvas) return;
+    const scene = layer(sceneCanvas, SCENE, ["uRes", "uTime", "uMouse", "uFade", "uScroll"], {
+      alpha: false,
+      antialias: false,
+      powerPreference: "high-performance",
+    });
+    if (!scene) return;
+    const veil = veilCanvas
+      ? layer(veilCanvas, VEIL, ["uRes", "uTime", "uFade", "uScroll"], { alpha: true, premultipliedAlpha: true, antialias: false })
+      : null;
+
+    // The scene starts near device resolution for the water's detail and scales down if
+    // frames run slow; the veil is soft and needs few pixels.
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    let scale = dpr * (window.innerWidth < 700 ? 0.55 : 0.7);
+    scene.scale = dpr * (window.innerWidth < 700 ? 0.55 : 0.7);
     const minScale = 0.35;
+    if (veil) veil.scale = 0.4;
     const resize = () => {
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = Math.max(1, Math.round(rect.width * scale));
-      canvas.height = Math.max(1, Math.round(rect.height * scale));
-      gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.uniform2f(uRes, canvas.width, canvas.height);
+      scene.resize();
+      if (veil) veil.resize();
     };
     const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5 };
     let start = performance.now();
     const draw = (ms, still = false) => {
-      mouse.x += (mouse.tx - mouse.x) * 0.025;
-      mouse.y += (mouse.ty - mouse.y) * 0.025;
-      // The journey restarts every 15 minutes, which keeps world coordinates small.
-      gl.uniform1f(uTime, 20 + ((ms / 1000) % 900));
-      gl.uniform2f(uMouse, mouse.x, mouse.y);
-      gl.uniform1f(uFade, still ? 1 : clamp01((ms - start) / 2600));
-      gl.uniform1f(uScroll, clamp01(window.scrollY / Math.max(1, hero.offsetHeight)));
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      mouse.x += (mouse.tx - mouse.x) * 0.02;
+      mouse.y += (mouse.ty - mouse.y) * 0.02;
+      // The journey restarts every 30 minutes, which keeps world coordinates small.
+      const time = 20 + ((ms / 1000) % 1800);
+      const fade = still ? 1 : clamp01((ms - start) / 3000);
+      const scroll = clamp01(window.scrollY / Math.max(1, hero.offsetHeight));
+      const s = scene.uniforms;
+      scene.gl.uniform1f(s.uTime, time);
+      scene.gl.uniform2f(s.uMouse, mouse.x, mouse.y);
+      scene.gl.uniform1f(s.uFade, fade);
+      scene.gl.uniform1f(s.uScroll, scroll);
+      scene.draw();
+      if (veil) {
+        const v = veil.uniforms;
+        veil.gl.uniform1f(v.uTime, time);
+        veil.gl.uniform1f(v.uFade, fade);
+        veil.gl.uniform1f(v.uScroll, scroll);
+        veil.draw();
+      }
     };
     resize();
-    canvas.classList.add("is-ready");
     if ("ResizeObserver" in window) {
       new ResizeObserver(() => {
         resize();
         draw(performance.now(), reduceMotion);
-      }).observe(canvas);
+      }).observe(sceneCanvas);
     }
     if (reduceMotion) {
       draw(0, true);
@@ -426,9 +510,9 @@
       if (last) {
         spent += ms - last;
         if (++frames === 40) {
-          if (spent / frames > 24 && scale > minScale) {
-            scale = Math.max(minScale, scale * 0.8);
-            resize();
+          if (spent / frames > 24 && scene.scale > minScale) {
+            scene.scale = Math.max(minScale, scene.scale * 0.8);
+            scene.resize();
           }
           frames = 0;
           spent = 0;
@@ -445,11 +529,78 @@
       spent = 0;
       if (onScreen && !document.hidden) raf = requestAnimationFrame(loop);
     };
-    whenVisible(canvas, (visible) => {
+    whenVisible(sceneCanvas, (visible) => {
       onScreen = visible;
       sync();
     });
     document.addEventListener("visibilitychange", sync);
+  }
+
+  // 1c. Numbers in the fog: now and then a figure from the paper, or a posterior draw,
+  // scrambles in, holds, and scrambles out. Faint, and never over the title.
+  const FIGURES = ["2,443,583", "200,000", "196,000", "62,500", "0.0295", "0.0241", "0.0263", "1.25 s", "11 / 15", "2,048", "208 wk", "16 steps", "3.40"];
+  const posteriorDraw = () => {
+    const value = (Math.random() * 0.9).toFixed(4);
+    return Math.random() < 0.3 ? `\u2212${value}` : value;
+  };
+  const scramble = (text, shown) =>
+    [...text].map((ch, i) => (/\d/.test(ch) && i >= shown * text.length ? String(Math.floor(Math.random() * 10)) : ch)).join("");
+
+  function numbers(hero) {
+    const field = hero.querySelector(".mfm-river__numbers");
+    if (!field || reduceMotion) return;
+    let onScreen = false;
+    whenVisible(hero, (visible) => {
+      onScreen = visible;
+    });
+    const spawn = () => {
+      window.setTimeout(spawn, 2200 + Math.random() * 3200);
+      if (!onScreen || document.hidden) return;
+      const text = Math.random() < 0.5 ? FIGURES[Math.floor(Math.random() * FIGURES.length)] : posteriorDraw();
+      let x;
+      let y;
+      do {
+        x = 6 + Math.random() * 84;
+        y = 14 + Math.random() * 66;
+      } while (Math.abs(x - 50) < 24 && Math.abs(y - 50) < 15);
+      const el = document.createElement("span");
+      el.className = "mfm-river__number";
+      el.style.left = `${x.toFixed(1)}%`;
+      el.style.top = `${y.toFixed(1)}%`;
+      el.textContent = scramble(text, 0);
+      field.appendChild(el);
+      const glitch = () => {
+        el.classList.remove("is-glitch");
+        void el.offsetWidth;
+        el.classList.add("is-glitch");
+      };
+      const IN = 600;
+      const HOLD = 1600 + Math.random() * 1200;
+      const OUT = 700;
+      const born = performance.now();
+      requestAnimationFrame(() => {
+        el.classList.add("is-on");
+        glitch();
+      });
+      if (Math.random() < 0.5) window.setTimeout(glitch, IN + HOLD * (0.3 + Math.random() * 0.4));
+      window.setTimeout(() => {
+        el.classList.remove("is-on");
+        glitch();
+      }, IN + HOLD);
+      const tick = () => {
+        const t = performance.now() - born;
+        if (t < IN) el.textContent = scramble(text, t / IN);
+        else if (t < IN + HOLD) el.textContent = text;
+        else if (t < IN + HOLD + OUT) el.textContent = scramble(text, 1 - (t - IN - HOLD) / OUT);
+        else {
+          el.remove();
+          return;
+        }
+        window.setTimeout(tick, 70);
+      };
+      tick();
+    };
+    window.setTimeout(spawn, 2500);
   }
 
   // 2. Scroll: the navbar fills in, the title recedes ----------------------------------
@@ -513,9 +664,11 @@
   }
 
   const hero = root.querySelector(".mfm-river__hero");
-  const canvas = root.querySelector('[data-mfm="river"]');
-  if (hero && canvas) river(canvas, hero);
-  if (hero) onScroll(hero);
+  if (hero) {
+    river(hero);
+    numbers(hero);
+    onScroll(hero);
+  }
   reveal();
   tableOfContents();
 })();
