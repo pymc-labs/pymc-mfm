@@ -256,12 +256,13 @@ or `--device cuda`):
   use PyTorch's operations, with the same draws.
 - Sampling on an Apple GPU needs PyTorch 2.9 or newer: older MPS releases miscompute
   sampling (2.8) or lack operations it uses, and raise a clear error.
-- On the CPU, sampling transports several batches at once (four, or eight on Apple
-  silicon, never more than PyTorch's thread count), so one batch's matrix products overlap
-  the others' elementwise work. On an 8-core Linux x86 machine the calls above took 4.4,
-  17.9, 50.5 and 71.0 s before and 2.0, 9.6, 26.4 and 34.9 s now (1.9–2.2x); draws agree up
-  to float32 round-off. Apple silicon already sampled this way, so its CPU draws are
-  unchanged.
+- On the CPU, sampling transports up to eight batches at once, never more than PyTorch's
+  thread count. Off Apple silicon each batch runs on its own share of the threads. On
+  Linux x86 capped at 8 CPUs the calls above ran 1.8–2.6x faster on AMD EPYC (Zen 2, 3
+  and 4) and at about the same speed (0.9–1.2x) on Intel Xeon (Ice Lake, Skylake or
+  Cascade Lake, Sapphire Rapids), whose multi-threaded matrix products already used the
+  cores well; draws agree up to float32 round-off. Apple silicon already ran eight
+  batches sharing every thread, so its CPU draws are unchanged.
 - A call at 205 query weeks used about 1 GiB on the Apple GPU (Metal driver allocation)
   and 0.3 GiB on NVIDIA GPUs (PyTorch allocation).
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 import platform
 import sys
+import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -41,10 +43,15 @@ _FLOW_SAMPLE_ROWS = 2**15
 #: the kernels keep no per-row activations.
 _FLOW_SAMPLE_ROWS_GPU = 2**19
 # Transporting several batches at once overlaps one batch's matrix products with the others'
-# elementwise work and Python overhead (on Apple silicon, Accelerate also runs the products on
-# a separate matrix unit). On x86 Linux CPUs with 4-16 cores, four batches sampled 1.5-2.9x
-# faster than one. In-flight memory scales with the count.
-_SAMPLE_BATCH_WORKERS = 8 if sys.platform == "darwin" and platform.machine() == "arm64" else 4
+# elementwise work and Python overhead. Off Apple silicon each batch worker runs on its own
+# share of PyTorch's threads: on Linux x86 capped at 8 CPUs, eight one-thread workers
+# sampled about 2x faster than one batch on every thread on AMD EPYC and about as fast on
+# Intel Xeon, while workers that each used every thread oversubscribed the cores and lost.
+# On Apple silicon, where Accelerate runs the products on a separate matrix unit, eight
+# workers share every thread; splitting gained nothing there. In-flight memory scales with
+# the count.
+_SAMPLE_BATCH_WORKERS = 8
+_SPLIT_SAMPLE_THREADS = not (sys.platform == "darwin" and platform.machine() == "arm64")
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
@@ -125,6 +132,23 @@ def _to_device(value: Tensor, device: torch.device) -> Tensor:
     return value.to(device)
 
 
+@lru_cache(maxsize=1)
+def _thread_counts_per_thread() -> bool:
+    """Whether ``torch.set_num_threads`` in one thread leaves other threads' count alone.
+
+    It does under PyTorch's OpenMP backend, whose thread count is per thread; CPU batch
+    workers split the threads only then. Under a shared count the probe's change is undone.
+    """
+    before = torch.get_num_threads()
+    probe = threading.Thread(target=torch.set_num_threads, args=(1,))
+    probe.start()
+    probe.join()
+    if torch.get_num_threads() == before:
+        return True
+    torch.set_num_threads(before)
+    return False
+
+
 def _map_batches[T](
     fn: Callable[[int, int], T], total: int, max_size: int, device: torch.device
 ) -> list[T]:
@@ -134,9 +158,11 @@ def _map_batches[T](
     their count is then a multiple of the workers, so no worker idles in a short last
     round. Batches share no state and draw no randomness, preserving sample identity.
     Different batch shapes may introduce floating-point round-off. Grad mode is
-    thread-local and carried into workers, which never outnumber ``torch.get_num_threads()``.
+    thread-local and carried into workers, which never outnumber ``torch.get_num_threads()``;
+    off Apple silicon they split those threads between them.
     """
-    workers = min(_SAMPLE_BATCH_WORKERS, torch.get_num_threads()) if device.type == "cpu" else 1
+    threads = torch.get_num_threads()
+    workers = min(_SAMPLE_BATCH_WORKERS, threads) if device.type == "cpu" else 1
     count = -(-total // max_size)
     if workers > 1:
         count = min(total, -(-count // workers) * workers)
@@ -144,12 +170,23 @@ def _map_batches[T](
     if workers < 2 or count < 2:
         return [fn(start, stop) for start, stop in bounds]
     grad_enabled = torch.is_grad_enabled()
+    pool_size = min(workers, count)
+    initializer = None
+    if _SPLIT_SAMPLE_THREADS and _thread_counts_per_thread():
+        share, extra = divmod(threads, pool_size)
+        slots = itertools.count()
+
+        def split_threads() -> None:
+            # Per pool thread, which ends with the pool; the caller's count is unchanged.
+            torch.set_num_threads(share + (next(slots) < extra))
+
+        initializer = split_threads
 
     def run(bound: tuple[int, int]) -> T:
         with torch.set_grad_enabled(grad_enabled):
             return fn(*bound)
 
-    with ThreadPoolExecutor(max_workers=min(workers, count)) as pool:
+    with ThreadPoolExecutor(max_workers=pool_size, initializer=initializer) as pool:
         return list(pool.map(run, bounds))
 
 

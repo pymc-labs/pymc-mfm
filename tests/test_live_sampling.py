@@ -127,6 +127,8 @@ def _draws(model, batch, monkeypatch, *, rows, workers, window):
 def test_transport_batches_and_their_schedule_never_change_a_draw(
     model64, batch64, monkeypatch, window
 ):
+    # Concurrent batches split the caller's threads between them on every platform here.
+    monkeypatch.setattr(flow, "_SPLIT_SAMPLE_THREADS", True)
     threads = torch.get_num_threads()
     torch.set_num_threads(max(threads, 4))
     try:
@@ -140,12 +142,15 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
         concurrent, concurrent_graphs = _draws(
             model64, batch64, monkeypatch, rows=1, workers=4, window=window
         )
+        # The workers' share of threads does not leak into the caller.
+        assert torch.get_num_threads() == max(threads, 4)
     finally:
         torch.set_num_threads(threads)
     assert torch.equal(serial_graphs, whole_graphs)
     torch.testing.assert_close(serial, whole, **ROUND_OFF)
     assert torch.equal(concurrent_graphs, serial_graphs)
-    assert torch.equal(concurrent, serial)
+    # Fewer threads per batch may reorder floating-point sums.
+    torch.testing.assert_close(concurrent, serial, **ROUND_OFF)
 
 
 @pytest.mark.parametrize("device", GPUS)
