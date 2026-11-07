@@ -218,6 +218,46 @@ either window:
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
+### Inspect sampled graphs
+
+With `[diagnostics]`, switch between the marginal-average graph and individual
+complete graphs without rerunning inference:
+
+```python
+result.plot.dag()  # Average: width and opacity encode marginal edge frequency
+result.plot.dag(graph=0)  # Most frequent complete graph: binary edge indicators
+result.plot.dag(graph=1).savefig("graph-rank-1.svg", bbox_inches="tight")
+
+inspector = result.plot.graph_inspector()
+inspector  # Interactive display in a trusted notebook
+inspector.save("graphs.html")  # Open this local file in a browser; no server required
+```
+
+Ranks are **zero-based**, ordered by descending draw count, then ascending binary
+graph vector for ties. The inspector includes every observed complete graph, a
+count/frequency distribution with 50-row pages, an Average option, and a download
+button for the currently displayed SVG. Empty-edge graphs retain their named
+active nodes; padded nodes are omitted. Configured channel/control column names
+appear with their role prefixes, and the target is labeled `outcome`.
+
+The same methods are available on `result.diagnostics(...).plot`; the standalone
+`pymc_mfm.plotting.plot_dag(summary, graph=...)` and
+`plot_graph_inspector(summary)` also render saved diagnostic summaries. The
+inspector shows prediction graphs only, even when diagnostics include graph
+truth; `dag()` retains its separate truth comparison.
+
+The Average may combine edges never sampled together and may contain cycles.
+Graph frequencies are not effect strengths, goodness-of-fit scores or evidence of
+causal identification. MAP/fixed results show only the selected/supplied hypothesis,
+not the pre-selection graph distribution. `graph_posterior()` remains the compact
+top-15 frequency chart; use the inspector to select graphs beyond that cutoff.
+
+The inspector is self-contained and uses no external assets or network service.
+Notebook output runs in an isolated frame; notebook trust/JavaScript permission is
+required for interaction. Exported HTML embeds graph topology, column labels,
+counts/frequencies and display metadata, but not observations or contribution
+draws. Review it as a result artifact before sharing.
+
 ### Faster repeated sampling (optional)
 
 A long-running process that samples many times, such as a service, can compile the

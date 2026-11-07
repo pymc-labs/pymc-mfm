@@ -6,6 +6,16 @@ approved or published release.
 
 ## Changes
 
+- **Individual sampled graphs and an offline inspector.** `result.plot.dag(graph=rank)`
+  draws an exact complete graph at its zero-based frequency rank; `dag()` keeps the
+  marginal-average view. `result.plot.graph_inspector()` displays every observed graph
+  in an isolated notebook frame or saves a standalone HTML selector with paginated
+  counts/frequencies and current-view SVG export. Both accessors also work on
+  diagnostics, and the standalone renderers accept saved summaries without inference.
+  Active named nodes remain visible for empty graphs; padding is omitted. Frequency
+  is not a fit score or causal-identification claim, and MAP/fixed views do not invent
+  the lost pre-selection distribution. Generated HTML contains graph topology and
+  column labels; review it before sharing.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer

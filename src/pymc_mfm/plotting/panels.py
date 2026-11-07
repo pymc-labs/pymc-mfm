@@ -19,10 +19,13 @@ import io
 import math
 import re
 import textwrap
+from numbers import Integral
 
 import numpy as np
 
 from pymc_mfm.inference._time import _restore_time, _time_to_json
+
+from ._graphs import graph_positions, ranked_graphs
 
 COLORS = {
     "baseline": "#666666",
@@ -872,35 +875,55 @@ def plot_structure_heatmap(summary):
     return fig
 
 
-def plot_dag(summary):
-    edges = summary["arrays"]["graphs"]["edges"]
-    if not edges or any(entry["endpoints"] is None for entry in edges):
-        raise ValueError("DAG view requires aligned edge endpoints")
+def plot_dag(summary, *, graph=None):
+    """Marginal edge frequencies, or one complete graph at its zero-based rank."""
+    data = summary["arrays"]["graphs"]
+    edges = data["edges"]
+    positions = graph_positions(edges)
+    selected = None
+    if graph is not None:
+        if isinstance(graph, bool) or not isinstance(graph, Integral):
+            raise ValueError("graph must be None or a zero-based integer rank")
+        records = ranked_graphs(summary)
+        if graph < 0 or graph >= len(records):
+            raise ValueError(
+                f"graph rank {graph} is out of range for {len(records)} complete graphs "
+                "(zero-based)"
+            )
+        selected = records[graph]
+        if len(selected["graph"]) != len(edges):
+            raise ValueError("Complete graph vector must align with the active edge records")
     from matplotlib.patches import FancyArrowPatch
 
-    nodes = sorted({node for entry in edges for node in entry["endpoints"]})
-    banks = {}
-    for node in nodes:
-        bank = node.split(":", 1)[0]
-        banks.setdefault(bank, []).append(node)
-    order = sorted(
-        banks,
-        key=lambda bank: (
-            {"latent": 0, "control": 1, "channel": 2, "outcome": 3, "sales": 4}.get(bank, 5),
-            bank,
-        ),
-    )
-    positions = {}
-    for column, bank in enumerate(order):
-        ys = np.linspace(0.1, 0.9, len(banks[bank])) if len(banks[bank]) > 1 else [0.5]
-        for node, y in zip(banks[bank], ys):
-            positions[node] = (column, y)
+    mode = summary["metadata"]["mode"]
+    title = "Directed graph views — native renderer; width / opacity = edge frequency"
+    prediction_title = {
+        "map": "Selected empirical modal hypothesis",
+        "fixed": "Supplied fixed hypothesis",
+    }.get(mode, "Marginal routing view (may contain cycles)")
+    if selected is not None:
+        prediction_title = f"Complete graph rank {graph} (binary edge indicators)"
+        title = (
+            "Directed graph views — native renderer; width / opacity = binary edge indicators\n"
+            f"Complete graph rank {graph} · count {selected['count']} / "
+            f"{summary['metadata']['n_samples']} draws · "
+            f"observed frequency {selected['frequency']:.3g}"
+        )
+    if mode in ("map", "fixed"):
+        title += f"\n{data['label']}"
     has_truth = all(entry["truth"] is not None for entry in edges)
+    right = max(x for x, _ in positions.values()) + 0.5
     fig, axes = _figure(1, 2 if has_truth else 1, width=15 if has_truth else 9, row_height=5.5)
     for column, ax in enumerate(axes[0]):
         true_panel = has_truth and column == 0
-        for entry in edges:
-            value = entry["truth"] if true_panel else entry["probability"]
+        for index, entry in enumerate(edges):
+            if true_panel:
+                value = entry["truth"]
+            elif selected is None:
+                value = entry["probability"]
+            else:
+                # Complete vectors use active-record order, not original slot indices.
+                value = selected["graph"][index]
             if not value:
                 continue
             source, target = entry["endpoints"]
@@ -915,32 +938,28 @@ def plot_dag(summary):
                 alpha=0.3 + 0.7 * value,
                 color="#0072B2",
                 connectionstyle="arc3,rad=0.12",
+                gid=f"edge-{entry['index']}",
             )
             ax.add_patch(arrow)
         for node, (x, y) in positions.items():
             ax.scatter(x, y, color="white", edgecolor="0.3", s=240, zorder=3)
             ax.text(x, y + 0.045, node, ha="center", va="bottom", fontsize=8)
-        ax.set_xlim(-0.5, len(order) - 0.5)
+        ax.set_xlim(-0.5, right)
         ax.set_ylim(-0.05, 1.05)
         ax.set_axis_off()
-        ax.set_title(
-            "True graph" if true_panel else "Marginal routing view (may contain cycles)",
-            fontsize=10,
-        )
-    _header(
-        fig, summary, "Directed graph views — native renderer; width / opacity = edge frequency"
-    )
+        ax.set_title("True graph" if true_panel else prediction_title, fontsize=10)
+    _header(fig, summary, title)
     return fig
 
 
 def plot_graph_posterior(summary, *, ax=None):
     graph = summary["arrays"]["graphs"]
-    records = sorted(graph["complete_graphs"], key=lambda item: (-item["count"], item["graph"]))
+    records = ranked_graphs(summary)
     selected = records[:15]
     probabilities = [entry["frequency"] for entry in selected]
     labels = ["".join(map(str, entry["graph"])) or "empty graph" for entry in selected]
     labels = [
-        label if len(label) <= 28 else f"Graph {index + 1} (full vector in evidence)"
+        label if len(label) <= 28 else f"Graph {index} (full vector in evidence)"
         for index, label in enumerate(labels)
     ]
     colors = ["#D55E00" if entry.get("is_truth", False) else "#0072B2" for entry in selected]

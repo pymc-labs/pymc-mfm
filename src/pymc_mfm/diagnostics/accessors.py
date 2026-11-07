@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
     from pymc_mfm.inference.result import DecompositionResult
+    from pymc_mfm.plotting.inspector import GraphInspector
 
 
 class Diagnostics:
@@ -120,8 +121,15 @@ class _SummaryPlots:
         """Edge frequencies grouped by edge family."""
         return self._draw("structure_heatmap")
 
-    def dag(self) -> Figure:
-        return self._draw("dag_recovery")
+    def dag(self, *, graph=None) -> Figure:
+        """Marginal edge frequencies, or a complete graph at its zero-based rank."""
+        return self._draw("dag_recovery", panels.plot_dag, graph=graph)
+
+    def graph_inspector(self) -> GraphInspector:
+        """Offline graph distribution selector for notebooks or HTML export."""
+        from pymc_mfm.plotting.inspector import plot_graph_inspector
+
+        return plot_graph_inspector(self._summary())
 
     def graph_posterior(self, *, ax=None) -> Figure:
         return self._draw("dag_posterior", panels.plot_graph_posterior, ax=ax)
