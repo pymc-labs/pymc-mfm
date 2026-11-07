@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Self
 import torch
 from torch import Tensor, nn
 
+from .compiled import CompiledVelocity, SamplingStatus
 from .config import LossWeights, ModelConfig
 from .encoder import SplitRepresentations
 from .flow import (
@@ -600,6 +601,35 @@ class MFM(nn.Module):
         if store:
             self._idata = tree
         return tree
+
+    def compile_sampling(self, mode: str = "default", *, dynamic: bool | None = True) -> MFM:
+        """Compile the flow velocity that sampling evaluates, for faster repeated calls.
+
+        Opt-in and per model; sampling stays eager until this is called. The first call
+        at each new input shape compiles (tens of seconds on a GPU), so warm the model up
+        with representative inputs before timing or serving. Compiled draws follow the same
+        distribution as eager draws but are not bit-identical to them. With a fixed seed,
+        serialized calls on one device repeat their draws, whether or not a call compiles.
+        ``mode`` is a :func:`torch.compile` mode: ``"default"``, ``"reduce-overhead"`` or
+        ``"max-autotune-no-cudagraphs"``. A compiler failure warns and returns this model to
+        eager sampling; :attr:`sampling_status` reports it. Returns the model.
+        """
+        compiled = CompiledVelocity(mode, dynamic=dynamic)
+        self.head._compiled_velocity = compiled
+        self.conditional_head._compiled_velocity = compiled
+        return self
+
+    def disable_compiled_sampling(self) -> MFM:
+        """Return sampling to eager execution; returns the model."""
+        self.head._compiled_velocity = None
+        self.conditional_head._compiled_velocity = None
+        return self
+
+    @property
+    def sampling_status(self) -> SamplingStatus:
+        """Whether sampling is compiled, with its compile count and any eager fallback."""
+        compiled = self.head._compiled_velocity
+        return SamplingStatus(compiled=False) if compiled is None else compiled.status()
 
     @torch.no_grad()
     def predict_batch(

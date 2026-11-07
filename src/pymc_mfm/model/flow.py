@@ -15,6 +15,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from .compiled import CompiledVelocity
 from .components import ConditionalHead
 from .config import ModelConfig
 from .graph import N_NODE_TYPES, STRUCT_EDGE_KEYS, EdgeSlotLayout
@@ -138,6 +139,10 @@ class JointFlowHead(nn.Module, ConditionalHead):
 
     n_controls: int
     n_demand: int
+
+    #: Compiled sampling velocity set by ``MFM.compile_sampling``; ``None`` samples eagerly.
+    #: It is neither a submodule nor a buffer, so weights and checkpoints never see it.
+    _compiled_velocity: CompiledVelocity | None = None
 
     def __init__(self, config: ModelConfig, *, graph_router: bool):
         super().__init__()
@@ -988,6 +993,7 @@ class _LiveVelocity:
         weight: Tensor,
     ):
         entity_repr = head._entity_repr(channel_repr, control_repr)
+        self.compiled = head._compiled_velocity
         device = weekly_repr.device
         n_channels, n_entities = channel_repr.shape[-2], entity_repr.shape[-2]
         n_fixed = head.n_fixed
@@ -1033,7 +1039,6 @@ class _LiveVelocity:
         )
         n_live = self.index.numel()
         n_live_entities = live_entities.numel()
-        self.entity_slice = slice(1, 1 + n_live_entities)
         # Bank positions: a shared zero column after the live state, then the moments.
         zero, mean, std = n_live, n_live + 1, n_live + 2
         position = torch.full((d,), zero, dtype=torch.long, device=device)
@@ -1265,6 +1270,10 @@ class _LiveVelocity:
 
     def velocity(self, x: Tensor, t_val: float, trajectory_offset: Tensor) -> Tensor:
         """Velocity of the live state ``x[..., index]`` at flow time ``t_val``."""
+        return self._velocity(x, _fourier_time(x.new_full((), t_val)), trajectory_offset)
+
+    def _velocity(self, x: Tensor, time: Tensor, trajectory_offset: Tensor) -> Tensor:
+        """:meth:`velocity` at Fourier flow time ``time``, a tensor, as compilation needs."""
         hidden = F.silu(
             torch.addcmul(trajectory_offset, x.unsqueeze(-1), self.token_state_weight),
             inplace=True,
@@ -1276,23 +1285,35 @@ class _LiveVelocity:
         zero_context = context.new_zeros(*context.shape[:-2], 1, _TRAJECTORY_EMBED_DIM)
         contexts = torch.cat([context, zero_context], dim=-2)
 
-        entity = x[..., self.entity_slice]
+        # Live entities follow the baseline. Their count comes from a shape, not a Python
+        # constant, so compiled sampling does not recompile for each channel count.
+        entity = x[..., 1 : 1 + self.entity_active.shape[-1]]
         mean = (entity * self.entity_active).sum(dim=-1, keepdim=True) / self.entity_count
         std = (
             torch.linalg.vector_norm((entity - mean) * self.entity_active, dim=-1, keepdim=True)
             / self.entity_count_sqrt
         )
         scalars = torch.cat([x, x.new_zeros(*x.shape[:-1], 1), mean, std], dim=-1)
-        time = _fourier_time(x.new_full((), t_val))
         return torch.cat([network(scalars, contexts, time) for network in self.networks], dim=-1)
 
     def integrate(self, x: Tensor, trajectory_latent: Tensor, grid) -> Tensor:
         """Euler-integrate masked ``x``; coordinates masked in every task stay zero."""
         weight = self.weight
         offset = self.trajectory_offset(trajectory_latent)
+        compiled = self.compiled
+        # Flow times as tensors: a Python float would recompile at every Euler step.
+        times = (
+            {} if compiled is None else {t: _fourier_time(x.new_full((), t)) for t, _, _ in grid}
+        )
+
+        def drift(state: Tensor, t_val: float) -> Tensor:
+            if compiled is None:
+                return self.velocity(state, t_val, offset)
+            return compiled(self, state, times[t_val], offset)
+
         live = integrate_flow(
             x.index_select(-1, self.index),
-            lambda state, t_val: self.velocity(state, t_val, offset),
+            drift,
             grid,
             project=lambda state, _t_next: state * weight,
         )

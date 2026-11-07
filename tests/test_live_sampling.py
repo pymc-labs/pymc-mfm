@@ -61,8 +61,14 @@ def _assert_live_velocity_matches(head, weekly, channels, controls, mask, *, n_s
             latent,
             mask,
         )
+        state = x.index_select(-1, live.index)
         torch.testing.assert_close(
-            live.velocity(x.index_select(-1, live.index), t, offset),
+            live.velocity(state, t, offset), full.index_select(-1, live.index), **ROUND_OFF
+        )
+        # The form traced by compiled sampling computes the same velocity.
+        time = flow._fourier_time(torch.tensor(t, dtype=torch.float64))
+        torch.testing.assert_close(
+            live._velocity(state, time, offset),
             full.index_select(-1, live.index),
             **ROUND_OFF,
         )

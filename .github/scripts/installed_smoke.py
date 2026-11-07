@@ -92,7 +92,7 @@ def main() -> None:
     python_paths = {}
     for name, extras, artifact in (
         ("full", ("generation", "training", "hub"), sdists[0]),
-        ("base", (), wheels[0]),
+        ("base", ("local",), wheels[0]),
         ("diagnostics", ("diagnostics",), wheels[0]),
         ("arviz", ("arviz",), wheels[0]),
     ):
