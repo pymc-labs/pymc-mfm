@@ -5,10 +5,12 @@ the sampler never evaluates its velocity. On every coordinate it does evaluate,
 the velocity must equal the trained ``JointFlowHead.velocity`` up to float64
 round-off; otherwise seeded draws would silently leave the trained sampler.
 Noise is drawn per chunk of draws; how draws are then batched for transport, and
-whether batches run concurrently, must not change any draw.
+whether batches run concurrently on a share of the threads, must not change any graph
+and changes draws by float round-off at most.
 """
 
 import copy
+import threading
 
 import pytest
 import torch
@@ -29,6 +31,15 @@ GPUS = [
         "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
     ),
 ]
+
+
+def _fresh_thread_count() -> int:
+    """PyTorch's thread count in a thread started now."""
+    seen = []
+    thread = threading.Thread(target=lambda: seen.append(torch.get_num_threads()))
+    thread.start()
+    thread.join()
+    return seen[0]
 
 
 @pytest.fixture
@@ -142,8 +153,10 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
         concurrent, concurrent_graphs = _draws(
             model64, batch64, monkeypatch, rows=1, workers=4, window=window
         )
-        # The workers' share of threads does not leak into the caller.
+        # The workers' share of threads leaks neither into the caller nor into threads
+        # started afterwards.
         assert torch.get_num_threads() == max(threads, 4)
+        assert _fresh_thread_count() == max(threads, 4)
     finally:
         torch.set_num_threads(threads)
     assert torch.equal(serial_graphs, whole_graphs)

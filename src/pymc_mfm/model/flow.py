@@ -137,16 +137,16 @@ def _thread_counts_per_thread() -> bool:
     """Whether ``torch.set_num_threads`` in one thread leaves other threads' count alone.
 
     It does under PyTorch's OpenMP backend, whose thread count is per thread; CPU batch
-    workers split the threads only then. Under a shared count the probe's change is undone.
+    workers split the threads only then. The call also sets the count that threads started
+    later begin with, so the caller sets its own count again afterwards.
     """
     before = torch.get_num_threads()
     probe = threading.Thread(target=torch.set_num_threads, args=(1,))
     probe.start()
     probe.join()
-    if torch.get_num_threads() == before:
-        return True
+    per_thread = torch.get_num_threads() == before
     torch.set_num_threads(before)
-    return False
+    return per_thread
 
 
 def _map_batches[T](
@@ -177,7 +177,7 @@ def _map_batches[T](
         slots = itertools.count()
 
         def split_threads() -> None:
-            # Per pool thread, which ends with the pool; the caller's count is unchanged.
+            # Per pool thread, which ends with the pool.
             torch.set_num_threads(share + (next(slots) < extra))
 
         initializer = split_threads
@@ -186,8 +186,14 @@ def _map_batches[T](
         with torch.set_grad_enabled(grad_enabled):
             return fn(*bound)
 
-    with ThreadPoolExecutor(max_workers=pool_size, initializer=initializer) as pool:
-        return list(pool.map(run, bounds))
+    try:
+        with ThreadPoolExecutor(max_workers=pool_size, initializer=initializer) as pool:
+            return list(pool.map(run, bounds))
+    finally:
+        if initializer is not None:
+            # The workers' calls also set the count that threads started later begin with;
+            # setting the caller's count again restores it.
+            torch.set_num_threads(threads)
 
 
 class _OrderedNoise:
