@@ -13,6 +13,8 @@ float32 round-off.
 from __future__ import annotations
 
 import math
+import threading
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -29,10 +31,34 @@ _SOURCE = r"""
 #include <metal_stdlib>
 using namespace metal;
 
-inline float silu(float v) { return v / (1.0f + exp(-v)); }
+// Fast-math exponential and division: within a few float32 ulp of v / (1 + exp(-v)),
+// about an eighth faster per network row than the correctly rounded division.
+inline float silu(float v) { return fast::divide(v, 1.0f + fast::exp(-v)); }
 
-// Week-pooled trajectory context of each live coordinate, one thread per (l, c), with an
-// online softmax over weeks. ctx[l, NL] is the shared zero context.
+// Online-softmax state of a run of weeks: max score m, denominator d and the weighted
+// token sum a[8], all relative to m.
+struct Pool {
+    float m;
+    float d;
+    float a[8];
+};
+
+inline void merge(thread Pool& p, const thread Pool& q) {
+    if (q.d == 0.0f) return;
+    if (p.d == 0.0f) {
+        p = q;
+        return;
+    }
+    const float m = max(p.m, q.m);
+    const float sp = exp(p.m - m), sq = exp(q.m - m);
+    p.d = p.d * sp + q.d * sq;
+    for (int e = 0; e < 8; ++e) p.a[e] = p.a[e] * sp + q.a[e] * sq;
+    p.m = m;
+}
+
+// Week-pooled trajectory context of each live coordinate. S lanes of a simdgroup share
+// one (l, c) pair: each pools every S-th week with an online softmax, then the lanes
+// merge their states. ctx[l, NL] is the shared zero context.
 // p: state weight [8], latent weight [8], score weight [8], score bias, token W [8x8],
 // token bias [8].
 kernel void trajectory_context(
@@ -46,14 +72,18 @@ kernel void trajectory_context(
     constant int& L [[buffer(7)]],
     constant int& T [[buffer(8)]],
     constant int& NL [[buffer(9)]],
+    constant int& S [[buffer(10)]],
     uint gid [[thread_position_in_grid]])
 {
-    if ((int)gid >= L * NL) return;
-    const int l = gid / NL, c = gid % NL;
-    float m = -INFINITY, denom = 0.0f;
-    float acc[8] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    const int pair = gid / S, lane = gid % S;
+    const bool live = pair < L * NL;
+    const int l = live ? pair / NL : 0, c = live ? pair % NL : 0;
+    Pool pool;
+    pool.m = 0.0f;
+    pool.d = 0.0f;
+    for (int e = 0; e < 8; ++e) pool.a[e] = 0.0f;
     device const float* tb = token_base + (long)token_lead[l] * T * 8;
-    for (int w = 0; w < T; ++w) {
+    for (int w = lane; live && w < T; w += S) {
         const long at = ((long)l * T + w) * NL + c;
         const float xv = x[at], zv = latent[at];
         float h[8];
@@ -62,22 +92,26 @@ kernel void trajectory_context(
             h[e] = silu(tb[w * 8 + e] + zv * p[8 + e] + xv * p[e]);
             s += h[e] * p[16 + e];
         }
-        if (s > m) {
-            const float scale = exp(m - s);
-            denom = denom * scale + 1.0f;
-            for (int e = 0; e < 8; ++e) acc[e] = acc[e] * scale + h[e];
-            m = s;
-        } else {
-            const float q = exp(s - m);
-            denom += q;
-            for (int e = 0; e < 8; ++e) acc[e] += q * h[e];
-        }
+        Pool one;
+        one.m = s;
+        one.d = 1.0f;
+        for (int e = 0; e < 8; ++e) one.a[e] = h[e];
+        merge(pool, one);
     }
+    // Butterfly over the S lanes of the pair (S divides the simdgroup width).
+    for (int offset = 1; offset < S; offset <<= 1) {
+        Pool other;
+        other.m = simd_shuffle_xor(pool.m, offset);
+        other.d = simd_shuffle_xor(pool.d, offset);
+        for (int e = 0; e < 8; ++e) other.a[e] = simd_shuffle_xor(pool.a[e], offset);
+        merge(pool, other);
+    }
+    if (!live || lane != 0) return;
     const float mask = weight[(long)l * NL + c];
     device float* out = ctx + ((long)l * (NL + 1) + c) * 8;
     for (int o = 0; o < 8; ++o) {
         float v = p[89 + o];
-        for (int e = 0; e < 8; ++e) v += p[25 + o * 8 + e] * (acc[e] / denom);
+        for (int e = 0; e < 8; ++e) v += p[25 + o * 8 + e] * (pool.a[e] / pool.d);
         out[o] = v * mask;
     }
     if (c == 0) {
@@ -86,21 +120,60 @@ kernel void trajectory_context(
     }
 }
 
-// Scalar bank row [x_live..., 0, entity mean, entity std], one thread per (l, w).
-kernel void moments(
+// Normal draws from the uniforms PyTorch's CPU generator produced for them. PyTorch's
+// float32 normal_ (contiguous, >= 16 values) turns each 16-value block of uniforms into
+// Box-Muller pairs (j, j + 8), and when the size is not a multiple of 16 redraws the last
+// 16 values from 16 more uniforms. u holds `count` runs of size (+16) uniforms each.
+kernel void normal_from_uniform(
+    device float* out [[buffer(0)]],
+    device const float* u [[buffer(1)]],
+    constant int& size [[buffer(2)]],
+    constant int& count [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    const int blocks = size / 16;
+    const bool tail = size % 16 != 0;
+    const int pairs = (blocks + (tail ? 1 : 0)) * 8;
+    if ((int)gid >= count * pairs) return;
+    const int run = gid / pairs, p = gid % pairs, j = p % 8;
+    device const float* ur = u + (long)run * (size + (tail ? 16 : 0));
+    device float* o = out + (long)run * size;
+    const bool redrawn = p >= blocks * 8;
+    const int base = redrawn ? size - 16 : (p / 8) * 16;
+    device const float* ub = redrawn ? ur + size : ur + base;
+    const float radius = precise::sqrt(-2.0f * precise::log(1.0f - ub[j]));
+    // float(2 * pi * u2) with 2 * pi in double precision, as PyTorch rounds it.
+    const float u2 = ub[j + 8];
+    const float theta = fma(6.28318548f, u2, -1.74845553e-07f * u2);
+    const int i0 = base + j, i1 = base + j + 8;
+    if (redrawn || !tail || i0 < size - 16) o[i0] = radius * precise::cos(theta);
+    if (redrawn || !tail || i1 < size - 16) o[i1] = radius * precise::sin(theta);
+}
+
+// Optional Euler step x <- (x + dt * v) * mask, then the scalar bank row
+// [x_live..., 0, entity mean, entity std] of the state. One thread per (l, w).
+kernel void step_moments(
     device float* bank [[buffer(0)]],
-    device const float* x [[buffer(1)]],
-    device const float* active [[buffer(2)]],
-    device const float* count [[buffer(3)]],
-    constant int& L [[buffer(4)]],
-    constant int& T [[buffer(5)]],
-    constant int& NL [[buffer(6)]],
-    constant int& NE [[buffer(7)]],
+    device float* x [[buffer(1)]],
+    device const float* v [[buffer(2)]],
+    device const float* mask [[buffer(3)]],
+    device const float* active [[buffer(4)]],
+    device const float* count [[buffer(5)]],
+    constant float& dt [[buffer(6)]],
+    constant int& L [[buffer(7)]],
+    constant int& T [[buffer(8)]],
+    constant int& NL [[buffer(9)]],
+    constant int& NE [[buffer(10)]],
     uint gid [[thread_position_in_grid]])
 {
     if ((int)gid >= L * T) return;
     const int l = gid / T;
-    device const float* xr = x + (long)gid * NL;
+    device float* xr = x + (long)gid * NL;
+    if (dt != 0.0f) {
+        device const float* vr = v + (long)gid * NL;
+        device const float* mr = mask + (long)l * NL;
+        for (int i = 0; i < NL; ++i) xr[i] = (xr[i] + dt * vr[i]) * mr[i];
+    }
     device const float* a = active + (long)l * NE;
     device float* b = bank + (long)gid * (NL + 3);
     float s = 0.0f;
@@ -119,12 +192,13 @@ kernel void moments(
 }
 
 // First-layer terms of row c that do not vary over weeks: the flow-time projection and
-// the pooled contexts the row reads. One thread per (l, c, 4 hidden units).
+// the pooled contexts the row reads. One thread per (l, c, 4 hidden units); wct is the
+// context weight transposed to [NC * 8, H].
 kernel void context_projection(
     device float4* out [[buffer(0)]],
     device const float* ctx [[buffer(1)]],
     constant int* cidx [[buffer(2)]],
-    device const float* wc [[buffer(3)]],
+    device const float4* wct [[buffer(3)]],
     device const float4* tproj [[buffer(4)]],
     constant int& L [[buffer(5)]],
     constant int& C [[buffer(6)]],
@@ -138,15 +212,9 @@ kernel void context_projection(
     if (lc >= L * C || j4 >= H4) return;
     const int l = lc / C, c = lc % C;
     float4 acc = tproj[j4];
-    const int width = NC * 8;
-    device const float* w0 = wc + (long)(j4 * 4) * width;
     for (int k = 0; k < NC; ++k) {
         device const float* cb = ctx + ((long)l * (NL + 1) + cidx[c * NC + k]) * 8;
-        for (int e = 0; e < 8; ++e) {
-            const int col = k * 8 + e;
-            acc += cb[e] * float4(w0[col], w0[width + col], w0[2 * width + col],
-                                  w0[3 * width + col]);
-        }
+        for (int e = 0; e < 8; ++e) acc += cb[e] * wct[(k * 8 + e) * H4 + j4];
     }
     out[(long)lc * H4 + j4] = acc;
 }
@@ -307,11 +375,112 @@ _NETWORK_THREADS = {16: 64, 32: 128, 64: 128, 128: 128, 256: 128}
 _BLOCK_ROWS = 32
 #: Most scalar inputs a network row reads.
 _MAX_SCALARS = 8
+#: Threads per Apple GPU simdgroup.
+_SIMD = 32
 
 
 @lru_cache(maxsize=1)
 def _library():
     return torch.mps.compile_shader(_SOURCE)
+
+
+#: Host tensors that queued copies have yet to read, each with an event recorded after it.
+_READING: list[tuple[torch.mps.Event, Tensor]] = []
+_READING_LOCK = threading.Lock()
+
+
+def to_device_async(host: Tensor, device: torch.device) -> Tensor:
+    """Copy ``host`` to the GPU ``device`` without waiting for the work queued before it.
+
+    A blocking copy waits for every queued kernel. A non-blocking copy reads the host
+    memory only when it runs on the GPU, so ``host`` stays referenced until an event
+    recorded after the copy has completed.
+    """
+    host = host.contiguous()
+    moved = host.to(device, non_blocking=True)
+    event = torch.mps.Event()
+    event.record()
+    with _READING_LOCK:
+        _READING[:] = [entry for entry in _READING if not entry[0].query()]
+        _READING.append((event, host))
+    return moved
+
+
+@dataclass(frozen=True)
+class HostNoise:
+    """Standard normal draws of ``shape`` made on the host by PyTorch's CPU generator.
+
+    With ``uniform`` the tensor holds the generator's uniforms that ``torch.randn`` would
+    have turned into those normals; :func:`to_device` finishes them on the GPU.
+    """
+
+    values: Tensor
+    shape: tuple[int, ...]
+    uniform: bool
+
+
+def draw_host(shape: tuple[int, ...], dtype: torch.dtype, uniform: bool) -> HostNoise:
+    """Consume the CPU generator exactly as ``torch.randn(shape, dtype=dtype)`` does.
+
+    ``uniform`` (from :func:`uniform_normals`) draws only the uniforms, about 3.5 times
+    faster on the CPU, for the GPU to transform.
+    """
+    count = math.prod(shape)
+    if uniform and dtype == torch.float32 and count >= 16:
+        return HostNoise(torch.rand(count + (16 if count % 16 else 0)), tuple(shape), True)
+    return HostNoise(torch.randn(shape, dtype=dtype), tuple(shape), False)
+
+
+def to_device(parts: list[HostNoise], device: torch.device) -> Tensor:
+    """Normal draws of consecutive host ``parts`` on ``device``, flattened and joined.
+
+    The copies do not wait for queued device work (see :func:`to_device_async`).
+    """
+    out = []
+    start = 0
+    while start < len(parts):
+        stop = start + 1
+        first = parts[start]
+        while (
+            stop < len(parts)
+            and parts[stop].uniform == first.uniform
+            and parts[stop].values.numel() == first.values.numel()
+        ):
+            stop += 1
+        group = parts[start:stop]
+        moved = to_device_async(torch.cat([part.values.reshape(-1) for part in group]), device)
+        if first.uniform:
+            size = math.prod(first.shape)
+            normals = torch.empty(len(group) * size, device=device, dtype=moved.dtype)
+            pairs = (size // 16 + (1 if size % 16 else 0)) * 8
+            _library().normal_from_uniform(
+                normals, moved, size, len(group), threads=len(group) * pairs
+            )
+            moved = normals
+        out.append(moved)
+        start = stop
+    return torch.cat(out) if len(out) > 1 else out[0]
+
+
+@lru_cache(maxsize=1)
+def uniform_normals() -> bool:
+    """Whether :func:`draw_host` may draw uniforms for the GPU to finish into normals.
+
+    Checks once that PyTorch's CPU ``normal_`` consumes and transforms its uniforms as
+    ``normal_from_uniform`` assumes, so the GPU draws equal ``torch.randn`` up to float32
+    round-off; otherwise sampling keeps drawing normals on the CPU.
+    """
+    if not torch.backends.mps.is_available():
+        return False
+    device = torch.device("mps")
+    normal, uniform = torch.Generator().manual_seed(1), torch.Generator().manual_seed(1)
+    for count in (16, 37, 1000):
+        expected = torch.randn(count, generator=normal)
+        values = torch.rand(count + (16 if count % 16 else 0), generator=uniform)
+        got = to_device([HostNoise(values, (count,), True)], device).cpu()
+        if not torch.allclose(got, expected, rtol=1e-5, atol=1e-5):
+            return False
+    return torch.equal(normal.get_state(), uniform.get_state())
 
 
 def supported(head: JointFlowHead, weight: Tensor) -> bool:
@@ -348,7 +517,7 @@ class _Network:
         self.scalar_index = network.scalar_index.to(torch.int32).contiguous()
         self.scalar_weight = network.scalar_weight.t().contiguous()
         self.context_index = network.context_index.to(torch.int32).contiguous()
-        self.context_weight = network.context_weight.contiguous()
+        self.context_weight = network.context_weight.t().contiguous()
         self.hidden_weight = network.hidden_weight.contiguous()
         self.hidden_bias = network.hidden_bias.contiguous()
         self.output_weight = network.output_weight.contiguous()
@@ -403,12 +572,15 @@ def integrate(
     trajectory_latent: Tensor,
     grid,
     index: Tensor | None = None,
+    final_from: int = 0,
 ) -> Tensor:
     """Euler-integrate the live state ``[..., T, NL]`` as ``_LiveVelocity.integrate`` does.
 
     Without ``index`` the live velocity's representations and masks broadcast over the
     state's lead axes. With it, they hold one row per distinct conditioning and
-    ``index`` gives the row of each entry of the state's last lead axis.
+    ``index`` gives the row of each entry of the state's last lead axis. Live columns
+    before ``final_from`` are not wanted after the last step: networks that only write
+    them skip it, so those columns end one step short.
     """
     lib = _library()
     device, dtype = state.device, state.dtype
@@ -416,7 +588,7 @@ def integrate(
     lead = torch.Size(lead_shape)
     n_lead = math.prod(lead)
     prepared = _prepared(live, weeks, grid)
-    x = state.reshape(n_lead, weeks, n_live).contiguous()
+    x = state.reshape(n_lead, weeks, n_live).clone(memory_format=torch.contiguous_format)
     latent = trajectory_latent.reshape(n_lead, weeks, n_live).contiguous()
 
     n_entities = live.entity_active.shape[-1]
@@ -445,20 +617,25 @@ def integrate(
         torch.empty(n_lead, network.rows, hidden, device=device, dtype=dtype)
         for network in prepared.networks
     ]
-    mask = weight.unsqueeze(1)
+    # Lanes pooling one coordinate's weeks: about eight weeks per lane, at most a simdgroup.
+    lanes = min(_SIMD, 1 << max(0, math.ceil(math.log2(max(1, weeks / 8)))))
+    pooled_threads = -(-n_lead * n_live * lanes // _SIMD) * _SIMD
+    lib.step_moments(
+        bank, x, velocity, weight, active, count, 0.0, n_lead, weeks, n_live, n_entities,
+        threads=n_lead * weeks,
+    )  # fmt: skip
     for step, (_, dt, _) in enumerate(grid):
         lib.trajectory_context(
             contexts, x, latent, prepared.token_base, token_lead, weight, prepared.params,
-            n_lead, weeks, n_live,
-            threads=n_lead * n_live,
+            n_lead, weeks, n_live, lanes,
+            threads=pooled_threads, group_size=_SIMD,
         )  # fmt: skip
-        lib.moments(
-            bank, x, active, count, n_lead, weeks, n_live, n_entities,
-            threads=n_lead * weeks,
-        )  # fmt: skip
+        last = step == len(grid) - 1
         for network, static_lead, projection in zip(
             prepared.networks, static_leads, projections, strict=True
         ):
+            if last and network.column + network.rows <= final_from:
+                continue
             rows = n_lead * weeks * network.rows
             lib.context_projection(
                 projection, contexts, network.context_index, network.context_weight,
@@ -473,5 +650,10 @@ def integrate(
                 network.scalar_index.shape[1], n_live + 3, n_live, network.column,
                 threads=-(-rows // _BLOCK_ROWS) * group, group_size=group,
             )  # fmt: skip
-        x = (x + dt * velocity) * mask
+        # x <- (x + dt * v) * mask, then the next step's scalar bank.
+        lib.step_moments(
+            bank, x, velocity, weight, active, count, float(dt), n_lead, weeks, n_live,
+            n_entities,
+            threads=n_lead * weeks,
+        )  # fmt: skip
     return x.reshape(state.shape)

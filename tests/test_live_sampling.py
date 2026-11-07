@@ -146,7 +146,9 @@ def test_apple_gpu_draws_the_cpu_samples(model, batch, monkeypatch, rows, window
     monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS_MPS", rows)
     integrate = flow._metal.integrate
     calls = []
-    monkeypatch.setattr(flow._metal, "integrate", lambda *a: calls.append(1) or integrate(*a))
+    monkeypatch.setattr(
+        flow._metal, "integrate", lambda *a, **k: calls.append(1) or integrate(*a, **k)
+    )
     torch.manual_seed(41)
     cpu, cpu_graphs = model.sample_disentangled(batch, 19, window=window)
     gpu_model = copy.deepcopy(model).to("mps")

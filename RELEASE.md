@@ -6,25 +6,31 @@ approved or published release.
 
 ## Changes
 
-- **Apple GPU sampling, about six times faster, same draws.** With the model on MPS
+- **Apple GPU sampling, about eight times faster, same draws.** With the model on MPS
   (`from_pretrained(..., device="mps")`), each Euler step evaluates every live coordinate
   network in one fused Metal kernel: the first layer is built in threadgroup memory, the
   hidden product runs on simdgroup matrices and the output layer reduces in registers, so
-  no activation reaches device memory. The week-pooled trajectory contexts, entity
-  moments and context projections are small kernels of their own. GPU sampling draws base
-  noise with the CPU generator on a worker thread, in the inline order, while the GPU
-  encodes and transports, so seeded GPU draws equal CPU draws up to float32 round-off;
-  before this change MPS used its own generator. `decompose` now checks, hashes and
-  summarizes a CPU copy of the encoded inputs and moves only the sampling copy to the
-  device. The conditional decoder conditions each distinct (task, graph) pair once per
-  call instead of once per batch, and on the GPU keeps its representations, masks and
-  first-layer inputs once per pair rather than once per draw, so a call still uses about
-  1 GiB of GPU memory. No weights, bundles or training change, and CPU draws are bitwise
-  unchanged. River-1, 1,000 query draws on the quickstart world with a 166-week context
-  (Apple M3 Max), CPU before → GPU after: 10 query weeks 0.66 s → 0.11 s, 50 weeks
-  2.51 s → 0.41 s, 150 weeks 7.25 s → 1.13 s, 205 weeks 10.17 s → 1.53 s (5.9–6.7x; the
-  previous MPS path took 0.42, 1.61, 4.50 and 6.15 s). Graphs are identical and
-  components agree within 2e-6 of the largest component.
+  no activation reaches device memory. The week-pooled trajectory contexts, the Euler
+  update with the entity moments and the context projections are small kernels of their
+  own. GPU sampling draws base noise with the CPU generator on a worker thread, in the
+  inline order, while the GPU encodes and transports: the generator draws the uniforms
+  `torch.randn` would use and the GPU finishes them into the same normals (a one-time
+  check against `torch.randn` guards this), so seeded GPU draws equal CPU draws up to
+  float32 round-off; before this change MPS used its own generator. The CPU stays ahead
+  of the GPU: activity masks, live coordinates, router graphs, distinct (task, graph)
+  pairs and decoder masks are decided on small host copies, copies to the GPU do not
+  wait for queued work, and the router skips the work its graphs do not read (the last
+  step of the decomposition networks and the support rules). `decompose` checks, hashes
+  and summarizes a CPU copy of the encoded inputs and moves only the sampling copy to
+  the device. The conditional decoder conditions each distinct (task, graph) pair once
+  per call instead of once per batch, and on the GPU keeps its representations, masks
+  and first-layer inputs once per pair rather than once per draw, so a call still uses
+  about 1 GiB of GPU memory. No weights, bundles or training change, and CPU draws are
+  bitwise unchanged. River-1, 1,000 query draws on the quickstart world with a 166-week
+  context (Apple M3 Max), CPU before → GPU after: 10 query weeks 0.66 s → 0.080 s,
+  50 weeks 2.51 s → 0.31 s, 150 weeks 7.25 s → 0.87 s, 205 weeks 10.17 s → 1.18 s
+  (8.2–8.6x; the previous MPS path took 0.42, 1.61, 4.50 and 6.15 s). Graphs are
+  identical and components agree within 2e-6 of the largest component.
   `benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps` reproduces it.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`

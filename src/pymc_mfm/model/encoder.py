@@ -173,21 +173,27 @@ class BiAttentionEncoder(nn.Module):
         active_c = active_c.to(device=device)
         if active_c.shape != (b, c):
             raise ValueError(f"active_c_mask must have shape {(b, c)}, got {tuple(active_c.shape)}")
-        if ((active_c != 0) & (active_c != 1)).any():
-            raise ValueError("active_c_mask must be binary")
-        if (active_c.sum(dim=-1) == 0).any():
-            raise ValueError("encoder batch contains a task with no active media channels")
         active_m = batch.get("active_m_mask")
         if active_m is None:
             active_m = torch.ones(b, n_controls, device=device, dtype=dtype)
         active_m = active_m.to(device=device)
-        if active_m.shape != (b, n_controls):
+        # Check both masks from one host copy: each check of a GPU tensor waits for it.
+        m_shaped = active_m.shape == (b, n_controls)
+        joined = m_shaped and active_m.dtype == active_c.dtype
+        host = torch.cat([active_c, active_m] if joined else [active_c], dim=-1).cpu()
+        host_c = host[:, :c]
+        host_m = host[:, c:] if joined else active_m.cpu()
+        if ((host_c != 0) & (host_c != 1)).any():
+            raise ValueError("active_c_mask must be binary")
+        if (host_c.sum(dim=-1) == 0).any():
+            raise ValueError("encoder batch contains a task with no active media channels")
+        if not m_shaped:
             raise ValueError(
                 f"active_m_mask must have shape {(b, n_controls)}, got {tuple(active_m.shape)}"
             )
-        if ((active_m != 0) & (active_m != 1)).any():
+        if ((host_m != 0) & (host_m != 1)).any():
             raise ValueError("active_m_mask must be binary")
-        if n_controls > 0 and (active_m.sum(dim=-1) == 0).any():
+        if n_controls > 0 and (host_m.sum(dim=-1) == 0).any():
             raise ValueError("encoder batch contains a task with no active controls")
         active_parts = [active_c, active_m, torch.ones(b, 1, device=device, dtype=dtype)]
         entity_active = torch.cat(active_parts, dim=-1).to(torch.bool)
@@ -236,7 +242,7 @@ class BiAttentionEncoder(nn.Module):
         cells, n_ctx, n_q, n_real, entity_active = self._cell_grid(batch)
         x = self.input_proj(cells)
         n_weeks = n_ctx + n_q
-        time_mask = torch.tril(torch.ones(n_weeks, n_weeks, dtype=torch.bool)).to(x.device)
+        time_mask = torch.ones(n_weeks, n_weeks, dtype=torch.bool, device=x.device).tril()
         for block in self.blocks:
             x = block(x, time_mask, entity_active)
         x = self.norm(x)

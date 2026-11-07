@@ -234,15 +234,16 @@ PyTorch 2.14, median of three warm calls, `benchmarks/inference_speed.py --query
 
 | Query weeks | CPU (s) | Apple GPU (s) | Speedup |
 | ---: | ---: | ---: | ---: |
-| 10 | 0.66 | 0.11 | 5.9x |
-| 50 | 2.51 | 0.41 | 6.1x |
-| 150 | 7.25 | 1.13 | 6.4x |
-| 205 | 10.17 | 1.53 | 6.7x |
+| 10 | 0.66 | 0.080 | 8.2x |
+| 50 | 2.51 | 0.31 | 8.2x |
+| 150 | 7.25 | 0.87 | 8.3x |
+| 205 | 10.17 | 1.18 | 8.6x |
 
-- GPU sampling draws its base noise with PyTorch's CPU generator, so a seeded call draws
-  the same samples on CPU and GPU up to float32 round-off (identical graphs on these
-  inputs). The noise is drawn on a worker thread while the GPU runs; do not draw random
-  numbers from other threads during a call.
+- GPU sampling draws its base noise with PyTorch's CPU generator: the generator draws the
+  uniforms `torch.randn` would use and the GPU turns them into the same normals. A seeded
+  call therefore draws the same samples on CPU and GPU up to float32 round-off (identical
+  graphs on these inputs). The noise is drawn on a worker thread while the GPU runs; do
+  not draw random numbers from other threads during a call.
 - Each Euler step runs one kernel per coordinate network that computes its first layer,
   its hidden product on simdgroup matrices and its output without writing activations
   to memory. float64 models and compiled sampling use the PyTorch operations instead.
