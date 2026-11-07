@@ -46,12 +46,15 @@ website:
         href: reference/index.qmd
       # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
       # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge.
-      # Items with only `text` are column headers; "---" starts the second column.
+      # Items with only `text` are column headers; "---" starts the second column. A
+      # text-only item ending in " SOON" becomes a greyed "Coming soon" entry, not a link.
       - text: Models
         menu:
-          - text: "River"
+          - text: "Models"
           - text: "River 1.0 NEW"
             href: models/river-1/index.qmd
+          - text: "Sea SOON"
+          - text: "Ocean SOON"
           - text: "---"
           - text: "Resources"
           - text: "All models"

@@ -611,27 +611,12 @@ h2.mfm-visually-hidden {
   }
 }
 
-/* Models page: one card per model, grouped by family (models/models.ejs) ------- */
-.mfm-models__family {
-  margin: 2.5rem 0 1rem;
-}
-
-.mfm-models__family-name {
-  margin: 0 0 1rem;
-  padding: 0;
-  border: 0;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.78rem;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--mfm-muted);
-}
-
+/* Models page: one card per model, released first (models/models.ejs) --------- */
 .mfm-models__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
   gap: 1rem;
+  margin: 2rem 0 1rem;
 }
 
 .mfm-model-card {
@@ -644,7 +629,7 @@ h2.mfm-visually-hidden {
   transition: border-color 0.2s ease, transform 0.25s ease, box-shadow 0.25s ease;
 }
 
-.mfm-model-card:hover {
+.mfm-model-card:not(.is-soon):hover {
   border-color: rgba(129, 194, 64, 0.6);
   transform: translateY(-2px);
   box-shadow: 0 20px 40px -24px rgba(12, 31, 64, 0.45);
@@ -657,6 +642,38 @@ h2.mfm-visually-hidden {
     radial-gradient(80% 120% at 85% 110%, rgba(246, 174, 114, 0.35), transparent 60%),
     radial-gradient(70% 90% at 10% 0%, rgba(180, 231, 221, 0.28), transparent 65%),
     linear-gradient(160deg, #10284f, #07142a);
+}
+
+/* Announced models: their own colours, faint swell lines, no link. */
+.mfm-model-card--sea .mfm-model-card__media {
+  background:
+    repeating-linear-gradient(176deg, transparent 0 13px, rgba(159, 170, 226, 0.12) 13px 14px),
+    radial-gradient(90% 120% at 80% 120%, rgba(159, 170, 226, 0.4), transparent 60%),
+    linear-gradient(160deg, #13305c, #07142a);
+}
+
+.mfm-model-card--ocean .mfm-model-card__media {
+  background:
+    repeating-linear-gradient(178deg, transparent 0 19px, rgba(200, 180, 231, 0.1) 19px 20px),
+    radial-gradient(90% 120% at 20% 120%, rgba(200, 180, 231, 0.38), transparent 60%),
+    linear-gradient(160deg, #0e1f45, #050d1d);
+}
+
+.mfm-model-card.is-soon {
+  cursor: default;
+}
+
+/* The art fills an announced card; "Coming soon" sits under it. */
+.mfm-model-card.is-soon .mfm-model-card__media {
+  flex: 1;
+  aspect-ratio: auto;
+  min-height: 9rem;
+  filter: saturate(0.7);
+  opacity: 0.85;
+}
+
+.mfm-model-card.is-soon .mfm-model-card__body {
+  flex: none;
 }
 
 .mfm-model-card__media img {
@@ -676,9 +693,12 @@ h2.mfm-visually-hidden {
   margin: 0;
   padding: 0;
   border: 0;
-  font-size: 1.6rem;
+  font-family: var(--mfm-display);
+  font-stretch: 125%;
+  font-size: 1.5rem;
   font-weight: 500;
-  letter-spacing: -0.035em;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
   color: #ffffff;
   text-shadow: 0 2px 18px rgba(7, 20, 42, 0.8);
 }

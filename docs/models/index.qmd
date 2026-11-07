@@ -1,15 +1,16 @@
 ---
 title: "Models"
-description: "Trained networks for PyMC MFM. Each model has its own release page."
+description: "Trained networks for PyMC MFM. Each released model has its own page."
 listing:
   id: releases
   contents:
     - "*/index.qmd"
-  sort: "date desc"
+    - upcoming.yml
+  sort: "order"
   template: models.ejs
   date-format: "MMM D, YYYY"
   feed: true
-  fields: [title, date, description, image, family, badge, specs]
+  fields: [title, date, description, image, badge, specs, status, order]
 page-layout: article
 toc: false
 css: ../assets/styles/model.css

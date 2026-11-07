@@ -270,6 +270,16 @@ main table td:first-child > p > a {
   transform: translateX(2px);
 }
 
+/* Announced models: listed, greyed, not links (site.js builds them from " SOON" items). */
+.mfm-models-menu .dropdown-item.is-soon {
+  cursor: default;
+  color: var(--mfm-muted);
+}
+
+.mfm-models-menu .dropdown-item.is-soon::after {
+  content: none;
+}
+
 .mfm-badge {
   padding: 0.1rem 0.38rem;
   border-radius: 5px;
@@ -285,6 +295,16 @@ body.quarto-dark .mfm-badge,
 body.mfm-landing .mfm-badge {
   background: rgba(246, 174, 114, 0.16);
   color: #f6ae72;
+}
+
+.mfm-badge--soon,
+body.quarto-dark .mfm-badge--soon,
+body.mfm-landing .mfm-badge--soon {
+  padding: 0.05rem 0.34rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: var(--mfm-muted);
+  opacity: 0.85;
 }
 
 @media (min-width: 992px) {
@@ -334,6 +354,11 @@ body.mfm-landing .mfm-models-menu .dropdown-item:hover {
 
 body.mfm-landing .mfm-models-menu .dropdown-header {
   color: rgba(247, 247, 247, 0.5);
+}
+
+body.mfm-landing .mfm-models-menu .dropdown-item.is-soon,
+body.mfm-landing .mfm-badge--soon {
+  color: rgba(247, 247, 247, 0.45);
 }
 
 /* In the collapsed navbar the menu sits on the navy bar itself. */

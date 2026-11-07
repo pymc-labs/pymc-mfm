@@ -3,7 +3,9 @@
    goes to the Models page; the menu items go straight to each model. Keyboard users open
    the menu with ArrowDown (Bootstrap's own handling). On the collapsed mobile navbar the
    label keeps Bootstrap's tap-to-open, and "All models" is in the menu.
-   A menu item whose text ends in " NEW" shows a "New" badge instead. */
+   A menu item whose text ends in " NEW" shows a "New" badge instead. A text-only item
+   (which Quarto renders as a header) ending in " SOON" becomes a greyed, disabled entry
+   with a "Coming soon" badge: an announced model, with nowhere to go yet. */
 (() => {
   "use strict";
 
@@ -23,6 +25,22 @@
     badge.className = "mfm-badge";
     badge.textContent = "New";
     span.after(badge);
+  });
+  menu.querySelectorAll("li.dropdown-header").forEach((header) => {
+    const match = header.textContent.trim().match(/^(.*\S)\s+SOON$/);
+    if (!match) return;
+    const entry = document.createElement("span");
+    entry.className = "dropdown-item disabled is-soon";
+    entry.setAttribute("aria-disabled", "true");
+    const name = document.createElement("span");
+    name.className = "dropdown-text";
+    name.textContent = match[1];
+    const badge = document.createElement("span");
+    badge.className = "mfm-badge mfm-badge--soon";
+    badge.textContent = "Coming soon";
+    entry.append(name, badge);
+    header.className = "";
+    header.replaceChildren(entry);
   });
   menu.querySelectorAll("a.dropdown-item").forEach((link) => {
     if (link.host === window.location.host) return;

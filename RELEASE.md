@@ -10,8 +10,9 @@ approved or published release.
   type (Archivo Expanded for headlines and large text, Inter for body text): a landing
   page, a Guide (written pages plus every notebook in `examples/`, rendered from stored
   outputs), an API reference generated from the docstrings with quartodoc, a Models page
-  with one card and one page per model, and a Blog. The navbar's Models menu opens on
-  hover and links each model directly. River 1.0 has an introduction page with its
+  with one card per model (River 1.0, plus Sea and Ocean marked "Coming soon" and not
+  linked), and a Blog. The navbar's Models menu opens on hover and links each released
+  model directly. River 1.0 has an introduction page with its
   specification, training, benchmarks, speed, limits and links, drawn from the white
   paper and the academic paper; a WebGL river scene opens it. A new `docs` dependency
   group holds quartodoc; Quarto itself is a system tool. The `Docs` workflow renders the

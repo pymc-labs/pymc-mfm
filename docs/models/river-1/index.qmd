@@ -6,8 +6,8 @@ date: 2026-11-07
 author: "PyMC Labs"
 categories: [Release, River]
 image: river.svg
-# Read by the Models page (models/models.ejs).
-family: River
+# Read by the Models page (models/models.ejs); announced models are in models/upcoming.yml.
+order: 1
 badge: New
 specs:
   - "2.4M parameters"
