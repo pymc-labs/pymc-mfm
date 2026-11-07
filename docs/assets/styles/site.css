@@ -20,10 +20,16 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* The MFM mark. The file is navy (#0C1F40, for light backgrounds); on dark backgrounds
+   it turns soft white (#F7F7F7), the logo package's light version. */
 .navbar-logo {
-  height: 26px;
-  max-height: 26px;
-  border-radius: 6px;
+  height: 24px;
+  max-height: 24px;
+  margin-right: 0.35rem;
+}
+
+body.quarto-dark .navbar-logo {
+  filter: brightness(0) invert(0.97);
 }
 
 .navbar .nav-link {

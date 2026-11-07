@@ -13,7 +13,9 @@ approved or published release.
   group holds quartodoc; Quarto itself is a system tool. The `Docs` workflow renders the
   site on every pull request and publishes to GitHub Pages only when run by hand on
   `main`. The landing page loads GSAP 3.15.1 from jsDelivr with subresource integrity and
-  works without it.
+  works without it. The site uses the MFM logo (SVG mark, navy on light pages and soft white
+  on dark ones) and its favicon set; the ICO and Apple touch icon are pinned in the
+  public-boundary allowlist.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer

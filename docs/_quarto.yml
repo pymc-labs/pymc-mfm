@@ -13,6 +13,8 @@ project:
   resources:
     - assets/js/*.js
     - assets/img/show/*.svg
+    - assets/img/logo/*.svg
+    - assets/favicon/*
 
 # Written by quartodoc during pre-render.
 metadata-files:
@@ -23,7 +25,7 @@ website:
   description: "Amortized Bayesian marketing-mix decomposition with causal graphs, by PyMC Labs."
   site-url: https://pymc-labs.github.io/pymc-mfm/
   repo-url: https://github.com/pymc-labs/pymc-mfm
-  favicon: assets/img/mark.svg
+  favicon: assets/favicon/favicon.svg
   bread-crumbs: false
   page-navigation: true
   back-to-top-navigation: false
@@ -32,8 +34,9 @@ website:
     type: overlay
   open-graph: true
   navbar:
-    logo: assets/img/mark.svg
-    logo-alt: "PyMC MFM"
+    # The MFM mark in navy; site.css renders it soft white on dark backgrounds.
+    logo: assets/img/logo/mfm-logo-navy.svg
+    logo-alt: "MFM"
     title: "PyMC MFM"
     collapse-below: lg
     right:
@@ -167,6 +170,8 @@ format:
       light: [cosmo, assets/styles/light.scss]
       dark: [cosmo, assets/styles/dark.scss]
     css: assets/styles/site.css
+    filters:
+      - _scripts/favicons.lua
     toc: true
     toc-depth: 3
     toc-title: On this page

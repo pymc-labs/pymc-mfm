@@ -246,11 +246,14 @@
       }
       set(to);
     };
+    const mark = hero.querySelector('[data-mfm="mark"]');
     const burst = async (from, to, ms) => {
       word.classList.add("is-glitching");
+      mark?.classList.add("is-glitching");
       glitch.level = 1;
       await scramble(from, to, ms);
       word.classList.remove("is-glitching");
+      mark?.classList.remove("is-glitching");
       glitch.level = 0.15;
       await wait(110);
       glitch.level = 0;
@@ -284,7 +287,8 @@
     done();
     gsap
       .timeline({ defaults: { ease: "power3.out" } })
-      .from(".mfm-hero__kicker", { autoAlpha: 0, y: 8, duration: 1.1 }, 0.4)
+      .from(".mfm-hero__mark", { autoAlpha: 0, y: 14, scale: 0.92, filter: "blur(12px)", duration: 1.3, clearProps: "filter" }, 0.2)
+      .from(".mfm-hero__kicker", { autoAlpha: 0, y: 8, duration: 1.1 }, 0.5)
       .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 1.5, stagger: 0.16 }, 0.55)
       .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 1.2 }, 1.25)
       .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.9, stagger: 0.1 }, 1.6)

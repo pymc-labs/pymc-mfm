@@ -23,6 +23,7 @@ css: assets/styles/landing.css
   <canvas class="mfm-hero__field" data-mfm="field" aria-hidden="true"></canvas>
   <div class="mfm-grain" aria-hidden="true"></div>
   <div class="mfm-hero__copy">
+    <img class="mfm-hero__mark" data-mfm="mark" src="assets/img/logo/mfm-logo-light.svg" alt="" width="1107" height="1040">
     <p class="mfm-hero__kicker">Marketing Foundation Models · by PyMC Labs</p>
     <!-- Now and then the first word glitches into "Bayesian" for a second. -->
     <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>

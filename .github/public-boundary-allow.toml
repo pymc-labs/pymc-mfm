@@ -9,3 +9,15 @@ rules = ["large-file", "embedded-payload"]
 reason = "Notebook with inline PNG plots. The notebook rule checks each image's structure and scans all other strings as text, but it cannot rule out hidden data in a valid image, so these exact bytes are pinned. Any rerun must update sha256 in the same pull request so the reviewer sees the new outputs. Malformed-image findings are never covered."
 sha256 = "056ee3d100a906886b5f1f99049095718f9e789ed2ba9edee71578cd47b14e9d"
 max_bytes = 3000000
+
+[[allow]]
+path = "docs/assets/favicon/favicon.ico"
+rules = ["binary"]
+reason = "Website favicon: the MFM mark on a navy circle (16, 32 and 48 px ICO, 3.3 kB), rendered from docs/assets/favicon/favicon.svg. The fallback for browsers without SVG favicons. These exact bytes are pinned; a new icon needs a new review."
+sha256 = "335b8899cf8312d6591b69789787f69fa4cc9a66887c759d26f65abaa5e08bce"
+
+[[allow]]
+path = "docs/assets/favicon/apple-touch-icon.png"
+rules = ["binary"]
+reason = "Website Apple touch icon: the MFM mark on a navy circle over white (180 px PNG, 5.4 kB), rendered from docs/assets/favicon/favicon.svg; iOS fills transparency with black. iOS has no SVG option for this icon. These exact bytes are pinned; a new icon needs a new review."
+sha256 = "8356b1c339df64db11c8472a8ccfcc2da2b0eeffa2d3e898f4ada0a30f37b3bf"
