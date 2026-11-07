@@ -34,10 +34,10 @@ website:
     type: overlay
   open-graph: true
   navbar:
-    # The MFM mark in navy; site.css renders it soft white on dark backgrounds.
+    # The MFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
     logo: assets/img/logo/mfm-logo-navy.svg
-    logo-alt: "MFM"
-    title: "PyMC MFM"
+    logo-alt: "PyMC MFM home"
+    title: false
     collapse-below: lg
     right:
       - text: Guide

@@ -6,7 +6,8 @@ approved or published release.
 
 ## Changes
 
-- **Documentation website.** `docs/` is a Quarto site in the PyMC Labs palette: a landing
+- **Documentation website.** `docs/` is a Quarto site in the PyMC Labs palette and brand
+  type (Archivo Expanded for headlines and large text, Inter for body text): a landing
   page, a Guide (written pages plus every notebook in `examples/`, rendered from stored
   outputs), an API reference generated from the docstrings with quartodoc, a Models page
   with one card and one page per model, and a Blog. The navbar's Models menu opens on
@@ -16,9 +17,9 @@ approved or published release.
   group holds quartodoc; Quarto itself is a system tool. The `Docs` workflow renders the
   site on every pull request and publishes to GitHub Pages only when run by hand on
   `main`. The landing page loads GSAP 3.15.1 from jsDelivr with subresource integrity and
-  works without it. The site uses the MFM logo (SVG mark, navy on light pages and soft white
-  on dark ones) and its favicon set; the ICO and Apple touch icon are pinned in the
-  public-boundary allowlist.
+  works without it. The navbar shows the MFM mark alone (navy on light pages, soft white
+  on dark ones). The favicons are the mark on a navy circle; the ICO and Apple touch icon
+  are pinned in the public-boundary allowlist.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer

@@ -1,8 +1,9 @@
 /*-- scss:defaults --*/
-// PyMC Labs tokens: pymc-labs.com (navy, aqua, periwinkle, peach, violet; Inter and
-// JetBrains Mono) and the docs skin pymc-marketing, CausalPy and pathmc share
-// (labs blue #154A72, labs green #81C240).
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+// PyMC Labs tokens: pymc-labs.com (navy, aqua, periwinkle, peach, violet) and the
+// brand type: Archivo Expanded (Archivo at width 125) for headlines and large text,
+// Inter for body text and captions, JetBrains Mono for code. The docs skin is the one
+// pymc-marketing, CausalPy and pathmc share (labs blue #154A72, labs green #81C240).
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,400..700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
 
 $navy: #0c1f40;
 $navy-deep: #07142a;
@@ -16,7 +17,8 @@ $violet: #c8b4e7;
 
 $font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 $font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-$headings-font-weight: 600;
+$headings-font-family: "Archivo", "Inter", system-ui, sans-serif;
+$headings-font-weight: 500;
 $line-height-base: 1.65;
 
 $body-bg: #ffffff;

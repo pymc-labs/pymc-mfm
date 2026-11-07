@@ -8,6 +8,32 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Type, from the PyMC Labs brand guidelines: Archivo Expanded for headlines, large text
+   and expressive subheadings; Inter for body text and captions. The themes load Archivo
+   at width 125 only and set it as the headings font; display text elsewhere uses
+   --mfm-display. */
+:root {
+  --mfm-display: "Archivo", "Inter", system-ui, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6,
+.listing-title,
+.card-title {
+  font-family: var(--mfm-display);
+  font-stretch: 125%;
+  letter-spacing: -0.015em;
+}
+
+/* Small interface labels stay in Inter. */
+#toc-title,
+.sidebar h2,
+.quarto-alternate-formats h2 {
+  font-family: var(--bs-body-font-family);
+  font-stretch: 100%;
+  letter-spacing: normal;
+}
+
 /* Navbar ------------------------------------------------------------------- */
 /* A thin bar (about 48px): less padding around the links, brand and logo. */
 :root {
