@@ -1,0 +1,21 @@
+# Keep local-only and private material out of every Docker build context.
+.private
+.git
+.venv
+.conda
+.env
+.env.*
+!.env.example
+artifacts/
+checkpoints/
+corpora/
+data/
+runs/
+mlruns/
+dist/
+build/
+**/__pycache__
+**/*.pt
+**/*.pth
+**/*.ckpt
+**/*.safetensors

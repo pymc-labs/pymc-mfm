@@ -6,6 +6,24 @@ approved or published release.
 
 ## Changes
 
+- **Light default install and an HTTP client for the River API.** PyTorch and safetensors
+  moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
+  now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer
+  imports PyTorch. Model names (`MFM`, `ModelConfig`, `decompose`, `from_pretrained` and
+  the rest) load on first use and raise an `ImportError` naming `pymc-mfm[local]` when
+  PyTorch is missing. This is a breaking change for users who relied on the default
+  install running models: install `pymc-mfm[local]`. The extras `hub`, `training`,
+  `diagnostics`, `arviz`, `generation` and `examples` include `local`, so they behave as
+  before. New `pymc_mfm.client` is a torch-free client for the River API v3.1: datasets,
+  analyses with scenarios and curves, `explore`, pandas results, per-draw xarray files and
+  two plots. New extras `draws` (`xarray`, `h5netcdf`, `h5py`), `plot` (`matplotlib`) and
+  `client` (both). CI adds a `light` job that tests the client without PyTorch.
+- **Opt-in compiled sampling.** `model.compile_sampling()` compiles the per-step flow
+  velocity with `torch.compile`; `warm_up_sampling` compiles representative inputs
+  ahead of use, and `model.sampling_status` reports compilations and any eager
+  fallback. Sampling stays eager unless a caller opts in, and eager draws are unchanged.
+  Compiled draws agree with eager draws up to float round-off. Seeded draws do not depend on whether a call
+  compiled, and compilation adds nothing to checkpoints.
 - **Quickstart actual-spend scenario sweep.** Each channel is varied separately
   from 0% to 200% of its actual eight-week query spend path, with unchanged history
   and other inputs. The notebook plots eight-week channel totals with pointwise

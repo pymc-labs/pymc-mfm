@@ -25,3 +25,7 @@ dist/
 *.npy
 *.nc
 *.h5
+
+# Local link to a maintainer's private companion checkout. Never tracked.
+/.private
+CLAUDE.local.md

@@ -27,9 +27,11 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.13"
-      - name: Install base runtime and test tools
+      # "base" names the lane that runs the model with the default test tools; it needs the
+      # `local` extra because the default install no longer includes PyTorch.
+      - name: Install the local model runtime and test tools
         if: matrix.installation == 'base'
-        run: uv sync --locked
+        run: uv sync --locked --extra local
       - name: Install complete integration extras
         if: matrix.installation == 'full'
         run: uv sync --locked --all-extras
@@ -49,3 +51,27 @@ jobs:
       - name: Verify installed sdist, base wheel, diagnostics-only wheel and arviz-only wheel
         if: matrix.installation == 'full'
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
+
+  light:
+    # The default install is a light client with no PyTorch. Run its tests in two
+    # environments: the bare install, and the install with the client's extras.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extras: ["", "--extra client"]
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - name: Install the client without PyTorch
+        run: uv sync --locked ${{ matrix.extras }}
+      - name: Check that PyTorch is absent and is not imported
+        run: uv run --no-sync python .github/scripts/light_install_check.py
+      - name: Test the client
+        # --confcutdir keeps the model fixtures in tests/conftest.py, which import torch, out.
+        run: uv run --no-sync pytest -q tests/client --confcutdir=tests/client

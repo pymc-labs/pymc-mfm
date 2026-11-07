@@ -15,20 +15,31 @@ are separate artifacts: models load from a local folder or from the Hugging Face
 Python 3.13 or newer.
 
 ```bash
-pip install "pymc-mfm[hub] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"
 ```
 
-The base install (NumPy, pandas, PyTorch, safetensors and packaging) loads local
-models and runs inference. Optional extras:
+The default install, without `[local]`, is a light client for the River API (NumPy,
+pandas, httpx and packaging; about 130 MB, no PyTorch). `pymc_mfm.client` is the only
+part that runs there; see "Call the River API". The `[local]` extra adds PyTorch and
+safetensors, which load local models and run inference in your process. Names such as
+`from_pretrained` and `MFM` load on first use and raise an `ImportError` that names
+`pymc-mfm[local]` when PyTorch is missing. Optional extras:
 
 | Extra | Adds |
 | --- | --- |
-| `hub` | Loading from and publishing to the Hugging Face Hub |
-| `training` | MLflow tracking and the diagnostics recorded during training |
-| `diagnostics` | Diagnostics, plots and HTML reports for results |
-| `arviz` | Export of results as an ArviZ `DataTree` |
-| `generation` | `pymc-generator`, to simulate corpora and read `.npz` corpora |
-| `examples` | `pymc-marketing`, for the example notebook |
+| `local` | PyTorch and safetensors, to load local models and run inference |
+| `draws` | `xarray`, `h5netcdf` and `h5py`, to read the API's per-draw files |
+| `plot` | `matplotlib`, for the client's plots |
+| `client` | `draws` and `plot` |
+| `hub` | `local`, and loading from and publishing to the Hugging Face Hub |
+| `training` | `local`, MLflow tracking and the diagnostics recorded during training |
+| `diagnostics` | `local`, and diagnostics, plots and HTML reports for results |
+| `arviz` | `local`, and export of results as an ArviZ `DataTree` |
+| `generation` | `local`, and `pymc-generator`, to simulate corpora and read `.npz` corpora |
+| `examples` | `local`, and `pymc-marketing`, for the example notebook |
+
+Every extra that runs the model includes `local`, so installing `pymc-mfm[hub]` still
+installs PyTorch.
 
 ## Decompose a time series
 
@@ -207,6 +218,97 @@ either window:
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
+### Faster repeated sampling (optional)
+
+A long-running process that samples many times, such as a service, can compile the
+sampler once with `torch.compile`. On an NVIDIA L4 with River-1 and 1,000 draws, warm
+compiled calls ran about 1.4 times as fast as eager calls on four test inputs; the first
+compilation took 20–30 s.
+
+```python
+from pymc_mfm.inference import warm_up_sampling
+
+model = from_pretrained("pymc-labs/mfm", profile="river-1").to("cuda")
+model.compile_sampling()  # opt-in; sampling stays eager until this call
+warm_up_sampling(model, channels=range(1, 11))  # compile now, not on the first request
+result = decompose(model, observations, n_samples=1000)
+model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=..., fallback=None)
+```
+
+- The first call at a new kind of input compiles, which can take tens of seconds. Warm
+  up with worlds, draw counts and modes like the ones you serve. `compiles` counts
+  every compilation, so a later increase shows an input the warm-up did not cover.
+- Compiled draws follow the eager distribution; they agree with eager draws up to
+  float round-off but are not bit-identical. With a fixed seed, serialized calls on one
+  device repeat their draws, including a call that compiles. Sampling uses PyTorch's
+  process-wide random generator, so run warm-up before other threads sample.
+- PyTorch's compile cache (`TORCHINDUCTOR_CACHE_DIR`) lets a restarted process reuse
+  earlier compilations. A compiler failure warns, returns the model to eager sampling and
+  shows in `sampling_status.fallback`. `model.disable_compiled_sampling()` switches it off.
+- On CPU, compiling usually does not speed sampling up.
+
+## Call the River API
+
+`pymc_mfm.client` is an HTTP client for the River API v3.1. It needs no PyTorch.
+Give it the service URL and an API key as arguments or in `MFM_API_URL` and
+`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots.
+
+```python
+import pandas as pd
+
+from pymc_mfm.client import Client, grid, move, scale, scenario, shift
+
+client = Client("https://api.example.com")  # key from MFM_API_KEY
+
+# `history` is a weekly DataFrame; `plan` has the forecast weeks of the same columns.
+dataset = client.datasets.create(
+    history,
+    date="week",
+    outcome="sales",
+    spend=["tv", "search"],
+    controls=["price"],
+    name="brand-a",
+)
+print(dataset.history_ranges)  # what the history shows, per series
+
+analysis = client.analyze(
+    dataset,
+    plan,  # the baseline plan, a DataFrame or a dict
+    scenarios=[
+        scenario("half", scale(0.5)),
+        scenario("tv_to_search", move("tv", "search", share=0.2)),
+        scenario("front_loaded", shift("tv", into_weeks=(1, 4))),
+        *grid(tv=[0.5, 1.5], search=[0.5, 1.5]),
+    ],
+    decision_weeks=(1, 8),
+    seed=7,
+)
+analysis.wait()
+analysis.table  # one row per plan and component; mean, p05, p95, window_mean, ...
+```
+
+`client.explore(dataset, plan)` is a first look: a response curve for every channel at
+nine spend levels (0 to 2 times the baseline in steps of 0.25) and two budget scenarios.
+Pass `preview=True` to `analyze` or `explore` to see the expanded plans, run count and
+warnings without starting anything. `client.get(analysis_id)` resumes an analysis.
+
+An `Analysis` has `status()`, `wait(timeout=, poll=)`, `table`, `weekly(scenario_id)`,
+`draws(scenario_ids=None)`, `plot_curves()`, `plot_compare()` and `delete()`. `draws()` reads
+each plan's per-draw file into one `xarray.Dataset` stacked along `scenario`; if a signed
+URL has expired it fetches the result again for new URLs and never reruns anything.
+
+Read the numbers as the result's `labels` say, which the client keeps on the objects
+(`analysis.labels`, and `attrs["labels"]` on tables). Intervals are pointwise 5th to 95th
+percentiles of expected outcome and are not causal lift. The service gives no interval for
+the difference between two plans: `simulation_se` measures numerical precision of the mean
+difference only, and `plot_compare()` draws it as "simulation error, not model uncertainty".
+
+Every request that creates something carries an `Idempotency-Key`, reused when the client
+retries, so a retry never starts the work twice. The client retries HTTP 429, 502, 503 and 504
+and connection errors, and waits as long as `Retry-After` asks, up to `Client(max_retry_after=...)` seconds (default 60). Errors raise `NotFound`,
+`Gone`, `Conflict`, `NotReady`, `RateLimited`, `ValidationError` and others, each with
+`code`, `message` and `field` from the service.
+
 ## Train an amortized network
 
 ### Training data
@@ -369,10 +471,17 @@ lift curves.
 ## Development
 
 ```bash
-uv sync --locked
+uv sync --locked --extra local --extra client
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
+```
+
+The client tests need only the light install. To run them without PyTorch, as CI does:
+
+```bash
+uv sync --locked
+uv run --no-sync pytest -q tests/client --confcutdir=tests/client
 ```
 
 `benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1 on
@@ -386,6 +495,28 @@ With Conda or Mamba:
 conda env create --prefix ./.conda --file environment.yml
 conda activate ./.conda
 python -m pip install --group dev -e .
+```
+
+### What may be committed
+
+This repository will be public, history included. Commit library code, tests,
+synthetic fixtures and docs. Never commit trained weights, credentials, user data,
+internal deployment names or private results. [AGENTS.md](AGENTS.md) has the full
+table and the boundary check, which CI runs on every pull request:
+
+```bash
+python3 scripts/check_public_boundary.py
+```
+
+Maintainers can pair a private companion checkout, linked at an ignored `.private`
+path. The library never needs it:
+
+```text
+<parent>/
+├── pymc-mfm/            this repository: install, test and build here
+│   ├── .private ──┐     ignored link, maintainers only
+│   └── .venv/     │     one environment for both checkouts
+└── <companion>/  ◄┘     private repository with its own setup.sh
 ```
 
 ## Status

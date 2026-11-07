@@ -1,26 +1,62 @@
-"""Keep the original dimensional bundle as an incompatible-representation fixture.
+"""Reject a bundle of the retired semantic-schema version 1.
 
-``data/golden_bundle.json`` retains every byte of a tiny semantic-version-1
-bundle. It must be rejected locally and through the real offline Hub cache,
-not re-recorded with a new schema over old weights. Fresh bundles separately
-exercise provenance round-tripping and inference-only imports.
+``data/golden_bundle_v1/`` holds the genuine text files of the original
+dimensional bundle, byte for byte: ``config.json`` and ``manifest.json`` with
+their old field layout. No checkpoint bytes are committed. The weights file is
+generated at test time from a tiny model with a fixed seed, so its provenance
+proves itself: it is an untrained initialisation made by code in this
+repository, not a trained model.
+
+A new weights file has other bytes, so the test rewrites exactly the manifest
+fields that describe that file and nothing else:
+
+* ``files["model.safetensors"]`` (``sha256`` and ``size``), and
+* ``bundle_sha256``, the digest of the rest of the manifest, which those two
+  values change.
+
+``config.json`` stays untouched, so the ``config_sha256`` in the weights
+header is the digest the manifest already holds. The loader keeps no digest
+of the tensors in the files (it computes ``state_sha256`` after loading), so
+nothing else needs rewriting. With integrity passing, the loader reaches the
+representation check and must reject the bundle, locally and through the real
+offline Hub cache, instead of re-recording it with the new schema over old
+weights. The test asserts that the rewritten manifest differs from the
+committed one only in those fields. Fresh bundles separately exercise
+provenance round-tripping and inference-only imports.
 """
 
-import base64
+import copy
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import torch
+from safetensors.torch import save_file
 
+from pymc_mfm.inference._artifact_schema import digest_bytes, file_record, json_bytes
 from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.inference.hub import from_pretrained
+from pymc_mfm.model import MFM, ModelConfig
 
-GOLDEN = Path(__file__).resolve().parent / "data" / "golden_bundle.json"
+LEGACY = Path(__file__).resolve().parent / "data" / "golden_bundle_v1"
+WEIGHTS = "model.safetensors"
 PROFILE = "golden"
 COMMIT = "a" * 40
 REPO = "test-owner/dimensional-golden"
+RETIRED_SCHEMA_VERSION = 1
+SEED = 20260923
+MODEL = {
+    "d_model": 4,
+    "n_layers": 1,
+    "n_heads": 1,
+    "d_ff": 4,
+    "flow_hidden": 4,
+    "n_controls": 1,
+    "n_demand": 1,
+}
 TRAINING_EVALUATION = {
     "status": "recorded",
     "source": "terminal in-training evaluation",
@@ -59,27 +95,67 @@ PROVENANCE = {
 }
 
 
-def materialize(files: dict[str, dict], directory: Path) -> Path:
-    """Write the recorded files back as the exact bundle bytes."""
+def retired_manifest(legacy: dict, weights: Path) -> dict:
+    """The legacy manifest with only the fields that describe ``weights`` rewritten."""
+    manifest = copy.deepcopy(legacy)
+    manifest["files"][WEIGHTS] = file_record(weights)
+    manifest.pop("bundle_sha256")
+    manifest["bundle_sha256"] = digest_bytes(json_bytes(manifest))
+    return manifest
+
+
+def write_retired_bundle(directory: Path) -> Path:
+    """Copy the legacy text files and generate the seeded weights beside them."""
     directory.mkdir(parents=True)
-    for name, entry in files.items():
-        if entry["encoding"] == "base64":
-            data = base64.b64decode("".join(entry["lines"]), validate=True)
-        else:
-            data = "\n".join(entry["lines"]).encode("utf-8")
-        (directory / name).write_bytes(data)
+    shutil.copyfile(LEGACY / "config.json", directory / "config.json")
+    legacy_text = (LEGACY / "manifest.json").read_text()
+    legacy = json.loads(legacy_text)
+    assert json_bytes(legacy).decode() == legacy_text
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(SEED)
+        state = MFM(ModelConfig(**MODEL)).state_dict()
+    assert [entry["name"] for entry in legacy["tensors"]] == list(state)
+    save_file(
+        {name: tensor.detach().contiguous() for name, tensor in state.items()},
+        str(directory / WEIGHTS),
+        metadata={
+            "format": "pt",
+            "architecture": legacy["architecture"],
+            "config_sha256": legacy["files"]["config.json"]["sha256"],
+        },
+    )
+    manifest = retired_manifest(legacy, directory / WEIGHTS)
+    (directory / "manifest.json").write_bytes(json_bytes(manifest))
     return directory
 
 
 @pytest.fixture
 def collection(tmp_path):
-    materialize(json.loads(GOLDEN.read_text())["files"], tmp_path / "profiles" / PROFILE)
+    write_retired_bundle(tmp_path / "profiles" / PROFILE)
     return tmp_path
 
 
 @pytest.fixture
 def current_bundle(model, tmp_path):
     return save_pretrained(model, tmp_path / "current", provenance=PROVENANCE, profile=PROFILE)
+
+
+def test_retired_bundle_changes_only_the_weights_fields_of_the_legacy_text(tmp_path):
+    bundle = write_retired_bundle(tmp_path / "bundle")
+    assert (bundle / "config.json").read_bytes() == (LEGACY / "config.json").read_bytes()
+    legacy = json.loads((LEGACY / "manifest.json").read_text())
+    written = json.loads((bundle / "manifest.json").read_text())
+    assert written.keys() == legacy.keys()
+    assert written["files"].keys() == legacy["files"].keys()
+    changed = {key for key in legacy if written[key] != legacy[key]}
+    assert changed <= {"files", "bundle_sha256"}
+    assert written["files"]["config.json"] == legacy["files"]["config.json"]
+    assert written["files"][WEIGHTS].keys() == {"sha256", "size"}
+    assert {key: value for key, value in written.items() if key not in changed} == {
+        key: value for key, value in legacy.items() if key not in changed
+    }
+    for name, record in written["files"].items():
+        assert file_record(bundle / name) == record
 
 
 def test_dimensional_golden_bundle_requires_retraining(collection):
@@ -92,7 +168,7 @@ def test_offline_hub_cache_cannot_bypass_representation_rejection(tmp_path):
     cache = tmp_path / "cache"
     repo = cache / "models--test-owner--dimensional-golden"
     snapshot = repo / "snapshots" / COMMIT
-    materialize(json.loads(GOLDEN.read_text())["files"], snapshot / "profiles" / PROFILE)
+    write_retired_bundle(snapshot / "profiles" / PROFILE)
     (repo / "refs").mkdir()
     (repo / "refs" / "release").write_text(COMMIT)
     with pytest.raises(ValueError, match="(?i)representation.*retrain"):
