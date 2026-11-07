@@ -32,7 +32,10 @@ approved or published release.
   and on the GPU keeps its representations, masks and first-layer inputs once per pair
   rather than once per draw. Sampling on an Apple GPU needs PyTorch 2.9 or newer (2.8 MPS
   computes linear layers of column-sliced weights wrongly) and raises otherwise. No
-  weights, bundles or training change, and CPU draws are bitwise unchanged. River-1, 1,000
+  weights, bundles or training change. CPU sampling transports four batches at once off
+  Apple silicon (it ran one; Apple silicon keeps eight, never more than PyTorch's threads):
+  on an 8-core Linux x86 machine 1.9–2.2x faster, draws equal up to float32 round-off
+  (Apple silicon CPU draws are bitwise unchanged). River-1, 1,000
   query draws on the quickstart world with a 166-week context at 10, 50, 150 and 205 query
   weeks: Apple M3 Max CPU 0.66, 2.51, 7.25 and 10.17 s; its GPU 0.075, 0.30, 0.86 and 1.17 s
   (8.4–8.8x; the previous MPS path took 0.42, 1.61, 4.50 and 6.15 s); NVIDIA L4 0.11, 0.39,
