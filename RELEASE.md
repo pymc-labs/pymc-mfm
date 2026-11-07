@@ -29,10 +29,10 @@ approved or published release.
   change, and CPU draws are bitwise unchanged. River-1, 1,000 query draws on the
   quickstart world with a 166-week context (Apple M3 Max), CPU before → GPU after:
   10 query weeks 0.66 s → 0.075 s, 50 weeks 2.51 s → 0.30 s, 150 weeks 7.25 s → 0.87 s,
-  205 weeks 10.17 s → 1.18 s (8.2–8.8x; the previous MPS path took 0.42, 1.61, 4.50 and
+  205 weeks 10.17 s → 1.18 s (8.3–8.8x; the previous MPS path took 0.42, 1.61, 4.50 and
   6.15 s). Graphs are identical and components agree within 2e-6 of the largest
-  component. `benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps`
-  reproduces it.
+  component. `benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps
+  --repeats 7` reproduces it.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer

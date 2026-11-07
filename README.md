@@ -229,14 +229,14 @@ result = decompose(model, observations, n_samples=1000)  # or model.inference(..
 ```
 
 River-1, 1,000 draws, the quickstart world with a 166-week context (Apple M3 Max,
-PyTorch 2.14, median of three warm calls, `benchmarks/inference_speed.py --query-weeks
-10,50,150,205`):
+PyTorch 2.14, median of seven warm calls, `benchmarks/inference_speed.py --query-weeks
+10,50,150,205 --repeats 7`):
 
 | Query weeks | CPU (s) | Apple GPU (s) | Speedup |
 | ---: | ---: | ---: | ---: |
 | 10 | 0.66 | 0.075 | 8.8x |
-| 50 | 2.51 | 0.30 | 8.2x |
-| 150 | 7.25 | 0.87 | 8.4x |
+| 50 | 2.51 | 0.30 | 8.3x |
+| 150 | 7.25 | 0.87 | 8.3x |
 | 205 | 10.17 | 1.18 | 8.6x |
 
 - GPU sampling draws its base noise with PyTorch's CPU generator: the generator draws the
