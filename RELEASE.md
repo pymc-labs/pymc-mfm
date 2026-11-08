@@ -14,9 +14,10 @@ approved or published release.
   memory. The week-pooled trajectory contexts, the Euler update with the entity moments
   and the context projections of every network are small kernels of their own. The CUDA
   kernels are compiled on first use by NVRTC, which PyTorch's CUDA wheels include, and
-  loaded through the NVIDIA driver, so no CUDA toolkit or compiler is needed; other CUDA
-  devices than the current one, ROCm and GPUs NVRTC cannot target keep PyTorch's
-  operations. On an Apple GPU each transport commits its kernels as soon as they are
+  loaded through the NVIDIA driver, so no CUDA toolkit or compiler is needed; on PyTorch
+  2.6–2.8, which do not find NVRTC themselves, the versioned library name PyTorch loaded is
+  used. Other CUDA devices than the current one, ROCm and GPUs NVRTC cannot target keep
+  PyTorch's operations. On an Apple GPU each transport commits its kernels as soon as they are
   queued, and the encoder's attention runs as Metal kernels. GPU sampling draws base noise
   with the CPU generator on a worker thread, in the inline order, while the GPU encodes
   and transports (pinned buffers on CUDA; on an Apple GPU the generator draws only the
