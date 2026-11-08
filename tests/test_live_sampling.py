@@ -24,11 +24,18 @@ from pymc_mfm.model.graph import EdgeSlotLayout
 ROUND_OFF = {"rtol": 1e-10, "atol": 1e-12}
 #: Sampling and the encoder's kernels on an Apple GPU need PyTorch ``_metal.MIN_TORCH``;
 #: older releases raise a clear error (sampling) or keep PyTorch's attention (encoder).
-APPLE_GPU = torch.backends.mps.is_available() and torch.__version__ >= _metal.MIN_TORCH
+#: Sampling also refuses a GPU whose MPS linear layers are wrong (macOS virtual machines).
+APPLE_GPU = (
+    torch.backends.mps.is_available()
+    and torch.__version__ >= _metal.MIN_TORCH
+    and _metal.linear_correct()
+)
+#: Why the Apple GPU cases skip.
+NO_APPLE_GPU = "needs an Apple GPU with PyTorch 2.9 or newer and correct MPS linear layers"
 GPUS = [
     pytest.param(
         "mps",
-        marks=pytest.mark.skipif(not APPLE_GPU, reason="needs MPS and PyTorch 2.9 or newer"),
+        marks=pytest.mark.skipif(not APPLE_GPU, reason=NO_APPLE_GPU),
     ),
     pytest.param(
         "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
@@ -230,7 +237,7 @@ def test_gpu_decodes_a_graph_that_turns_every_entity_off(model, batch, device):
     torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
 
 
-@pytest.mark.skipif(not APPLE_GPU, reason="needs an Apple GPU and PyTorch 2.9 or newer")
+@pytest.mark.skipif(not APPLE_GPU, reason=NO_APPLE_GPU)
 def test_apple_gpu_attention_kernels_match_masked_attention(monkeypatch):
     # 16-wide heads run the Metal kernels. 70 weeks span three runs of 32 causal keys;
     # the two tasks pad different entities and the last entity is active in neither.

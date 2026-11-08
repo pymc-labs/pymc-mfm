@@ -1122,6 +1122,12 @@ class JointFlowHead(nn.Module):
                 f"{torch.__version__}: older MPS releases miscompute or lack operations this "
                 "sampler uses. Upgrade PyTorch or sample on the CPU."
             )
+        if device.type == "mps" and not _metal.linear_correct():
+            raise RuntimeError(
+                "PyTorch's Apple GPU (MPS) backend computes linear layers wrongly on this GPU "
+                "(the paravirtual GPU of a macOS virtual machine), so sampling here would "
+                "return wrong draws. Sample on the CPU."
+            )
         weight = None if state_mask is None else state_mask.to(weekly_repr.dtype)
         host_weight = None
         if weight is not None and weight.device != device:

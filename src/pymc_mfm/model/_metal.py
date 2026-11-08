@@ -673,6 +673,23 @@ def uniform_normals() -> bool:
     return torch.equal(normal.get_state(), uniform.get_state())
 
 
+@lru_cache(maxsize=1)
+def linear_correct() -> bool:
+    """Whether PyTorch's MPS linear layer with a bias agrees with the CPU on this Apple GPU.
+
+    In a macOS virtual machine (GPU "Apple Paravirtual device"), PyTorch 2.14's MPS computes
+    ``F.linear`` with a bias wrongly, 30-80% off at every shape, while products and bias
+    additions on their own are right; every MFM layer is such a linear layer. Checked once,
+    on a small layer, with its own generator.
+    """
+    generator = torch.Generator().manual_seed(0)
+    x, weight, bias = (torch.randn(shape, generator=generator) for shape in ((4, 8), (8, 8), (8,)))
+    device = torch.device("mps")
+    got = torch.nn.functional.linear(x.to(device), weight.to(device), bias.to(device)).cpu()
+    expected = torch.nn.functional.linear(x, weight, bias)
+    return torch.allclose(got, expected, rtol=1e-4, atol=1e-5)
+
+
 def attention_supported(qkv: Tensor, head_width: int) -> bool:
     """Whether the attention kernels can read the packed projection ``qkv[S, N, 3 * D]``."""
     return (
