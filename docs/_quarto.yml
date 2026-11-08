@@ -51,7 +51,7 @@ website:
       - text: Models
         menu:
           - text: "Models"
-          - text: "River 1.0 NEW"
+          - text: "River NEW"
             href: models/river-1/index.qmd
           - text: "Sea SOON"
           - text: "Ocean SOON"

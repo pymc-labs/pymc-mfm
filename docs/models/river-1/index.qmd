@@ -5,8 +5,9 @@ description: "A 2.4M-parameter network trained on 200,000 simulated marketing wo
 date: 2026-11-07
 author: "PyMC Labs"
 categories: [Release, River]
-image: river.svg
+image: ../../assets/img/models/river.jpg
 # Read by the Models page (models/models.ejs); announced models are in models/upcoming.yml.
+name: River
 order: 1
 badge: New
 specs:
@@ -39,7 +40,7 @@ notes. Keep every number traceable to one of them.
   <canvas class="mfm-river__canvas" data-mfm="river" aria-hidden="true"></canvas>
   <div class="mfm-river__numbers" aria-hidden="true"></div>
   <div class="mfm-grain" aria-hidden="true"></div>
-  <h1 id="mfm-river-title" class="mfm-river__title">River 1.0</h1>
+  <h1 id="mfm-river-title" class="mfm-river__title">River <span class="mfm-river__version">v1.0.0</span></h1>
   <canvas class="mfm-river__veil" data-mfm="veil" aria-hidden="true"></canvas>
   <a class="mfm-hero__scroll" href="#introducing">Scroll to read<span aria-hidden="true"></span></a>
 </section>

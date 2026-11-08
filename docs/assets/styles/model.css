@@ -153,6 +153,16 @@ body.mfm-river-page .navbar:has(.navbar-collapse.show, .navbar-collapse.collapsi
   will-change: transform, opacity, filter;
 }
 
+/* The version under the name: same face, lighter weight and colour, opened up. */
+.mfm-river__version {
+  display: block;
+  margin-top: 0.9rem;
+  font-size: clamp(1rem, 1.9vw, 1.65rem);
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  color: rgba(214, 226, 248, 0.72);
+}
+
 .mfm-river__layout {
   position: relative;
   display: grid;
@@ -638,56 +648,60 @@ h2.mfm-visually-hidden {
 .mfm-model-card__media {
   position: relative;
   aspect-ratio: 16 / 7;
-  background:
-    radial-gradient(80% 120% at 85% 110%, rgba(246, 174, 114, 0.35), transparent 60%),
-    radial-gradient(70% 90% at 10% 0%, rgba(180, 231, 221, 0.28), transparent 65%),
-    linear-gradient(160deg, #10284f, #07142a);
-}
-
-/* Announced models: their own colours, faint swell lines, no link. */
-.mfm-model-card--sea .mfm-model-card__media {
-  background:
-    repeating-linear-gradient(176deg, transparent 0 13px, rgba(159, 170, 226, 0.12) 13px 14px),
-    radial-gradient(90% 120% at 80% 120%, rgba(159, 170, 226, 0.4), transparent 60%),
-    linear-gradient(160deg, #13305c, #07142a);
-}
-
-.mfm-model-card--ocean .mfm-model-card__media {
-  background:
-    repeating-linear-gradient(178deg, transparent 0 19px, rgba(200, 180, 231, 0.1) 19px 20px),
-    radial-gradient(90% 120% at 20% 120%, rgba(200, 180, 231, 0.38), transparent 60%),
-    linear-gradient(160deg, #0e1f45, #050d1d);
+  overflow: hidden;
+  background: linear-gradient(160deg, #10284f, #07142a);
 }
 
 .mfm-model-card.is-soon {
   cursor: default;
 }
 
-/* The art fills an announced card; "Coming soon" sits under it. */
+/* The art fills an announced card, a little dimmed; "Coming soon" sits under it. */
 .mfm-model-card.is-soon .mfm-model-card__media {
   flex: 1;
   aspect-ratio: auto;
   min-height: 9rem;
-  filter: saturate(0.7);
-  opacity: 0.85;
+  filter: saturate(0.85) brightness(0.9);
 }
 
 .mfm-model-card.is-soon .mfm-model-card__body {
   flex: none;
 }
 
+/* Rendered night scenes (assets/img/models/), darkened at the bottom under the name. */
 .mfm-model-card__media img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.5;
-  mix-blend-mode: screen;
+  transition: transform 0.6s ease;
+}
+
+/* The tall announced cards crop the wide renders: keep Sea's cliffs and lighthouse,
+   and Ocean's whale with the moon. */
+.mfm-model-card--sea .mfm-model-card__media img {
+  object-position: 20% 50%;
+}
+
+.mfm-model-card--ocean .mfm-model-card__media img {
+  object-position: 35% 50%;
+}
+
+.mfm-model-card__media::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(5, 13, 29, 0) 45%, rgba(5, 13, 29, 0.7));
+}
+
+.mfm-model-card:not(.is-soon):hover .mfm-model-card__media img {
+  transform: scale(1.04);
 }
 
 .mfm-models .mfm-model-card__name {
   position: absolute;
+  z-index: 1;
   left: 1.1rem;
   bottom: 0.9rem;
   margin: 0;

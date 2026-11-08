@@ -21,3 +21,21 @@ path = "docs/assets/favicon/apple-touch-icon.png"
 rules = ["binary"]
 reason = "Website Apple touch icon: the MFM mark on a navy circle over white (180 px PNG, 5.4 kB), rendered from docs/assets/favicon/favicon.svg; iOS fills transparency with black. iOS has no SVG option for this icon. These exact bytes are pinned; a new icon needs a new review."
 sha256 = "8356b1c339df64db11c8472a8ccfcc2da2b0eeffa2d3e898f4ada0a30f37b3bf"
+
+[[allow]]
+path = "docs/assets/img/models/river.jpg"
+rules = ["binary"]
+reason = "Models page card and social preview for River: a night river scene rendered from the site's own WebGL shader (1200x630 JPEG, 75 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
+sha256 = "d8745cac20b9038443a19ff99b5818c21cd07543c2d890225fff0ce11be84ca3"
+
+[[allow]]
+path = "docs/assets/img/models/sea.jpg"
+rules = ["binary"]
+reason = "Models page card for Sea: a night coast with a lighthouse, rendered from a WebGL shader written for the site (1200x630 JPEG, 94 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
+sha256 = "6e51cc7f7f9bcee107731ece342654bf1ffed5c00cedeece51a2d34e36c9a5b6"
+
+[[allow]]
+path = "docs/assets/img/models/ocean.jpg"
+rules = ["binary"]
+reason = "Models page card for Ocean: open swells under a cloudy moon, with a humpback breaching far out on the horizon, rendered from a WebGL shader written for the site (1200x630 JPEG, 113 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
+sha256 = "058e53dcbec1de3ad66d6c41e92efebbaa98cdce45728a2e5504f260044c5c0e"

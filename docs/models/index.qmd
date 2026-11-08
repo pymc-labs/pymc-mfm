@@ -10,7 +10,7 @@ listing:
   template: models.ejs
   date-format: "MMM D, YYYY"
   feed: true
-  fields: [title, date, description, image, badge, specs, status, order]
+  fields: [title, name, date, description, image, badge, specs, status, order]
 page-layout: article
 toc: false
 css: ../assets/styles/model.css

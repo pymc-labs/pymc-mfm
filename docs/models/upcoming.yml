@@ -2,8 +2,10 @@
 # card that says "Coming soon" and does not link anywhere; `order` places it after the
 # released models. When a model ships, delete it here and add docs/models/<name>/.
 - title: "Sea"
+  image: ../assets/img/models/sea.jpg
   status: soon
   order: 2
 - title: "Ocean"
+  image: ../assets/img/models/ocean.jpg
   status: soon
   order: 3
