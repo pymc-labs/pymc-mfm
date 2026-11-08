@@ -1,6 +1,8 @@
 """The observation boundary uses no synthetic labels and preserves result identity."""
 
 import json
+import subprocess
+import sys
 import warnings
 from dataclasses import replace
 
@@ -373,6 +375,28 @@ def test_results_name_but_do_not_copy_the_bundles_recorded_evaluation(
         assert "training_evaluation" not in saved
         assert result.provenance["source_checkpoint_sha256"] == "a" * 64
         assert result.provenance["bundle_sha256"] == loaded.provenance["bundle_sha256"]
+
+
+def test_loading_and_sampling_import_no_compiler_stack(model, synthetic_corpus, tmp_path):
+    # torch._dynamo and sympy took 0.3-0.7 s to import on an Apple M3 Max and 2-3 s on Linux
+    # hosts, more than sampling 1,000 draws; neither loading a bundle nor sampling needs them.
+    path = save_pretrained(model, tmp_path / "model")
+    np.savez(tmp_path / "observed.npz", **observed(synthetic_corpus))
+    code = (
+        "import sys\n"
+        "import numpy as np\n"
+        "from pymc_mfm import decompose, from_pretrained\n"
+        "model = from_pretrained(sys.argv[1])\n"
+        "decompose(model, dict(np.load(sys.argv[2])), n_samples=3)\n"
+        "loaded = [name for name in ('torch._dynamo', 'sympy') if name in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(path), str(tmp_path / "observed.npz")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_unsigned_decreasing_time_cannot_overflow_validation(model, synthetic_corpus):

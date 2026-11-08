@@ -65,8 +65,12 @@ _LOWER_BOUNDS = frozenset({">=", ">"})
 
 
 def _canonical_model(config: ModelConfig) -> MFM:
-    # No random initialization, allocation, or RNG advancement on restoration.
-    with torch.device("meta"):
+    # Built on the CPU without advancing PyTorch's generator; restoration replaces its tensors
+    # (assign=True). On the meta device, initialization ran PyTorch's Python reference
+    # kernels, whose first call imports torch._dynamo (and with it sympy, triton and
+    # torch.distributed): 0.4 s on an Apple M3 Max and 2-3 s on Linux hosts, against 8 ms to
+    # initialize River-1's 2.4 M parameters.
+    with torch.device("cpu"), torch.random.fork_rng(devices=[]):
         return MFM(config)
 
 

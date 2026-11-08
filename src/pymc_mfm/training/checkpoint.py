@@ -18,6 +18,7 @@ from typing import Any
 import torch
 
 from pymc_mfm.inference._artifact_schema import semantic_schema, validate_semantic_schema
+from pymc_mfm.inference.checkpoint import _canonical_model
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.model import MFM
 
@@ -132,7 +133,6 @@ def load_checkpoint(path: str | Path, *, device: str | torch.device = "cpu") -> 
     validate_semantic_schema(payload["schemas"], label="training checkpoint schemas")
     config = ModelConfig.from_dict(payload["config"])
     validate_semantic_schema(payload["schemas"], config, label="training checkpoint schemas")
-    with torch.device("meta"):
-        model = MFM(config)
+    model = _canonical_model(config)
     model.load_state_dict(payload.pop("state_dict"), strict=True, assign=True)
     return model.to(device).eval(), payload

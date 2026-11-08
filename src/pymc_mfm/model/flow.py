@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from numbers import Integral
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
@@ -766,9 +767,10 @@ class JointFlowHead(nn.Module):
                 "weekly_repr and flow state must share the query-week axis, "
                 f"got {tuple(weekly_repr.shape)} and {shape}"
             )
+        # numpy's check: torch.broadcast_shapes imports sympy and torch.fx on first use.
         try:
-            torch.broadcast_shapes(weekly_repr.shape[:-2], shape[:-2])
-        except RuntimeError as error:
+            np.broadcast_shapes(tuple(weekly_repr.shape[:-2]), shape[:-2])
+        except ValueError as error:
             raise ValueError(
                 "weekly_repr must broadcast over the flow state's leading axes, "
                 f"got {tuple(weekly_repr.shape)} and {shape}"
@@ -1376,8 +1378,8 @@ class _LiveVelocity:
                 )
         entity_mask = weight[..., 1 : 1 + n_entities]
         try:
-            torch.broadcast_shapes(entity_mask.shape, (*weekly_repr.shape[:-1], n_entities))
-        except RuntimeError as error:
+            np.broadcast_shapes(tuple(entity_mask.shape), (*weekly_repr.shape[:-1], n_entities))
+        except ValueError as error:
             raise ValueError(
                 "state_mask entity prefix does not broadcast to the flow state: "
                 f"{tuple(weight.shape)} versus {tuple(weekly_repr.shape[:-1])}"
