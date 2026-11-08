@@ -262,8 +262,12 @@ or `--device cuda`):
   capped at 8 CPUs the calls above ran 1.9–2.6x faster on AMD EPYC (Zen 3 and 4) and
   1.0–1.2x faster on Intel Xeon (Ice Lake, Skylake or Cascade Lake, Sapphire Rapids), whose
   multi-threaded matrix products already used the cores well; draws agree up to float32
-  round-off. Apple silicon already ran eight batches sharing every thread, and each batch
-  still conditions its own graphs, so its CPU draws are bitwise unchanged.
+  round-off. On GitHub's 2-vCPU runners (random weights of River-1's architecture, against
+  main in the same environment) Windows x86 sampled 1.10–1.13x faster, Linux ARM 1.04x and
+  Linux x86 (one PyTorch thread) as fast as main, with draws bitwise equal to main on
+  Windows and Linux x86 and within 6e-8 on Linux ARM. Apple silicon already ran eight
+  batches sharing every thread, and each batch still conditions its own graphs, so its CPU
+  draws are bitwise unchanged.
 - A call at 205 query weeks used about 1 GiB on the Apple GPU (Metal driver allocation)
   and 0.3 GiB on NVIDIA GPUs (PyTorch allocation). GPU sampling conditions each distinct
   graph once per call when they fit one batch (River-1 draws 3–4 on this world), else per
