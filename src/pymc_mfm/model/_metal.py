@@ -894,10 +894,6 @@ def integrate(
     """
     device, dtype = state.device, state.dtype
     lib = _library(device)
-    if device.type == "cuda":
-        block_rows, groups = _cuda.BLOCK_ROWS, _cuda.NETWORK_THREADS
-    else:
-        block_rows, groups = _BLOCK_ROWS, _NETWORK_THREADS
     *lead_shape, weeks, n_live = state.shape
     lead = torch.Size(lead_shape)
     n_lead = math.prod(lead)
@@ -925,7 +921,11 @@ def integrate(
 
     hidden = prepared.hidden
     h4 = hidden // 4
-    kernel, group = getattr(lib, f"network_{hidden}"), groups[hidden]
+    if device.type == "cuda":
+        block_rows, group = _cuda.network_launch(hidden, device)
+    else:
+        block_rows, group = _BLOCK_ROWS, _NETWORK_THREADS[hidden]
+    kernel = getattr(lib, f"network_{hidden}")
     bank = torch.empty(n_lead, weeks, n_live + 3, device=device, dtype=dtype)
     contexts = torch.empty(n_lead, n_live + 1, _TOKEN, device=device, dtype=dtype)
     velocity = torch.empty(n_lead, weeks, n_live, device=device, dtype=dtype)

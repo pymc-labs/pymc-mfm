@@ -20,15 +20,27 @@ from functools import lru_cache
 import torch
 from torch import Tensor
 
-#: Rows of one network block, rows per thread, first-layer slice width and the minimum blocks
-#: per multiprocessor the compiler budgets registers for; threads of one block per hidden width.
-BLOCK_ROWS = 64
-_ROWS_PER_THREAD = 8
-_SLICE = 16
-_MIN_BLOCKS = 2
-NETWORK_THREADS = {
-    hidden: (BLOCK_ROWS // _ROWS_PER_THREAD) * min(hidden, 32) for hidden in (16, 32, 64, 128, 256)
-}
+#: Network tile shape: rows of one block, rows per thread, first-layer slice width and the
+#: minimum blocks per multiprocessor the compiler budgets registers for.
+_TILES = (64, 8, 16, 2)
+#: 256-wide networks on GPUs whose multiprocessors hold four double-buffered 32-row blocks in
+#: shared memory run four of them at a time, with the same threads and registers: 3-7% faster
+#: on an A100, H100 and B200. An A10 or L4 holds two such blocks and runs them 17-26% slower
+#: than 64-row blocks; the draws are the same either way.
+_WIDE_TILES = {(8, 0): (32, 8, 16, 4), (9, 0): (32, 8, 16, 4), (10, 0): (32, 8, 16, 4)}
+#: Hidden widths with a network kernel.
+NETWORK_WIDTHS = (16, 32, 64, 128, 256)
+
+
+def _tiles(hidden: int, arch: tuple[int, int]) -> tuple[int, int, int, int]:
+    return _WIDE_TILES.get(arch, _TILES) if hidden == 256 else _TILES
+
+
+def network_launch(hidden: int, device: torch.device) -> tuple[int, int]:
+    """Rows and threads of one ``network_<hidden>`` block on the CUDA ``device``."""
+    block_rows, rows_per_thread, _, _ = _tiles(hidden, torch.cuda.get_device_capability(device))
+    return block_rows, (block_rows // rows_per_thread) * min(hidden, 32)
+
 
 _COMMON = r"""
 #define FULL_MASK 0xffffffffu
@@ -518,7 +530,7 @@ def _build(name: str, index: int) -> Future[bytes]:
     with _BUILDS_LOCK:
         build = _BUILDS.get((name, *arch))
         if build is None:
-            build = _builder().submit(_cubin, _source(name), name, arch, _nvrtc())
+            build = _builder().submit(_cubin, _source(name, arch), name, arch, _nvrtc())
             _BUILDS[(name, *arch)] = build
     return build
 
@@ -537,7 +549,7 @@ def prefetch(device: torch.device, hidden_sizes: Iterable[int]) -> None:
     index = torch.cuda.current_device()
     if device.index not in (None, index):
         return
-    networks = [f"network_{hidden}" for hidden in sorted(hidden_sizes) if hidden in NETWORK_THREADS]
+    networks = [f"network_{hidden}" for hidden in sorted(hidden_sizes) if hidden in NETWORK_WIDTHS]
     try:
         for name in (*networks, "step_moments", "trajectory_context", "context_projection"):
             _build(name, index)
@@ -621,10 +633,10 @@ def _network_source(
     return _COMMON + source
 
 
-def _source(name: str) -> str:
+def _source(name: str, arch: tuple[int, int]) -> str:
     if name.startswith("network_"):
         hidden = int(name.removeprefix("network_"))
-        return _network_source(hidden, BLOCK_ROWS, _ROWS_PER_THREAD, _SLICE, _MIN_BLOCKS)
+        return _network_source(hidden, *_tiles(hidden, arch))
     return _COMMON + _SOURCES[name]
 
 
