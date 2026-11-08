@@ -67,7 +67,9 @@ approved or published release.
   without advancing PyTorch's generator, and sampling checks shapes with NumPy rather than
   `torch.broadcast_shapes`, which imported sympy. Neither loading nor sampling imports
   `torch._dynamo` or sympy now: loading River-1 took 1.9–3.7 s on Linux hosts and 0.5 s on
-  an Apple M3 Max, now 0.27–0.39 s and 0.13 s. Weights and draws are unchanged.
+  an Apple M3 Max, now 0.27–0.39 s and 0.13 s; River-1's architecture on GitHub's Windows,
+  macOS and Linux runners took 0.6–4.6 s (most on a first load after installing), now
+  0.04–0.11 s. Weights and draws are unchanged.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer
