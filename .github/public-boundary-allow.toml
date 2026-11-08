@@ -7,5 +7,5 @@
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
 reason = "Notebook with inline PNG plots. The notebook rule checks each image's structure and scans all other strings as text, but it cannot rule out hidden data in a valid image, so these exact bytes are pinned. Any rerun must update sha256 in the same pull request so the reviewer sees the new outputs. Malformed-image findings are never covered."
-sha256 = "056ee3d100a906886b5f1f99049095718f9e789ed2ba9edee71578cd47b14e9d"
+sha256 = "60272fef59f1c71967eb66003bc7abadbbd870594268644e728fbb84d570705e"
 max_bytes = 3000000
