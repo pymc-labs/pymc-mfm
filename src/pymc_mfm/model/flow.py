@@ -1280,11 +1280,22 @@ class _LiveNetwork:
         state = state.unflatten(-1, tuple(self.scalar_index.shape))
         context = contexts.index_select(-2, self.context_index.flatten())
         context = context.unflatten(-2, tuple(self.context_index.shape)).flatten(-2)
-        hidden = F.linear(state, self.scalar_weight)
-        hidden += self.static
-        hidden += F.linear(context, self.context_weight, F.linear(time, self.time_weight))
-        hidden = hidden.view(-1, hidden.shape[-1])
+        projected = F.linear(context, self.context_weight, F.linear(time, self.time_weight))
         chunk = self.chunk_rows
+        if chunk is None:
+            hidden = F.linear(state, self.scalar_weight)
+            hidden += self.static
+            hidden += projected
+            hidden = hidden.view(-1, hidden.shape[-1])
+        else:
+            # One pass fewer over the [rows, hidden] activation: the static and projected
+            # terms fill it, and the scalar product accumulates into it in place.
+            shape = (*state.shape[:-1], self.static.shape[-1])
+            hidden = torch.add(self.static, projected)
+            if hidden.shape != shape:
+                hidden = hidden.expand(shape)
+            hidden = hidden.contiguous().view(-1, shape[-1])
+            hidden.addmm_(state.reshape(-1, state.shape[-1]), self.scalar_weight.t())
         if chunk is None or hidden.shape[0] <= chunk:
             hidden = F.silu(hidden, inplace=True)
             hidden = torch.mm(hidden, self.hidden_weight).add_(self.hidden_bias)
@@ -1549,6 +1560,9 @@ class _LiveVelocity:
                 chunk_rows=chunk_rows,
             )
         )
+        #: Networks that write the decomposition columns (base, contributions, fixed totals);
+        #: the router's edge network follows them.
+        self.decomposition_networks = len(networks)
 
         if layout is not None:
             edge_layer = head.edge_net[0]
@@ -1629,11 +1643,21 @@ class _LiveVelocity:
             self.token_latent_weight,
         )
 
-    def velocity(self, x: Tensor, t_val: float, trajectory_offset: Tensor) -> Tensor:
-        """Velocity of the live state ``x[..., index]`` at flow time ``t_val``."""
-        return self._velocity(x, _fourier_time(x.new_full((), t_val)), trajectory_offset)
+    def velocity(
+        self, x: Tensor, t_val: float, trajectory_offset: Tensor, *, graph_only: bool = False
+    ) -> Tensor:
+        """Velocity of the live state ``x[..., index]`` at flow time ``t_val``.
 
-    def _velocity(self, x: Tensor, time: Tensor, trajectory_offset: Tensor) -> Tensor:
+        With ``graph_only`` only the graph coordinates' velocities are computed; the
+        decomposition columns are zero.
+        """
+        return self._velocity(
+            x, _fourier_time(x.new_full((), t_val)), trajectory_offset, graph_only
+        )
+
+    def _velocity(
+        self, x: Tensor, time: Tensor, trajectory_offset: Tensor, graph_only: bool = False
+    ) -> Tensor:
         """:meth:`velocity` at Fourier flow time ``time``, a tensor, as compilation needs."""
         hidden = F.silu(
             torch.addcmul(trajectory_offset, x.unsqueeze(-1), self.token_state_weight),
@@ -1655,6 +1679,10 @@ class _LiveVelocity:
             / self.entity_count_sqrt
         )
         scalars = torch.cat([x, x.new_zeros(*x.shape[:-1], 1), mean, std], dim=-1)
+        if graph_only:
+            graph = self.networks[self.decomposition_networks :]
+            decomposition = scalars.new_zeros(*scalars.shape[:-1], self.decomposition_width)
+            return torch.cat([decomposition, *(net(scalars, contexts, time) for net in graph)], -1)
         return torch.cat([network(scalars, contexts, time) for network in self.networks], dim=-1)
 
     def integrate(
@@ -1669,9 +1697,10 @@ class _LiveVelocity:
 
         ``index`` maps the last lead axis of ``x`` to the representations' batch rows when
         those were given once per distinct conditioning (GPU kernels only). With
-        ``graph_only`` the GPU kernels skip the decomposition networks' final step, whose
-        result no graph coordinate reads.
+        ``graph_only`` eager sampling and the GPU kernels skip the decomposition networks at
+        the final step: they only move decomposition coordinates, which the caller drops.
         """
+        grid = tuple(grid)
         weight = self.weight
         compiled = self.compiled
         state = x.index_select(-1, self.index)
@@ -1686,10 +1715,11 @@ class _LiveVelocity:
         times = (
             {} if compiled is None else {t: _fourier_time(x.new_full((), t)) for t, _, _ in grid}
         )
+        final = grid[-1][0] if graph_only else None
 
         def drift(state: Tensor, t_val: float) -> Tensor:
             if compiled is None:
-                return self.velocity(state, t_val, offset)
+                return self.velocity(state, t_val, offset, graph_only=t_val == final)
             return compiled(self, state, times[t_val], offset)
 
         live = integrate_flow(

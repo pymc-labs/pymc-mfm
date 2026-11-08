@@ -173,6 +173,8 @@ def test_hidden_layer_row_chunks_never_change_a_draw(model64, batch64, monkeypat
         model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
     )
     # Seven-row chunks split every network's rows; most counts leave a short last chunk.
+    # The chunked form also fills each first layer with its static and context terms
+    # before the scalar product accumulates into it.
     monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", 7)
     chunked, chunked_graphs = _draws(
         model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
