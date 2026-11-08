@@ -38,12 +38,13 @@ approved or published release.
   computes linear layers of column-sliced weights wrongly) and raises otherwise. No
   weights, bundles or training change. Off Apple silicon, CPU sampling transports up to
   eight batches at once, each on its own share of PyTorch's threads (it ran one batch on
-  every thread), and on x86 runs each network's hidden layer on row chunks that stay in
-  cache: on Linux x86 capped at 8 CPUs 1.9–2.6x faster on AMD EPYC and 1.0–1.2x on Intel
-  Xeon; on GitHub's 2-vCPU runners Windows x86 1.10–1.13x, Linux ARM 1.04x and Linux x86
-  (one thread) as fast as before. Draws equal up to float32 round-off (bitwise on the
-  Windows and Linux x86 runners; Apple silicon keeps eight batches sharing every thread, and
-  its CPU draws are bitwise unchanged). River-1, 1,000
+  every thread); on x86 each network's static and context terms fill its first layer before
+  the scalar product accumulates into it, and its hidden layer runs on row chunks that stay
+  in cache. Linux x86 capped at 8 CPUs: 1.6–2.4x faster on AMD EPYC and 1.0–1.35x on Intel
+  Xeon; GitHub's 2-vCPU runners: Windows x86 1.25–1.36x, Linux x86 (one thread)
+  1.14–1.16x, Linux ARM 1.04–1.06x. As on the GPU, the CPU router skips its decomposition
+  networks' last Euler step. Draws equal up to float32 round-off (Apple silicon keeps eight
+  batches sharing every thread, and its CPU draws are bitwise unchanged). River-1, 1,000
   query draws on the quickstart world with a 166-week context at 10, 50, 150 and 205 query
   weeks: Apple M3 Max CPU 0.66, 2.51, 7.25 and 10.17 s; its GPU 0.075, 0.30, 0.86 and 1.17 s
   (8.4–8.8x; the previous MPS path took 0.42, 1.61, 4.50 and 6.15 s); NVIDIA L4 0.10, 0.35,

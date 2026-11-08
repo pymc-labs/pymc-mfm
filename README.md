@@ -257,15 +257,17 @@ or `--device cuda`):
 - Sampling on an Apple GPU needs PyTorch 2.9 or newer: older MPS releases miscompute
   sampling (2.8) or lack operations it uses, and raise a clear error.
 - On the CPU, sampling transports up to eight batches at once, never more than PyTorch's
-  thread count. Off Apple silicon each batch runs on its own share of the threads, and on
-  x86 each network's hidden layer runs on row chunks that stay in cache. On Linux x86
-  capped at 8 CPUs the calls above ran 1.9–2.6x faster on AMD EPYC (Zen 3 and 4) and
-  1.0–1.2x faster on Intel Xeon (Ice Lake, Skylake or Cascade Lake, Sapphire Rapids), whose
-  multi-threaded matrix products already used the cores well; draws agree up to float32
-  round-off. On GitHub's 2-vCPU runners (random weights of River-1's architecture, against
-  main in the same environment) Windows x86 sampled 1.10–1.13x faster, Linux ARM 1.04x and
-  Linux x86 (one PyTorch thread) as fast as main, with draws bitwise equal to main on
-  Windows and Linux x86 and within 6e-8 on Linux ARM. Apple silicon already ran eight
+  thread count. Off Apple silicon each batch runs on its own share of the threads. On x86
+  each network's static and context terms fill its first layer before the scalar product
+  accumulates into it, and its hidden layer runs on row chunks that stay in cache. On Linux
+  x86 capped at 8 CPUs the calls above ran 1.6–2.4x faster on AMD EPYC (Zen 3 and 4) and
+  1.0–1.35x faster on Intel Xeon (Ice Lake, Skylake or Cascade Lake, Sapphire and Emerald
+  Rapids), whose multi-threaded matrix products already used the cores well. On GitHub's
+  2-vCPU runners (random weights of River-1's architecture, against main in the same
+  environment) Windows x86 sampled 1.25–1.36x faster, Linux x86 (one PyTorch thread)
+  1.14–1.16x and Linux ARM 1.04–1.06x. Off Apple silicon draws agree with main up to
+  float32 round-off (no graph flipped; components within 2e-7 of the largest on the
+  runners, 9e-7 against the Mac reference on Linux x86). Apple silicon already ran eight
   batches sharing every thread, and each batch still conditions its own graphs, so its CPU
   draws are bitwise unchanged.
 - A call at 205 query weeks used about 1 GiB on the Apple GPU (Metal driver allocation)
