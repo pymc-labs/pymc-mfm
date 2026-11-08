@@ -53,11 +53,17 @@ _FLOW_SAMPLE_ROWS_GPU = 2**19
 _APPLE_SILICON = sys.platform == "darwin" and platform.machine() == "arm64"
 _SAMPLE_BATCH_WORKERS = 8
 _SPLIT_SAMPLE_THREADS = not _APPLE_SILICON
-#: On x86 CPUs, sampling runs each network's hidden and output layers on row chunks of this
-#: size, so a chunk's activations stay in cache through the product, bias, SiLU and output
-#: layer instead of streaming through memory between them. With ARM BLAS libraries the
-#: chunks ran slower (Accelerate on Apple silicon 13%, NVPL on Linux ARM 1.5-3.5%).
-_HIDDEN_CHUNK_ROWS = 4096 if platform.machine().lower() in ("x86_64", "amd64") else None
+_X86 = platform.machine().lower() in ("x86_64", "amd64")
+#: On x86 CPUs, eager sampling runs each network's hidden and output layers on row chunks
+#: of this size, so a chunk's activations stay in cache through the product, bias, SiLU and
+#: output layer instead of streaming through memory between them. With ARM BLAS libraries
+#: the chunks ran slower (Accelerate on Apple silicon 13%, NVPL on Linux ARM 1.5-3.5%).
+_HIDDEN_CHUNK_ROWS = 4096 if _X86 else None
+#: On x86 CPUs, each network's static and context terms fill its first layer and the scalar
+#: product accumulates into it, one pass fewer over the activation than adding both terms
+#: to the product. Eager and compiled sampling both do this, so a compiled sampler that
+#: falls back to eager draws exactly what eager sampling draws.
+_FOLD_FIRST_LAYER = _X86
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
@@ -1254,6 +1260,7 @@ class _LiveNetwork:
         context_weight: Tensor,
         context_index: Tensor,
         chunk_rows: int | None = None,
+        fold: bool = False,
     ):
         _, act, hidden_layer, act2, output_layer = net
         if not (isinstance(act, nn.SiLU) and isinstance(act2, nn.SiLU)):
@@ -1272,6 +1279,8 @@ class _LiveNetwork:
         self.rows = scalar_index.shape[0]
         #: Rows per chunk of the hidden and output layers; ``None`` runs them in one call.
         self.chunk_rows = chunk_rows
+        #: Whether the static and context terms fill the first layer before the product.
+        self.fold = fold
 
     def __call__(self, scalars: Tensor, contexts: Tensor, time: Tensor) -> Tensor:
         if self.rows == 0:
@@ -1282,7 +1291,7 @@ class _LiveNetwork:
         context = context.unflatten(-2, tuple(self.context_index.shape)).flatten(-2)
         projected = F.linear(context, self.context_weight, F.linear(time, self.time_weight))
         chunk = self.chunk_rows
-        if chunk is None:
+        if not self.fold:
             hidden = F.linear(state, self.scalar_weight)
             hidden += self.static
             hidden += projected
@@ -1342,6 +1351,7 @@ class _LiveVelocity:
         # Eager CPU sampling chunks the networks' hidden layers (see _HIDDEN_CHUNK_ROWS);
         # compiled sampling traces one call per layer.
         chunk_rows = _HIDDEN_CHUNK_ROWS if self.compiled is None and device.type == "cpu" else None
+        fold = _FOLD_FIRST_LAYER and device.type == "cpu"
         n_channels, n_entities = channel_repr.shape[-2], entity_repr.shape[-2]
         n_fixed = head.n_fixed
         n_decomposition = 1 + n_entities + n_fixed
@@ -1466,6 +1476,7 @@ class _LiveVelocity:
                 context_weight=base["context"],
                 context_index=columns(1, 0),
                 chunk_rows=chunk_rows,
+                fold=fold,
             )
         ]
 
@@ -1530,6 +1541,7 @@ class _LiveVelocity:
                 context_weight=torch.cat(context_blocks, dim=1),
                 context_index=columns(n_live_entities, *context_columns),
                 chunk_rows=chunk_rows,
+                fold=fold,
             )
         )
 
@@ -1558,6 +1570,7 @@ class _LiveVelocity:
                 context_weight=fixed["context"],
                 context_index=columns(live_fixed.numel(), fixed_positions),
                 chunk_rows=chunk_rows,
+                fold=fold,
             )
         )
         #: Networks that write the decomposition columns (base, contributions, fixed totals);
@@ -1631,6 +1644,7 @@ class _LiveVelocity:
                     ),
                     context_index=slot_rows,
                     chunk_rows=chunk_rows,
+                    fold=fold,
                 )
             )
         self.networks = networks

@@ -167,15 +167,17 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
 
 
 @pytest.mark.parametrize("window", ["query", "context"])
-def test_hidden_layer_row_chunks_never_change_a_draw(model64, batch64, monkeypatch, window):
+def test_x86_network_layout_never_changes_a_draw(model64, batch64, monkeypatch, window):
     monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", None)
+    monkeypatch.setattr(flow, "_FOLD_FIRST_LAYER", False)
     whole, whole_graphs = _draws(
         model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
     )
     # Seven-row chunks split every network's rows; most counts leave a short last chunk.
-    # The chunked form also fills each first layer with its static and context terms
-    # before the scalar product accumulates into it.
+    # Each first layer is filled with its static and context terms before the scalar
+    # product accumulates into it.
     monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", 7)
+    monkeypatch.setattr(flow, "_FOLD_FIRST_LAYER", True)
     chunked, chunked_graphs = _draws(
         model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
     )
