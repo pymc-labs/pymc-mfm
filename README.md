@@ -247,14 +247,20 @@ or `--device cuda`):
   threads during a call. CUDA sampling used to draw with the CUDA generator.
 - Each Euler step runs one kernel per coordinate network that computes its first layer,
   its hidden product and its output without writing activations to memory: Metal on Apple
-  GPUs; CUDA C++ on NVIDIA GPUs, compiled on first use by NVRTC, which PyTorch's CUDA
-  wheels include (no CUDA toolkit or compiler; found on every supported PyTorch, 2.6 and
-  newer, in its CUDA 11.8 to 13 builds). Against PyTorch's GPU operations on the same GPU
+  GPUs; CUDA C++ on NVIDIA GPUs, compiled by NVRTC, which PyTorch's CUDA wheels include
+  (no CUDA toolkit or compiler; found on every supported PyTorch, 2.6 and newer, in its
+  CUDA 11.8 to 13 builds). Against PyTorch's GPU operations on the same GPU
   this is 2.7–7.2x faster at 50–205 query weeks and 2.3–3.3x at 10, where the CPU sets
   more of the pace (NVIDIA T4 to H100 and B200).
 - The NVIDIA kernels run on the current CUDA device. Other devices, ROCm, float64 models,
   compiled sampling and builds whose NVRTC cannot compile for the GPU (sampling warns once)
   use PyTorch's operations, with the same draws.
+- A process's first CUDA sampling call compiles the kernels: about 1 s of NVRTC on a T4 or
+  L4 (1.4 s with CUDA 11.8 builds), in background threads from the start of the call, so
+  it overlaps the call's other first-use work. PyTorch 2.14's CUDA 13 build leaves the
+  compiled kernels in the NVIDIA driver's cache (`~/.nv/ComputeCache`), so later processes
+  on the machine skip it; with PyTorch 2.6's CUDA 12.4 and 2.7's CUDA 11.8 builds every
+  process compiles.
 - Sampling on an Apple GPU needs PyTorch 2.9 or newer: older MPS releases miscompute
   sampling (2.8) or lack operations it uses, and raise a clear error.
 - On the CPU, sampling transports up to eight batches at once, never more than PyTorch's

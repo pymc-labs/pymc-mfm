@@ -13,8 +13,9 @@ approved or published release.
   (CUDA) and the output layer reduces in registers, so no activation reaches device
   memory. The week-pooled trajectory contexts, the Euler update with the entity moments
   and the context projections of every network are small kernels of their own. The CUDA
-  kernels are compiled on first use by NVRTC, which PyTorch's CUDA wheels include, and
-  loaded through the NVIDIA driver, so no CUDA toolkit or compiler is needed; on PyTorch
+  kernels are compiled by NVRTC, which PyTorch's CUDA wheels include, in background threads
+  as sampling starts, and loaded through the NVIDIA driver, so no CUDA toolkit or compiler
+  is needed (about 1 s when no compiled copy is cached, overlapping the first call); on PyTorch
   2.6–2.8, which do not find NVRTC themselves, the versioned library name PyTorch loaded is
   used, and the kernels compile as C++17, as CUDA 11.8 builds need. Other CUDA devices than
   the current one, ROCm and GPUs NVRTC cannot target keep PyTorch's operations. On an
