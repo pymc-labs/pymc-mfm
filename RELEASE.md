@@ -16,6 +16,9 @@ approved or published release.
   is not a fit score or causal-identification claim, and MAP/fixed views do not invent
   the lost pre-selection distribution. Generated HTML contains graph topology and
   column labels; review it before sharing.
+  The quickstart demonstrates Average, ranked graph selection and SVG export with
+  saved notebook outputs. The `examples` extra now installs IPython, which its
+  explicit display calls also need when the notebook runs headlessly in CI.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer

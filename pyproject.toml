@@ -61,6 +61,7 @@ training = [
 examples = [
     "pymc-mfm[local]",
     "pymc-marketing>=1.1,<2",
+    "ipython>=9,<10",
 ]
 
 [project.urls]
