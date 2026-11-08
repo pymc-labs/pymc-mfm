@@ -432,7 +432,7 @@ def _nvrtc() -> ctypes.CDLL:
     PyTorch 2.9 and newer find it themselves. PyTorch 2.8 looks only for an unversioned
     ``libnvrtc.so``, which pip's CUDA wheels do not ship, and 2.6 and 2.7 have no lookup at
     all; their CUDA libraries load NVRTC under its versioned name, so that name finds the
-    same copy.
+    same copy. Every CUDA 11 release names it 11.2.
     """
     from torch.cuda import _utils
 
@@ -441,11 +441,10 @@ def _nvrtc() -> ctypes.CDLL:
     except (AttributeError, OSError):
         pass
     major = int(torch.version.cuda.split(".")[0])
-    names = (
-        [f"nvrtc64_{major}0_0.dll"]
-        if sys.platform == "win32"
-        else [f"libnvrtc.so.{major}", "libnvrtc.so"]
-    )
+    if sys.platform == "win32":
+        names = ["nvrtc64_112_0.dll" if major == 11 else f"nvrtc64_{major}0_0.dll"]
+    else:
+        names = [f"libnvrtc.so.{'11.2' if major == 11 else major}", "libnvrtc.so"]
     for name in names:
         try:
             return ctypes.CDLL(name)
@@ -463,7 +462,8 @@ def _compile(source: str, name: str) -> ctypes.c_void_p:
     """
     nvrtc = _nvrtc()
     major, minor = torch.cuda.get_device_capability()
-    options = [f"--gpu-architecture=sm_{major}{minor}".encode()]
+    # C++17 is NVRTC's default from CUDA 12; CUDA 11's NVRTC needs it spelled out.
+    options = [f"--gpu-architecture=sm_{major}{minor}".encode(), b"--std=c++17"]
     program = ctypes.c_void_p()
     _check(
         nvrtc.nvrtcCreateProgram(
