@@ -59,6 +59,14 @@ approved or published release.
   every device and components agree within 2e-6 of the largest component.
   `benchmarks/inference_speed.py --query-weeks
   10,50,150,205 --device mps` (or `--device cuda`) reproduces it.
+- **Faster loading.** `from_pretrained` (and `load_checkpoint` for training checkpoints)
+  built the model on PyTorch's meta device before loading its weights; initializing
+  parameters there runs Python reference kernels whose first call imports `torch._dynamo`
+  and with it sympy, Triton and `torch.distributed`. Both now build the model on the CPU
+  without advancing PyTorch's generator, and sampling checks shapes with NumPy rather than
+  `torch.broadcast_shapes`, which imported sympy. Neither loading nor sampling imports
+  `torch._dynamo` or sympy now: loading River-1 took 1.9–3.7 s on Linux hosts and 0.5 s on
+  an Apple M3 Max, now 0.27–0.39 s and 0.13 s. Weights and draws are unchanged.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer
