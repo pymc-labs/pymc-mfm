@@ -59,11 +59,12 @@ _X86 = platform.machine().lower() in ("x86_64", "amd64")
 #: output layer instead of streaming through memory between them. With ARM BLAS libraries
 #: the chunks ran slower (Accelerate on Apple silicon 13%, NVPL on Linux ARM 1.5-3.5%).
 _HIDDEN_CHUNK_ROWS = 4096 if _X86 else None
-#: On x86 CPUs, each network's static and context terms fill its first layer and the scalar
-#: product accumulates into it, one pass fewer over the activation than adding both terms
-#: to the product. Eager and compiled sampling both do this, so a compiled sampler that
-#: falls back to eager draws exactly what eager sampling draws.
-_FOLD_FIRST_LAYER = _X86
+#: Off Apple silicon, each network's static and context terms fill its first layer and the
+#: scalar product accumulates into it, one pass fewer over the activation than adding both
+#: terms to the product. Eager and compiled sampling both do this, so a compiled sampler that
+#: falls back to eager draws exactly what eager sampling draws. Apple silicon keeps the
+#: previous order, and with it main's draws bit for bit.
+_FOLD_FIRST_LAYER = not _APPLE_SILICON
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
