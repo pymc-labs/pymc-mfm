@@ -425,6 +425,35 @@ def _compiles(index: int) -> bool:
     return True
 
 
+@lru_cache(maxsize=1)
+def _nvrtc() -> ctypes.CDLL:
+    """The NVRTC library of PyTorch's CUDA build.
+
+    PyTorch 2.9 and newer find it themselves. PyTorch 2.8 looks only for an unversioned
+    ``libnvrtc.so``, which pip's CUDA wheels do not ship, and 2.6 and 2.7 have no lookup at
+    all; their CUDA libraries load NVRTC under its versioned name, so that name finds the
+    same copy.
+    """
+    from torch.cuda import _utils
+
+    try:
+        return _utils._get_nvrtc_library()
+    except (AttributeError, OSError):
+        pass
+    major = int(torch.version.cuda.split(".")[0])
+    names = (
+        [f"nvrtc64_{major}0_0.dll"]
+        if sys.platform == "win32"
+        else [f"libnvrtc.so.{major}", "libnvrtc.so"]
+    )
+    for name in names:
+        try:
+            return ctypes.CDLL(name)
+        except OSError:
+            continue
+    raise OSError(f"NVRTC not found (tried {', '.join(names)})")
+
+
 def _compile(source: str, name: str) -> ctypes.c_void_p:
     """Compile kernel ``name`` for the current GPU with NVRTC and load it; its function handle.
 
@@ -432,9 +461,7 @@ def _compile(source: str, name: str) -> ctypes.c_void_p:
     are needed: PyTorch's CUDA wheels ship the NVRTC library, and the NVIDIA driver loads
     the compiled module into the context PyTorch made current.
     """
-    from torch.cuda import _utils
-
-    nvrtc = _utils._get_nvrtc_library()
+    nvrtc = _nvrtc()
     major, minor = torch.cuda.get_device_capability()
     options = [f"--gpu-architecture=sm_{major}{minor}".encode()]
     program = ctypes.c_void_p()
