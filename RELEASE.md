@@ -16,8 +16,9 @@ approved or published release.
   kernels are compiled on first use by NVRTC, which PyTorch's CUDA wheels include, and
   loaded through the NVIDIA driver, so no CUDA toolkit or compiler is needed; on PyTorch
   2.6–2.8, which do not find NVRTC themselves, the versioned library name PyTorch loaded is
-  used. Other CUDA devices than the current one, ROCm and GPUs NVRTC cannot target keep
-  PyTorch's operations. On an Apple GPU each transport commits its kernels as soon as they are
+  used, and the kernels compile as C++17, as CUDA 11.8 builds need. Other CUDA devices than
+  the current one, ROCm and GPUs NVRTC cannot target keep PyTorch's operations. On an
+  Apple GPU each transport commits its kernels as soon as they are
   queued, and the encoder's attention runs as Metal kernels. GPU sampling draws base noise
   with the CPU generator on a worker thread, in the inline order, while the GPU encodes
   and transports (pinned buffers on CUDA; on an Apple GPU the generator draws only the

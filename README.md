@@ -249,9 +249,9 @@ or `--device cuda`):
   its hidden product and its output without writing activations to memory: Metal on Apple
   GPUs; CUDA C++ on NVIDIA GPUs, compiled on first use by NVRTC, which PyTorch's CUDA
   wheels include (no CUDA toolkit or compiler; found on every supported PyTorch, 2.6 and
-  newer). Against PyTorch's GPU operations on the same GPU this is 2.7–7.2x faster at
-  50–205 query weeks and 2.5–3.3x at 10, where the CPU sets more of the pace (NVIDIA T4 to
-  H100).
+  newer, in its CUDA 11.8 to 13 builds). Against PyTorch's GPU operations on the same GPU
+  this is 2.7–7.2x faster at 50–205 query weeks and 2.5–3.3x at 10, where the CPU sets
+  more of the pace (NVIDIA T4 to H100).
 - The NVIDIA kernels run on the current CUDA device. Other devices, ROCm, float64 models,
   compiled sampling and builds whose NVRTC cannot compile for the GPU (sampling warns once)
   use PyTorch's operations, with the same draws.
