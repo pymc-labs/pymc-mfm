@@ -9,3 +9,11 @@ rules = ["large-file", "embedded-payload"]
 reason = "Fully executed synthetic-data quickstart with 14 inline PNG plots, including five graph diagrams, and the offline graph inspector. The notebook rule checks each image's structure and scans all other strings as text, but it cannot rule out hidden data in a valid image, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request so the reviewer sees the new outputs. Malformed-image findings are never covered."
 sha256 = "f5b2c03e28a11d9f946ab86d3f6a0af36c142e03484cfc04a9537142c474e6ad"
 max_bytes = 4000000
+
+# Range scans use the end-revision allowlist for every historical blob.
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed tutorial snapshot from commit 59a927d, before full execution: its nine synthetic-data PNG outputs were unchanged from the existing quickstart. Retain this exact historical hash so whole-PR range checks cover both reviewed notebook versions. Malformed-image findings are never covered."
+sha256 = "60272fef59f1c71967eb66003bc7abadbbd870594268644e728fbb84d570705e"
+max_bytes = 3000000
