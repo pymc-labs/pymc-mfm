@@ -753,6 +753,10 @@ class MFM(nn.Module):
         prefetch = None
         if mode != "fixed" and _noise_device(query.device) != query.device:
             prefetch = _NoisePrefetch(pin=query.device.type == "cuda")
+        # On an NVIDIA GPU the sampling kernels build in background threads while the GPU
+        # encodes (see _cuda.prefetch); compiled sampling runs PyTorch operations instead.
+        if query.device.type == "cuda" and self.head._compiled_velocity is None:
+            _metal.prepare(query.device, (self.head, self.conditional_head))
         # On a GPU the host copies the activity masks before the encoder is queued; the host
         # then decides the live coordinates and graph masks without waiting for the GPU.
         host_masks = None

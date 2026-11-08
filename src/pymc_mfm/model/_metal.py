@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -742,6 +743,23 @@ def has_kernels(device: torch.device) -> bool:
     if device.type == "mps":
         return torch.__version__ >= MIN_TORCH
     return device.type == "cuda" and _cuda.available(device)
+
+
+def prepare(device: torch.device, heads: Iterable[JointFlowHead]) -> None:
+    """Start building the kernels that sampling ``heads`` on the GPU ``device`` launches.
+
+    NVIDIA kernels build with NVRTC in background threads (see :func:`_cuda.prefetch`);
+    Apple GPU kernels compile in milliseconds on first use.
+    """
+    if device.type != "cuda":
+        return
+    widths = {
+        head.base_net[2].weight.shape[0]
+        for head in heads
+        if head.base_net[2].weight.dtype == torch.float32
+    }
+    if widths:
+        _cuda.prefetch(device, widths)
 
 
 def supported(head: JointFlowHead, weight: Tensor) -> bool:

@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import ctypes
 import sys
+import threading
 import warnings
+from collections.abc import Iterable
+from concurrent.futures import Future, ThreadPoolExecutor
 from functools import lru_cache
 
 import torch
@@ -453,15 +456,14 @@ def _nvrtc() -> ctypes.CDLL:
     raise OSError(f"NVRTC not found (tried {', '.join(names)})")
 
 
-def _compile(source: str, name: str) -> ctypes.c_void_p:
-    """Compile kernel ``name`` for the current GPU with NVRTC and load it; its function handle.
+def _cubin(source: str, name: str, arch: tuple[int, int], nvrtc: ctypes.CDLL) -> bytes:
+    """Kernel ``name`` compiled by NVRTC into machine code for compute capability ``arch``.
 
     The sources use only built-in CUDA types and functions, so no CUDA toolkit or headers
-    are needed: PyTorch's CUDA wheels ship the NVRTC library, and the NVIDIA driver loads
-    the compiled module into the context PyTorch made current.
+    are needed: PyTorch's CUDA wheels ship the NVRTC library. NVRTC needs no CUDA context,
+    so this runs on any thread.
     """
-    nvrtc = _nvrtc()
-    major, minor = torch.cuda.get_device_capability()
+    major, minor = arch
     # C++17 is NVRTC's default from CUDA 12; CUDA 11's NVRTC needs it spelled out.
     options = [f"--gpu-architecture=sm_{major}{minor}".encode(), b"--std=c++17"]
     program = ctypes.c_void_p()
@@ -485,14 +487,62 @@ def _compile(source: str, name: str) -> ctypes.c_void_p:
         _check(nvrtc.nvrtcGetCUBINSize(program, ctypes.byref(size)), "NVRTC")
         binary = ctypes.create_string_buffer(size.value)
         _check(nvrtc.nvrtcGetCUBIN(program, binary), "NVRTC")
+        return binary.raw
     finally:
         nvrtc.nvrtcDestroyProgram(ctypes.byref(program))
+
+
+def _load(binary: bytes, name: str) -> ctypes.c_void_p:
+    """Load compiled kernel ``name`` into the context PyTorch made current; its function."""
     torch.cuda.current_stream()  # PyTorch's context is current on this thread
     driver = _driver()
     module, function = ctypes.c_void_p(), ctypes.c_void_p()
     _check(driver.cuModuleLoadData(ctypes.byref(module), binary), "CUDA driver")
     _check(driver.cuModuleGetFunction(ctypes.byref(function), module, name.encode()), "CUDA driver")
     return function
+
+
+#: NVRTC builds by (kernel, compute capability), running or done; see :func:`prefetch`.
+_BUILDS: dict[tuple[str, int, int], Future[bytes]] = {}
+_BUILDS_LOCK = threading.Lock()
+
+
+@lru_cache(maxsize=1)
+def _builder() -> ThreadPoolExecutor:
+    return ThreadPoolExecutor(4, thread_name_prefix="pymc-mfm-nvrtc")
+
+
+def _build(name: str, index: int) -> Future[bytes]:
+    """The NVRTC build of kernel ``name`` for device ``index``, started on first request."""
+    arch = torch.cuda.get_device_capability(index)
+    with _BUILDS_LOCK:
+        build = _BUILDS.get((name, *arch))
+        if build is None:
+            build = _builder().submit(_cubin, _source(name), name, arch, _nvrtc())
+            _BUILDS[(name, *arch)] = build
+    return build
+
+
+def prefetch(device: torch.device, hidden_sizes: Iterable[int]) -> None:
+    """Start building every kernel that sampling on ``device`` launches, in the background.
+
+    ``hidden_sizes`` are the widths of the flow networks. NVRTC takes about a second for
+    these kernels when no compiled copy is cached on the machine yet (a machine's first
+    process; fresh notebook, CI or container sessions); built in background threads, they
+    overlap each other and the call's encoder and other first-use work. First uses wait
+    only for unfinished builds.
+    """
+    if torch.version.cuda is None or torch.version.hip is not None:
+        return
+    index = torch.cuda.current_device()
+    if device.index not in (None, index):
+        return
+    networks = [f"network_{hidden}" for hidden in sorted(hidden_sizes) if hidden in NETWORK_THREADS]
+    try:
+        for name in (*networks, "step_moments", "trajectory_context", "context_projection"):
+            _build(name, index)
+    except (AttributeError, OSError, RuntimeError):
+        pass  # the availability check reports why the kernels are unavailable
 
 
 @lru_cache(maxsize=1)
@@ -571,15 +621,17 @@ def _network_source(
     return _COMMON + source
 
 
+def _source(name: str) -> str:
+    if name.startswith("network_"):
+        hidden = int(name.removeprefix("network_"))
+        return _network_source(hidden, BLOCK_ROWS, _ROWS_PER_THREAD, _SLICE, _MIN_BLOCKS)
+    return _COMMON + _SOURCES[name]
+
+
 @lru_cache(maxsize=None)
 def _compiled(name: str, index: int) -> _Kernel:
     """Kernel ``name`` loaded on CUDA device ``index``, which must be the current device."""
-    if name.startswith("network_"):
-        hidden = int(name.removeprefix("network_"))
-        source = _network_source(hidden, BLOCK_ROWS, _ROWS_PER_THREAD, _SLICE, _MIN_BLOCKS)
-    else:
-        source = _COMMON + _SOURCES[name]
-    return _Kernel(_compile(source, name))
+    return _Kernel(_load(_build(name, index).result(), name))
 
 
 _LIBRARY = _Library()
