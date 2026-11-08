@@ -37,7 +37,9 @@ approved or published release.
   (random weights of River-1's architecture at 205 weeks: 4.2 GiB peak on an Apple M3 Max
   GPU, 1.2 GiB on NVIDIA GPUs). The CPU conditions each batch's pairs in its batch worker,
   as before. Sampling on an Apple GPU needs PyTorch 2.9 or newer (2.8 MPS
-  computes linear layers of column-sliced weights wrongly) and raises otherwise. No
+  computes linear layers of column-sliced weights wrongly) and raises otherwise; it also
+  raises on a GPU whose MPS linear layers are wrong (a macOS virtual machine's
+  paravirtual GPU computes them with a bias 30–80% off), checked once per process. No
   weights, bundles or training change. Off Apple silicon, CPU sampling transports up to
   eight batches at once, each on its own share of PyTorch's threads (it ran one batch on
   every thread), and each network's static and context terms fill its first layer before

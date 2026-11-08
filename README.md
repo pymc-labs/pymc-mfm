@@ -279,8 +279,9 @@ or `--device cuda`):
   draw, peaked at 4.2 GiB on the Apple GPU and 1.2 GiB on NVIDIA GPUs at 205 weeks (main:
   1.2 and 0.4 GiB) and sampled 3.4x (M3 Max) and 2.5x (T4) faster than main.
 - In a macOS virtual machine (GPU "Apple Paravirtual device", as on GitHub's macOS
-  runners), PyTorch 2.14's MPS computes linear layers with a bias wrongly (46% relative
-  error on a 4,096 × 256 layer), so GPU draws there are wrong; sample on the CPU in a VM.
+  runners), PyTorch 2.14's MPS computes every linear layer with a bias wrongly (30–80%
+  relative error), so sampling there raises an error instead of returning wrong draws;
+  sample on the CPU in a VM.
 
 ### Faster repeated sampling (optional)
 
