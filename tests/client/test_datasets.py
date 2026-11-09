@@ -201,3 +201,55 @@ def test_labels_do_not_change_reuse_matching(client, service, history):
     service.on("GET", "/v1/datasets", (200, {"datasets": [stored]}))
     dataset = create_reusing(client, history, currency="USD")
     assert dataset.dataset_id == "ds_9" and not service.sent("POST", "/v1/datasets")
+
+
+def bad_histories(history):
+    """The test history with one rule broken in each copy."""
+    return {
+        "missing": history.drop(index=2).reset_index(drop=True),
+        "duplicate": history.iloc[[0, 1, 1, 2]].reset_index(drop=True),
+        "reversed": history.iloc[[0, 2, 1, 3]].reset_index(drop=True),
+    }
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("missing", "Row 3 of your history has the date 2024-07-22, but row 2 has 2024-07-08."),
+        ("duplicate", "Row 3 of your history repeats the date 2024-07-08, which is also in row 2."),
+        ("reversed", "Row 3 of your history has the date 2024-07-08, but row 2 has 2024-07-15."),
+    ],
+)
+@pytest.mark.parametrize("reuse", [False, True])
+def test_a_bad_history_is_refused_before_any_upload(client, service, history, case, message, reuse):
+    service.on("GET", "/v1/datasets", (200, {"datasets": []}))
+    frame = bad_histories(history)[case]
+    frame.index = [40, 10, 30, 20][: len(frame)]  # row positions, not index labels
+    with pytest.raises(ValueError, match=message):
+        client.datasets.create(
+            frame, date="week", outcome="sales", spend=["tv", "search"], reuse=reuse
+        )
+    assert not service.sent("POST", "/v1/datasets")
+
+
+def test_a_shuffled_history_is_reused_without_a_check_or_upload(client, service, history):
+    stored = dataset_record(dataset_id="ds_9", content_hash=history_hash(history))
+    service.on("GET", "/v1/datasets", (200, {"datasets": [stored]}))
+    shuffled = history.iloc[[2, 0, 3, 1]]
+    assert create_reusing(client, shuffled).dataset_id == "ds_9"
+    assert not service.sent("POST", "/v1/datasets")
+
+
+def test_a_shuffled_history_without_a_match_is_refused_locally(client, service, history):
+    service.on("GET", "/v1/datasets", (200, {"datasets": []}))
+    with pytest.raises(ValueError, match="Row 2 of your history has the date 2024-07-01"):
+        create_reusing(client, history.iloc[[2, 0, 3, 1]])
+    assert not service.sent("POST", "/v1/datasets")
+
+
+def test_the_corrected_history_uploads_and_hashes_the_same(client, service, history):
+    service.on("POST", "/v1/datasets", (201, dataset_record()))
+    shuffled = history.iloc[[2, 0, 3, 1]]
+    assert history_hash(shuffled) == history_hash(history)
+    client.datasets.create(history, date="week", outcome="sales", spend=["tv", "search"])
+    assert len(service.sent("POST", "/v1/datasets")) == 1

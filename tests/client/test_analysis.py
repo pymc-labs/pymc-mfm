@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from pymc_mfm.client import (
@@ -378,3 +379,81 @@ def test_export_of_an_unfinished_analysis_raises_not_ready(client, service, tmp_
     with pytest.raises(NotReady):
         client.get("an_1").export(tmp_path / "out.json")
     assert not (tmp_path / "out.json").exists()
+
+
+PLAN_START = "Your history ends on 2024-07-22. Your plan starts on {start}."
+NEXT_DATE = "The next required date is 2024-07-29."
+CHECK = "Check whether a week is missing from your history or plan."
+
+
+def wire_plan(dates):
+    count = len(dates)
+    return {
+        "dates": dates,
+        "spend": {"tv": [1.0] * count, "search": [2.0] * count},
+        "controls": {"price": [1.0] * count},
+    }
+
+
+@pytest.mark.parametrize("start", ["2024-08-05", "2024-07-22", "2024-07-15"])
+def test_a_plan_not_starting_the_week_after_the_history_is_refused(
+    client, service, dataset, plan, start
+):
+    late = plan.assign(week=[pd.Timestamp(start), pd.Timestamp(start) + pd.Timedelta(days=7)])
+    message = f"{PLAN_START.format(start=start)} {NEXT_DATE} {CHECK}"
+    for bad in (late, wire_plan([start, "2099-01-01"])):
+        with pytest.raises(ValueError) as error:
+            client.analyze(dataset, bad)
+        assert str(error.value) == message
+    assert not service.sent("POST", "/v1/analyses")
+
+
+@pytest.mark.parametrize(
+    ("dates", "message"),
+    [
+        (
+            ["2024-07-29", "2024-08-05", "2024-08-19"],
+            "Row 3 of your plan has the date 2024-08-19, but row 2 has 2024-08-05.",
+        ),
+        (
+            ["2024-07-29", "2024-08-05", "2024-08-05"],
+            "Row 3 of your plan repeats the date 2024-08-05, which is also in row 2.",
+        ),
+        (
+            ["2024-07-29", "2024-08-12", "2024-08-05"],
+            "Row 3 of your plan has the date 2024-08-05, but row 2 has 2024-08-12.",
+        ),
+    ],
+)
+def test_a_plan_with_a_gap_duplicate_or_reversed_dates_names_the_row(
+    client, service, dataset, plan, dates, message
+):
+    frame = pd.DataFrame({"week": pd.to_datetime(dates), "tv": 1.0, "search": 2.0, "price": 3.0})
+    frame.index = [7, 5, 6]  # index labels are not row positions
+    for bad in (frame, wire_plan(dates)):
+        with pytest.raises(ValueError, match=message):
+            client.analyze(dataset, bad)
+    assert not service.sent("POST", "/v1/analyses")
+
+
+@pytest.mark.parametrize("call", ["analyze", "explore"])
+def test_a_late_plan_is_refused_for_a_dataset_id_before_any_submission(client, service, plan, call):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
+    late = plan.assign(week=pd.date_range("2024-08-05", periods=2, freq="W-MON"))
+    with pytest.raises(ValueError, match="Your plan starts on 2024-08-05"):
+        getattr(client, call)("ds_123", late)
+    assert not service.sent("POST", "/v1/analyses")
+
+
+def test_a_corrected_plan_is_sent_unchanged(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, plan)
+    client.analyze(dataset, wire_plan(["2024-07-29", "2024-08-05"]))
+    first, second = (json.loads(r.content)["plan"]["dates"] for r in service.requests[-2:])
+    assert first == second == ["2024-07-29", "2024-08-05"]
+
+
+def test_a_wire_plan_without_dates_is_left_to_the_service(client, service, dataset):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, {"spend": {"tv": [1.0]}})
+    assert len(service.sent("POST", "/v1/analyses")) == 1

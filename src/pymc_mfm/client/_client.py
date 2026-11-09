@@ -9,6 +9,7 @@ import httpx
 import pandas as pd
 
 from . import builders
+from ._dates import check_plan_follows_history
 from ._http import Http, new_idempotency_key
 from ._wire import plan_body
 from .analysis import Analysis, AnalysisStatus, Preview
@@ -87,16 +88,21 @@ class Client:
         limits where steps and curves may change spend. Omitted ``draws`` and ``seed`` take
         the service's defaults. ``name`` (1 to 120 characters) labels the analysis on the site
         and in its export. Pass the same ``idempotency_key`` to repeat a call safely.
+
+        The plan's dates must be weekly, in order, and start the week after the dataset's
+        last date; otherwise ``ValueError`` names the first bad row and nothing is sent.
         """
         record = self._resolve(dataset)
+        wire_plan = plan_body(
+            plan,
+            channels=record.channels,
+            controls=record.controls,
+            date_column=record.date_column,
+        )
+        check_plan_follows_history(wire_plan, record.end)
         body: dict[str, Any] = {
             "dataset_id": record.dataset_id,
-            "plan": plan_body(
-                plan,
-                channels=record.channels,
-                controls=record.controls,
-                date_column=record.date_column,
-            ),
+            "plan": wire_plan,
             "scenarios": list(scenarios),
             "curves": list(curves),
             "explain_history": explain_history,
