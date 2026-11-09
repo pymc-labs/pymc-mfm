@@ -6,6 +6,34 @@ approved or published release.
 
 ## Changes
 
+- **Graphviz DOT export and native default diagrams.** `result.plot.dot(graph=rank)`
+  and `pymc_mfm.plotting.graph_to_dot(summary, graph=rank)` export an exact complete
+  graph; omitting the rank exports marginal edges with numeric frequency labels
+  and exact probability attributes. Diagnostics expose the same accessor, and the
+  optional offline inspector downloads the currently selected view as DOT or SVG.
+  Named active nodes remain in empty graphs; supplied truth and padded nodes are
+  excluded from DOT. Labels are quoted literally and must be XML 1.0-compatible.
+  Diagrams now use Graphviz's actual `dot` engine with its default shapes, edge
+  routing, typography and spacing; all custom graph geometry and orthogonal
+  routing have been removed. `dag()` returns `GraphvizGraph`, not a Matplotlib
+  figure, with native PNG display and PNG/vector SVG `savefig` export without
+  Matplotlib-only options. Rendering and building the optional inspector require
+  the system Graphviz tools on `PATH`; writing DOT and opening saved HTML do not.
+  The fully executed quickstart contains rank tables, average and individual
+  diagrams, and SVG/DOT exports, without the custom HTML inspector.
+- **Individual sampled graphs and an offline inspector.** `result.plot.dag(graph=rank)`
+  draws an exact complete graph at its zero-based frequency rank; `dag()` keeps the
+  marginal-average view. `result.plot.graph_inspector()` displays every observed graph
+  in an isolated notebook frame or saves a standalone HTML selector with paginated
+  counts/frequencies and current-view SVG export. Both accessors also work on
+  diagnostics, and the standalone renderers accept saved summaries without inference.
+  Active named nodes remain visible for empty graphs; padding is omitted. Frequency
+  is not a fit score or causal-identification claim, and MAP/fixed views do not invent
+  the lost pre-selection distribution. Generated HTML contains graph topology and
+  column labels; review it before sharing.
+  The quickstart demonstrates Average, ranked graph selection and SVG export with
+  saved notebook outputs. The `examples` extra now installs IPython, which its
+  explicit display calls also need when the notebook runs headlessly in CI.
 - **Documentation website.** `docs/` is a Quarto site in the PyMC Labs palette and brand
   type (Archivo Expanded for headlines and large text, Inter for body text): a landing
   page, a Guide (written pages plus every notebook in `examples/`, rendered from stored

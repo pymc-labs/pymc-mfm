@@ -27,6 +27,8 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.13"
+      - name: Install the native graph renderer
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
       # "base" names the lane that runs the model with the default test tools; it needs the
       # `local` extra because the default install no longer includes PyTorch.
       - name: Install the local model runtime and test tools

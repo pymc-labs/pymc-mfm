@@ -218,6 +218,75 @@ either window:
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
+### Inspect sampled graphs
+
+With `[diagnostics]`, switch between the marginal-average graph and individual
+complete graphs without rerunning inference:
+
+```python
+result.plot.dag()  # Average: numeric labels show marginal edge frequencies
+result.plot.dag(graph=0)  # Most frequent complete graph: binary edge indicators
+result.plot.dag(graph=1).savefig("graph-rank-1.svg")
+
+from pathlib import Path
+
+Path("graph-average.dot").write_text(result.plot.dot(), encoding="utf-8", newline="\n")
+Path("graph-rank-0.dot").write_text(result.plot.dot(graph=0), encoding="utf-8", newline="\n")
+
+inspector = result.plot.graph_inspector()
+inspector  # Interactive display in a trusted notebook
+inspector.save("graphs.html")  # Open this local file in a browser; no server required
+```
+
+Ranks are **zero-based**, ordered by descending draw count, then ascending binary
+graph vector for ties. The inspector includes every observed complete graph, a
+count/frequency distribution with 50-row pages, an Average option, and download
+buttons for the currently displayed SVG and Graphviz DOT source. Empty-edge graphs
+retain their named active nodes; padded nodes are omitted. Configured channel/control
+column names appear with their role prefixes, and the target is labeled `outcome`.
+
+The same methods are available on `result.diagnostics(...).plot`; the standalone
+`pymc_mfm.plotting.plot_dag(summary, graph=...)`, `graph_to_dot(summary, graph=...)`
+and `plot_graph_inspector(summary)` also accept saved diagnostic summaries.
+The inspector and DOT exports show prediction graphs only, even when diagnostics
+include graph truth; `dag()` retains its separate truth comparison.
+
+Diagrams use the system Graphviz `dot` engine with its defaults unchanged:
+ellipses, natural edge routing and native spacing. Average edges carry numeric
+frequency labels; individual graphs use plain binary arrows. Install Graphviz
+with `brew install graphviz` on macOS or `sudo apt-get install graphviz` on
+Debian/Ubuntu, and ensure `dot` is on `PATH`. No Python Graphviz package is needed.
+
+`dag()` returns a `GraphvizGraph`, not a Matplotlib figure. Its `savefig` method
+writes native PNG or vector SVG without Matplotlib-only options such as
+`bbox_inches`. Creating the optional inspector also requires `dot`: it renders
+all discovered graphs in one batch and embeds their SVGs. Opening the resulting
+HTML requires only a browser, not Graphviz.
+
+Writing DOT source does **not** require Graphviz. Saved DOT can also be rendered
+directly with its command-line tools:
+
+```bash
+dot -Tsvg graph-rank-0.dot -o graph-rank-0.svg
+```
+
+The Average may combine edges never sampled together and may contain cycles.
+Graph frequencies are not effect strengths, goodness-of-fit scores or evidence of
+causal identification. MAP/fixed results show only the selected/supplied hypothesis,
+not the pre-selection graph distribution. `graph_posterior()` remains the compact
+top-15 frequency chart; use the inspector to select graphs beyond that cutoff.
+
+The inspector is self-contained and uses no external assets or network service.
+Notebook output runs in an isolated frame; notebook trust/JavaScript permission is
+required for interaction. Exported HTML embeds graph topology, column labels,
+counts/frequencies and display metadata, but not observations or contribution
+draws. Review it as a result artifact before sharing.
+
+Node labels preserve literal Unicode, quotes, backslashes and line breaks.
+Characters that cannot appear in valid XML 1.0 SVG labels raise `ValueError`
+when exporting DOT, creating a diagram or building the inspector, rather than
+silently replacing the labels.
+
 ### Faster repeated sampling (optional)
 
 A long-running process that samples many times, such as a service, can compile the

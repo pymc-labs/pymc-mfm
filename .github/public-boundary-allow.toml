@@ -6,8 +6,30 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Notebook with inline PNG plots. The notebook rule checks each image's structure and scans all other strings as text, but it cannot rule out hidden data in a valid image, so these exact bytes are pinned. Any rerun must update sha256 in the same pull request so the reviewer sees the new outputs. Malformed-image findings are never covered."
-sha256 = "056ee3d100a906886b5f1f99049095718f9e789ed2ba9edee71578cd47b14e9d"
+reason = "Fully executed synthetic-data quickstart with 14 inline PNG plots, including five native Graphviz default diagrams and printed DOT export examples, without the custom HTML inspector. The notebook rule checks each image's structure and scans all other strings as text, but it cannot rule out hidden data in a valid image, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request so the reviewer sees the new outputs. Malformed-image findings are never covered."
+sha256 = "5cf175429c35e8007ddf86e3ceb4522d0d0bb807dc4e682ad223cb562f75532f"
+max_bytes = 3000000
+
+# Range scans use the end-revision allowlist for every historical blob.
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed fully executed synthetic-data quickstart before the native Graphviz cutover, with 14 PNG plots and the offline inspector. Retain this exact historical hash so whole-PR range checks cover the earlier reviewed notebook version. Malformed-image findings are never covered."
+sha256 = "6b444392b4a20960db247c9e0d54a4df71dce1dd47bf683282b75770b3811fd0"
+max_bytes = 4000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed fully executed synthetic-data quickstart before Graphviz styling and DOT examples, with 14 inline PNG plots. Retain this exact historical hash so whole-PR range checks cover the earlier reviewed notebook version. Malformed-image findings are never covered."
+sha256 = "f5b2c03e28a11d9f946ab86d3f6a0af36c142e03484cfc04a9537142c474e6ad"
+max_bytes = 4000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed tutorial snapshot from commit 59a927d, before full execution: its nine synthetic-data PNG outputs were unchanged from the existing quickstart. Retain this exact historical hash so whole-PR range checks cover both reviewed notebook versions. Malformed-image findings are never covered."
+sha256 = "60272fef59f1c71967eb66003bc7abadbbd870594268644e728fbb84d570705e"
 max_bytes = 3000000
 
 [[allow]]

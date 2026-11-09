@@ -183,6 +183,19 @@ quartodoc:
         - diagnostics.calibration_summary
         - diagnostics.sbc_report
         - diagnostics.build_report
+    - title: Graph inspection
+      desc: Marginal and individual graphs, offline inspection and Graphviz DOT export.
+      contents:
+        - plotting.plot_dag
+        - name: plotting.GraphvizGraph
+          members:
+            - render
+            - savefig
+        - plotting.graph_to_dot
+        - plotting.plot_graph_inspector
+        - name: plotting.GraphInspector
+          members:
+            - save
 
 format:
   html:
