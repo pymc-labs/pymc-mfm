@@ -1,14 +1,16 @@
 """Readable headless figures from computed, persisted diagnostic summaries.
 
-Every function returns a matplotlib Figure for notebooks or ``savefig``.
-Matplotlib is imported only when a figure is requested; pyplot/backend globals
-are never changed, and no function imports or calls an inference model.
-Notebooks display a returned figure as a PNG cell result without pyplot.
-Single-panel functions accept ``ax=``: they then draw into the caller's axes,
-put the labels in its title and return the root figure holding those axes
+Most functions return a matplotlib Figure for notebooks or ``savefig``;
+``plot_dag`` returns a native GraphvizGraph instead. Matplotlib is imported only
+when a Matplotlib figure is requested; pyplot/backend globals are never changed,
+and no function imports or calls an inference model. Notebooks display either
+artifact as a PNG cell result without pyplot.
+Single-panel Matplotlib functions accept ``ax=``: they then draw into the caller's
+axes, put the labels in its title and return the root figure holding those axes
 (also when the axes sit on a subfigure); the caller's layout engine, or
-``bbox_inches="tight"``, makes room for that title. Functions whose figure has
-several axes raise ``ValueError`` for ``ax=``, stating how many axes they need.
+``bbox_inches="tight"``, makes room for that title. Functions whose Matplotlib
+figure has several axes raise ``ValueError`` for ``ax=``, stating how many axes
+they need.
 """
 
 from __future__ import annotations
@@ -19,10 +21,18 @@ import io
 import math
 import re
 import textwrap
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from pymc_mfm.inference._time import _restore_time, _time_to_json
+
+from ._graphs import ranked_graphs, select_graph
+from ._graphviz import GraphvizGraph
+from .dot import _graph_statements, _quoted_label, graph_to_dot
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 COLORS = {
     "baseline": "#666666",
@@ -872,75 +882,43 @@ def plot_structure_heatmap(summary):
     return fig
 
 
-def plot_dag(summary):
-    edges = summary["arrays"]["graphs"]["edges"]
-    if not edges or any(entry["endpoints"] is None for entry in edges):
-        raise ValueError("DAG view requires aligned edge endpoints")
-    from matplotlib.patches import FancyArrowPatch
+def plot_dag(summary, *, graph=None) -> GraphvizGraph:
+    """Render Average or a zero-based complete graph rank with native ``dot`` defaults.
 
-    nodes = sorted({node for entry in edges for node in entry["endpoints"]})
-    banks = {}
-    for node in nodes:
-        bank = node.split(":", 1)[0]
-        banks.setdefault(bank, []).append(node)
-    order = sorted(
-        banks,
-        key=lambda bank: (
-            {"latent": 0, "control": 1, "channel": 2, "outcome": 3, "sales": 4}.get(bank, 5),
-            bank,
-        ),
+    Without graph truth, the source is exactly the prediction-only DOT export.
+    Supplied truth is compared in a separate, semantically labeled native cluster;
+    it never changes the prediction export. Rendering requires Graphviz.
+    """
+    edges = summary["arrays"]["graphs"]["edges"]
+    if not edges or not all(entry["truth"] is not None for entry in edges):
+        return GraphvizGraph(graph_to_dot(summary, graph=graph))
+    selected = select_graph(summary, graph=graph)
+    nodes, average, individual = _graph_statements(edges)
+    truth_nodes, _, truth_edges = _graph_statements(edges, prefix="t")
+    prediction_label = "Average" if selected is None else f"Complete graph rank {graph}"
+    values = [entry["probability"] for entry in edges] if selected is None else selected["graph"]
+    prediction_edges = average if selected is None else individual
+    lines = ["digraph {", "  subgraph cluster_truth {", '    label="True graph";']
+    lines.extend(f"  {line}" for line in truth_nodes)
+    lines.extend(
+        f"  {line}" for line, entry in zip(truth_edges, edges, strict=True) if entry["truth"]
     )
-    positions = {}
-    for column, bank in enumerate(order):
-        ys = np.linspace(0.1, 0.9, len(banks[bank])) if len(banks[bank]) > 1 else [0.5]
-        for node, y in zip(banks[bank], ys):
-            positions[node] = (column, y)
-    has_truth = all(entry["truth"] is not None for entry in edges)
-    fig, axes = _figure(1, 2 if has_truth else 1, width=15 if has_truth else 9, row_height=5.5)
-    for column, ax in enumerate(axes[0]):
-        true_panel = has_truth and column == 0
-        for entry in edges:
-            value = entry["truth"] if true_panel else entry["probability"]
-            if not value:
-                continue
-            source, target = entry["endpoints"]
-            arrow = FancyArrowPatch(
-                positions[source],
-                positions[target],
-                arrowstyle="-|>",
-                mutation_scale=11,
-                shrinkA=14,
-                shrinkB=14,
-                linewidth=0.6 + 2 * value,
-                alpha=0.3 + 0.7 * value,
-                color="#0072B2",
-                connectionstyle="arc3,rad=0.12",
-            )
-            ax.add_patch(arrow)
-        for node, (x, y) in positions.items():
-            ax.scatter(x, y, color="white", edgecolor="0.3", s=240, zorder=3)
-            ax.text(x, y + 0.045, node, ha="center", va="bottom", fontsize=8)
-        ax.set_xlim(-0.5, len(order) - 0.5)
-        ax.set_ylim(-0.05, 1.05)
-        ax.set_axis_off()
-        ax.set_title(
-            "True graph" if true_panel else "Marginal routing view (may contain cycles)",
-            fontsize=10,
-        )
-    _header(
-        fig, summary, "Directed graph views — native renderer; width / opacity = edge frequency"
-    )
-    return fig
+    lines.extend(["  }", "  subgraph cluster_prediction {"])
+    lines.append(f"    label={_quoted_label(prediction_label)};")
+    lines.extend(f"  {line}" for line in nodes)
+    lines.extend(f"  {line}" for line, value in zip(prediction_edges, values, strict=True) if value)
+    lines.extend(["  }", "}", ""])
+    return GraphvizGraph("\n".join(lines))
 
 
 def plot_graph_posterior(summary, *, ax=None):
     graph = summary["arrays"]["graphs"]
-    records = sorted(graph["complete_graphs"], key=lambda item: (-item["count"], item["graph"]))
+    records = ranked_graphs(summary)
     selected = records[:15]
     probabilities = [entry["frequency"] for entry in selected]
     labels = ["".join(map(str, entry["graph"])) or "empty graph" for entry in selected]
     labels = [
-        label if len(label) <= 28 else f"Graph {index + 1} (full vector in evidence)"
+        label if len(label) <= 28 else f"Graph {index} (full vector in evidence)"
         for index, label in enumerate(labels)
     ]
     colors = ["#D55E00" if entry.get("is_truth", False) else "#0072B2" for entry in selected]
@@ -1919,7 +1897,7 @@ def _saved_reliability_kind(summary):
     return "binned" if data is not None and "corp" not in data["pooled"] else "corp"
 
 
-def plot_panel(name, summary):
+def plot_panel(name, summary) -> Figure | GraphvizGraph:
     """Render a named applicable catalog panel solely from computed arrays."""
     dispatch = {
         "target_recovery": plot_target_recovery,

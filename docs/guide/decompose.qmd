@@ -179,6 +179,49 @@ restored = DecompositionResult.load("results/query")
 
 Saved results retain dates and can be reloaded without the model. With `pymc-mfm[diagnostics]`, use `result.plot.reconstruction(observed=...)` or `result.diagnostics(truth=...)`. With `pymc-mfm[arviz]`, call `result.to_datatree()` for the generic result export.
 
+## Inspect sampled graphs
+
+With `pymc-mfm[diagnostics]`, reuse the existing draws to inspect either marginal
+edge frequencies or an individual complete graph:
+
+```python
+from pathlib import Path
+
+result.plot.dag()  # Average: numeric marginal edge frequencies
+result.plot.dag(graph=0)  # Most frequent complete graph, with binary arrows
+result.plot.dag(graph=0).savefig("graph-rank-0.svg")
+inspector = result.plot.graph_inspector()
+inspector.save("graphs.html")
+Path("graph-average.dot").write_text(result.plot.dot(), encoding="utf-8", newline="\n")
+Path("graph-rank-0.dot").write_text(result.plot.dot(graph=0), encoding="utf-8", newline="\n")
+```
+
+Ranks are zero-based, ordered by descending draw count and then ascending binary
+vector for ties. The offline inspector includes every observed graph, paginated
+counts/frequencies, Average, and SVG/DOT downloads of the currently selected view.
+Configured column names appear with role prefixes; the target is labeled `outcome`.
+Named active nodes remain visible even when a selected graph has no edges.
+
+Diagrams use Graphviz's native `dot` engine with its default layout, ellipses,
+edge routing and typography unchanged. Install the system Graphviz tools first
+(`brew install graphviz` on macOS or `sudo apt-get install graphviz` on Ubuntu)
+and ensure `dot` is on `PATH`; no Python Graphviz package is needed.
+`dag()` returns a `GraphvizGraph` with native PNG display and PNG/vector SVG
+`savefig` export, not a Matplotlib figure. Do not pass Matplotlib-only options.
+Creating the optional inspector also requires Graphviz; opening its saved HTML
+does not. Writing DOT remains dependency-free, and a saved file can be rendered
+with `dot -Tsvg graph-rank-0.dot -o graph-rank-0.svg`. See
+[graph_to_dot](../reference/plotting.graph_to_dot.qmd) and the
+[fully executed quickstart](examples/river_1_quickstart.ipynb) for export and
+all-rank examples.
+
+The Average may combine edges never sampled together. Frequencies are not effect
+strengths, fit scores or evidence of causal identification. MAP/fixed views show
+only the selected/supplied hypothesis, not its pre-selection distribution.
+DOT and the inspector show predictions only; `dag()` retains a separate supplied
+truth comparison. Exported files contain column labels and graph topology: review
+them before sharing.
+
 ## Faster repeated sampling
 
 For a long-running process, opt into `torch.compile` on the sampler and warm representative requests before serving them. [warm_up_sampling](../reference/inference.warm_up_sampling.qmd) compiles supported input shapes without waiting for the first request.
