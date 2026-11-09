@@ -6,11 +6,18 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Fully executed synthetic-data quickstart with 14 inline PNG plots, including five native Graphviz default diagrams and printed DOT export examples, without the custom HTML inspector. The notebook rule checks each image's structure and scans all other strings as text, but it cannot rule out hidden data in a valid image, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request so the reviewer sees the new outputs. Malformed-image findings are never covered."
-sha256 = "5cf175429c35e8007ddf86e3ceb4522d0d0bb807dc4e682ad223cb562f75532f"
+reason = "Synthetic-data quickstart with 14 reviewed inline PNG plots, native Graphviz diagrams and printed DOT exports. The input-token example is smoke-tested with a small synthetic model; existing saved outputs remain unchanged. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
+sha256 = "c0e8e37207638bb00adf3390f449cce9325d2d70f3ba3b3cde282e9189833040"
 max_bytes = 3000000
 
 # Range scans use the end-revision allowlist for every historical blob.
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed main-branch quickstart before the input-token example, with 14 synthetic-data PNG plots and native Graphviz/DOT exports. Those saved outputs are unchanged by the added text/code cells. Retain this exact historical hash for merged-branch range checks. Malformed-image findings are never covered."
+sha256 = "5cf175429c35e8007ddf86e3ceb4522d0d0bb807dc4e682ad223cb562f75532f"
+max_bytes = 3000000
+
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
