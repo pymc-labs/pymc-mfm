@@ -18,7 +18,8 @@ approved or published release.
   is needed (about 1 s when no compiled copy is cached, overlapping the first call); on PyTorch
   2.6–2.8, which do not find NVRTC themselves, the versioned library name PyTorch loaded is
   used, and the kernels compile as C++17, as CUDA 11.8 builds need. Other CUDA devices than
-  the current one, ROCm and GPUs NVRTC cannot target keep PyTorch's operations. On an
+  the current one, ROCm and GPUs on which any of the kernels fails to build keep PyTorch's
+  operations, in the batch size they had before. On an
   Apple GPU each transport commits its kernels as soon as they are
   queued, and the encoder's attention runs as Metal kernels. GPU sampling draws base noise
   with the CPU generator on a worker thread, in the inline order, while the GPU encodes
@@ -58,8 +59,9 @@ approved or published release.
   0.037, 0.094, 0.25 and 0.33 s (2.7–7.2x faster than PyTorch's GPU operations at 50–205
   weeks on T4 to H100 and B200, 2.3–3.3x at 10). Graphs are identical to the CPU draws on
   every device and components agree within 2e-6 of the largest component.
-  `benchmarks/inference_speed.py --query-weeks
-  10,50,150,205 --device mps` (or `--device cuda`) reproduces it.
+  `benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps` (or `--device
+  cuda`) reproduces the timings; with `--check-reference` and CPU draws written by the same
+  script it checks the draws, failing on any flipped graph.
 - **Faster loading.** `from_pretrained` (and `load_checkpoint` for training checkpoints)
   built the model on PyTorch's meta device before loading its weights; initializing
   parameters there runs Python reference kernels whose first call imports `torch._dynamo`

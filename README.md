@@ -221,7 +221,8 @@ either window:
 ### Sampling on a GPU (Apple or NVIDIA)
 
 Load the model on the GPU. The same calls then sample with fused kernels and need no
-training, conversion, warm-up or compiler:
+training, conversion or installed compiler; the first CUDA call in a process compiles the
+kernels (see below):
 
 ```python
 model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")  # Apple silicon
@@ -253,8 +254,8 @@ or `--device cuda`):
   this is 2.7–7.2x faster at 50–205 query weeks and 2.3–3.3x at 10, where the CPU sets
   more of the pace (NVIDIA T4 to H100 and B200).
 - The NVIDIA kernels run on the current CUDA device. Other devices, ROCm, float64 models,
-  compiled sampling and builds whose NVRTC cannot compile for the GPU (sampling warns once)
-  use PyTorch's operations, with the same draws.
+  compiled sampling and GPUs on which any of the kernels fails to build (sampling warns
+  once) use PyTorch's operations, in the smaller batches those need, with the same draws.
 - A process's first CUDA sampling call compiles the kernels: about 1 s of NVRTC on a T4 or
   L4 (1.4 s with CUDA 11.8 builds), in background threads from the start of the call, so
   it overlaps the call's other first-use work. PyTorch 2.14's CUDA 13 build leaves the
@@ -552,7 +553,10 @@ uv run --no-sync pytest -q tests/client --confcutdir=tests/client
 `benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1 on
 the quickstart data, read from the local Hugging Face cache (load River-1 once
 while logged in). `--write-reference` saves the seeded draws of one version and
-`--check-reference` compares another version's draws against them.
+`--check-reference` compares another version's draws against them; a check fails on any
+flipped graph by default. Write the reference with this script while the other version is
+the one imported (for example `PYTHONPATH=<main checkout>/src`) and the same
+`--query-weeks` or `--windows`.
 
 With Conda or Mamba:
 
