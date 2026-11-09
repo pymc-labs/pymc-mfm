@@ -409,26 +409,36 @@ extern "C" __global__ void __launch_bounds__(@THREADS@, @MIN_BLOCKS@) network_@H
 """
 
 
-def available(device: torch.device) -> bool:
-    """Whether sampling on the CUDA ``device`` can run these kernels.
+#: Kernels every transport launches, whatever the width of its networks.
+_SHARED_KERNELS = ("step_moments", "trajectory_context", "context_projection")
+
+
+def available(device: torch.device, hidden: int) -> bool:
+    """Whether sampling on the CUDA ``device`` can run these kernels with ``hidden``-wide networks.
 
     The kernels assume 32-lane warps (CUDA, not ROCm) and run on the current CUDA device,
-    whose context loads them. They compile once per device and process; if NVRTC cannot
-    build them for a GPU, sampling there warns once and keeps PyTorch operations.
+    whose context loads them. Every kernel a transport launches is built and loaded, once per
+    device and process, before sampling uses any of them; if NVRTC or the driver cannot
+    provide one on a GPU, sampling there warns once and keeps PyTorch operations.
     """
     return (
         torch.version.cuda is not None
         and torch.version.hip is None
+        and hidden in NETWORK_WIDTHS
         and torch.cuda.is_available()
         and (device.index is None or device.index == torch.cuda.current_device())
-        and _compiles(torch.cuda.current_device())
+        and _compiles(torch.cuda.current_device(), hidden)
     )
 
 
 @lru_cache(maxsize=None)
-def _compiles(index: int) -> bool:
+def _compiles(index: int, hidden: int) -> bool:
+    names = (f"network_{hidden}", *_SHARED_KERNELS)
     try:
-        _compiled("step_moments", index)
+        for name in names:
+            _build(name, index)  # every build runs before the first wait
+        for name in names:
+            _compiled(name, index)
     except (AttributeError, OSError, RuntimeError) as error:
         warnings.warn(
             f"NVIDIA GPU sampling kernels are unavailable on cuda:{index} ({error}); sampling "
@@ -504,14 +514,34 @@ def _cubin(source: str, name: str, arch: tuple[int, int], nvrtc: ctypes.CDLL) ->
         nvrtc.nvrtcDestroyProgram(ctypes.byref(program))
 
 
-def _load(binary: bytes, name: str) -> ctypes.c_void_p:
-    """Load compiled kernel ``name`` into the context PyTorch made current; its function."""
-    torch.cuda.current_stream()  # PyTorch's context is current on this thread
+def _load(binary: bytes, name: str, index: int) -> ctypes.c_void_p:
+    """Load compiled kernel ``name`` for CUDA device ``index``; its function.
+
+    The driver loads a module into the calling thread's current context, the one PyTorch's
+    runtime uses on that thread. PyTorch makes a context current on a thread only once the
+    thread runs CUDA work; on a thread that has not, the device's primary context, which
+    PyTorch's runtime uses, is made current first.
+    """
+    torch.cuda.init()
     driver = _driver()
+    context = ctypes.c_void_p()
+    _check(driver.cuCtxGetCurrent(ctypes.byref(context)), "CUDA driver")
+    if not context.value:
+        _check(driver.cuCtxSetCurrent(_primary_context(index)), "CUDA driver")
     module, function = ctypes.c_void_p(), ctypes.c_void_p()
     _check(driver.cuModuleLoadData(ctypes.byref(module), binary), "CUDA driver")
     _check(driver.cuModuleGetFunction(ctypes.byref(function), module, name.encode()), "CUDA driver")
     return function
+
+
+@lru_cache(maxsize=None)
+def _primary_context(index: int) -> ctypes.c_void_p:
+    """CUDA device ``index``'s primary context, retained for the rest of the process."""
+    driver = _driver()
+    device, context = ctypes.c_int(), ctypes.c_void_p()
+    _check(driver.cuDeviceGet(ctypes.byref(device), index), "CUDA driver")
+    _check(driver.cuDevicePrimaryCtxRetain(ctypes.byref(context), device), "CUDA driver")
+    return context
 
 
 #: NVRTC builds by (kernel, compute capability), running or done; see :func:`prefetch`.
@@ -551,10 +581,10 @@ def prefetch(device: torch.device, hidden_sizes: Iterable[int]) -> None:
         return
     networks = [f"network_{hidden}" for hidden in sorted(hidden_sizes) if hidden in NETWORK_WIDTHS]
     try:
-        for name in (*networks, "step_moments", "trajectory_context", "context_projection"):
+        for name in (*networks, *_SHARED_KERNELS):
             _build(name, index)
     except (AttributeError, OSError, RuntimeError):
-        pass  # the availability check reports why the kernels are unavailable
+        pass  # the availability check (_compiles) reports why the kernels are unavailable
 
 
 @lru_cache(maxsize=1)
@@ -643,7 +673,7 @@ def _source(name: str, arch: tuple[int, int]) -> str:
 @lru_cache(maxsize=None)
 def _compiled(name: str, index: int) -> _Kernel:
     """Kernel ``name`` loaded on CUDA device ``index``, which must be the current device."""
-    return _Kernel(_load(_build(name, index).result(), name))
+    return _Kernel(_load(_build(name, index).result(), name, index))
 
 
 _LIBRARY = _Library()

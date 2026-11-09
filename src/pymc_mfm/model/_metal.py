@@ -738,11 +738,12 @@ def masked_attention(qkv: Tensor, heads: int, active: Tensor) -> Tensor:
     return out
 
 
-def has_kernels(device: torch.device) -> bool:
-    """Whether sampling on ``device`` runs these fused kernels: an Apple or NVIDIA GPU."""
+def has_kernels(device: torch.device, hidden: int) -> bool:
+    """Whether sampling on ``device`` runs these fused kernels for ``hidden``-wide networks: an
+    Apple GPU on PyTorch 2.9 or newer, or an NVIDIA GPU on which every kernel builds."""
     if device.type == "mps":
-        return torch.__version__ >= MIN_TORCH
-    return device.type == "cuda" and _cuda.available(device)
+        return hidden in _NETWORK_THREADS and torch.__version__ >= MIN_TORCH
+    return device.type == "cuda" and _cuda.available(device, hidden)
 
 
 def prepare(device: torch.device, heads: Iterable[JointFlowHead]) -> None:
@@ -762,17 +763,20 @@ def prepare(device: torch.device, heads: Iterable[JointFlowHead]) -> None:
         _cuda.prefetch(device, widths)
 
 
-def supported(head: JointFlowHead, weight: Tensor) -> bool:
-    """Whether :func:`integrate` can transport ``head``'s flow under state mask ``weight``."""
+def supported(
+    head: JointFlowHead, device: torch.device, dtype: torch.dtype, mask_shape: torch.Size
+) -> bool:
+    """Whether :func:`integrate` can transport ``head``'s flow on ``device`` in ``dtype`` under
+    a state mask of ``mask_shape``. The model and mask are checked before the device, so
+    sampling the kernels cannot serve never waits for them to build."""
     hidden = head.base_net[2].weight.shape
     return (
-        has_kernels(weight.device)
-        and weight.dtype == torch.float32
-        and weight.dim() >= 2
-        and weight.shape[-2] == 1
+        dtype == torch.float32
+        and len(mask_shape) >= 2
+        and mask_shape[-2] == 1
         and head.trajectory_token_net[1].weight.shape == (_TOKEN, _TOKEN)
         and hidden[0] == hidden[1]
-        and hidden[0] in _NETWORK_THREADS
+        and has_kernels(device, hidden[0])
     )
 
 

@@ -124,9 +124,10 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     return int(value)
 
 
-def _sample_rows(device: torch.device) -> int:
-    """State rows per sampling velocity evaluation on ``device``."""
-    return _FLOW_SAMPLE_ROWS_GPU if _metal.has_kernels(device) else _FLOW_SAMPLE_ROWS
+def _sample_rows(kernels: bool) -> int:
+    """State rows per sampling velocity evaluation, for a transport that runs the fused GPU
+    kernels (``kernels``) or PyTorch operations."""
+    return _FLOW_SAMPLE_ROWS_GPU if kernels else _FLOW_SAMPLE_ROWS
 
 
 def _noise_device(device: torch.device) -> torch.device:
@@ -151,14 +152,25 @@ def _thread_counts_per_thread() -> bool:
     """Whether ``torch.set_num_threads`` in one thread leaves other threads' count alone.
 
     It does under PyTorch's OpenMP backend, whose thread count is per thread; CPU batch
-    workers split the threads only then. The call also sets the count that threads started
-    later begin with, so the caller sets its own count again afterwards.
+    workers split the threads only then. The native backend keeps one count per process,
+    which its first set or its first parallel work fixes (later sets only warn), so it is
+    not probed: the probe's own set could fix the count at one thread. The probe thread must
+    see its count change and the caller's stay. The call also sets the count that threads
+    started later begin with, so the caller sets its own count again afterwards.
     """
+    if "ATen parallel backend: OpenMP" not in torch.__config__.parallel_info():
+        return False
     before = torch.get_num_threads()
-    probe = threading.Thread(target=torch.set_num_threads, args=(1,))
-    probe.start()
-    probe.join()
-    per_thread = torch.get_num_threads() == before
+    seen = []
+
+    def probe() -> None:
+        torch.set_num_threads(1)
+        seen.append(torch.get_num_threads())
+
+    thread = threading.Thread(target=probe)
+    thread.start()
+    thread.join()
+    per_thread = seen == [1] and torch.get_num_threads() == before
     torch.set_num_threads(before)
     return per_thread
 
@@ -1095,6 +1107,14 @@ class JointFlowHead(nn.Module):
             representation_index=representation_index,
         )
 
+    def _uses_kernels(
+        self, device: torch.device, dtype: torch.dtype, mask_shape: torch.Size
+    ) -> bool:
+        """Whether transporting this flow on ``device`` in ``dtype`` under a state mask of
+        ``mask_shape`` runs the fused GPU kernels (see :mod:`._metal`): eager sampling of a
+        model and mask they serve, on a GPU that has them. Batch sizes follow it too."""
+        return self._compiled_velocity is None and _metal.supported(self, device, dtype, mask_shape)
+
     def _transport_draws(
         self,
         draws: Callable[[int, int], tuple[Tensor, Tensor]],
@@ -1112,8 +1132,9 @@ class JointFlowHead(nn.Module):
 
         ``draws(start, stop)`` returns the base state and trajectory latent of draws
         ``[start, stop)``, ``[stop - start, ..., T, D]``. Draws are integrated in batches
-        of about ``_FLOW_SAMPLE_ROWS`` evaluated state rows. Every draw is integrated
-        independently, so batching bounds memory without changing any draw.
+        of about ``_FLOW_SAMPLE_ROWS`` evaluated state rows (``_FLOW_SAMPLE_ROWS_GPU`` when
+        the fused GPU kernels transport them, see :meth:`_uses_kernels`). Every draw is
+        integrated independently, so batching bounds memory without changing any draw.
         """
         c = channel_repr.shape[-2]
         n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
@@ -1136,10 +1157,8 @@ class JointFlowHead(nn.Module):
             # A host state mask decides the live coordinates and support rules without
             # waiting for the device, and its copy to the device does not wait either.
             host_weight, weight = weight, _to_device(weight, device)
-        if representation_index is not None and (
-            weight is None
-            or self._compiled_velocity is not None
-            or not _metal.supported(self, weight)
+        if representation_index is not None and not (
+            weight is not None and self._uses_kernels(device, weight.dtype, weight.shape)
         ):
             # Only the GPU kernels read per-conditioning rows; give the rest one row per draw.
             weekly_repr, channel_repr, control_repr, weight = (
@@ -1183,7 +1202,7 @@ class JointFlowHead(nn.Module):
 
                 return integrate_flow(x, drift, grid)
 
-            width = self.state_dim(c, n_controls)
+            width, kernels = self.state_dim(c, n_controls), False
         else:
             live = _LiveVelocity(self, weekly_repr, channel_repr, control_repr, weight, host_weight)
             # With the GPU kernels, ordered host noise is mixed for the live columns only.
@@ -1204,9 +1223,11 @@ class JointFlowHead(nn.Module):
                     x * live.weight, latent * live.weight, grid, representation_index, graph_only
                 )
 
-            width = live.index.numel()
+            width, kernels = live.index.numel(), live.metal
         x = torch.cat(
-            _map_batches(flow, s, max(1, _sample_rows(device) // (math.prod(lead) * width)), device)
+            _map_batches(
+                flow, s, max(1, _sample_rows(kernels) // (math.prod(lead) * width)), device
+            )
         )
         if graph_only:
             return x
@@ -1355,7 +1376,6 @@ class _LiveVelocity:
     ):
         entity_repr = head._entity_repr(channel_repr, control_repr)
         self.compiled = head._compiled_velocity
-        self.metal = self.compiled is None and _metal.supported(head, weight)
         device = weekly_repr.device
         # Eager CPU sampling chunks the networks' hidden layers (see _HIDDEN_CHUNK_ROWS);
         # compiled sampling traces one call per layer.
@@ -1657,6 +1677,9 @@ class _LiveVelocity:
                 )
             )
         self.networks = networks
+        # Decided last: on an NVIDIA GPU it waits for every kernel to build (see
+        # _cuda.available), while nothing above depends on it.
+        self.metal = head._uses_kernels(weight.device, weight.dtype, weight.shape)
 
     def trajectory_offset(self, trajectory_latent: Tensor) -> Tensor:
         """Step-invariant part of the live trajectory tokens for one batch of draws."""

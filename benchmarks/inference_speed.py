@@ -12,9 +12,15 @@ first ``CONTEXT`` (166) weeks are the context and the next ``N`` weeks the query
 every level shares one history and differs only in its number of query weeks.
 
 ``--write-reference`` stores one seeded result per case together with the median
-times; ``--check-reference`` compares the current code against it: the binary
-graphs must be identical and the components must agree within float32 round-off.
-It also reports each case's speedup over the stored times. Every timed call is
+times; ``--check-reference`` compares the current code against it: a case fails if any
+binary graph differs (``--max-graph-mismatch``, default 0) or, where the graphs agree, a
+component differs by more than ``--max-rel-err`` (default 1e-4) of the largest reference
+component. It also reports each case's speedup over the stored times. To compare two
+versions, write the reference with this script while the other version's package is the
+one imported, with the same ``--query-weeks`` or ``--windows``, for example
+``PYTHONPATH=<main checkout>/src python benchmarks/inference_speed.py --query-weeks
+10,50,150,205 --write-reference ref.npz`` (the header on stderr names the imported
+package); ``main``'s own copy of this script has no ``--query-weeks``. Every timed call is
 seeded with ``torch.manual_seed(SEED)``, so all timed calls draw the same numbers.
 ``--device`` moves the loaded model before sampling (for example ``mps``).
 """
@@ -140,6 +146,26 @@ def _run(model, observations, n_samples: int, window: str):
     return time.perf_counter() - start, result
 
 
+def _reference(path: Path, labels: list[str]):
+    """The stored results of ``path``, which must hold a seeded result for every case."""
+    stored = np.load(path)
+    missing = [
+        label
+        for label in labels
+        if not {f"{label}_graphs", f"{label}_components"} <= set(stored.files)
+    ]
+    if missing:
+        held = sorted(
+            name.removesuffix("_graphs") for name in stored.files if name.endswith("_graphs")
+        )
+        raise SystemExit(
+            f"{path} holds no result for {', '.join(missing)} "
+            f"(it holds {', '.join(held) or 'none'}); write the reference with this script and "
+            "the same --query-weeks or --windows (see the module docstring)"
+        )
+    return stored
+
+
 def _compare(result, stored, label: str) -> dict[str, float]:
     """Return mismatch statistics against a stored seeded result."""
     graphs, components = np.asarray(result.graphs), np.asarray(result.components)
@@ -190,8 +216,19 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--write-reference", type=Path)
     parser.add_argument("--check-reference", type=Path)
-    parser.add_argument("--max-graph-mismatch", type=int, default=2)
-    parser.add_argument("--max-rel-err", type=float, default=1e-4)
+    parser.add_argument(
+        "--max-graph-mismatch",
+        type=int,
+        default=0,
+        help="draws per case whose graph may differ from the reference (default 0)",
+    )
+    parser.add_argument(
+        "--max-rel-err",
+        type=float,
+        default=1e-4,
+        help="largest component difference where the graphs agree, as a fraction of the "
+        "largest reference component (default 1e-4)",
+    )
     args = parser.parse_args()
     if args.threads is not None:
         torch.set_num_threads(args.threads)
@@ -201,6 +238,9 @@ def main() -> int:
     model = model.to(args.device)
     load_s = time.perf_counter() - start
     cases = _cases(args, model.config.n_controls)
+    stored = None
+    if args.check_reference is not None:
+        stored = _reference(args.check_reference, [label for label, _, _ in cases])
     print(
         f"# torch {torch.__version__} | python {platform.python_version()} | "
         f"{platform.machine()} {platform.processor() or platform.platform()} | "
@@ -214,7 +254,6 @@ def main() -> int:
     for _, observations, window in cases:
         _run(model, observations, 16, window)
 
-    stored = None if args.check_reference is None else np.load(args.check_reference)
     metrics: dict[str, float] = {"load_s": load_s}
     saved: dict[str, np.ndarray] = {}
     failures = []

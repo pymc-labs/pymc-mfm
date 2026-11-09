@@ -215,7 +215,8 @@ def test_gpu_draws_the_cpu_samples(model, batch, monkeypatch, device, rows, wind
     gpu, gpu_graphs = gpu_model.sample_disentangled(
         {key: value.to(device) for key, value in batch.items()}, 19, window=window
     )
-    assert bool(calls) == flow._metal.has_kernels(torch.device(device))
+    hidden = model.conditional_head.base_net[2].weight.shape[0]
+    assert bool(calls) == flow._metal.has_kernels(torch.device(device), hidden)
     assert torch.equal(gpu_graphs.cpu(), cpu_graphs)
     torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
 

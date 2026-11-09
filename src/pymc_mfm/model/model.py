@@ -867,6 +867,13 @@ class MFM(nn.Module):
             host_state_mask[tasks][..., :n_dec], distinct[:, 1:], layout
         )
         live_width = int((masks != 0).reshape(-1, n_dec).any(dim=0).sum())
+        # Draws per transport batch, from the decision the decoder's transports make: the
+        # fused GPU kernels take larger batches than PyTorch operations (see _sample_rows).
+        batch_draws = max(
+            1,
+            _sample_rows(head._uses_kernels(device, weekly.dtype, masks.shape))
+            // (b * t * live_width),
+        )
         if device.type == "cpu":
             # On the CPU each transport batch conditions its own distinct pairs in its
             # worker: a model drawing many distinct graphs conditions them concurrently,
@@ -947,7 +954,7 @@ class MFM(nn.Module):
                 )
                 return conditioned, pair_masks
 
-            if distinct.shape[0] <= max(1, _sample_rows(device) // (b * t * live_width)) * b:
+            if distinct.shape[0] <= batch_draws * b:
                 every_pair = condition(distinct)
                 (inverse,) = _move_together((inverse,), device)
 
@@ -979,15 +986,7 @@ class MFM(nn.Module):
                     representation_index=index,
                 ).reshape(n, b, t, n_dec)
 
-        sampled = torch.cat(
-            _map_batches(
-                decode,
-                s,
-                max(1, _sample_rows(weekly.device) // (b * t * live_width)),
-                weekly.device,
-            ),
-            dim=0,
-        )
+        sampled = torch.cat(_map_batches(decode, s, batch_draws, weekly.device), dim=0)
         for gate, contribution_slice, edge_slice in self.head.zero_atom_gate_slices(
             layout.K, layout.M
         ):
