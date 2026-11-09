@@ -71,7 +71,8 @@ website:
         target: _blank
         rel: noopener
       # The hosted console: sign in with a PyMC Labs Google account and compare scenarios
-      # from your agent. site.css draws it as the navbar's one button, by this URL.
+      # from your agent. Only the River model page shows it, as a button: site.css hides
+      # it elsewhere and model.css draws it, both by this URL.
       - text: "Try it out"
         href: https://mfm-staging.pymc-labs.com/
   sidebar:

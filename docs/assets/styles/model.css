@@ -37,6 +37,41 @@ body.mfm-river-page .navbar:has(.navbar-collapse.show, .navbar-collapse.collapsi
   background: rgba(7, 20, 42, 0.96) !important;
 }
 
+/* "Try it out", to the hosted console: the navbar's one button, on this page only
+   (site.css hides it elsewhere). Solid soft white with navy text, its corners squared off
+   rather than a pill. */
+body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.2rem 0.35rem 0 0.5rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 0.5rem;
+  background: var(--mfm-fg);
+  color: var(--mfm-bg) !important;
+  font-weight: 500;
+  line-height: 1.25;
+  transition: background-color 0.2s ease;
+}
+
+body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:hover,
+body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
+  background: rgba(247, 247, 247, 0.84);
+}
+
+body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
+  outline: 2px solid var(--mfm-fg);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* In the collapsed navbar it ends the list, on its own line, inset so the scrolling list
+   does not clip its focus ring. */
+@media (max-width: 991.98px) {
+  body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
+    margin: 0.4rem 0 0.6rem 0.25rem;
+  }
+}
+
 .mfm-river__hero {
   position: relative;
   display: grid;
