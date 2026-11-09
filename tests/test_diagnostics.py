@@ -358,6 +358,9 @@ def test_report_rerender_uses_stored_values_without_scoring(tmp_path, monkeypatc
         tmp_path / "second" / "evidence.npz"
     ).read_bytes()
     assert second["panels"]["recovery_scatter"]["render_status"] == "ok"
+    assert second["panels"]["dag_recovery"]["render_status"] == "ok"
+    graph_path = tmp_path / "second" / second["panels"]["dag_recovery"]["path"]
+    assert graph_path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
     assert set(second["arrays"]) >= {"components", "graphs", "uncertainty", "calibration"}
 
     # MLflow previews HTML from a blob URL, so relative figure paths cannot

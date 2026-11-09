@@ -187,6 +187,10 @@ quartodoc:
       desc: Marginal and individual graphs, offline inspection and Graphviz DOT export.
       contents:
         - plotting.plot_dag
+        - name: plotting.GraphvizGraph
+          members:
+            - render
+            - savefig
         - plotting.graph_to_dot
         - plotting.plot_graph_inspector
         - name: plotting.GraphInspector

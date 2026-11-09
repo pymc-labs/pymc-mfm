@@ -119,6 +119,7 @@ from pathlib import Path
 
 result.plot.dag()  # Average: numeric marginal edge frequencies
 result.plot.dag(graph=0)  # Most frequent complete graph, with binary arrows
+result.plot.dag(graph=0).savefig("graph-rank-0.svg")
 inspector = result.plot.graph_inspector()
 inspector.save("graphs.html")
 Path("graph-average.dot").write_text(result.plot.dot(), encoding="utf-8", newline="\n")
@@ -131,8 +132,14 @@ counts/frequencies, Average, and SVG/DOT downloads of the currently selected vie
 Configured column names appear with role prefixes; the target is labeled `outcome`.
 Named active nodes remain visible even when a selected graph has no edges.
 
-Diagrams use black ovals, centered serif labels and black arrows. Plotting and
-writing DOT do not require Graphviz; its optional native engine can render a file
+Diagrams use Graphviz's native `dot` engine with its default layout, ellipses,
+edge routing and typography unchanged. Install the system Graphviz tools first
+(`brew install graphviz` on macOS or `sudo apt-get install graphviz` on Ubuntu)
+and ensure `dot` is on `PATH`; no Python Graphviz package is needed.
+`dag()` returns a `GraphvizGraph` with native PNG display and PNG/vector SVG
+`savefig` export, not a Matplotlib figure. Do not pass Matplotlib-only options.
+Creating the optional inspector also requires Graphviz; opening its saved HTML
+does not. Writing DOT remains dependency-free, and a saved file can be rendered
 with `dot -Tsvg graph-rank-0.dot -o graph-rank-0.svg`. See
 [graph_to_dot](../reference/plotting.graph_to_dot.qmd) and the
 [fully executed quickstart](examples/river_1_quickstart.ipynb) for export and

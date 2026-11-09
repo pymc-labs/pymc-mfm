@@ -226,7 +226,7 @@ complete graphs without rerunning inference:
 ```python
 result.plot.dag()  # Average: numeric labels show marginal edge frequencies
 result.plot.dag(graph=0)  # Most frequent complete graph: binary edge indicators
-result.plot.dag(graph=1).savefig("graph-rank-1.svg", bbox_inches="tight")
+result.plot.dag(graph=1).savefig("graph-rank-1.svg")
 
 from pathlib import Path
 
@@ -251,12 +251,20 @@ and `plot_graph_inspector(summary)` also accept saved diagnostic summaries.
 The inspector and DOT exports show prediction graphs only, even when diagnostics
 include graph truth; `dag()` retains its separate truth comparison.
 
-Diagrams use Graphviz-style black ovals, centered serif labels and black directed
-arrows in a top-to-bottom layout. Average edges carry numeric frequency labels;
-individual graphs use plain binary arrows. The package renders these visual
-conventions itself: plotting, inspecting and writing DOT do **not** require a
-Graphviz installation. To use Graphviz's native layout engine, install its command
-line tools and render the exported source:
+Diagrams use the system Graphviz `dot` engine with its defaults unchanged:
+ellipses, natural edge routing and native spacing. Average edges carry numeric
+frequency labels; individual graphs use plain binary arrows. Install Graphviz
+with `brew install graphviz` on macOS or `sudo apt-get install graphviz` on
+Debian/Ubuntu, and ensure `dot` is on `PATH`. No Python Graphviz package is needed.
+
+`dag()` returns a `GraphvizGraph`, not a Matplotlib figure. Its `savefig` method
+writes native PNG or vector SVG without Matplotlib-only options such as
+`bbox_inches`. Creating the optional inspector also requires `dot`: it renders
+all discovered graphs in one batch and embeds their SVGs. Opening the resulting
+HTML requires only a browser, not Graphviz.
+
+Writing DOT source does **not** require Graphviz. Saved DOT can also be rendered
+directly with its command-line tools:
 
 ```bash
 dot -Tsvg graph-rank-0.dot -o graph-rank-0.svg
@@ -274,11 +282,10 @@ required for interaction. Exported HTML embeds graph topology, column labels,
 counts/frequencies and display metadata, but not observations or contribution
 draws. Review it as a result artifact before sharing.
 
-DOT labels preserve literal Unicode, quotes, backslashes and line breaks. Characters
-that cannot appear in valid XML 1.0 SVG labels raise a DOT-specific `ValueError`;
-the inspector explains the limitation and disables DOT download. SVG download also
-checks the serialized labels and metadata for XML compatibility, reporting an export
-limitation instead of saving an invalid file. Viewing and graph selection remain available.
+Node labels preserve literal Unicode, quotes, backslashes and line breaks.
+Characters that cannot appear in valid XML 1.0 SVG labels raise `ValueError`
+when exporting DOT, creating a diagram or building the inspector, rather than
+silently replacing the labels.
 
 ### Faster repeated sampling (optional)
 

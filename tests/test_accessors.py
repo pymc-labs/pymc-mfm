@@ -27,7 +27,6 @@ RESULT_FIGURES = (
     "indirect",
     "reconstruction",
     "graph",
-    "dag",
     "graph_posterior",
     "cardinality",
     "graph_statistics",
@@ -52,6 +51,15 @@ def test_result_figures_state_head_window_mode_units_and_draws():
         text = getattr(result.plot, name)()._suptitle.get_text()
         for label in labels_of(result):
             assert label in text, (name, label)
+
+
+def test_result_dag_returns_a_native_artifact_of_its_prediction_export():
+    from pymc_mfm.plotting import GraphvizGraph
+
+    result = make_result()
+    artifact = result.plot.dag()
+    assert isinstance(artifact, GraphvizGraph)
+    assert artifact.source == result.plot.dot()
 
 
 def test_single_panel_figures_draw_into_caller_axes_and_title_it():
@@ -355,6 +363,8 @@ observations = {
 result = decompose(MFM(config).eval(), observations, n_samples=2)
 result.plot
 result.diagnostics()
+graph = result.plot.dag()
+assert graph.source == result.plot.dot()
 loaded = sorted(name for name in sys.modules if name.split(".")[0] == "matplotlib")
 assert not loaded, loaded
 figure = result.plot.components()

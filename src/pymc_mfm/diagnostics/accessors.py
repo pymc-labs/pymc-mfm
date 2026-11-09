@@ -1,9 +1,9 @@
 """Figure, graph-export and record accessors on results, diagnostics and training runs.
 
-Every figure method delegates to the renderers behind reports
-(:mod:`pymc_mfm.plotting.panels`), returns a matplotlib ``Figure`` and imports
-matplotlib only when called. Nothing here samples a model, trains or fits a
-reference. A method whose evidence is missing raises ``ValueError`` naming it.
+Plot methods delegate to the renderers behind reports. ``dag`` returns a native
+GraphvizGraph; other figure methods return matplotlib ``Figure`` objects and
+import matplotlib only when called. Nothing here samples a model, trains or fits
+a reference. A method whose evidence is missing raises ``ValueError`` naming it.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
     from pymc_mfm.inference.result import DecompositionResult
+    from pymc_mfm.plotting import GraphvizGraph
     from pymc_mfm.plotting.inspector import GraphInspector
 
 
@@ -88,7 +89,7 @@ class _SummaryPlots:
     def _summary(self) -> dict[str, Any]:
         raise NotImplementedError
 
-    def _draw(self, panel, render=None, **options) -> Figure:
+    def _draw(self, panel, render=None, **options) -> Figure | GraphvizGraph:
         summary = self._summary()
         status = summary["panels"][panel]
         if status["status"] == "unavailable":
@@ -121,8 +122,8 @@ class _SummaryPlots:
         """Edge frequencies grouped by edge family."""
         return self._draw("structure_heatmap")
 
-    def dag(self, *, graph=None) -> Figure:
-        """Draw Average (``graph=None``, the default) or a zero-based complete graph rank."""
+    def dag(self, *, graph=None) -> GraphvizGraph:
+        """Native Graphviz Average or zero-based complete graph rank; requires ``dot``."""
         return self._draw("dag_recovery", panels.plot_dag, graph=graph)
 
     def dot(self, *, graph=None) -> str:

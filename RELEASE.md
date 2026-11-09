@@ -6,20 +6,21 @@ approved or published release.
 
 ## Changes
 
-- **Graphviz DOT export and diagram styling.** `result.plot.dot(graph=rank)` and
-  `pymc_mfm.plotting.graph_to_dot(summary, graph=rank)` export an exact complete
+- **Graphviz DOT export and native default diagrams.** `result.plot.dot(graph=rank)`
+  and `pymc_mfm.plotting.graph_to_dot(summary, graph=rank)` export an exact complete
   graph; omitting the rank exports marginal edges with numeric frequency labels
   and exact probability attributes. Diagnostics expose the same accessor, and the
-  offline inspector downloads the currently selected view as DOT or SVG.
+  optional offline inspector downloads the currently selected view as DOT or SVG.
   Named active nodes remain in empty graphs; supplied truth and padded nodes are
   excluded from DOT. Labels are quoted literally and must be XML 1.0-compatible.
-  SVG downloads reject XML-incompatible labels or metadata with an explanation,
-  without changing the original labels or blocking graph inspection.
-  Package figures and inspector diagrams now use black ovals, centered serif text,
-  top-to-bottom layout and black arrows; average frequencies are numeric labels
-  rather than width/opacity encoding. Plotting and DOT export need no Graphviz
-  installation; exported files can optionally use its native `dot` layout engine.
-  The fully executed quickstart demonstrates both average and individual DOT export.
+  Diagrams now use Graphviz's actual `dot` engine with its default shapes, edge
+  routing, typography and spacing; all custom graph geometry and orthogonal
+  routing have been removed. `dag()` returns `GraphvizGraph`, not a Matplotlib
+  figure, with native PNG display and PNG/vector SVG `savefig` export without
+  Matplotlib-only options. Rendering and building the optional inspector require
+  the system Graphviz tools on `PATH`; writing DOT and opening saved HTML do not.
+  The fully executed quickstart contains rank tables, average and individual
+  diagrams, and SVG/DOT exports, without the custom HTML inspector.
 - **Individual sampled graphs and an offline inspector.** `result.plot.dag(graph=rank)`
   draws an exact complete graph at its zero-based frequency rank; `dag()` keeps the
   marginal-average view. `result.plot.graph_inspector()` displays every observed graph

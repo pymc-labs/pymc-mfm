@@ -30,29 +30,12 @@ def _quoted_label(label):
     return "".join(escaped)
 
 
-def dot_template(summary):
-    """Return a linear-size export template aligned with active edge records.
-
-    The preamble ends with LF; fragments contain no terminal LF; the suffix is
-    ``"\\n}\\n"``. Prepend the view comment, then concatenate the preamble,
-    nonzero fragments joined by LF, and suffix. Labels are escaped here once,
-    never by a browser or per complete-graph rank.
-    """
-    edges = summary["arrays"]["graphs"]["edges"]
-    nodes = {name: f"n{index}" for index, name in enumerate(_graph_nodes(edges))}
-    preamble = [
-        "// Prediction-only routing topology; supplied graph truth is not exported.",
-        "// Average shows marginal edge draw frequencies, not one complete sampled graph.",
-        "// Complete graph ranks show binary edges, ordered by count then binary vector.",
-        "// Frequencies are empirical router-draw frequencies, not fit or causal scores.",
-        "// MAP/fixed modes describe selected/supplied hypotheses, not posterior mass.",
-        "digraph {",
-        '  graph [rankdir=TB, charset="UTF-8"];',
-        '  node [shape=ellipse, color=black, fontcolor=black, fontname="Times-Roman"];',
-        '  edge [color=black, fontcolor=black, fontname="Times-Roman"];',
+def _graph_statements(edges, *, prefix="n"):
+    """Literal node, average-edge and binary-edge statements with opaque IDs."""
+    nodes = {name: f"{prefix}{index}" for index, name in enumerate(_graph_nodes(edges))}
+    declarations = [
+        f"  {identifier} [label={_quoted_label(name)}];" for name, identifier in nodes.items()
     ]
-    for name, identifier in nodes.items():
-        preamble.append(f"  {identifier} [label={_quoted_label(name)}];")
     average = []
     individual = []
     for entry in edges:
@@ -61,6 +44,27 @@ def dot_template(summary):
         probability = float(entry["probability"])
         average.append(f'{statement} [label="{probability:.3g}", probability="{probability!r}"];')
         individual.append(f"{statement};")
+    return declarations, average, individual
+
+
+def dot_template(summary):
+    """Return a linear-size export template aligned with active edge records.
+
+    The preamble ends with LF; fragments contain no terminal LF; the suffix is
+    ``"\\n}\\n"``. Prepend the view comment, then concatenate the preamble,
+    nonzero fragments joined by LF, and suffix. Labels are escaped here once,
+    never by a browser or per complete-graph rank.
+    """
+    declarations, average, individual = _graph_statements(summary["arrays"]["graphs"]["edges"])
+    preamble = [
+        "// Prediction-only routing topology; supplied graph truth is not exported.",
+        "// Average shows marginal edge draw frequencies, not one complete sampled graph.",
+        "// Complete graph ranks show binary edges, ordered by count then binary vector.",
+        "// Frequencies are empirical router-draw frequencies, not fit or causal scores.",
+        "// MAP/fixed modes describe selected/supplied hypotheses, not posterior mass.",
+        "digraph {",
+        *declarations,
+    ]
     return {
         "preamble": "\n".join(preamble) + "\n",
         "average": average,

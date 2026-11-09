@@ -1,6 +1,7 @@
-"""Independent DOT semantics, literal labels and observed-support layout invariants."""
+"""Canonical DOT semantics, literal labels and native Graphviz artifacts."""
 
 import copy
+import io
 import json
 import re
 import shutil
@@ -11,8 +12,8 @@ import numpy as np
 import pytest
 
 from pymc_mfm.inference.result import DecompositionResult
-from pymc_mfm.plotting import graph_to_dot
-from pymc_mfm.plotting._graphs import graph_positions
+from pymc_mfm.plotting import GraphvizGraph, graph_to_dot, plot_dag
+from pymc_mfm.plotting._graphviz import _render_svg_batch
 
 ENDPOINTS = (
     ("feature", "target"),
@@ -21,6 +22,9 @@ ENDPOINTS = (
     ("isolated", "target"),
 )
 DRAWS = [[1, 0, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]]
+NATIVE_GRAPHVIZ = pytest.mark.skipif(
+    shutil.which("dot") is None, reason="Native graph rendering requires Graphviz"
+)
 
 
 def graph_result(draws=DRAWS, endpoints=ENDPOINTS, *, mask=(1, 0, 1, 1), mode="model_average"):
@@ -48,16 +52,20 @@ def graph_result(draws=DRAWS, endpoints=ENDPOINTS, *, mask=(1, 0, 1, 1), mode="m
     )
 
 
-def native_dot(source, format="json"):
+def native_bytes(source, format):
     executable = shutil.which("dot")
     if executable is None:
-        pytest.skip("Optional native Graphviz is not installed")
-    rendered = subprocess.run(
+        pytest.skip("Native graph rendering requires Graphviz")
+    return subprocess.run(
         [executable, f"-T{format}"],
         input=source.encode("utf-8"),
         capture_output=True,
         check=True,
     ).stdout
+
+
+def native_dot(source, format="json"):
+    rendered = native_bytes(source, format)
     return json.loads(rendered) if format == "json" else ElementTree.fromstring(rendered)
 
 
@@ -189,9 +197,10 @@ def test_parallel_slots_are_not_merged_into_a_strict_graph():
         '"]; injected [image="https://not-a-resource.invalid"]; //',
     ],
 )
+@NATIVE_GRAPHVIZ
 def test_native_svg_preserves_supported_hostile_labels_as_text(label):
     result = graph_result([[1]], ((label, "target"),), mask=(1,))
-    root = native_dot(result.plot.dot(), "svg")
+    root = ElementTree.fromstring(result.plot.dag().render("svg"))
     namespace = {"s": "http://www.w3.org/2000/svg"}
     groups = [group for group in root.findall(".//s:g", namespace) if group.get("class") == "node"]
     rendered_labels = [
@@ -209,177 +218,215 @@ def test_native_svg_preserves_supported_hostile_labels_as_text(label):
 def test_dot_rejects_characters_that_native_svg_cannot_represent(codepoint):
     summary = copy.deepcopy(graph_result().diagnostics().summary)
     summary["arrays"]["graphs"]["edges"][0]["endpoints"][0] = f"bad{chr(codepoint)}label"
-    with pytest.raises(ValueError, match="label|character|XML"):
-        graph_to_dot(summary)
+    for render in (graph_to_dot, plot_dag):
+        with pytest.raises(ValueError, match="label|character|XML"):
+            render(summary)
 
 
-def edge(source, target, probability=1):
-    return {"endpoints": [source, target], "probability": probability}
-
-
-def test_layout_uses_observed_scc_longest_paths_and_retains_isolated_nodes():
-    edges = [
-        edge("a", "b"),
-        edge("b", "c"),
-        edge("a", "c"),
-        edge("c", "d"),
-        edge("d", "e"),
-        edge("e", "d"),
-        edge("e", "f"),
-        edge("f", "a", 0),
-        edge("isolated", "f", 0),
-    ]
-    positions = graph_positions(edges)
-    ranks = {name: position[0] for name, position in positions.items()}
-    assert ranks["a"] == ranks["isolated"] == 0
-    assert ranks["b"] == ranks["a"] + 1
-    assert ranks["c"] == ranks["b"] + 1
-    assert ranks["d"] == ranks["e"] == ranks["c"] + 1
-    assert ranks["f"] == ranks["e"] + 1
-    assert positions == graph_positions(list(reversed(edges)))
-    assert list(positions) == list(graph_positions(list(reversed(edges))))
-
-
-def test_deep_path_layout_has_no_python_recursion_ceiling():
-    positions = graph_positions([edge(f"n{index}", f"n{index + 1}") for index in range(1200)])
-    assert len(positions) == 1201
-    assert positions["n1200"][0] - positions["n0"][0] == 1200
-
-
-def rendered_graph(result, graph=0):
-    pytest.importorskip("matplotlib")
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.patches import Ellipse, FancyArrowPatch
-
-    figure = result.plot.dag(graph=graph)
-    canvas = FigureCanvasAgg(figure)
-    canvas.draw()
-    axis = figure.axes[0]
-    ellipses = [patch for patch in axis.patches if isinstance(patch, Ellipse)]
-    arrows = [patch for patch in axis.patches if isinstance(patch, FancyArrowPatch)]
-    return figure, axis, canvas.get_renderer(), ellipses, arrows
-
-
-def test_minimal_graph_matches_vertical_reference_and_stable_selected_geometry():
-    result = graph_result([[1], [0]], (("a", "b"),), mask=(1,))
-    centers = []
-    for rank in (None, 0, 1):
-        _, axis, _, ellipses, arrows = rendered_graph(result, rank)
-        labels = {
-            text.get_text(): axis.transData.transform(text.get_position())
-            for text in axis.texts
-            if text.get_text() in {"a", "b"}
-        }
-        assert labels["a"][0] == pytest.approx(labels["b"][0])
-        assert labels["a"][1] > labels["b"][1]
-        centers.append([ellipse.center for ellipse in ellipses])
-        # The count tie ranks the empty vector first, and the one-edge vector second.
-        assert len(arrows) == (0 if rank == 0 else 1)
-        for arrow in arrows:
-            path = arrow.get_path().transformed(arrow.get_transform())
-            # Exclude the triangular arrow head; the connector itself is straight.
-            connector, _ = next(path.iter_bezier())
-            start_x = connector(0)[0]
-            for index, (segment, code) in enumerate(path.iter_bezier()):
-                if index and code == 1:
-                    break
-                points = segment(np.linspace(0, 1, 10))
-                assert points[:, 0] == pytest.approx(np.full(len(points), start_x))
-    assert centers[0] == centers[1] == centers[2]
-
-
-def test_multiline_literal_labels_fit_inside_ellipses_without_colliding_nodes():
-    labels = [
-        f"long feature {index}: Δωρεά $x$ and literal \\\\n\n\nlast line" for index in range(4)
-    ]
-    result = graph_result([[1] * 4], tuple((label, "target") for label in labels), mask=(1,) * 4)
-    _, axis, renderer, ellipses, _ = rendered_graph(result)
-    assert sorted(text.get_text() for text in axis.texts) == sorted([*labels, "target"])
-    bounds = [ellipse.get_window_extent(renderer) for ellipse in ellipses]
-    for text in axis.texts:
-        assert not text.get_parse_math()
-        text_bounds = text.get_window_extent(renderer)
-        center = axis.transData.transform(text.get_position())
-        matching = [
-            bound
-            for bound in bounds
-            if np.allclose([(bound.x0 + bound.x1) / 2, (bound.y0 + bound.y1) / 2], center)
-        ]
-        assert len(matching) == 1
-        ellipse = matching[0]
-        for x in (text_bounds.x0, text_bounds.x1):
-            for y in (text_bounds.y0, text_bounds.y1):
-                distance = ((x - center[0]) / (ellipse.width / 2)) ** 2
-                distance += ((y - center[1]) / (ellipse.height / 2)) ** 2
-                assert distance < 1
-    for index, first in enumerate(bounds):
-        for second in bounds[index + 1 :]:
-            assert not first.overlaps(second)
-
-
-def test_cycles_reciprocal_edges_and_self_loop_stay_visible_outside_node_interiors():
-    pairs = (("a", "b"), ("b", "c"), ("c", "a"), ("b", "a"), ("a", "a"))
-    result = graph_result([[1] * len(pairs)], pairs, mask=(1,) * len(pairs))
-    _, axis, renderer, ellipses, arrows = rendered_graph(result)
-    assert len(arrows) == len(pairs)
-    viewport = axis.get_window_extent(renderer)
-    node_bounds = [ellipse.get_window_extent(renderer) for ellipse in ellipses]
-    named_bounds = {
-        text.get_text(): next(
-            node
-            for node in node_bounds
-            if np.allclose(
-                [(node.x0 + node.x1) / 2, (node.y0 + node.y1) / 2],
-                axis.transData.transform(text.get_position()),
-            )
+def svg_topology(document):
+    namespace = {"s": "http://www.w3.org/2000/svg"}
+    groups = document.findall(".//s:g", namespace)
+    names = {
+        group.find("s:title", namespace).text: "\n".join(
+            text.text or "" for text in group.findall("s:text", namespace)
         )
-        for text in axis.texts
+        for group in groups
+        if group.get("class") == "node"
     }
-    connectors = {}
-    for arrow in arrows:
-        path = arrow.get_path().transformed(arrow.get_transform())
-        source, target = pairs[int(arrow.get_gid().removeprefix("edge-"))]
-        segments = list(path.iter_bezier())
-        head_start = next(index for index, (_, code) in enumerate(segments) if index and code == 1)
-        connector = np.concatenate(
-            [segment(np.linspace(0, 1, 31)) for segment, _ in segments[:head_start]]
+    return set(names.values()), [
+        tuple(names[identifier] for identifier in group.find("s:title", namespace).text.split("->"))
+        for group in groups
+        if group.get("class") == "edge"
+    ]
+
+
+@NATIVE_GRAPHVIZ
+@pytest.mark.parametrize("api", ["result", "diagnostics", "standalone"])
+@pytest.mark.parametrize(
+    ("rank", "expected"),
+    [
+        (None, {("feature", "target"), ("other", "target")}),
+        (np.int64(0), {("feature", "target")}),
+        (1, set()),
+        (2, {("other", "target")}),
+    ],
+)
+def test_native_dag_renders_canonical_prediction_source_without_a_custom_template(
+    api, rank, expected
+):
+    result = graph_result([[1, 0, 0, 0]] * 5 + [[0, 0, 1, 0], [0, 0, 0, 0]])
+    diagnostics = result.diagnostics()
+    summary = json.loads(json.dumps(diagnostics.summary))
+    artifact = {
+        "result": lambda: result.plot.dag(graph=rank),
+        "diagnostics": lambda: diagnostics.plot.dag(graph=rank),
+        "standalone": lambda: plot_dag(summary, graph=rank),
+    }[api]()
+    assert isinstance(artifact, GraphvizGraph)
+    assert artifact.source == graph_to_dot(summary, graph=rank)
+    svg = artifact.render("svg")
+    assert svg == native_bytes(artifact.source, "svg")
+    nodes, edges = svg_topology(ElementTree.fromstring(svg))
+    assert nodes == {"feature", "other", "isolated", "target"}
+    assert set(edges) == expected
+    assert len(edges) == len(expected)
+    png = artifact._repr_png_()
+    assert png == native_bytes(artifact.source, "png")
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@NATIVE_GRAPHVIZ
+@pytest.mark.parametrize("rank", [None, 0, 1, 2])
+def test_truth_uses_separate_labeled_clusters_without_changing_prediction_export(rank):
+    result = graph_result()
+    diagnostics = result.diagnostics(graph_truth=np.array([0, 0, 1, 0]))
+    artifact = diagnostics.plot.dag(graph=rank)
+    document = native_dot(artifact.source)
+    nodes = {node["_gvid"]: node for node in document["objects"] if "nodes" not in node}
+    clusters = {
+        cluster["label"]: (
+            {nodes[index]["label"] for index in cluster["nodes"]},
+            [
+                (nodes[edge["tail"]]["label"], nodes[edge["head"]]["label"])
+                for edge in document.get("edges", [])
+                if edge["tail"] in cluster["nodes"] and edge["head"] in cluster["nodes"]
+            ],
         )
-        connectors[source, target] = connector
-        source_bounds, target_bounds = named_bounds[source], named_bounds[target]
-
-        def radial_distance(points, node):
-            x = (points[..., 0] - (node.x0 + node.x1) / 2) / (node.width / 2)
-            y = (points[..., 1] - (node.y0 + node.y1) / 2) / (node.height / 2)
-            return np.sqrt(x * x + y * y)
-
-        assert radial_distance(connector[0], source_bounds) == pytest.approx(1, abs=1e-5)
-        head = np.concatenate(
-            [segment(np.linspace(0, 1, 31)) for segment, _ in segments[head_start:]]
-        )
-        stroke_pixels = arrow.get_linewidth() * axis.figure.dpi / 72
-        target_error = abs(np.min(radial_distance(head, target_bounds)) - 1)
-        assert (
-            target_error * min(target_bounds.width, target_bounds.height) / 2 <= 2 * stroke_pixels
-        )
-        bounds = path.get_extents()
-        assert bounds.x0 >= viewport.x0 and bounds.x1 <= viewport.x1
-        assert bounds.y0 >= viewport.y0 and bounds.y1 <= viewport.y1
-        for segment, _ in path.iter_bezier():
-            points = segment(np.linspace(0, 1, 31))
-            for node in node_bounds:
-                x = (points[:, 0] - (node.x0 + node.x1) / 2) / (node.width / 2)
-                y = (points[:, 1] - (node.y0 + node.y1) / 2) / (node.height / 2)
-                assert np.min(x * x + y * y) >= 1 - 1e-5
-    forward, reverse = connectors["a", "b"], connectors["b", "a"]
-    distances = np.linalg.norm(forward[:, None, :] - reverse[None, :, :], axis=-1)
-    assert np.median(np.min(distances, axis=1)) > 2 * stroke_pixels
+        for cluster in document["objects"]
+        if "nodes" in cluster
+    }
+    prediction_label = "Average" if rank is None else f"Complete graph rank {rank}"
+    expected_nodes, expected_edges = native_topology(native_dot(result.plot.dot(graph=rank)))
+    assert clusters == {
+        "True graph": (expected_nodes, [("other", "target")]),
+        prediction_label: (expected_nodes, expected_edges),
+    }
+    svg = artifact.render("svg")
+    assert svg == native_bytes(artifact.source, "svg")
+    root = ElementTree.fromstring(svg)
+    namespace = {"s": "http://www.w3.org/2000/svg"}
+    labels = {
+        group.find("s:text", namespace).text
+        for group in root.findall(".//s:g", namespace)
+        if group.get("class") == "cluster"
+    }
+    assert labels == {"True graph", prediction_label}
+    assert diagnostics.plot.dot(graph=rank) == result.plot.dot(graph=rank)
 
 
-def test_tall_diagram_keeps_heading_above_graph_content():
-    pairs = tuple((f"n{index:02}", f"n{index + 1:02}") for index in range(79))
+@NATIVE_GRAPHVIZ
+def test_native_dag_keeps_parallel_slots_cycles_and_self_loops():
+    pairs = (("a", "b"), ("a", "b"), ("b", "c"), ("c", "a"), ("b", "a"), ("a", "a"))
     result = graph_result([[1] * len(pairs)], pairs, mask=(1,) * len(pairs))
-    figure, axis, renderer, ellipses, _ = rendered_graph(result, graph=None)
-    heading = figure._suptitle.get_window_extent(renderer)
-    assert heading.y0 > axis.get_window_extent(renderer).y1
-    assert heading.y0 > axis.title.get_window_extent(renderer).y1
-    assert all(heading.y0 > ellipse.get_window_extent(renderer).y1 for ellipse in ellipses)
+    artifact = result.plot.dag(graph=0)
+    nodes, edges = svg_topology(ElementTree.fromstring(artifact.render("svg")))
+    assert nodes == {"a", "b", "c"}
+    assert sorted(edges) == sorted(pairs)
+
+
+@NATIVE_GRAPHVIZ
+@pytest.mark.parametrize("rank", [None, 0])
+def test_native_empty_selection_retains_every_active_endpoint(rank):
+    artifact = graph_result([[0, 0, 0, 0]]).plot.dag(graph=rank)
+    nodes, edges = svg_topology(ElementTree.fromstring(artifact.render("svg")))
+    assert nodes == {"feature", "other", "isolated", "target"}
+    assert edges == []
+
+
+@NATIVE_GRAPHVIZ
+def test_native_artifact_exports_real_vector_svg_and_png_to_paths_and_binary_files(tmp_path):
+    artifact = graph_result().plot.dag()
+    for suffix, format in ((".png", "png"), (".SVG", "svg"), ("", "png")):
+        path = tmp_path / f"graph{suffix}"
+        artifact.savefig(path)
+        expected = native_bytes(artifact.source, format)
+        assert path.read_bytes() == expected
+        buffer = io.BytesIO()
+        artifact.savefig(buffer, format=format)
+        assert buffer.getvalue() == expected
+    root = ElementTree.fromstring((tmp_path / "graph.SVG").read_bytes())
+    namespace = {"s": "http://www.w3.org/2000/svg"}
+    assert root.findall(".//s:ellipse", namespace)
+    assert root.findall(".//s:path", namespace)
+    assert not root.findall(".//s:image", namespace)
+    default_buffer = io.BytesIO()
+    artifact.savefig(default_buffer)
+    assert default_buffer.getvalue().startswith(b"\x89PNG\r\n\x1a\n")
+    overridden = tmp_path / "vector.png"
+    with overridden.open("wb") as handle:
+        artifact.savefig(handle, format="svg")
+    assert ElementTree.fromstring(overridden.read_bytes()).tag.endswith("svg")
+    with pytest.raises(TypeError, match="dpi"):
+        artifact.savefig(tmp_path / "ignored.png", dpi=120)
+    with pytest.raises(TypeError, match="bbox_inches"):
+        artifact.savefig(tmp_path / "ignored.svg", bbox_inches="tight")
+
+
+@NATIVE_GRAPHVIZ
+def test_native_artifact_can_render_a_graph_without_nodes():
+    artifact = GraphvizGraph("digraph {}\n")
+    assert svg_topology(ElementTree.fromstring(artifact.render("svg"))) == (set(), [])
+    assert artifact.render().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+@NATIVE_GRAPHVIZ
+@pytest.mark.parametrize("source", ["not a graph", "digraph { a -> }", ""])
+@pytest.mark.parametrize("format", ["png", "svg"])
+def test_native_artifact_surfaces_invalid_dot(source, format):
+    with pytest.raises(ValueError, match="Graphviz dot"):
+        GraphvizGraph(source).render(format)
+
+
+def test_missing_dot_is_explicit_but_dot_export_still_works(monkeypatch):
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("dot")
+
+    monkeypatch.setattr("pymc_mfm.plotting._graphviz.subprocess.run", missing)
+    result = graph_result()
+    artifact = result.plot.dag()
+    assert artifact.source == result.plot.dot()
+    for render in (artifact.render, lambda: _render_svg_batch([artifact.source])):
+        with pytest.raises(RuntimeError, match="Graphviz.*dot.*PATH"):
+            render()
+
+
+def test_native_artifact_rejects_unsupported_formats(tmp_path):
+    artifact = GraphvizGraph("digraph {}")
+    with pytest.raises(ValueError, match="format"):
+        artifact.render("jpeg")
+    with pytest.raises(ValueError, match="format"):
+        artifact.savefig(tmp_path / "graph.jpeg")
+
+
+@NATIVE_GRAPHVIZ
+def test_svg_batch_preserves_complete_documents_order_and_bytes_in_one_process(monkeypatch):
+    result = graph_result()
+    sources = [result.plot.dot(graph=rank) for rank in (None, 2, 1, 0)]
+    expected = native_bytes("\n".join(sources), "svg").decode("utf-8")
+    expected_topologies = [native_topology(native_dot(source)) for source in sources]
+    run = subprocess.run
+    calls = []
+
+    def counting(*args, **kwargs):
+        calls.append(None)
+        return run(*args, **kwargs)
+
+    monkeypatch.setattr("pymc_mfm.plotting._graphviz.subprocess.run", counting)
+    documents = _render_svg_batch(sources)
+    assert "".join(documents) == expected
+    assert [
+        svg_topology(ElementTree.fromstring(document)) for document in documents
+    ] == expected_topologies
+    assert len(calls) == 1
+    assert _render_svg_batch([]) == []
+    assert len(calls) == 1
+
+
+@NATIVE_GRAPHVIZ
+@pytest.mark.parametrize(
+    "sources",
+    [["digraph { a -> b; }\ndigraph { c -> d; }\n"], ["digraph { a; }\n", ""]],
+)
+def test_svg_batch_rejects_missing_or_extra_graph_documents(sources):
+    with pytest.raises(RuntimeError, match="document count"):
+        _render_svg_batch(sources)
