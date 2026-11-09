@@ -70,6 +70,10 @@ website:
         href: https://www.pymc-labs.com
         target: _blank
         rel: noopener
+      # The hosted console: sign in with a PyMC Labs Google account and compare scenarios
+      # from your agent. site.css draws it as the navbar's one button, by this URL.
+      - text: "Try it out"
+        href: https://mfm-staging.pymc-labs.com/
   sidebar:
     - id: guide
       title: Guide
