@@ -217,7 +217,11 @@ def bad_histories(history):
     [
         ("missing", "Row 3 of your history has the date 2024-07-22, but row 2 has 2024-07-08."),
         ("duplicate", "Row 3 of your history repeats the date 2024-07-08, which is also in row 2."),
-        ("reversed", "Row 3 of your history has the date 2024-07-08, but row 2 has 2024-07-15."),
+        (
+            "reversed",
+            "Row 2 of your history has the date 2024-07-15, but row 1 has 2024-07-01. "
+            "The next required date is 2024-07-08, which is in row 3.",
+        ),
     ],
 )
 @pytest.mark.parametrize("reuse", [False, True])

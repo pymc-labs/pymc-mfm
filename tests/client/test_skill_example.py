@@ -72,7 +72,7 @@ def analysis_id(number: int) -> dict:
 
 @pytest.fixture
 def service() -> FakeService:
-    """The routes the examples call: preview, comparison, then the optional curves and grid."""
+    """The routes the examples call: preview, comparison, then one optional example."""
     fake = FakeService()
     fake.on("GET", "/v1/datasets", (200, {"datasets": []}))
     fake.on("POST", "/v1/datasets", (201, example_dataset_record()))
@@ -84,13 +84,11 @@ def service() -> FakeService:
         (200, preview),
         (202, analysis_id(1)),
         (202, analysis_id(2)),
-        (202, analysis_id(3)),
     )
-    for number in (1, 2, 3):
+    for number in (1, 2):
         fake.on("GET", f"/v1/analyses/an_{number}", (200, status_record("done")))
     fake.on("GET", "/v1/analyses/an_1/result", (200, result_record(compare_rows())))
-    fake.on("GET", "/v1/analyses/an_2/result", (200, curve_result()))
-    fake.on("GET", "/v1/analyses/an_3/result", (200, result_record(grid_rows())))
+    fake.on("GET", "/v1/analyses/an_2/result", (200, curve_result()))  # the optional example
     weekly = [{"date": "2024-07-29", "component": "outcome", "mean": 1.0, "p05": 0.5, "p95": 1.5}]
     weekly_reply = {"scenario_id": "tv_to_search", "rows": weekly}
     fake.on("GET", "/v1/analyses/an_1/weekly", (200, weekly_reply))
@@ -154,6 +152,7 @@ def test_curves_example_requests_one_curve_per_channel(workdir, service):
 
 
 def test_grid_example_requests_shift_and_grid_scenarios(workdir, service):
+    service.on("GET", "/v1/analyses/an_2/result", (200, result_record(grid_rows())))
     namespace = {"__name__": "skill_example"}
     run_example("main", namespace)
     run_example("grid", namespace)

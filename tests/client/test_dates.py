@@ -30,7 +30,19 @@ def test_weekly_dates_pass():
         ),
         (
             [WEEKS[0], WEEKS[2], WEEKS[1], WEEKS[3]],
-            "Row 3 of your history has the date 2024-07-08, but row 2 has 2024-07-15.",
+            "Row 2 of your history has the date 2024-07-15, but row 1 has 2024-07-01. "
+            "The next required date is 2024-07-08, which is in row 3. "
+            "Dates must increase by one week for each row.",
+        ),
+        (
+            [WEEKS[1], WEEKS[0], WEEKS[2]],
+            "Row 2 of your history has the date 2024-07-01, but row 1 has 2024-07-08. "
+            "Dates must increase by one week for each row.",
+        ),
+        (
+            [WEEKS[0], WEEKS[2], WEEKS[2]],
+            "Row 2 of your history has the date 2024-07-15, but row 1 has 2024-07-01. "
+            "The next required date is 2024-07-08. Check whether a week is missing",
         ),
         (
             [WEEKS[0], "2024-07-04"],

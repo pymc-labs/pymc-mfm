@@ -19,30 +19,22 @@ WEEK = timedelta(days=7)
 def check_weekly_dates(dates: Sequence[Any], label: str) -> None:
     """Raise ``ValueError`` at the first row that is not exactly one week after the row before.
 
-    ``label`` names the data in the message, for example ``"history"`` or ``"plan"``. Repeated
-    and out-of-order dates are reported before gaps, because a gap in unordered data is unclear.
+    ``label`` names the data in the message, for example ``"history"`` or ``"plan"``. Each row
+    is checked for a repeated date, a date out of order and a step that is not one week, in
+    that order, so the message names the first row with any problem.
     """
     days = [_as_date(value) for value in dates]
-    _check_order(days, label)
-    for row in range(2, len(days) + 1):
-        _check_step(days[row - 2], days[row - 1], row, label)
-
-
-def _check_order(days: Sequence[date], label: str) -> None:
-    first_row: dict[date, int] = {}
+    rows_of: dict[date, int] = {}
     for row, day in enumerate(days, start=1):
-        if day in first_row:
+        rows_of.setdefault(day, row)
+    for row, day in enumerate(days, start=1):
+        if rows_of[day] < row:
             raise ValueError(
                 f"Row {row} of your {label} repeats the date {day}, which is also in row "
-                f"{first_row[day]}. Each date can appear only once."
+                f"{rows_of[day]}. Each date can appear only once."
             )
-        first_row[day] = row
-        if row > 1 and day < days[row - 2]:
-            raise ValueError(
-                f"Row {row} of your {label} has the date {day}, but row {row - 1} has "
-                f"{days[row - 2]}. Dates must increase by one week for each row. "
-                "The client does not sort your data."
-            )
+        if row > 1:
+            _check_step(days[row - 2], day, row, label, rows_of)
 
 
 def check_plan_follows_history(plan: Any, history_end: date) -> None:
@@ -51,9 +43,10 @@ def check_plan_follows_history(plan: Any, history_end: date) -> None:
     A DataFrame plan is already converted to wire form. A plan mapping is checked only when
     it has a ``dates`` key, and then only when it has at least one date.
     """
-    if not isinstance(plan, Mapping) or not plan.get("dates"):
+    dates = plan.get("dates") if isinstance(plan, Mapping) else None
+    if dates is None or len(dates) == 0:  # never truth-test: dates may be an array or Series
         return
-    days = [_as_date(value) for value in plan["dates"]]
+    days = [_as_date(value) for value in dates]
     required = history_end + WEEK
     if days[0] != required:
         raise ValueError(
@@ -64,10 +57,20 @@ def check_plan_follows_history(plan: Any, history_end: date) -> None:
     check_weekly_dates(days, "plan")
 
 
-def _check_step(previous: date, day: date, row: int, label: str) -> None:
+def _check_step(
+    previous: date, day: date, row: int, label: str, rows_of: Mapping[date, int]
+) -> None:
     gap = day - previous
     expected = previous + WEEK
     where = f"Row {row} of your {label} has the date {day}, but row {row - 1} has {previous}."
+    unordered = "Dates must increase by one week for each row. The client does not sort your data."
+    if day < previous:
+        raise ValueError(f"{where} {unordered}")
+    if gap != WEEK and expected in rows_of:
+        raise ValueError(
+            f"{where} The next required date is {expected}, which is in row "
+            f"{rows_of[expected]}. {unordered}"
+        )
     if gap % WEEK:
         raise ValueError(
             f"{where} Dates must be 7 days apart. The next required date is {expected}."
@@ -80,4 +83,6 @@ def _check_step(previous: date, day: date, row: int, label: str) -> None:
 
 
 def _as_date(value: Any) -> date:
+    if isinstance(value, str):  # numpy.str_ too, which pandas does not parse
+        value = str(value)
     return pd.Timestamp(value).date()

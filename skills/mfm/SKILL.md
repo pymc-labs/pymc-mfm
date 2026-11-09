@@ -218,10 +218,10 @@ work twice. It raises these errors, all in `pymc_mfm.client`:
 | `RateLimited` (429) | Too many requests, or `overloaded_user_analyses`: 20 unfinished analyses. Wait `error.retry_after` seconds, or delete one. |
 | `ServerError` (5xx), `ApiConnectionError` | The retries ran out. Wait and try again later. |
 
-Before it sends anything, the client raises `ValueError` when the dates have a missing week, a
-duplicate, the wrong order, or a plan that does not start the week after the history. Read the
-message, which names the row and dates, and fix the input. Never sort, fill or shift data to make
-it pass.
+Before it uploads a history or submits an analysis, the client raises `ValueError` when the dates
+have a missing week, a duplicate, the wrong order, or a plan that does not start the week after
+the history. Read the message, which names the row and dates, and fix the input. Never sort, fill
+or shift data to make it pass.
 
 `wait(timeout=600)` raises `TimeoutError` when the analysis is still running. The first run after an
 idle period can take about 20 seconds more (cold start). There are no partial results. Do not create

@@ -421,7 +421,8 @@ def test_a_plan_not_starting_the_week_after_the_history_is_refused(
         ),
         (
             ["2024-07-29", "2024-08-12", "2024-08-05"],
-            "Row 3 of your plan has the date 2024-08-05, but row 2 has 2024-08-12.",
+            "Row 2 of your plan has the date 2024-08-12, but row 1 has 2024-07-29. "
+            "The next required date is 2024-08-05, which is in row 3.",
         ),
     ],
 )
@@ -457,3 +458,13 @@ def test_a_wire_plan_without_dates_is_left_to_the_service(client, service, datas
     service.on("POST", "/v1/analyses", (202, started(1)))
     client.analyze(dataset, {"spend": {"tv": [1.0]}})
     assert len(service.sent("POST", "/v1/analyses")) == 1
+
+
+@pytest.mark.parametrize("container", [np.array, pd.Series, pd.Index])
+def test_a_wire_plan_with_array_dates_is_sent_as_before(client, service, dataset, container):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    dates = ["2024-07-29", "2024-08-05"]
+    client.analyze(dataset, wire_plan(dates))
+    client.analyze(dataset, wire_plan(container(dates)))
+    first, second = (r.content for r in service.requests[-2:])
+    assert json.loads(first)["plan"] == json.loads(second)["plan"]
