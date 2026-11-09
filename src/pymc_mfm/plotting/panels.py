@@ -1040,7 +1040,11 @@ def _graph_geometry(edges, positions, radii, label_sizes):
 
 
 def plot_dag(summary, *, graph=None):
-    """Graphviz-style ovals and literal labels, without a Graphviz dependency."""
+    """Draw Average (``graph=None``, the default) or a ranked complete graph.
+
+    Integer ranks are zero-based. Nodes use Graphviz-style ovals with literal
+    serif labels; no Graphviz installation is required.
+    """
     from matplotlib.patches import Ellipse, FancyArrowPatch
     from matplotlib.path import Path
     from matplotlib.text import Text

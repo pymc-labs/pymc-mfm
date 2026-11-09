@@ -578,6 +578,36 @@ conda activate ./.conda
 python -m pip install --group dev -e .
 ```
 
+### Documentation site
+
+The website in `docs/` is a [Quarto](https://quarto.org) project: a landing page, the
+Guide, the API reference, Models and the Blog. It needs the Quarto CLI (1.7 or newer;
+CI pins 1.7.31) and the `docs` dependency group:
+
+```bash
+uv sync --locked --group docs
+uv run --no-sync quarto preview docs   # live preview
+uv run --no-sync quarto render docs    # writes docs/_site/
+```
+
+Before each render, `docs/_scripts/prepare.py` copies `examples/*.ipynb` into the Guide
+and writes the API reference from the docstrings (quartodoc). Both are generated and
+ignored by Git.
+
+| Section | Source |
+| --- | --- |
+| Guide | `docs/guide/*.qmd`; listed in `website.sidebar` in `docs/_quarto.yml` |
+| Guide examples | every notebook in `examples/`, with its stored outputs |
+| API reference | docstrings; pages and order in the `quartodoc` section of `docs/_quarto.yml` |
+| Models | one page per released model: `docs/models/<name>/index.qmd`, with `name` (the model without its version), `order`, `badge`, `specs` and `image` in its front matter for the Models page card; announced models (cards that say "Coming soon" and do not link) in `docs/models/upcoming.yml`. Card art lives in `docs/assets/img/models/`. List each model in the Models menu in `docs/_quarto.yml` (a text-only `"<Name> SOON"` item for an announced one) |
+| Blog | one folder per post: `docs/blog/posts/<date>-<slug>/index.qmd` or `index.ipynb` |
+
+Nothing executes at build time: notebooks and posts render the outputs they were saved
+with. Prefer SVG figures (text files). A PNG or JPEG is binary and needs an entry in
+`.github/public-boundary-allow.toml`, pinned with `sha256`, like a notebook with image
+outputs. The Docs workflow builds the site on every pull request; publishing to GitHub
+Pages is a manual run of that workflow on `main`.
+
 ### What may be committed
 
 This repository will be public, history included. Commit library code, tests,

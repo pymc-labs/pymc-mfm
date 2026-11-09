@@ -1,0 +1,27 @@
+<%
+// One card per model, in `order`. Released models come from docs/models/<name>/index.qmd
+// (title, date, description, image, and optional `name`, `badge` and `specs`; the card
+// shows `name`, the model without its version, or else the title); the whole card links
+// to the release page. Announced models come from upcoming.yml with `status: soon`:
+// their card says "Coming soon" and links nowhere.
+// Pandoc reads this output as Markdown: keep HTML lines unindented, without blank lines.
+const slug = (title) => String(title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+%>
+<div class="mfm-models">
+<div class="mfm-models__grid list">
+<% for (const item of items) { const soon = item.status === "soon"; %>
+<article class="mfm-model-card mfm-model-card--<%= slug(item.title) %><%= soon ? ' is-soon' : '' %> quarto-post" <%= metadataAttrs(item) %><%= soon ? ' aria-disabled="true"' : '' %>>
+<div class="mfm-model-card__media">
+<% if (item.image) { %><img src="<%- item.image %>" alt="" loading="lazy"><% } %>
+<p class="mfm-model-card__name" role="heading" aria-level="2"><%= item.name || item.title %></p>
+</div>
+<div class="mfm-model-card__body">
+<% if (soon) { %><p class="mfm-model-card__meta"><span class="mfm-badge mfm-badge--soon">Coming soon</span></p><% } else { %><p class="mfm-model-card__meta"><span><%= item.date %></span><% if (item.badge) { %> <span class="mfm-badge"><%= item.badge %></span><% } %></p><% } %>
+<% if (item.description) { %><p class="mfm-model-card__description"><%= item.description %></p><% } %>
+<% if (item.specs && item.specs.length) { %><ul class="mfm-model-card__specs"><% for (const spec of item.specs) { %><li><%= spec %></li><% } %></ul><% } %>
+<% if (!soon) { %><p class="mfm-model-card__cta"><a class="stretched-link" href="<%- item.path %>" aria-label="Read the <%= item.title %> release">Read the release <span aria-hidden="true">→</span></a></p><% } %>
+</div>
+</article>
+<% } %>
+</div>
+</div>

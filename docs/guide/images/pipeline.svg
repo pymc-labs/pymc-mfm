@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="310" viewBox="0 0 1200 310" role="img" aria-labelledby="title desc">
+  <title id="title">PyMC MFM inference pipeline</title>
+  <desc id="desc">Observed regularly spaced media spend, controls, and context outcomes flow through a bi-attention encoder, a joint graph router, and a graph-conditioned rectified-flow decoder to posterior component draws.</desc>
+  <rect width="1200" height="310" rx="24" fill="#07142a"/>
+  <text x="56" y="58" fill="#f7f7f7" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700">One observed timeline, many posterior decompositions</text>
+  <g font-family="Inter, Arial, sans-serif">
+    <g transform="translate(56 106)">
+      <rect width="218" height="142" rx="16" fill="#0c1f40" stroke="#b4e7dd" stroke-width="2"/>
+      <text x="20" y="36" fill="#b4e7dd" font-size="18" font-weight="700">Observed series</text>
+      <text x="20" y="69" fill="#f7f7f7" font-size="15">media spend</text>
+      <text x="20" y="94" fill="#f7f7f7" font-size="15">controls</text>
+      <text x="20" y="119" fill="#f7f7f7" font-size="15">context outcome</text>
+    </g>
+    <path d="M294 177H340" stroke="#9faae2" stroke-width="4" stroke-linecap="round"/>
+    <path d="M330 167L342 177L330 187" fill="none" stroke="#9faae2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="translate(360 106)">
+      <rect width="218" height="142" rx="16" fill="#0c1f40" stroke="#9faae2" stroke-width="2"/>
+      <text x="20" y="36" fill="#9faae2" font-size="18" font-weight="700">Bi-attention encoder</text>
+      <text x="20" y="69" fill="#f7f7f7" font-size="15">causal time attention</text>
+      <text x="20" y="94" fill="#f7f7f7" font-size="15">entity attention</text>
+      <text x="20" y="119" fill="#f7f7f7" font-size="15">time-step representations</text>
+    </g>
+    <path d="M598 177H644" stroke="#c8b4e7" stroke-width="4" stroke-linecap="round"/>
+    <path d="M634 167L646 177L634 187" fill="none" stroke="#c8b4e7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="translate(664 106)">
+      <rect width="218" height="142" rx="16" fill="#0c1f40" stroke="#c8b4e7" stroke-width="2"/>
+      <text x="20" y="36" fill="#c8b4e7" font-size="18" font-weight="700">Joint graph router</text>
+      <text x="20" y="69" fill="#f7f7f7" font-size="15">eight edge families</text>
+      <text x="20" y="94" fill="#f7f7f7" font-size="15">one graph per draw</text>
+      <text x="20" y="119" fill="#f7f7f7" font-size="15">graph conditioning</text>
+    </g>
+    <path d="M902 177H948" stroke="#f6ae72" stroke-width="4" stroke-linecap="round"/>
+    <path d="M938 167L950 177L938 187" fill="none" stroke="#f6ae72" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <g transform="translate(968 106)">
+      <rect width="176" height="142" rx="16" fill="#0c1f40" stroke="#f6ae72" stroke-width="2"/>
+      <text x="20" y="36" fill="#f6ae72" font-size="18" font-weight="700">Flow decoder</text>
+      <text x="20" y="69" fill="#f7f7f7" font-size="15">baseline</text>
+      <text x="20" y="94" fill="#f7f7f7" font-size="15">channels · controls</text>
+      <text x="20" y="119" fill="#f7f7f7" font-size="15">latent · indirect</text>
+    </g>
+  </g>
+</svg>

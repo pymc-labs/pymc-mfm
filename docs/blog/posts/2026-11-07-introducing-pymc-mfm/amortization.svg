@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" role="img" aria-labelledby="amortization-title amortization-desc">
+  <title id="amortization-title">Conceptual comparison of dataset-specific fitting and amortized inference</title>
+  <desc id="amortization-desc">A conceptual diagram contrasts fitting a model separately for each dataset with training one network on simulated worlds and using the trained network to infer on many new datasets.</desc>
+  <style>text { font-family: Inter, sans-serif !important; }</style>
+  <rect x="12" y="12" width="1176" height="596" rx="32" fill="#07142a" stroke="#0c1f40" stroke-width="4"/>
+
+  <text x="64" y="82" fill="#f7f7f7" font-family="Arial, sans-serif" font-size="34" font-weight="700">Where fitting happens</text>
+  <text x="64" y="114" fill="#b4e7dd" font-family="Arial, sans-serif" font-size="17">Two workflows for a new marketing-mix dataset</text>
+  <line x1="600" y1="154" x2="600" y2="558" stroke="#154A72" stroke-width="3"/>
+
+  <rect x="52" y="154" width="500" height="404" rx="24" fill="#0c1f40" stroke="#154A72" stroke-width="2"/>
+  <text x="84" y="205" fill="#f6ae72" font-family="Arial, sans-serif" font-size="28" font-weight="700">Fit per dataset</text>
+  <text x="84" y="232" fill="#9faae2" font-family="Arial, sans-serif" font-size="16">Dataset-specific fitting</text>
+
+  <rect x="82" y="258" width="142" height="58" rx="14" fill="#154A72" stroke="#b4e7dd" stroke-width="2"/>
+  <text x="153" y="293" fill="#f7f7f7" font-family="Arial, sans-serif" font-size="17" text-anchor="middle">Dataset A</text>
+  <line x1="224" y1="287" x2="266" y2="287" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M276 287 L264 280 L264 294 Z" fill="#b4e7dd"/>
+  <rect x="282" y="258" width="150" height="58" rx="14" fill="#9faae2"/>
+  <text x="357" y="293" fill="#07142a" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle">Fit model</text>
+  <line x1="432" y1="287" x2="462" y2="287" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M472 287 L460 280 L460 294 Z" fill="#b4e7dd"/>
+  <rect x="478" y="258" width="48" height="58" rx="14" fill="#c8b4e7"/>
+  <text x="502" y="282" fill="#07142a" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle">Draws</text>
+  <path d="M489 296 H515" stroke="#07142a" stroke-width="2" stroke-linecap="round"/>
+
+  <rect x="82" y="350" width="142" height="58" rx="14" fill="#154A72" stroke="#b4e7dd" stroke-width="2"/>
+  <text x="153" y="385" fill="#f7f7f7" font-family="Arial, sans-serif" font-size="17" text-anchor="middle">Dataset B</text>
+  <line x1="224" y1="379" x2="266" y2="379" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M276 379 L264 372 L264 386 Z" fill="#b4e7dd"/>
+  <rect x="282" y="350" width="150" height="58" rx="14" fill="#9faae2"/>
+  <text x="357" y="385" fill="#07142a" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle">Fit model</text>
+  <line x1="432" y1="379" x2="462" y2="379" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M472 379 L460 372 L460 386 Z" fill="#b4e7dd"/>
+  <rect x="478" y="350" width="48" height="58" rx="14" fill="#c8b4e7"/>
+  <text x="502" y="374" fill="#07142a" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle">Draws</text>
+  <path d="M489 388 H515" stroke="#07142a" stroke-width="2" stroke-linecap="round"/>
+
+  <rect x="82" y="442" width="142" height="58" rx="14" fill="#154A72" stroke="#b4e7dd" stroke-width="2"/>
+  <text x="153" y="477" fill="#f7f7f7" font-family="Arial, sans-serif" font-size="17" text-anchor="middle">Dataset C</text>
+  <line x1="224" y1="471" x2="266" y2="471" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M276 471 L264 464 L264 478 Z" fill="#b4e7dd"/>
+  <rect x="282" y="442" width="150" height="58" rx="14" fill="#9faae2"/>
+  <text x="357" y="477" fill="#07142a" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="middle">Fit model</text>
+  <line x1="432" y1="471" x2="462" y2="471" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M472 471 L460 464 L460 478 Z" fill="#b4e7dd"/>
+  <rect x="478" y="442" width="48" height="58" rx="14" fill="#c8b4e7"/>
+  <text x="502" y="466" fill="#07142a" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle">Draws</text>
+  <path d="M489 480 H515" stroke="#07142a" stroke-width="2" stroke-linecap="round"/>
+
+  <rect x="648" y="154" width="500" height="404" rx="24" fill="#0c1f40" stroke="#154A72" stroke-width="2"/>
+  <text x="680" y="205" fill="#b4e7dd" font-family="Arial, sans-serif" font-size="28" font-weight="700">Train once</text>
+  <text x="680" y="232" fill="#9faae2" font-family="Arial, sans-serif" font-size="16">Amortized workflow</text>
+
+  <rect x="680" y="258" width="156" height="80" rx="18" fill="#154A72" stroke="#b4e7dd" stroke-width="2"/>
+  <text x="758" y="284" fill="#f7f7f7" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">Simulated worlds</text>
+  <circle cx="720" cy="310" r="12" fill="#c8b4e7"/>
+  <circle cx="758" cy="310" r="12" fill="#f6ae72"/>
+  <circle cx="796" cy="310" r="12" fill="#81C240"/>
+  <line x1="836" y1="298" x2="866" y2="298" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M876 298 L864 291 L864 305 Z" fill="#b4e7dd"/>
+  <rect x="882" y="258" width="222" height="80" rx="18" fill="#f6ae72"/>
+  <text x="993" y="290" fill="#07142a" font-family="Arial, sans-serif" font-size="20" font-weight="700" text-anchor="middle">Train network</text>
+  <text x="993" y="315" fill="#07142a" font-family="Arial, sans-serif" font-size="16" text-anchor="middle">once</text>
+
+  <line x1="993" y1="338" x2="993" y2="370" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M993 380 L986 368 L1000 368 Z" fill="#b4e7dd"/>
+  <text x="1013" y="366" fill="#b4e7dd" font-family="Arial, sans-serif" font-size="14">shared weights</text>
+  <rect x="862" y="386" width="262" height="70" rx="18" fill="#81C240"/>
+  <text x="993" y="429" fill="#07142a" font-family="Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Trained network</text>
+
+  <text x="676" y="476" fill="#b4e7dd" font-family="Arial, sans-serif" font-size="17" font-weight="700" text-anchor="start">Infer many</text>
+  <line x1="900" y1="456" x2="740" y2="514" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M731 518 L741 506 L745 520 Z" fill="#b4e7dd"/>
+  <line x1="993" y1="456" x2="908" y2="514" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M900 519 L910 506 L914 520 Z" fill="#b4e7dd"/>
+  <line x1="1086" y1="456" x2="1076" y2="514" stroke="#b4e7dd" stroke-width="3"/>
+  <path d="M1074 524 L1069 510 L1083 512 Z" fill="#b4e7dd"/>
+  <rect x="666" y="524" width="148" height="48" rx="14" fill="#c8b4e7"/>
+  <text x="740" y="554" fill="#07142a" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">New dataset A</text>
+  <rect x="834" y="524" width="148" height="48" rx="14" fill="#c8b4e7"/>
+  <text x="908" y="554" fill="#07142a" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">New dataset B</text>
+  <rect x="1002" y="524" width="126" height="48" rx="14" fill="#c8b4e7"/>
+  <text x="1065" y="554" fill="#07142a" font-family="Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">New dataset C</text>
+</svg>

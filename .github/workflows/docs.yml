@@ -1,0 +1,55 @@
+name: Docs
+
+# Builds the website in docs/ on every pull request and push to main. Publishing to
+# GitHub Pages is a manual step (Run workflow on main) so the site goes live only when
+# maintainers choose to, independent of the repository's visibility.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      # The base install is enough: quartodoc reads docstrings statically, and notebooks
+      # render from their stored outputs without a kernel.
+      - name: Install the package and the docs group
+        run: uv sync --locked --group docs
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.7.31
+      - name: Render the site
+        run: uv run --no-sync quarto render docs
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

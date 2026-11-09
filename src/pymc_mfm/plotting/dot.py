@@ -70,7 +70,10 @@ def dot_template(summary):
 
 
 def graph_to_dot(summary, *, graph=None) -> str:
-    """Export Average or a complete graph at its zero-based frequency rank.
+    """Export Average (``graph=None``, the default) or a complete graph by rank.
+
+    ``graph`` is optional. Integer ranks are zero-based, ordered by descending
+    count and then ascending binary vector.
 
     Average includes nonzero marginal edge frequencies as numeric labels and
     exact ``probability`` attributes. A ranked view includes only its binary

@@ -122,11 +122,14 @@ class _SummaryPlots:
         return self._draw("structure_heatmap")
 
     def dag(self, *, graph=None) -> Figure:
-        """Marginal edge frequencies, or a complete graph at its zero-based rank."""
+        """Draw Average (``graph=None``, the default) or a zero-based complete graph rank."""
         return self._draw("dag_recovery", panels.plot_dag, graph=graph)
 
     def dot(self, *, graph=None) -> str:
-        """Prediction-only DOT for Average or a complete graph at its zero-based rank."""
+        """Prediction-only DOT: Average (``graph=None``, the default) or a ranked graph.
+
+        Integer ranks are zero-based.
+        """
         from pymc_mfm.plotting.dot import graph_to_dot
 
         return graph_to_dot(self._summary(), graph=graph)

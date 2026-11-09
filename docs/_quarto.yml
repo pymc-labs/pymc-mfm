@@ -1,0 +1,219 @@
+project:
+  type: website
+  output-dir: _site
+  # Copies examples/*.ipynb into guide/examples/ and writes the API reference
+  # pages with quartodoc. Both outputs are generated and ignored by Git.
+  pre-render: _scripts/prepare.py
+  render:
+    - "*.qmd"
+    - "guide/**"
+    - "reference/**"
+    - "models/**"
+    - "blog/**"
+  resources:
+    - assets/js/*.js
+    - assets/img/show/*.svg
+    - assets/img/logo/*.svg
+    - assets/favicon/*
+
+# Written by quartodoc during pre-render.
+metadata-files:
+  - reference/_sidebar.yml
+
+website:
+  title: "PyMC MFM"
+  description: "Amortized Bayesian marketing-mix decomposition with causal graphs, by PyMC Labs."
+  site-url: https://pymc-labs.github.io/pymc-mfm/
+  repo-url: https://github.com/pymc-labs/pymc-mfm
+  favicon: assets/favicon/favicon.svg
+  bread-crumbs: false
+  page-navigation: true
+  back-to-top-navigation: false
+  search:
+    location: navbar
+    type: overlay
+  open-graph: true
+  navbar:
+    # The MFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
+    logo: assets/img/logo/mfm-logo-navy.svg
+    logo-alt: "PyMC MFM home"
+    title: false
+    collapse-below: lg
+    right:
+      - text: Guide
+        href: guide/index.qmd
+      - text: API
+        href: reference/index.qmd
+      # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
+      # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge.
+      # Items with only `text` are column headers; "---" starts the second column. A
+      # text-only item ending in " SOON" becomes a greyed "Coming soon" entry, not a link.
+      - text: Models
+        menu:
+          - text: "Models"
+          - text: "River NEW"
+            href: models/river-1/index.qmd
+          - text: "Sea SOON"
+          - text: "Ocean SOON"
+          - text: "---"
+          - text: "Resources"
+          - text: "All models"
+            href: models/index.qmd
+          - text: "Hugging Face"
+            href: https://huggingface.co/pymc-labs/mfm
+      - text: Blog
+        href: blog/index.qmd
+      - icon: github
+        href: https://github.com/pymc-labs/pymc-mfm
+        aria-label: GitHub
+      - text: "PyMC Labs"
+        href: https://www.pymc-labs.com
+        target: _blank
+        rel: noopener
+      # The hosted console: sign in with a PyMC Labs Google account and compare scenarios
+      # from your agent. Only the River model page shows it, as a button: site.css hides
+      # it elsewhere and model.css draws it, both by this URL.
+      - text: "Try it out"
+        href: https://mfm-staging.pymc-labs.com/
+  sidebar:
+    - id: guide
+      title: Guide
+      style: floating
+      collapse-level: 2
+      contents:
+        - section: Get started
+          contents:
+            - guide/index.qmd
+            - guide/concepts.qmd
+        - section: Use a model
+          contents:
+            - guide/decompose.qmd
+            - guide/models-hub.qmd
+            - guide/river-api.qmd
+        - section: Train
+          contents:
+            - guide/training.qmd
+        - section: Examples
+          # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
+          contents: "guide/examples/*.ipynb"
+  page-footer:
+    left: |
+      Built by [PyMC Labs](https://www.pymc-labs.com), the creators of PyMC.
+    right:
+      - icon: github
+        href: https://github.com/pymc-labs/pymc-mfm
+        aria-label: GitHub
+      - text: "pymc-labs.com"
+        href: https://www.pymc-labs.com
+
+quartodoc:
+  package: pymc_mfm
+  title: API reference
+  dir: reference
+  sidebar: reference/_sidebar.yml
+  # Docstrings are reStructuredText prose (``literals``, :mod: roles).
+  parser: sphinx
+  renderer:
+    style: markdown
+    table_style: description-list
+    show_signature_annotations: true
+  sections:
+    - title: Load and share models
+      desc: Read model folders and Hugging Face Hub profiles; write and publish your own.
+      contents:
+        - inference.from_pretrained
+        - inference.list_profiles
+        - inference.save_pretrained
+        - inference.push_to_hub
+    - title: The model
+      desc: One shared encoder, a joint graph router and a graph-conditioned decoder.
+      contents:
+        - name: model.MFM
+          members:
+            - add_context
+            - inference
+            - build_idata
+            - idata
+            - compile_sampling
+            - disable_compiled_sampling
+            - sampling_status
+            - predict_batch
+        - model.ModelConfig
+    - title: Inference
+      desc: Array-level decomposition, results and warm-up for long-running processes.
+      contents:
+        - inference.decompose
+        - inference.observation_batch
+        - inference.DecompositionResult
+        - inference.warm_up_sampling
+        - inference.warm_up_observations
+    - title: River API client
+      desc: A torch-free HTTP client for the hosted River API.
+      contents:
+        - client.Client
+        - client.Dataset
+        - client.Analysis
+        - client.AnalysisStatus
+        - client.Preview
+        - client.scenario
+        - client.scale
+        - client.move
+        - client.shift
+        - client.set_controls
+        - client.grid
+        - client.curve
+        - client.ApiError
+    - title: Training
+      desc: Train an amortized network on simulated corpora.
+      contents:
+        - training.train
+        - training.TrainingConfig
+        - training.TrackingConfig
+        - training.TrainingResult
+        - training.TrainingError
+        - training.load_checkpoint
+        - training.save_checkpoint
+        - training.CorpusStream
+    - title: Diagnostics
+      desc: Score draws against simulated truth and check calibration.
+      contents:
+        - diagnostics.Diagnostics
+        - diagnostics.ResultPlots
+        - diagnostics.Comparison
+        - diagnostics.calibration_summary
+        - diagnostics.sbc_report
+        - diagnostics.build_report
+    - title: Graph inspection
+      desc: Marginal and individual graphs, offline inspection and Graphviz DOT export.
+      contents:
+        - plotting.plot_dag
+        - plotting.graph_to_dot
+        - plotting.plot_graph_inspector
+        - name: plotting.GraphInspector
+          members:
+            - save
+
+format:
+  html:
+    theme:
+      light: [cosmo, assets/styles/light.scss]
+      dark: [cosmo, assets/styles/dark.scss]
+    css: assets/styles/site.css
+    filters:
+      - _scripts/site-head.lua
+    toc: true
+    toc-depth: 3
+    toc-title: On this page
+    code-copy: true
+    code-overflow: wrap
+    # Adaptive: Quarto ships light and dark variants and switches them with the theme.
+    highlight-style: github
+    link-external-icon: false
+    link-external-newwindow: true
+    smooth-scroll: true
+    anchor-sections: true
+    fig-responsive: true
+
+execute:
+  # Notebooks and posts render with their stored outputs; nothing runs at build time.
+  enabled: false
