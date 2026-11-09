@@ -6,6 +6,16 @@ approved or published release.
 
 ## Changes
 
+- **Encoder input-token accounting.** After `add_context`, `model.input_usage()`
+  reports context-only allocated and represented token counts.
+  `model.input_usage(future_data)` validates the complete request, including the
+  model's numeric precision, without neural inference or changing retained
+  predictions, exports, model mode, or random state. All decomposition results
+  automatically record authoritative per-world `provenance["input_usage"]` for
+  the full encoder timeline; result save/load preserves it and older results
+  without the key remain readable. Counts distinguish padded slots from
+  represented inputs, not effective information or runtime/capacity estimates.
+  No architecture, weight, checkpoint-format, or retraining changes are required.
 - **Documentation website.** `docs/` is a Quarto site in the PyMC Labs palette and brand
   type (Archivo Expanded for headlines and large text, Inter for body text): a landing
   page, a Guide (written pages plus every notebook in `examples/`, rendered from stored

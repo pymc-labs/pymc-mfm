@@ -15,6 +15,7 @@ import torch
 
 from ._artifact_schema import json_bytes
 from ._time import _validate_time
+from ._usage import _input_usage
 
 if TYPE_CHECKING:
     from xarray import DataTree
@@ -518,6 +519,14 @@ def result_from_batch(
     if not np.isfinite(scale) or scale <= 0:
         raise ValueError("sales_scale must be finite and positive")
     metadata = dict(provenance or {})
+    metadata["input_usage"] = _input_usage(
+        context_steps=context_length,
+        query_steps=batch["qry_spend_z"].shape[1],
+        channel_slots=k,
+        control_slots=m,
+        represented_channels=int(active_c.sum()),
+        represented_controls=int(active_m.sum()),
+    )
     metadata["edge_endpoints"] = [
         [nodes[src], nodes[dst]]
         for src, dst in zip(layout.slot_src_index, layout.slot_dst_index, strict=True)
