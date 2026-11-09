@@ -72,6 +72,10 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.9",
 ]
+# Website build (docs/). Quarto itself is a system tool; see README "Documentation site".
+docs = [
+    "quartodoc>=0.11.1,<0.12",
+]
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -94,10 +98,12 @@ only-include = [
     "README.md",
     "RELEASE.md",
     "benchmarks",
+    "docs",
     "environment.yml",
     "examples",
     "pyproject.toml",
     "scripts",
+    "skills",
     "src",
     "tests",
     "uv.lock",

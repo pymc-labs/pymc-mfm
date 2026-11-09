@@ -1,6 +1,7 @@
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from pymc_mfm.client import (
@@ -328,3 +329,142 @@ def test_list_analyses_filters_by_dataset(client, service, dataset):
     frame = client.list_analyses(dataset)
     assert service.requests[-1].url.params["dataset_id"] == "ds_123"
     assert frame["analysis_id"].tolist() == ["an_1"]
+
+
+def test_analyze_sends_an_optional_name_and_keeps_name_and_url(client, service, dataset, plan):
+    reply = {**started(), "name": "Spend scenarios", "url": "https://site.example/analyses/an_1"}
+    service.on("POST", "/v1/analyses", (202, reply))
+    analysis = client.analyze(dataset, plan, name="Spend scenarios")
+    assert body_of(service)["name"] == "Spend scenarios"
+    assert analysis.name == "Spend scenarios"
+    assert analysis.url == "https://site.example/analyses/an_1"
+
+
+def test_analyze_omits_the_name_and_an_older_server_has_no_url(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started()))
+    analysis = client.analyze(dataset, plan)
+    assert "name" not in body_of(service)
+    assert analysis.name is None and analysis.url is None
+
+
+def test_get_reads_name_and_url_and_the_expiry_can_move(client, service):
+    first = {
+        **status_record("running"),
+        "name": "Mine",
+        "url": "https://site.example/analyses/an_1",
+    }
+    later = {**status_record("done"), "expires_at": "2030-01-20T00:00:00Z"}
+    service.on("GET", "/v1/analyses/an_1", (200, first), (200, later))
+    analysis = client.get("an_1")
+    assert (analysis.name, analysis.url) == ("Mine", "https://site.example/analyses/an_1")
+    assert analysis.expires_at.day == 8
+    analysis.status()
+    assert analysis.expires_at.day == 20
+    assert analysis.url == "https://site.example/analyses/an_1"  # kept when a reply omits it
+
+
+def test_export_downloads_the_json_file(client, service, tmp_path):
+    document = b'{"format": "mfm-analysis-export-v1", "analysis_id": "an_1"}'
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("done")))
+    service.on("GET", "/v1/analyses/an_1/export", (200, document))
+    path = client.get("an_1").export(tmp_path / "out.json")
+    assert path.read_bytes() == document
+    request = service.sent("GET", "/v1/analyses/an_1/export")[0]
+    assert request.headers["Authorization"] == "Bearer test-key"
+
+
+def test_export_of_an_unfinished_analysis_raises_not_ready(client, service, tmp_path):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("running")))
+    service.on("GET", "/v1/analyses/an_1/export", (409, error_body("not_ready", "still running")))
+    with pytest.raises(NotReady):
+        client.get("an_1").export(tmp_path / "out.json")
+    assert not (tmp_path / "out.json").exists()
+
+
+PLAN_START = "Your history ends on 2024-07-22. Your plan starts on {start}."
+NEXT_DATE = "The next required date is 2024-07-29."
+CHECK = "Check whether a week is missing from your history or plan."
+
+
+def wire_plan(dates):
+    count = len(dates)
+    return {
+        "dates": dates,
+        "spend": {"tv": [1.0] * count, "search": [2.0] * count},
+        "controls": {"price": [1.0] * count},
+    }
+
+
+@pytest.mark.parametrize("start", ["2024-08-05", "2024-07-22", "2024-07-15"])
+def test_a_plan_not_starting_the_week_after_the_history_is_refused(
+    client, service, dataset, plan, start
+):
+    late = plan.assign(week=[pd.Timestamp(start), pd.Timestamp(start) + pd.Timedelta(days=7)])
+    message = f"{PLAN_START.format(start=start)} {NEXT_DATE} {CHECK}"
+    for bad in (late, wire_plan([start, "2099-01-01"])):
+        with pytest.raises(ValueError) as error:
+            client.analyze(dataset, bad)
+        assert str(error.value) == message
+    assert not service.sent("POST", "/v1/analyses")
+
+
+@pytest.mark.parametrize(
+    ("dates", "message"),
+    [
+        (
+            ["2024-07-29", "2024-08-05", "2024-08-19"],
+            "Row 3 of your plan has the date 2024-08-19, but row 2 has 2024-08-05.",
+        ),
+        (
+            ["2024-07-29", "2024-08-05", "2024-08-05"],
+            "Row 3 of your plan repeats the date 2024-08-05, which is also in row 2.",
+        ),
+        (
+            ["2024-07-29", "2024-08-12", "2024-08-05"],
+            "Row 2 of your plan has the date 2024-08-12, but row 1 has 2024-07-29. "
+            "The next required date is 2024-08-05, which is in row 3.",
+        ),
+    ],
+)
+def test_a_plan_with_a_gap_duplicate_or_reversed_dates_names_the_row(
+    client, service, dataset, plan, dates, message
+):
+    frame = pd.DataFrame({"week": pd.to_datetime(dates), "tv": 1.0, "search": 2.0, "price": 3.0})
+    frame.index = [7, 5, 6]  # index labels are not row positions
+    for bad in (frame, wire_plan(dates)):
+        with pytest.raises(ValueError, match=message):
+            client.analyze(dataset, bad)
+    assert not service.sent("POST", "/v1/analyses")
+
+
+@pytest.mark.parametrize("call", ["analyze", "explore"])
+def test_a_late_plan_is_refused_for_a_dataset_id_before_any_submission(client, service, plan, call):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
+    late = plan.assign(week=pd.date_range("2024-08-05", periods=2, freq="W-MON"))
+    with pytest.raises(ValueError, match="Your plan starts on 2024-08-05"):
+        getattr(client, call)("ds_123", late)
+    assert not service.sent("POST", "/v1/analyses")
+
+
+def test_a_corrected_plan_is_sent_unchanged(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, plan)
+    client.analyze(dataset, wire_plan(["2024-07-29", "2024-08-05"]))
+    first, second = (json.loads(r.content)["plan"]["dates"] for r in service.requests[-2:])
+    assert first == second == ["2024-07-29", "2024-08-05"]
+
+
+def test_a_wire_plan_without_dates_is_left_to_the_service(client, service, dataset):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, {"spend": {"tv": [1.0]}})
+    assert len(service.sent("POST", "/v1/analyses")) == 1
+
+
+@pytest.mark.parametrize("container", [np.array, pd.Series, pd.Index])
+def test_a_wire_plan_with_array_dates_is_sent_as_before(client, service, dataset, container):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    dates = ["2024-07-29", "2024-08-05"]
+    client.analyze(dataset, wire_plan(dates))
+    client.analyze(dataset, wire_plan(container(dates)))
+    first, second = (r.content for r in service.requests[-2:])
+    assert json.loads(first)["plan"] == json.loads(second)["plan"]

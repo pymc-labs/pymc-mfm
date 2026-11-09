@@ -1,0 +1,67 @@
+/*-- scss:defaults --*/
+// PyMC Labs tokens: pymc-labs.com (navy, aqua, periwinkle, peach, violet) and the
+// brand type: Archivo Expanded (Archivo at width 125) for headlines and large text,
+// Inter for body text and captions, JetBrains Mono for code. The docs skin is the one
+// pymc-marketing, CausalPy and pathmc share (labs blue #154A72, labs green #81C240).
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,300..700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+$navy: #0c1f40;
+$navy-deep: #07142a;
+$labs-blue: #154A72;
+$labs-blue-highlight: #151B72;
+$labs-green: #81C240;
+$aqua: #b4e7dd;
+$periwinkle: #9faae2;
+$peach: #f6ae72;
+$violet: #c8b4e7;
+
+$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+$headings-font-family: "Archivo", "Inter", system-ui, sans-serif;
+$headings-font-weight: 500;
+$line-height-base: 1.65;
+
+$body-bg: #ffffff;
+$body-color: #1d2b45;
+$headings-color: $navy;
+$primary: $labs-blue;
+$secondary: #5b6b85;
+$success: $labs-green;
+$info: $periwinkle;
+$warning: $peach;
+$link-color: $labs-blue;
+$link-hover-color: $labs-blue-highlight;
+$border-color: rgba(12, 31, 64, 0.1);
+
+$navbar-bg: #fcfeff;
+$navbar-fg: $labs-blue;
+$navbar-hl: $navy;
+$sidebar-fg: #3e4d66;
+$sidebar-hl: $labs-blue;
+$footer-bg: #fcfeff;
+$footer-fg: #5b6b85;
+
+$code-color: $labs-blue;
+$code-bg: rgba(21, 74, 114, 0.06);
+$code-block-bg: #f5f7fb;
+$code-block-border-color: rgba(12, 31, 64, 0.08);
+$code-block-border-left: false;
+
+$callout-color-note: $labs-blue;
+$callout-color-tip: $labs-green;
+$callout-color-warning: $peach;
+
+/*-- scss:rules --*/
+:root {
+  --mfm-navy: #{$navy};
+  --mfm-navy-deep: #{$navy-deep};
+  --mfm-aqua: #{$aqua};
+  --mfm-periwinkle: #{$periwinkle};
+  --mfm-peach: #{$peach};
+  --mfm-violet: #{$violet};
+  --mfm-accent: #{$labs-blue};
+  --mfm-accent-soft: rgba(129, 194, 64, 0.35);
+  --mfm-muted: #5b6b85;
+  --mfm-hairline: rgba(12, 31, 64, 0.1);
+  --mfm-surface: #f5f7fb;
+}

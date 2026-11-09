@@ -323,7 +323,18 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 `pymc_mfm.client` is an HTTP client for the River API v3.1. It needs no PyTorch.
 Give it the service URL and an API key as arguments or in `MFM_API_URL` and
-`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots.
+`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots. It needs Python 3.13
+or newer and read access to the repository on GitHub; `uv` can fetch Python 3.13:
+
+```bash
+uv venv -p 3.13
+uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+```
+
+The service keeps a dataset 7 days after its last use, at most 30 days after upload. Deleting a
+dataset deletes its analyses.
+
+An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md).
 
 ```python
 import pandas as pd
@@ -340,8 +351,9 @@ dataset = client.datasets.create(
     spend=["tv", "search"],
     controls=["price"],
     name="brand-a",
+    reuse=True,  # reuse a stored dataset only when its content hash matches exactly
 )
-print(dataset.history_ranges)  # what the history shows, per series
+print(dataset.history_ranges)  # per series; p05 and p95 are warning thresholds, not the data's edge
 
 analysis = client.analyze(
     dataset,
@@ -354,8 +366,11 @@ analysis = client.analyze(
     ],
     decision_weeks=(1, 8),
     seed=7,
+    name="Spend scenarios",  # optional label, shown on the site and in the export
 )
 analysis.wait()
+analysis.url  # the result page for the person; None when the service has no site address
+analysis.export("analysis.json")  # the whole analysis as one JSON file
 analysis.table  # one row per plan and component; mean, p05, p95, window_mean, ...
 ```
 
@@ -364,8 +379,18 @@ nine spend levels (0 to 2 times the baseline in steps of 0.25) and two budget sc
 Pass `preview=True` to `analyze` or `explore` to see the expanded plans, run count and
 warnings without starting anything. `client.get(analysis_id)` resumes an analysis.
 
+`client.datasets.list()` returns your stored datasets with `content_hash`, `created_at`,
+`last_used_at`, `analyses` (the live analyses) and `expires_at`. Those fields are `None` when an
+older service does not send them. `expires_at` moves later each time you use the dataset, so read
+it again instead of keeping it. The content hash covers the dates, outcome, spend and controls,
+not the name. `client.datasets.find(frame, ...)` and `create(..., reuse=True)` reuse a stored
+dataset only when its hash equals that of the frame: never by name or by number of weeks.
+`dataset_content_hash(body)` and `frame_content_hash(frame, ...)` compute the hash locally.
+
 An `Analysis` has `status()`, `wait(timeout=, poll=)`, `table`, `weekly(scenario_id)`,
-`draws(scenario_ids=None)`, `plot_curves()`, `plot_compare()` and `delete()`. `draws()` reads
+`draws(scenario_ids=None)`, `plot_curves()`, `plot_compare()`, `export(path)` and `delete()`.
+It also has `name` and `url`. The plots mark plans that have warnings and print the warnings
+under the chart. `draws()` reads
 each plan's per-draw file into one `xarray.Dataset` stacked along `scenario`; if a signed
 URL has expired it fetches the result again for new URLs and never reruns anything.
 
@@ -565,6 +590,36 @@ conda env create --prefix ./.conda --file environment.yml
 conda activate ./.conda
 python -m pip install --group dev -e .
 ```
+
+### Documentation site
+
+The website in `docs/` is a [Quarto](https://quarto.org) project: a landing page, the
+Guide, the API reference, Models and the Blog. It needs the Quarto CLI (1.7 or newer;
+CI pins 1.7.31) and the `docs` dependency group:
+
+```bash
+uv sync --locked --group docs
+uv run --no-sync quarto preview docs   # live preview
+uv run --no-sync quarto render docs    # writes docs/_site/
+```
+
+Before each render, `docs/_scripts/prepare.py` copies `examples/*.ipynb` into the Guide
+and writes the API reference from the docstrings (quartodoc). Both are generated and
+ignored by Git.
+
+| Section | Source |
+| --- | --- |
+| Guide | `docs/guide/*.qmd`; listed in `website.sidebar` in `docs/_quarto.yml` |
+| Guide examples | every notebook in `examples/`, with its stored outputs |
+| API reference | docstrings; pages and order in the `quartodoc` section of `docs/_quarto.yml` |
+| Models | one page per released model: `docs/models/<name>/index.qmd`, with `name` (the model without its version), `order`, `badge`, `specs` and `image` in its front matter for the Models page card; announced models (cards that say "Coming soon" and do not link) in `docs/models/upcoming.yml`. Card art lives in `docs/assets/img/models/`. List each model in the Models menu in `docs/_quarto.yml` (a text-only `"<Name> SOON"` item for an announced one) |
+| Blog | one folder per post: `docs/blog/posts/<date>-<slug>/index.qmd` or `index.ipynb` |
+
+Nothing executes at build time: notebooks and posts render the outputs they were saved
+with. Prefer SVG figures (text files). A PNG or JPEG is binary and needs an entry in
+`.github/public-boundary-allow.toml`, pinned with `sha256`, like a notebook with image
+outputs. The Docs workflow builds the site on every pull request; publishing to GitHub
+Pages is a manual run of that workflow on `main`.
 
 ### What may be committed
 

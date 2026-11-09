@@ -1,0 +1,63 @@
+/*-- scss:defaults --*/
+// Dark mode on the pymc-labs.com navy, with the labs docs skin's dark link blue.
+@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,300..700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+$navy: #0c1f40;
+$navy-deep: #07142a;
+$labs-blue-dark: #4A9EDE;
+$labs-green: #81C240;
+$aqua: #b4e7dd;
+$periwinkle: #9faae2;
+$peach: #f6ae72;
+$violet: #c8b4e7;
+
+$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+$headings-font-family: "Archivo", "Inter", system-ui, sans-serif;
+$headings-font-weight: 500;
+$line-height-base: 1.65;
+
+$body-bg: $navy-deep;
+$body-color: #d5dcea;
+$headings-color: #f7f7f7;
+$primary: $labs-blue-dark;
+$secondary: #93a0b8;
+$success: $labs-green;
+$info: $periwinkle;
+$warning: $peach;
+$link-color: #7cb8e8;
+$link-hover-color: $aqua;
+$border-color: rgba(255, 255, 255, 0.1);
+
+$navbar-bg: $navy-deep;
+$navbar-fg: #c3cde0;
+$navbar-hl: $aqua;
+$sidebar-fg: #a9b5cc;
+$sidebar-hl: $aqua;
+$footer-bg: $navy-deep;
+$footer-fg: #93a0b8;
+
+$code-color: $aqua;
+$code-bg: rgba(180, 231, 221, 0.08);
+$code-block-bg: #0c1f40;
+$code-block-border-color: rgba(255, 255, 255, 0.08);
+$code-block-border-left: false;
+
+$callout-color-note: $labs-blue-dark;
+$callout-color-tip: $labs-green;
+$callout-color-warning: $peach;
+
+/*-- scss:rules --*/
+:root {
+  --mfm-navy: #{$navy};
+  --mfm-navy-deep: #{$navy-deep};
+  --mfm-aqua: #{$aqua};
+  --mfm-periwinkle: #{$periwinkle};
+  --mfm-peach: #{$peach};
+  --mfm-violet: #{$violet};
+  --mfm-accent: #{$aqua};
+  --mfm-accent-soft: rgba(180, 231, 221, 0.35);
+  --mfm-muted: #93a0b8;
+  --mfm-hairline: rgba(255, 255, 255, 0.1);
+  --mfm-surface: #0c1f40;
+}

@@ -1,0 +1,20 @@
+---
+title: "Blog"
+description: "Methods, engineering and release notes from the team behind PyMC MFM."
+listing:
+  id: posts
+  contents:
+    - "posts/**/index.qmd"
+    - "posts/**/index.ipynb"
+  sort: "date desc"
+  type: default
+  categories: true
+  sort-ui: false
+  filter-ui: false
+  feed: true
+  date-format: "MMM D, YYYY"
+  fields: [image, date, title, subtitle, description, categories]
+  image-height: 9rem
+page-layout: article
+toc: false
+---

@@ -1,0 +1,125 @@
+---
+title: "Decompose a time series"
+description: "Use the dataframe and array interfaces to generate, export, and reuse decomposition draws."
+---
+
+## Dataframe workflow
+
+Use the dataframe interface when dates and column names are part of the input contract. Load a model, call [add_context](../reference/model.MFM.qmd) once with history, then call [inference](../reference/model.MFM.qmd) for each independent future plan. A successful context load snapshots the history and roles; later mutations of the dataframe do not change that snapshot.
+
+```python
+model.add_context(
+    history,
+    date_column="week",
+    target_column="sales",
+    channel_columns=["tv", "search"],
+    control_columns=["price"],
+)
+query = model.inference(plan, n_samples=500)
+```
+
+`add_context` requires a pandas dataframe with at least two rows, unique timezone-naive dates, a regular cadence, strictly positive outcomes, nonnegative spend, and at least one channel and control. Date, target, channel, and control roles must be distinct. It pads controls up to the model's configured control width; it rejects more controls than that width.
+
+`inference` needs the stored date, channel, and control columns. Physical dataframe column order does not matter. Extra columns and a query target column are ignored. Query rows are sorted without modifying the caller's dataframe, and their dates must begin at the next context period and continue with the stored cadence without gaps.
+
+A prediction does not append itself to history. Reuse one context for repeated plans; another successful `add_context` atomically replaces it. Calling `inference` before context loading raises an error, while a failed context load preserves the prior successful context. Model bundles never include observed history, so add context again after loading a model.
+
+## Context and query snapshots
+
+Install `pymc-mfm[arviz]` to export the two window marginals after a successful context load and prediction. [MFM.build_idata](../reference/model.MFM.qmd) returns an `xarray.DataTree`; passing `store=True` also exposes that same tree through the passive `model.idata` property.
+
+```python
+idata = model.build_idata()
+
+stored = model.build_idata(store=True)
+assert model.idata is stored
+
+scenario = plan.assign(search=lambda frame: frame["search"] * 1.2)
+model.inference(scenario, n_samples=500)
+idata_scenario = model.build_idata()
+```
+
+The tree has separate `context` and `query` subtrees. Each has `posterior` and `constant_data`; known context outcomes appear at `context/observed_data/outcome(date)`. Query outcomes are neither read nor invented.
+
+| Posterior variable | Dimensions |
+| --- | --- |
+| `channel_contribution` | `chain, draw, date, channel` |
+| `control_contribution` | `chain, draw, date, control` |
+| `baseline`, `latent` | `chain, draw, date` |
+| `indirect_cc`, `indirect_zc`, `indirect_dc` | `chain, draw, date` |
+| `graph` | `chain, draw, edge` |
+
+`date` preserves sorted dates; `channel` and `control` preserve the caller-supplied role order. Padded slots are absent from this DataTree. The tree has `chain=1`, and `draw` retains amortized uncertainty. A first build samples and caches the context marginal without resampling the query; later builds reuse both current draw sets. `store=False` avoids retaining a `DataTree`, not the inference state used for a later export.
+
+::: {.callout-note}
+## Do not join snapshots
+
+The context and query subtrees are separate marginals. Their equal draw numbers do not make a paired full-horizon posterior.
+:::
+
+## Array inputs
+
+Use [observation_batch](../reference/inference.observation_batch.qmd) to construct a validated encoded batch, or pass raw arrays to [decompose](../reference/inference.decompose.qmd). The lower-level interface operates on one equally spaced world at a time. Its first `C` rows are context and the remaining `T-C` rows are query.
+
+| Key | Shape | Rules |
+| --- | --- | --- |
+| `spend` | `[T, K]` | Nonnegative spend for every row; `K >= 1` |
+| `controls` | `[T, M]` | All rows; width equals `model.config.n_controls`; unused columns are zero |
+| `context_outcome` | `[C]` | Positive observed outcomes; `0 < C < T` |
+| `channel_mask` | `[K]` | Optional binary mask; padded columns must be zero; defaults to all represented |
+| `control_mask` | `[M]` | Optional binary mask; at least one represented control; defaults to all represented |
+| `latent_mask` | `[J]` | Optional binary mask; defaults to all represented |
+
+```python
+from pymc_mfm import decompose
+from pymc_mfm.inference import observation_batch
+
+batch = observation_batch(
+    spend=spend,
+    controls=controls,
+    context_outcome=context_outcome,
+    model_config=model.config,
+)
+result = decompose(model, batch, n_samples=500, window="query")
+```
+
+All series are rescaled with context statistics. A nonzero query value in a column that is zero throughout context is rejected. Pass `window="context"` to `decompose` to return the observed window instead. `model.predict_batch` is the separate tensor-level joint sampler.
+
+## Results and graph modes
+
+[inference](../reference/model.MFM.qmd) and `decompose` return a [DecompositionResult](../reference/inference.DecompositionResult.qmd).
+
+| Field | Shape | Content |
+| --- | --- | --- |
+| `components` | `[S, T_window, D]` | Draws in outcome units for the selected window |
+| `component_names` | `[D]` | Baseline, channels, controls, latent total, and indirect `cc`, `zc`, `dc`; `D = K + M + 5` |
+| `graphs` | `[S, L]` | Binary causal graph sampled with each draw |
+| `time` | `[T_window]` | Query dates for dataframe inference; row indices or supplied labels for `decompose` |
+
+Components exclude observation noise. Choose `mode="model_average"` to sample graphs, `mode="map"` for the most frequent router graph, or `mode="fixed"` with `graph=` to condition on a supplied binary graph. `fixed` supplies a hypothesis; it does not establish posterior graph evidence or causal lift.
+
+Save one result independently of its model:
+
+```python
+from pymc_mfm import DecompositionResult
+
+result.save("results/query")
+restored = DecompositionResult.load("results/query")
+```
+
+Saved results retain dates and can be reloaded without the model. With `pymc-mfm[diagnostics]`, use `result.plot.reconstruction(observed=...)` or `result.diagnostics(truth=...)`. With `pymc-mfm[arviz]`, call `result.to_datatree()` for the generic result export.
+
+## Faster repeated sampling
+
+For a long-running process, opt into `torch.compile` on the sampler and warm representative requests before serving them. [warm_up_sampling](../reference/inference.warm_up_sampling.qmd) compiles supported input shapes without waiting for the first request.
+
+```python
+from pymc_mfm.inference import warm_up_sampling
+
+model.compile_sampling()
+warm_up_sampling(model, channels=range(1, 11))
+result = decompose(model, observations, n_samples=1_000)
+print(model.sampling_status)
+```
+
+Sampling remains eager until `compile_sampling()` is called. New input kinds can still compile on their first use, and a compiler failure returns sampling to eager mode with its reason in `sampling_status.fallback`. Compiled draws follow the eager distribution up to floating-point round-off but are not bit-identical. CPU compilation usually does not speed sampling.

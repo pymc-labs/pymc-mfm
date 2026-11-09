@@ -1,0 +1,375 @@
+/* Shared chrome for every page. Colors come from the --mfm-* tokens that the light
+   and dark themes define, so these rules hold in both modes. Landing-only rules live
+   in landing.css. */
+
+body {
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Type, from the PyMC Labs brand guidelines: Archivo Expanded for headlines, large text
+   and expressive subheadings; Inter for body text and captions. The themes load Archivo
+   at width 125 only and set it as the headings font; display text elsewhere uses
+   --mfm-display. */
+:root {
+  --mfm-display: "Archivo", "Inter", system-ui, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6,
+.listing-title,
+.card-title {
+  font-family: var(--mfm-display);
+  font-stretch: 125%;
+  letter-spacing: -0.015em;
+}
+
+/* Small interface labels stay in Inter. */
+#toc-title,
+.sidebar h2,
+.quarto-alternate-formats h2 {
+  font-family: var(--bs-body-font-family);
+  font-stretch: 100%;
+  letter-spacing: normal;
+}
+
+/* Navbar ------------------------------------------------------------------- */
+/* A thin bar (about 48px): less padding around the links, brand and logo. */
+:root {
+  --mfm-nav-h: 48px;
+}
+
+.navbar {
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid var(--mfm-hairline);
+  box-shadow: none;
+  backdrop-filter: saturate(140%) blur(10px);
+}
+
+.navbar .navbar-brand-container {
+  height: auto;
+}
+
+.navbar .navbar-brand {
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 1.1rem;
+}
+
+.navbar .navbar-nav .nav-link {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
+.navbar .navbar-brand .navbar-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The MFM mark. The file is navy (#0C1F40, for light backgrounds); on dark backgrounds
+   it turns soft white (#F7F7F7), the logo package's light version. */
+.navbar-logo {
+  height: 20px;
+  max-height: 20px;
+  margin-right: 0.35rem;
+}
+
+body.quarto-dark .navbar-logo {
+  filter: brightness(0) invert(0.97);
+}
+
+.navbar .nav-link {
+  font-size: 0.925rem;
+  font-weight: 450;
+}
+
+.navbar .nav-link.active {
+  font-weight: 500;
+}
+
+/* The PyMC Labs link leaves the site. */
+.navbar .nav-link[href^="https://www.pymc-labs.com"] .menu-text::after {
+  content: " \2197";
+  opacity: 0.6;
+}
+
+/* Typography --------------------------------------------------------------- */
+h1,
+h2,
+h3,
+.title {
+  letter-spacing: -0.015em;
+}
+
+#title-block-header .title {
+  font-weight: 650;
+}
+
+#title-block-header .description,
+#title-block-header .subtitle {
+  color: var(--mfm-muted);
+}
+
+main a:not(.nav-link):not(.btn) {
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+
+code,
+pre {
+  font-size: 0.86rem;
+}
+
+div.sourceCode,
+pre.sourceCode {
+  border-radius: 10px;
+}
+
+.figure img,
+.quarto-figure img {
+  border-radius: 8px;
+}
+
+/* Sidebar and table of contents --------------------------------------------- */
+.sidebar-navigation .sidebar-section-item > .sidebar-item-container .sidebar-item-text,
+.sidebar .sidebar-item-section > .sidebar-item-container .text-start {
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mfm-muted);
+}
+
+#quarto-sidebar a.sidebar-item-text.sidebar-link.active {
+  text-decoration: underline;
+  text-decoration-color: var(--mfm-accent-soft);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.3em;
+}
+
+/* API reference tables: object names stay on one line. */
+main table td:first-child > a,
+main table td:first-child > p > a {
+  white-space: nowrap;
+}
+
+/* Listings (Blog, Models): a quiet list, no cards ------------------------------- */
+.quarto-listing-default .quarto-post {
+  border-bottom: 1px solid var(--mfm-hairline);
+  padding: 1.6rem 0;
+  margin-bottom: 0;
+}
+
+.quarto-listing-default .quarto-post .listing-title {
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin-bottom: 0.35rem;
+}
+
+.quarto-listing-default .quarto-post .listing-subtitle {
+  color: var(--mfm-muted);
+  font-size: 1rem;
+}
+
+.quarto-listing-default .quarto-post .listing-date,
+.quarto-listing-default .quarto-post .listing-author {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  color: var(--mfm-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.quarto-listing-default .quarto-post .thumbnail img,
+.quarto-listing-default .quarto-post .thumbnail-image {
+  border-radius: 10px;
+  object-fit: contain; /* figures, not photos: show them whole */
+}
+
+.quarto-listing-category .category,
+.quarto-category {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  border-color: var(--mfm-hairline);
+}
+
+/* Footer ------------------------------------------------------------------- */
+.nav-footer {
+  border-top: 1px solid var(--mfm-hairline);
+  font-size: 0.85rem;
+}
+
+/* Section intros used on index pages (Guide, Blog, Models) -------------------- */
+.mfm-eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mfm-muted);
+}
+
+.mfm-lede {
+  font-size: 1.15rem;
+  color: var(--mfm-muted);
+  max-width: 42rem;
+}
+
+/* Cross-document page transitions where the browser supports them ---------------- */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.28s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
+/* Navbar "Models" menu (assets/js/site.js adds .mfm-models-menu) ---------------- */
+.mfm-models-menu .dropdown-header {
+  padding: 0.25rem 0.75rem 0.55rem;
+  font-size: 0.78rem;
+  color: var(--mfm-muted);
+}
+
+.mfm-models-menu .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.mfm-models-menu .dropdown-item::after {
+  content: "\2192";
+  margin-left: auto;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+  opacity: 0.55;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.mfm-models-menu .dropdown-item.is-external::after {
+  content: "\2197";
+}
+
+.mfm-models-menu .dropdown-item:hover::after {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
+/* Announced models: listed, greyed, not links (site.js builds them from " SOON" items). */
+.mfm-models-menu .dropdown-item.is-soon {
+  cursor: default;
+  color: var(--mfm-muted);
+}
+
+.mfm-models-menu .dropdown-item.is-soon::after {
+  content: none;
+}
+
+.mfm-badge {
+  padding: 0.1rem 0.38rem;
+  border-radius: 5px;
+  background: rgba(246, 174, 114, 0.22);
+  color: #b4611b;
+  font-size: 0.64rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+body.quarto-dark .mfm-badge,
+body.mfm-landing .mfm-badge {
+  background: rgba(246, 174, 114, 0.16);
+  color: #f6ae72;
+}
+
+.mfm-badge--soon,
+body.quarto-dark .mfm-badge--soon,
+body.mfm-landing .mfm-badge--soon {
+  padding: 0.05rem 0.34rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: var(--mfm-muted);
+  opacity: 0.85;
+}
+
+@media (min-width: 992px) {
+  /* Two columns, as headers and the divider in _quarto.yml lay them out. */
+  .navbar .dropdown-menu.mfm-models-menu {
+    min-width: 34rem;
+    margin-top: 0.4rem;
+    padding: 1rem 0.5rem;
+    border: 1px solid var(--mfm-hairline);
+    border-radius: 16px;
+    box-shadow: 0 28px 60px -28px rgba(12, 31, 64, 0.45);
+    column-count: 2;
+    column-gap: 0;
+    column-rule: 1px solid var(--mfm-hairline);
+  }
+
+  .mfm-models-menu > li {
+    padding: 0 0.55rem;
+    break-inside: avoid;
+  }
+
+  .mfm-models-menu > li:has(> .dropdown-divider) {
+    height: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    break-after: column;
+  }
+
+  body.mfm-landing .navbar .dropdown-menu.mfm-models-menu {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(12, 31, 64, 0.96);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.8);
+    column-rule-color: rgba(255, 255, 255, 0.1);
+  }
+}
+
+body.mfm-landing .mfm-models-menu .dropdown-item {
+  color: rgba(247, 247, 247, 0.88);
+}
+
+body.mfm-landing .mfm-models-menu .dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+body.mfm-landing .mfm-models-menu .dropdown-header {
+  color: rgba(247, 247, 247, 0.5);
+}
+
+body.mfm-landing .mfm-models-menu .dropdown-item.is-soon,
+body.mfm-landing .mfm-badge--soon {
+  color: rgba(247, 247, 247, 0.45);
+}
+
+/* In the collapsed navbar the menu sits on the navy bar itself. */
+@media (max-width: 991.98px) {
+  body.mfm-landing .navbar .dropdown-menu.mfm-models-menu {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  body.mfm-landing .mfm-models-menu .dropdown-divider {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+}

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import io
+import os
 import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -117,15 +119,28 @@ def result_table(rows: Iterable[dict[str, Any]], labels: dict[str, Any]) -> pd.D
 class Analysis:
     """One analysis: a baseline forecast, with scenarios and curves if asked.
 
-    Get one from ``Client.analyze`` or ``Client.get``. Results follow the service's
+    Get one from ``Client.analyze`` or ``Client.get``. ``name`` is the optional name given
+    to ``analyze``. ``url`` is the address of the result page on the service's site; give
+    it to the person, who opens it to read the analysis. It is ``None`` when the service
+    has no site address set or is an older version. Results follow the service's
     labels, kept in ``labels`` and in each table's ``attrs``: intervals are pointwise,
     exclude observation noise and are not causal lift, and ``simulation_se`` is numerical
     precision, not model uncertainty.
     """
 
-    def __init__(self, http: Http, analysis_id: str, status: AnalysisStatus) -> None:
+    def __init__(
+        self,
+        http: Http,
+        analysis_id: str,
+        status: AnalysisStatus,
+        *,
+        name: str | None = None,
+        url: str | None = None,
+    ) -> None:
         self._http = http
         self.id = analysis_id
+        self.name = name
+        self.url = url
         self._status = status
         self._result: dict[str, Any] | None = None
 
@@ -134,13 +149,16 @@ class Analysis:
 
     @property
     def expires_at(self) -> datetime:
+        """The dataset's current expiry. It can move later when the dataset is used again,
+        so call ``status()`` for the latest value instead of keeping this one."""
         return self._status.expires_at
 
     def status(self) -> AnalysisStatus:
         """Fetch the current status and run counts."""
-        self._status = AnalysisStatus.from_wire(
-            self._http.request("GET", f"/v1/analyses/{self.id}")
-        )
+        record = self._http.request("GET", f"/v1/analyses/{self.id}")
+        self._status = AnalysisStatus.from_wire(record)
+        self.name = record.get("name", self.name)
+        self.url = record.get("url", self.url)
         return self._status
 
     def wait(self, timeout: float | None = None, poll: float = 2.0) -> Analysis:
@@ -246,6 +264,18 @@ class Analysis:
             self._fetch_result(refresh=True)
             content = self._http.download(self._draws_urls([scenario_id])[scenario_id])
         return xr.load_dataset(io.BytesIO(content), engine="h5netcdf")
+
+    def export(self, path: str | os.PathLike[str]) -> Path:
+        """Download the analysis as one JSON file and return its path.
+
+        The file holds the request, the scenarios with their inputs and warnings, the
+        result table and the run settings. Raises ``NotReady`` until every run ends and
+        ``Gone`` once the analysis expired or was deleted.
+        """
+        content = self._http.download_authenticated(f"/v1/analyses/{self.id}/export")
+        target = Path(path)
+        target.write_bytes(content)
+        return target
 
     # Lifecycle
 
