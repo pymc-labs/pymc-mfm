@@ -74,10 +74,13 @@ def synthetic_result(patterns=None, *, mode="model_average", extra_channels=0):
 
 
 def arrow_pairs(axis, result):
+    from matplotlib.patches import FancyArrowPatch
+
     endpoints = result.provenance["edge_endpoints"]
     return {
         tuple(endpoints[int(patch.get_gid().removeprefix("edge-"))]): patch
         for patch in axis.patches
+        if isinstance(patch, FancyArrowPatch)
     }
 
 
@@ -102,9 +105,6 @@ def test_rank_selects_complete_topology_with_padding_ties_and_isolated_nodes():
                 "control:temperature",
                 "outcome",
             }
-            for patch in figure.axes[0].patches:
-                assert patch.get_linewidth() == pytest.approx(2.6)
-                assert patch.get_alpha() == pytest.approx(1)
             title = figure._suptitle.get_text()
             assert int(re.search(r"rank (\d+)", title)[1]) == rank
             counts = re.search(r"count (\d+) / (\d+) draws", title)
@@ -119,17 +119,21 @@ def test_rank_selects_complete_topology_with_padding_ties_and_isolated_nodes():
     np.testing.assert_array_equal(result.graphs, original)
 
 
-def test_default_view_preserves_marginal_edges_and_frequency_encoding():
+def test_default_view_preserves_marginal_edges_and_numeric_frequencies():
     result = synthetic_result()
-    patches = arrow_pairs(result.plot.dag().axes[0], result)
+    axis = result.plot.dag().axes[0]
+    patches = arrow_pairs(axis, result)
     expected = {
         **dict.fromkeys(expected_pairs(A), 3 / 7),
         **dict.fromkeys(expected_pairs(B), 2 / 7),
     }
     assert set(patches) == set(expected)
-    for pair, frequency in expected.items():
-        assert patches[pair].get_linewidth() == pytest.approx(0.6 + 2 * frequency)
-        assert patches[pair].get_alpha() == pytest.approx(0.3 + 0.7 * frequency)
+    nodes = {node for pair in PAIRS for node in pair}
+    labels = [text.get_text() for text in axis.texts]
+    assert Counter(label for label in labels if label in nodes) == Counter(nodes)
+    frequencies = [float(label) for label in labels if label not in nodes]
+    assert len(frequencies) == len(expected)
+    assert sorted(frequencies) == pytest.approx(sorted(expected.values()), abs=0.005)
 
 
 @pytest.mark.parametrize("mode", ["map", "fixed"])

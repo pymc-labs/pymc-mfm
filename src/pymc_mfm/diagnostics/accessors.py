@@ -1,4 +1,4 @@
-"""Figure and record accessors on results, their diagnostics and training runs.
+"""Figure, graph-export and record accessors on results, diagnostics and training runs.
 
 Every figure method delegates to the renderers behind reports
 (:mod:`pymc_mfm.plotting.panels`), returns a matplotlib ``Figure`` and imports
@@ -81,7 +81,7 @@ class Diagnostics:
 
 
 class _SummaryPlots:
-    """Figures drawn from one computed diagnostic summary."""
+    """Figures and graph exports from one computed diagnostic summary."""
 
     __slots__ = ()
 
@@ -124,6 +124,12 @@ class _SummaryPlots:
     def dag(self, *, graph=None) -> Figure:
         """Marginal edge frequencies, or a complete graph at its zero-based rank."""
         return self._draw("dag_recovery", panels.plot_dag, graph=graph)
+
+    def dot(self, *, graph=None) -> str:
+        """Prediction-only DOT for Average or a complete graph at its zero-based rank."""
+        from pymc_mfm.plotting.dot import graph_to_dot
+
+        return graph_to_dot(self._summary(), graph=graph)
 
     def graph_inspector(self) -> GraphInspector:
         """Offline graph distribution selector for notebooks or HTML export."""

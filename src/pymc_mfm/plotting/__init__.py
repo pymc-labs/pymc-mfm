@@ -1,5 +1,6 @@
 """Figures and reports built from inference and diagnostic results."""
 
+from .dot import graph_to_dot
 from .inspector import GraphInspector, plot_graph_inspector
 from .panels import (
     plot_attribution,
@@ -34,6 +35,7 @@ from .panels import (
 
 __all__ = [
     "GraphInspector",
+    "graph_to_dot",
     "plot_attribution",
     "plot_calibration",
     "plot_cardinality",

@@ -6,6 +6,20 @@ approved or published release.
 
 ## Changes
 
+- **Graphviz DOT export and diagram styling.** `result.plot.dot(graph=rank)` and
+  `pymc_mfm.plotting.graph_to_dot(summary, graph=rank)` export an exact complete
+  graph; omitting the rank exports marginal edges with numeric frequency labels
+  and exact probability attributes. Diagnostics expose the same accessor, and the
+  offline inspector downloads the currently selected view as DOT or SVG.
+  Named active nodes remain in empty graphs; supplied truth and padded nodes are
+  excluded from DOT. Labels are quoted literally and must be XML 1.0-compatible.
+  SVG downloads reject XML-incompatible labels or metadata with an explanation,
+  without changing the original labels or blocking graph inspection.
+  Package figures and inspector diagrams now use black ovals, centered serif text,
+  top-to-bottom layout and black arrows; average frequencies are numeric labels
+  rather than width/opacity encoding. Plotting and DOT export need no Graphviz
+  installation; exported files can optionally use its native `dot` layout engine.
+  The fully executed quickstart demonstrates both average and individual DOT export.
 - **Individual sampled graphs and an offline inspector.** `result.plot.dag(graph=rank)`
   draws an exact complete graph at its zero-based frequency rank; `dag()` keeps the
   marginal-average view. `result.plot.graph_inspector()` displays every observed graph

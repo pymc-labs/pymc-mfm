@@ -224,9 +224,14 @@ With `[diagnostics]`, switch between the marginal-average graph and individual
 complete graphs without rerunning inference:
 
 ```python
-result.plot.dag()  # Average: width and opacity encode marginal edge frequency
+result.plot.dag()  # Average: numeric labels show marginal edge frequencies
 result.plot.dag(graph=0)  # Most frequent complete graph: binary edge indicators
 result.plot.dag(graph=1).savefig("graph-rank-1.svg", bbox_inches="tight")
+
+from pathlib import Path
+
+Path("graph-average.dot").write_text(result.plot.dot(), encoding="utf-8", newline="\n")
+Path("graph-rank-0.dot").write_text(result.plot.dot(graph=0), encoding="utf-8", newline="\n")
 
 inspector = result.plot.graph_inspector()
 inspector  # Interactive display in a trusted notebook
@@ -235,16 +240,27 @@ inspector.save("graphs.html")  # Open this local file in a browser; no server re
 
 Ranks are **zero-based**, ordered by descending draw count, then ascending binary
 graph vector for ties. The inspector includes every observed complete graph, a
-count/frequency distribution with 50-row pages, an Average option, and a download
-button for the currently displayed SVG. Empty-edge graphs retain their named
-active nodes; padded nodes are omitted. Configured channel/control column names
-appear with their role prefixes, and the target is labeled `outcome`.
+count/frequency distribution with 50-row pages, an Average option, and download
+buttons for the currently displayed SVG and Graphviz DOT source. Empty-edge graphs
+retain their named active nodes; padded nodes are omitted. Configured channel/control
+column names appear with their role prefixes, and the target is labeled `outcome`.
 
 The same methods are available on `result.diagnostics(...).plot`; the standalone
-`pymc_mfm.plotting.plot_dag(summary, graph=...)` and
-`plot_graph_inspector(summary)` also render saved diagnostic summaries. The
-inspector shows prediction graphs only, even when diagnostics include graph
-truth; `dag()` retains its separate truth comparison.
+`pymc_mfm.plotting.plot_dag(summary, graph=...)`, `graph_to_dot(summary, graph=...)`
+and `plot_graph_inspector(summary)` also accept saved diagnostic summaries.
+The inspector and DOT exports show prediction graphs only, even when diagnostics
+include graph truth; `dag()` retains its separate truth comparison.
+
+Diagrams use Graphviz-style black ovals, centered serif labels and black directed
+arrows in a top-to-bottom layout. Average edges carry numeric frequency labels;
+individual graphs use plain binary arrows. The package renders these visual
+conventions itself: plotting, inspecting and writing DOT do **not** require a
+Graphviz installation. To use Graphviz's native layout engine, install its command
+line tools and render the exported source:
+
+```bash
+dot -Tsvg graph-rank-0.dot -o graph-rank-0.svg
+```
 
 The Average may combine edges never sampled together and may contain cycles.
 Graph frequencies are not effect strengths, goodness-of-fit scores or evidence of
@@ -257,6 +273,12 @@ Notebook output runs in an isolated frame; notebook trust/JavaScript permission 
 required for interaction. Exported HTML embeds graph topology, column labels,
 counts/frequencies and display metadata, but not observations or contribution
 draws. Review it as a result artifact before sharing.
+
+DOT labels preserve literal Unicode, quotes, backslashes and line breaks. Characters
+that cannot appear in valid XML 1.0 SVG labels raise a DOT-specific `ValueError`;
+the inspector explains the limitation and disables DOT download. SVG download also
+checks the serialized labels and metadata for XML compatibility, reporting an export
+limitation instead of saving an invalid file. Viewing and graph selection remain available.
 
 ### Faster repeated sampling (optional)
 

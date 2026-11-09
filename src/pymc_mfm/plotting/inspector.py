@@ -7,6 +7,7 @@ from html import escape
 from pathlib import Path
 
 from ._graphs import graph_positions, ranked_graphs
+from .dot import _DotFormatError, dot_template
 
 
 class GraphInspector:
@@ -52,6 +53,12 @@ def plot_graph_inspector(summary) -> GraphInspector:
     records = ranked_graphs(summary)
     if any(len(record["graph"]) != len(edges) for record in records):
         raise ValueError("Complete graph vectors must align with active edge records")
+    try:
+        dot = dot_template(summary)
+        dot_error = None
+    except _DotFormatError as error:
+        dot = None
+        dot_error = str(error)
     metadata = summary["metadata"]
     payload = {
         "metadata": {
@@ -70,6 +77,8 @@ def plot_graph_inspector(summary) -> GraphInspector:
                 "target": entry["endpoints"][1],
                 "value": float(entry["probability"]),
                 "index": int(entry["index"]),
+                "label": f"{float(entry['probability']):.3g}",
+                "exact": repr(float(entry["probability"])),
             }
             for entry in edges
         ],
@@ -84,10 +93,12 @@ def plot_graph_inspector(summary) -> GraphInspector:
         ],
         "has_graph_truth": graph.get("truth") is not None
         or any(entry.get("truth") is not None for entry in edges),
+        "dot": dot,
+        "dot_error": dot_error,
     }
     # JSON is data, not executable source. Escape HTML/script delimiters even
     # inside strings, including labels such as </script> and Unicode separators.
-    data = json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+    data = json.dumps(payload, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
     for character, replacement in (
         ("&", "\\u0026"),
         ("<", "\\u003c"),
@@ -171,7 +182,7 @@ footer { margin-top: 1rem; }
 <p id="truth-note" class="note qualification" hidden></p>
 </header>
 <noscript><p>
-This offline inspector needs JavaScript enabled for graph selection and SVG downloads.
+This offline inspector needs JavaScript enabled for graph selection and SVG/DOT downloads.
 </p></noscript>
 <section class="card" aria-labelledby="view-heading">
 <h2 id="view-heading">Prediction graph</h2>
@@ -181,12 +192,17 @@ This offline inspector needs JavaScript enabled for graph selection and SVG down
 <select id="graph-select" aria-describedby="rank-note"></select>
 </div>
 <button id="average-view" type="button" aria-pressed="true">Average</button>
-<button id="download-svg" type="button">Download current SVG</button>
+<button id="download-svg" type="button"
+        aria-describedby="svg-unavailable">Download current SVG</button>
+<button id="download-dot" type="button"
+        aria-describedby="dot-unavailable">Download current DOT</button>
 </div>
 <p id="rank-note" class="note">
 Rank 0 is the most frequent complete graph; ties use ascending binary vectors.
 No graphs are omitted.
 </p>
+<p id="dot-unavailable" class="note" hidden></p>
+<p id="svg-unavailable" class="note" role="status" hidden></p>
 <div id="selection-summary" role="status" aria-live="polite" aria-atomic="true"
      data-graph-rank="average">
 <h2 id="selected-title">Average</h2>
@@ -200,9 +216,9 @@ No graphs are omitted.
 <title id="svg-title">Average graph</title>
 <desc id="svg-description"></desc>
 <defs>
-<marker id="graph-arrowhead" viewBox="0 0 10 10" refX="9" refY="5"
-        markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-<path d="M 0 0 L 10 5 L 0 10 z" fill="#0072b2"/>
+<marker id="graph-arrowhead" viewBox="0 0 10 10" refX="10" refY="5"
+        markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">
+<path d="M 0 0 L 10 5 L 0 10 z" fill="black"/>
 </marker>
 </defs>
 <g id="graph-edges"></g>
@@ -240,7 +256,7 @@ Bars show observed draw frequencies, not fit scores.
 <p>
 HTML exports contain all active node labels, graph topology, draw counts/frequencies,
 and the display metadata above, but no observations, contribution arrays, or full provenance.
-Review labels before sharing. SVG downloads contain the current view only.
+Review labels before sharing. SVG and DOT downloads contain the current prediction view only.
 </p>
 </footer>
 </main>
@@ -314,6 +330,11 @@ Review labels before sharing. SVG downloads contain the current view only.
         byId("truth-note").textContent = "Prediction-only view: graph truth was supplied, but is " +
             "not overlaid or used to change the selected graph.";
     }
+    if (data.dot_error !== null) {
+        byId("download-dot").disabled = true;
+        byId("dot-unavailable").hidden = false;
+        byId("dot-unavailable").textContent = "DOT download unavailable: " + data.dot_error;
+    }
 
     const averageOption = textElement("option", "Average — marginal edge frequencies", select);
     averageOption.value = "average";
@@ -324,75 +345,225 @@ Review labels before sharing. SVG downloads contain the current view only.
         option.value = String(record.rank);
     }
 
-    // Measure the rendered labels, then allocate each bank enough horizontal
-    // space for its longest name. SVG pixels remain legible at narrow viewports;
-    // the surrounding region scrolls instead of shrinking the whole diagram.
+    // Measure literal, multiline serif text before packing rows. Ovals contain
+    // the padded text rectangle's corners; the scroll region never shrinks it.
     const nodeViews = new Map();
-    const banks = new Map();
+    const ranks = new Map();
+    const probe = svgElement("text", {"font-size": 16, "font-family": "serif"});
+    probe.textContent = "Mg";
+    nodeLayer.append(probe);
+    const fontBox = probe.getBBox();
+    const lineHeight = Math.max(20, fontBox.height * 1.25);
+    const baseline = -(fontBox.y + fontBox.height / 2);
+    probe.remove();
     for (const node of data.nodes) {
         const group = svgElement("g", {"data-node-name": node.name});
         const title = svgElement("title");
         title.textContent = node.name;
-        group.append(title, svgElement("circle", {
-            r: 10, fill: "white", stroke: "#465a6b", "stroke-width": 1.5
-        }));
-        const label = svgElement("text", {
-            x: 0, y: -22, "text-anchor": "middle", "font-size": 14,
-            "font-family": "system-ui, sans-serif", fill: "#172635",
-            "paint-order": "stroke", stroke: "white", "stroke-width": 4,
-            "stroke-linejoin": "round", style: "white-space:pre"
+        const oval = svgElement("ellipse", {
+            fill: "white", stroke: "black", "stroke-width": 1
         });
-        label.textContent = node.name;
-        group.append(label);
+        const label = svgElement("text", {
+            "text-anchor": "middle", "font-size": 16, "font-family": "serif",
+            fill: "black", style: "white-space:pre"
+        });
+        const lines = node.name.split("\n");
+        lines.forEach((line, index) => {
+            const span = svgElement("tspan", {
+                x: 0, y: (index - (lines.length - 1) / 2) * lineHeight + baseline
+            });
+            span.textContent = line;
+            label.append(span);
+        });
+        group.append(title, oval, label);
         nodeLayer.append(group);
-        nodeViews.set(node.name, {group, label});
-        const bank = node.position[0];
-        if (!banks.has(bank)) banks.set(bank, []);
-        banks.get(bank).push(node);
+        const box = label.getBBox();
+        const textWidth = 2 * Math.max(Math.abs(box.x), Math.abs(box.x + box.width));
+        const textHeight = Math.max(
+            lines.length * lineHeight, 2 * Math.abs(box.y), 2 * Math.abs(box.y + box.height)
+        );
+        const rx = Math.max(30, Math.SQRT2 * (textWidth / 2 + 10));
+        const ry = Math.max(20, Math.SQRT2 * (textHeight / 2 + 5));
+        oval.setAttribute("rx", rx);
+        oval.setAttribute("ry", ry);
+        nodeViews.set(node.name, {group, rx, ry});
+        const rank = node.position[0];
+        if (!ranks.has(rank)) ranks.set(rank, []);
+        ranks.get(rank).push(node);
     }
-    const bankCenters = new Map();
-    let canvasWidth = 32;
-    let largestBank = 1;
-    for (const bank of [...banks.keys()].sort((left, right) => left - right)) {
-        const nodes = banks.get(bank);
-        largestBank = Math.max(largestBank, nodes.length);
-        const labelWidth = Math.max(...nodes.map(node =>
-            nodeViews.get(node.name).label.getComputedTextLength()));
-        const bankWidth = Math.max(180, Math.ceil(labelWidth) + 48);
-        bankCenters.set(bank, canvasWidth + bankWidth / 2);
-        canvasWidth += bankWidth + 96;
-    }
-    canvasWidth = Math.max(480, canvasWidth - 96 + 32);
-    const verticalSpan = Math.max(280, (largestBank - 1) * 64);
-    const canvasHeight = verticalSpan + 160;
+    const rowNodes = [...ranks.entries()].sort((a, b) => a[0] - b[0]).map(([, nodes]) =>
+        nodes.sort((a, b) => a.position[1] - b.position[1]));
+    const rowFor = new Map();
+    const rowWidths = [];
+    const rowHeights = [];
     const positions = new Map();
-    for (const node of data.nodes) {
-        const x = bankCenters.get(node.position[0]);
-        const y = 80 + (0.9 - node.position[1]) / 0.8 * verticalSpan;
-        positions.set(node.name, [x, y]);
-        nodeViews.get(node.name).group.setAttribute("transform", "translate(" + x + " " + y + ")");
+    rowNodes.forEach((nodes, row) => {
+        const width = nodes.reduce((sum, node) => sum + 2 * nodeViews.get(node.name).rx, 0) +
+            48 * (nodes.length - 1);
+        rowWidths.push(width);
+        rowHeights.push(Math.max(...nodes.map(node => 2 * nodeViews.get(node.name).ry)));
+        let x = -width / 2;
+        for (const node of nodes) {
+            const view = nodeViews.get(node.name);
+            positions.set(node.name, [x + view.rx, 0]);
+            rowFor.set(node.name, row);
+            x += 2 * view.rx + 48;
+        }
+    });
+    const labelSizes = data.edges.map(edge => {
+        const label = svgElement("text", {"font-size": 12, "font-family": "serif"});
+        label.textContent = edge.label;
+        edgeLayer.append(label);
+        const box = label.getBBox();
+        label.remove();
+        return [box.width, Math.max(14, box.height)];
+    });
+
+    // All active slots reserve stable ports/lanes, independently of selection.
+    // Every segment stays in its endpoint column, a row gutter, or an outer
+    // rail; unlike a generic bent connector it cannot cut another oval.
+    const ports = new Map();
+    function portEntries(name, side) {
+        if (!ports.has(name)) ports.set(name, {top: [], bottom: []});
+        return ports.get(name)[side];
+    }
+    const routes = data.edges.map(edge => {
+        const sourceRow = rowFor.get(edge.source);
+        const targetRow = rowFor.get(edge.target);
+        let kind, sourceSide, targetSide;
+        if (sourceRow === targetRow) {
+            kind = "row";
+            sourceSide = targetSide =
+                positions.get(edge.source)[0] <= positions.get(edge.target)[0] ? "top" : "bottom";
+        } else {
+            const down = sourceRow < targetRow;
+            sourceSide = down ? "bottom" : "top";
+            targetSide = down ? "top" : "bottom";
+            kind = targetRow === sourceRow + 1 ? "adjacent" : "outer";
+        }
+        const route = {source: edge.source, target: edge.target, sourceRow, targetRow,
+            sourceSide, targetSide, kind};
+        portEntries(edge.source, sourceSide).push([route, "source"]);
+        portEntries(edge.target, targetSide).push([route, "target"]);
+        return route;
+    });
+    for (const [name, sides] of ports) {
+        for (const entries of Object.values(sides)) {
+            const hasLoops = entries.some(([route]) => route.source === route.target);
+            entries.forEach(([route, end], index) => {
+                const step = index / Math.max(1, entries.length - 1);
+                let fraction;
+                if (route.source === route.target) {
+                    fraction = (end === "source" ? -0.8 : 0.6) + 0.2 * step;
+                } else {
+                    const span = hasLoops ? 0.4 : 0.65;
+                    fraction = entries.length === 1 ? 0 : span * (2 * step - 1);
+                }
+                route[end + "Offset"] = nodeViews.get(name).rx * fraction;
+            });
+        }
+    }
+    const laneCounts = rowNodes.map(() => ({top: 0, bottom: 0}));
+    const outerCounts = {left: 0, right: 0};
+    for (const route of routes) {
+        if (route.kind === "adjacent" &&
+            positions.get(route.source)[0] === positions.get(route.target)[0] &&
+            portEntries(route.source, "bottom").length === 1 &&
+            portEntries(route.target, "top").length === 1) {
+            route.kind = "direct";
+            continue;
+        }
+        for (const end of route.kind === "outer" ? ["source", "target"] : ["source"]) {
+            const counts = laneCounts[route[end + "Row"]];
+            const side = route[end + "Side"];
+            route[end + "Lane"] = counts[side]++;
+        }
+        if (route.kind === "outer") {
+            route.outerSide = outerCounts.left <= outerCounts.right ? "left" : "right";
+            route.outerLane = outerCounts[route.outerSide]++;
+        }
+    }
+    const laneGap = Math.max(28, ...labelSizes.map(([, height]) => height + 16));
+    const rowCenters = [];
+    let cursor = 0;
+    rowNodes.forEach((nodes, row) => {
+        cursor += laneCounts[row].top * laneGap + laneGap + rowHeights[row] / 2;
+        rowCenters.push(cursor);
+        for (const node of nodes) positions.get(node.name)[1] = cursor;
+        cursor += rowHeights[row] / 2 + laneGap + laneCounts[row].bottom * laneGap;
+    });
+    function endpoint(route, end) {
+        const name = route[end];
+        const [x, y] = positions.get(name);
+        const {rx, ry} = nodeViews.get(name);
+        const offset = route[end + "Offset"];
+        const sign = route[end + "Side"] === "top" ? -1 : 1;
+        return [x + offset, y + sign * ry * Math.sqrt(1 - (offset / rx) ** 2)];
+    }
+    function rail(route, end) {
+        const row = route[end + "Row"];
+        const sign = route[end + "Side"] === "top" ? -1 : 1;
+        return rowCenters[row] + sign *
+            (rowHeights[row] / 2 + laneGap * (route[end + "Lane"] + 1));
+    }
+    const left = -Math.max(...rowWidths) / 2;
+    const right = Math.max(...rowWidths) / 2;
+    routes.forEach((route, slot) => {
+        const start = endpoint(route, "source");
+        const end = endpoint(route, "target");
+        if (route.kind === "direct") {
+            route.points = [start, end];
+            route.label = [start[0] + 9 + labelSizes[slot][0] / 2, (start[1] + end[1]) / 2];
+        } else {
+            const sourceRail = rail(route, "source");
+            if (route.kind === "outer") {
+                const sign = route.outerSide === "left" ? -1 : 1;
+                const outerX = (sign < 0 ? left : right) + sign *
+                    (42 + route.outerLane * laneGap);
+                const targetRail = rail(route, "target");
+                route.points = [start, [start[0], sourceRail], [outerX, sourceRail],
+                    [outerX, targetRail], [end[0], targetRail], end];
+                route.label = [(start[0] + outerX) / 2, sourceRail - 9];
+            } else {
+                route.points = [start, [start[0], sourceRail], [end[0], sourceRail], end];
+                route.label = [(start[0] + end[0]) / 2, sourceRail - 9];
+            }
+        }
+    });
+    let minimumX = Infinity, minimumY = Infinity, maximumX = -Infinity, maximumY = -Infinity;
+    function include(x1, y1, x2 = x1, y2 = y1) {
+        minimumX = Math.min(minimumX, x1);
+        minimumY = Math.min(minimumY, y1);
+        maximumX = Math.max(maximumX, x2);
+        maximumY = Math.max(maximumY, y2);
+    }
+    for (const [name, [x, y]] of positions) {
+        const {rx, ry} = nodeViews.get(name);
+        include(x - rx, y - ry, x + rx, y + ry);
+    }
+    routes.forEach((route, slot) => {
+        for (const [x, y] of route.points) include(x, y);
+        const [x, y] = route.label;
+        const [width, height] = labelSizes[slot];
+        include(x - width / 2, y - height / 2, x + width / 2, y + height / 2);
+    });
+    const canvasWidth = Math.max(480, Math.ceil(maximumX - minimumX + 64));
+    const canvasHeight = Math.max(320, Math.ceil(maximumY - minimumY + 64));
+    const offsetX = (canvasWidth - (maximumX - minimumX)) / 2;
+    const offsetY = (canvasHeight - (maximumY - minimumY)) / 2;
+    const translate = ([x, y]) => [x - minimumX + offsetX, y - minimumY + offsetY];
+    for (const [name, point] of positions) {
+        const [x, y] = translate(point);
+        nodeViews.get(name).group.setAttribute("transform", "translate(" + x + " " + y + ")");
+    }
+    for (const route of routes) {
+        route.path = route.points.map((point, index) =>
+            (index ? "L " : "M ") + translate(point).join(" ")).join(" ");
+        route.label = translate(route.label);
     }
     svg.setAttribute("width", canvasWidth);
     svg.setAttribute("height", canvasHeight);
     svg.setAttribute("viewBox", "0 0 " + canvasWidth + " " + canvasHeight);
-
-    function arrowPath(source, target) {
-        const [x1, y1] = positions.get(source);
-        const [x2, y2] = positions.get(target);
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const length = Math.hypot(dx, dy);
-        if (!length) {
-            return "M " + (x1 + 8) + " " + (y1 - 8) + " C " + (x1 + 70) + " " +
-                (y1 - 76) + " " + (x1 - 70) + " " + (y1 - 76) + " " + (x1 - 8) + " " + (y1 - 8);
-        }
-        const bend = Math.min(60, length * 0.12);
-        const controlX = (x1 + x2) / 2 - dy / length * bend;
-        const controlY = (y1 + y2) / 2 + dx / length * bend;
-        return "M " + (x1 + dx / length * 14) + " " + (y1 + dy / length * 14) +
-            " Q " + controlX + " " + controlY + " " + (x2 - dx / length * 17) +
-            " " + (y2 - dy / length * 17);
-    }
 
     function renderGraph() {
         const average = selection === "average";
@@ -409,10 +580,10 @@ Review labels before sharing. SVG downloads contain the current view only.
         byId("selected-title").textContent = title;
         byId("selected-statistics").textContent = statistics;
         byId("edge-semantics").textContent = average ?
-            "Width = 0.6 + 2 × marginal frequency; opacity = 0.3 + 0.7 × marginal frequency. " +
+            "Numeric labels show marginal edge frequencies; tooltips retain exact values. " +
             "Average is not necessarily a sampled complete graph." :
-            "Exact complete graph: arrows are binary edge indicators, not marginal frequencies. " +
-            "Present edges have width 2.6 and opacity 1; absent edges are not drawn.";
+            "Exact complete graph: plain arrows are binary edge indicators, not marginal " +
+            "frequencies. Absent edges are not drawn.";
         const summary = byId("selection-summary");
         summary.dataset.graphRank = selection;
         summary.dataset.count = String(average ? metadata.n_samples : record.count);
@@ -429,24 +600,42 @@ Review labels before sharing. SVG downloads contain the current view only.
         svg.dataset.graphRank = selection;
         svg.dataset.edgeCount = String(edgeCount);
         edgeLayer.replaceChildren();
+        const frequencyLabels = window.document.createDocumentFragment();
         data.edges.forEach((edge, slot) => {
             const value = values[slot];
             if (!value) return;
             const arrow = svgElement("path", {
-                d: arrowPath(edge.source, edge.target), fill: "none", stroke: "#0072b2",
-                "stroke-width": 0.6 + 2 * value, opacity: 0.3 + 0.7 * value,
+                d: routes[slot].path, fill: "none", stroke: "black",
+                "stroke-width": 1, opacity: 1, "stroke-linejoin": "round",
+                "stroke-linecap": "round", id: "edge-" + edge.index,
                 "marker-end": "url(#graph-arrowhead)", "data-source": edge.source,
                 "data-target": edge.target, "data-edge-index": edge.index,
                 "data-active-index": slot, "data-value": value, "data-graph-rank": selection
             });
             const label = edge.source + " → " + edge.target + " · " +
-                (average ? "marginal frequency " + percent(value) : "edge indicator 1");
+                (average ? "marginal frequency " + edge.exact : "edge indicator 1");
             arrow.setAttribute("aria-label", label);
             const tooltip = svgElement("title");
             tooltip.textContent = label;
             arrow.append(tooltip);
             edgeLayer.append(arrow);
+            if (average) {
+                const [x, y] = routes[slot].label;
+                const frequency = svgElement("text", {
+                    x, y, "text-anchor": "middle", "dominant-baseline": "central",
+                    "font-size": 12, "font-family": "serif", fill: "black",
+                    "paint-order": "stroke", stroke: "white", "stroke-width": 4,
+                    "stroke-linejoin": "round", "data-edge-index": edge.index,
+                    "data-value": value
+                });
+                frequency.textContent = edge.label;
+                const exact = svgElement("title");
+                exact.textContent = label;
+                frequency.append(exact);
+                frequencyLabels.append(frequency);
+            }
         });
+        edgeLayer.append(frequencyLabels);
     }
 
     function updateRowSelection() {
@@ -527,14 +716,43 @@ Review labels before sharing. SVG downloads contain the current view only.
     byId("download-svg").addEventListener("click", () => {
         const image = svg.cloneNode(true);
         image.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-        const document = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        const source = '<?xml version="1.0" encoding="UTF-8"?>\n' +
             new XMLSerializer().serializeToString(image);
+        const invalid = source.match(
+            /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/u);
+        if (invalid) {
+            const codepoint = invalid[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0");
+            const note = byId("svg-unavailable");
+            note.hidden = false;
+            note.textContent = "SVG download unavailable: XML 1.0-incompatible text or metadata " +
+                "(U+" + codepoint + "). Viewing and graph selection remain available.";
+            byId("download-svg").disabled = true;
+            return;
+        }
         const url = URL.createObjectURL(
-            new Blob([document], {type: "image/svg+xml;charset=utf-8"}));
+            new Blob([source], {type: "image/svg+xml;charset=utf-8"}));
         const link = window.document.createElement("a");
         link.href = url;
         link.download = selection === "average" ?
             "graph-average.svg" : "graph-rank-" + selection + ".svg";
+        window.document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    byId("download-dot").addEventListener("click", () => {
+        const average = selection === "average";
+        const values = average ? marginalValues : data.graphs[Number(selection)].graph;
+        const fragments = average ? data.dot.average : data.dot.individual;
+        const source = (average ? "// Average\n" : "// Complete graph rank " + selection + "\n") +
+            data.dot.preamble + fragments.filter((_, slot) => values[slot] > 0).join("\n") +
+            data.dot.suffix;
+        const url = URL.createObjectURL(new Blob([source], {
+            type: "text/vnd.graphviz;charset=utf-8", endings: "transparent"
+        }));
+        const link = window.document.createElement("a");
+        link.href = url;
+        link.download = average ? "graph-average.dot" : "graph-rank-" + selection + ".dot";
         window.document.body.append(link);
         link.click();
         link.remove();

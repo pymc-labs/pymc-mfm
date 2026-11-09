@@ -19,13 +19,12 @@ import io
 import math
 import re
 import textwrap
-from numbers import Integral
 
 import numpy as np
 
 from pymc_mfm.inference._time import _restore_time, _time_to_json
 
-from ._graphs import graph_positions, ranked_graphs
+from ._graphs import graph_positions, ranked_graphs, select_graph
 
 COLORS = {
     "baseline": "#666666",
@@ -875,28 +874,183 @@ def plot_structure_heatmap(summary):
     return fig
 
 
+def _graph_geometry(edges, positions, radii, label_sizes):
+    """Pack measured ovals and route arrows through reserved, node-free gutters.
+
+    Geometry uses every active slot, not the selected vector or supplied truth.
+    Orthogonal outer rails handle rank-skipping edges; opposite same-row arrows
+    use opposite gutters. This is a native layout, not Graphviz's layout engine.
+    """
+    rows = {}
+    for name, (rank, fraction) in positions.items():
+        rows.setdefault(rank, []).append((fraction, name))
+    rows = [[name for _, name in sorted(row)] for _, row in sorted(rows.items())]
+    row_for = {name: row for row, names in enumerate(rows) for name in names}
+    widths = [sum(2 * radii[name][0] for name in names) + 36 * (len(names) - 1) for names in rows]
+    heights = [max(2 * radii[name][1] for name in names) for names in rows]
+    centers = {}
+    for names, width in zip(rows, widths, strict=True):
+        x = -width / 2
+        for name in names:
+            centers[name] = [x + radii[name][0], 0]
+            x += 2 * radii[name][0] + 36
+
+    ports = {}
+    routes = []
+    for entry in edges:
+        source, target = entry["endpoints"]
+        source_row, target_row = row_for[source], row_for[target]
+        if source_row == target_row:
+            kind = "row"
+            source_side = target_side = (
+                "top" if centers[source][0] <= centers[target][0] else "bottom"
+            )
+        else:
+            down = source_row < target_row
+            source_side, target_side = ("bottom", "top") if down else ("top", "bottom")
+            kind = "adjacent" if target_row == source_row + 1 else "outer"
+        route = {
+            "source": source,
+            "target": target,
+            "source_row": source_row,
+            "target_row": target_row,
+            "source_side": source_side,
+            "target_side": target_side,
+            "kind": kind,
+        }
+        routes.append(route)
+        for end, name, side in (
+            ("source", source, source_side),
+            ("target", target, target_side),
+        ):
+            ports.setdefault((name, side), []).append((route, end))
+    for (name, _), entries in ports.items():
+        has_loops = any(route["source"] == route["target"] for route, _ in entries)
+        for index, (route, end) in enumerate(entries):
+            step = index / max(1, len(entries) - 1)
+            if route["source"] == route["target"]:
+                fraction = (-0.8 if end == "source" else 0.6) + 0.2 * step
+            else:
+                span = 0.4 if has_loops else 0.65
+                fraction = 0 if len(entries) == 1 else span * (2 * step - 1)
+            route[f"{end}_offset"] = radii[name][0] * fraction
+
+    lane_counts = [{"top": 0, "bottom": 0} for _ in rows]
+    outer_counts = {"left": 0, "right": 0}
+    for route in routes:
+        source, target = route["source"], route["target"]
+        if (
+            route["kind"] == "adjacent"
+            and centers[source][0] == centers[target][0]
+            and len(ports[(source, "bottom")]) == 1
+            and len(ports[(target, "top")]) == 1
+        ):
+            route["kind"] = "direct"
+            continue
+        for end in ("source", "target") if route["kind"] == "outer" else ("source",):
+            row, side = route[f"{end}_row"], route[f"{end}_side"]
+            route[f"{end}_lane"] = lane_counts[row][side]
+            lane_counts[row][side] += 1
+        if route["kind"] == "outer":
+            side = "left" if outer_counts["left"] <= outer_counts["right"] else "right"
+            route["outer_side"] = side
+            route["outer_lane"] = outer_counts[side]
+            outer_counts[side] += 1
+
+    lane_gap = max(22, max(height for _, height in label_sizes) + 12)
+    row_centers = []
+    cursor = 0
+    for row, height in enumerate(heights):
+        cursor += lane_counts[row]["top"] * lane_gap + lane_gap + height / 2
+        row_centers.append(cursor)
+        for name in rows[row]:
+            centers[name][1] = cursor
+        cursor += height / 2 + lane_gap + lane_counts[row]["bottom"] * lane_gap
+
+    def endpoint(route, end):
+        name, side = route[end], route[f"{end}_side"]
+        x, y = centers[name]
+        rx, ry = radii[name]
+        offset = route[f"{end}_offset"]
+        sign = -1 if side == "top" else 1
+        return (x + offset, y + sign * ry * math.sqrt(1 - (offset / rx) ** 2))
+
+    def rail(route, end):
+        row, side = route[f"{end}_row"], route[f"{end}_side"]
+        sign = -1 if side == "top" else 1
+        return row_centers[row] + sign * (heights[row] / 2 + lane_gap * (route[f"{end}_lane"] + 1))
+
+    left, right = -max(widths) / 2, max(widths) / 2
+    paths, labels = [], []
+    for route, (label_width, _) in zip(routes, label_sizes, strict=True):
+        start, end = endpoint(route, "source"), endpoint(route, "target")
+        if route["kind"] == "direct":
+            points = [start, end]
+            label = (start[0] + 7 + label_width / 2, (start[1] + end[1]) / 2)
+        else:
+            source_rail = rail(route, "source")
+            if route["kind"] == "outer":
+                sign = -1 if route["outer_side"] == "left" else 1
+                outer_x = (left if sign < 0 else right) + sign * (
+                    32 + route["outer_lane"] * lane_gap
+                )
+                target_rail = rail(route, "target")
+                points = [
+                    start,
+                    (start[0], source_rail),
+                    (outer_x, source_rail),
+                    (outer_x, target_rail),
+                    (end[0], target_rail),
+                    end,
+                ]
+                label = ((start[0] + outer_x) / 2, source_rail - 7)
+            else:
+                points = [start, (start[0], source_rail), (end[0], source_rail), end]
+                label = ((start[0] + end[0]) / 2, source_rail - 7)
+        paths.append(points)
+        labels.append(label)
+
+    bounds = [
+        (x - radii[name][0], y - radii[name][1], x + radii[name][0], y + radii[name][1])
+        for name, (x, y) in centers.items()
+    ]
+    bounds.extend((x, y, x, y) for points in paths for x, y in points)
+    bounds.extend(
+        (x - width / 2, y - height / 2, x + width / 2, y + height / 2)
+        for (x, y), (width, height) in zip(labels, label_sizes, strict=True)
+    )
+    minimum_x = min(bound[0] for bound in bounds) - 24
+    minimum_y = min(bound[1] for bound in bounds) - 24
+    natural_width = max(bound[2] for bound in bounds) - minimum_x + 24
+    natural_height = max(bound[3] for bound in bounds) - minimum_y + 24
+    width, height = max(360, natural_width), max(240, natural_height)
+    minimum_x -= (width - natural_width) / 2
+    minimum_y -= (height - natural_height) / 2
+
+    def translate(point):
+        return (point[0] - minimum_x, point[1] - minimum_y)
+
+    return (
+        {name: translate(center) for name, center in centers.items()},
+        [[translate(point) for point in points] for points in paths],
+        [translate(label) for label in labels],
+        width,
+        height,
+    )
+
+
 def plot_dag(summary, *, graph=None):
-    """Marginal edge frequencies, or one complete graph at its zero-based rank."""
+    """Graphviz-style ovals and literal labels, without a Graphviz dependency."""
+    from matplotlib.patches import Ellipse, FancyArrowPatch
+    from matplotlib.path import Path
+    from matplotlib.text import Text
+
     data = summary["arrays"]["graphs"]
     edges = data["edges"]
     positions = graph_positions(edges)
-    selected = None
-    if graph is not None:
-        if isinstance(graph, bool) or not isinstance(graph, Integral):
-            raise ValueError("graph must be None or a zero-based integer rank")
-        records = ranked_graphs(summary)
-        if graph < 0 or graph >= len(records):
-            raise ValueError(
-                f"graph rank {graph} is out of range for {len(records)} complete graphs "
-                "(zero-based)"
-            )
-        selected = records[graph]
-        if len(selected["graph"]) != len(edges):
-            raise ValueError("Complete graph vector must align with the active edge records")
-    from matplotlib.patches import FancyArrowPatch
-
+    selected = select_graph(summary, graph)
     mode = summary["metadata"]["mode"]
-    title = "Directed graph views — native renderer; width / opacity = edge frequency"
+    title = "Directed graph views — native Graphviz-style renderer; numeric edge frequencies"
     prediction_title = {
         "map": "Selected empirical modal hypothesis",
         "fixed": "Supplied fixed hypothesis",
@@ -904,7 +1058,7 @@ def plot_dag(summary, *, graph=None):
     if selected is not None:
         prediction_title = f"Complete graph rank {graph} (binary edge indicators)"
         title = (
-            "Directed graph views — native renderer; width / opacity = binary edge indicators\n"
+            "Directed graph views — native Graphviz-style renderer; binary edge indicators\n"
             f"Complete graph rank {graph} · count {selected['count']} / "
             f"{summary['metadata']['n_samples']} draws · "
             f"observed frequency {selected['frequency']:.3g}"
@@ -912,10 +1066,55 @@ def plot_dag(summary, *, graph=None):
     if mode in ("map", "fixed"):
         title += f"\n{data['label']}"
     has_truth = all(entry["truth"] is not None for entry in edges)
-    right = max(x for x, _ in positions.values()) + 0.5
-    fig, axes = _figure(1, 2 if has_truth else 1, width=15 if has_truth else 9, row_height=5.5)
+    columns = 2 if has_truth else 1
+    fig, axes = _figure(1, columns)
+    renderer = fig.canvas.get_renderer()
+    points_per_pixel = 72 / fig.dpi
+
+    def measured(text, fontsize):
+        artist = Text(
+            text=text,
+            fontsize=fontsize,
+            fontfamily="serif",
+            horizontalalignment="center",
+            verticalalignment="center",
+            multialignment="center",
+            parse_math=False,
+            usetex=False,
+        )
+        artist.set_figure(fig)
+        bounds = artist.get_window_extent(renderer)
+        return bounds.width * points_per_pixel, bounds.height * points_per_pixel
+
+    radii = {}
+    for name in positions:
+        width, height = measured(name, 11)
+        # The padded text rectangle's corners, not just its sides, fit the oval.
+        radii[name] = (
+            max(22, math.sqrt(2) * (width / 2 + 7)),
+            max(15, math.sqrt(2) * (height / 2 + 4)),
+        )
+    frequency_labels = [f"{float(entry['probability']):.3g}" for entry in edges]
+    label_sizes = [measured(label, 9) for label in frequency_labels]
+    centers, paths, labels, width, height = _graph_geometry(edges, positions, radii, label_sizes)
+    figure_width = columns * width + (columns - 1) * 24 + 32
+    fig.set_size_inches(figure_width / 72, (height + 100) / 72)
+    _header(fig, summary, title)
+    header_height = fig._suptitle.get_window_extent(renderer).height * points_per_pixel
+    figure_height = height + header_height + 64
+    fig.set_size_inches(figure_width / 72, figure_height / 72)
+    fig._suptitle.set_y(1 - 16 / figure_height)
+    fig.set_layout_engine(None)
     for column, ax in enumerate(axes[0]):
         true_panel = has_truth and column == 0
+        ax.set_position(
+            [
+                (16 + column * (width + 24)) / figure_width,
+                16 / figure_height,
+                width / figure_width,
+                height / figure_height,
+            ]
+        )
         for index, entry in enumerate(edges):
             if true_panel:
                 value = entry["truth"]
@@ -927,28 +1126,76 @@ def plot_dag(summary, *, graph=None):
             if not value:
                 continue
             source, target = entry["endpoints"]
+            tooltip = f"{source} → {target} · " + (
+                f"marginal frequency {float(value)!r}"
+                if selected is None and not true_panel
+                else "edge indicator 1"
+            )
             arrow = FancyArrowPatch(
-                positions[source],
-                positions[target],
+                path=Path(paths[index], [Path.MOVETO, *([Path.LINETO] * (len(paths[index]) - 1))]),
                 arrowstyle="-|>",
-                mutation_scale=11,
-                shrinkA=14,
-                shrinkB=14,
-                linewidth=0.6 + 2 * value,
-                alpha=0.3 + 0.7 * value,
-                color="#0072B2",
-                connectionstyle="arc3,rad=0.12",
+                mutation_scale=9,
+                shrinkA=0,
+                shrinkB=0,
+                linewidth=0.8,
+                alpha=1,
+                color="black",
+                joinstyle="round",
+                capstyle="round",
                 gid=f"edge-{entry['index']}",
+                label=tooltip,
+                zorder=1,
             )
             ax.add_patch(arrow)
-        for node, (x, y) in positions.items():
-            ax.scatter(x, y, color="white", edgecolor="0.3", s=240, zorder=3)
-            ax.text(x, y + 0.045, node, ha="center", va="bottom", fontsize=8)
-        ax.set_xlim(-0.5, right)
-        ax.set_ylim(-0.05, 1.05)
+            if selected is None and not true_panel:
+                ax.text(
+                    *labels[index],
+                    frequency_labels[index],
+                    fontsize=9,
+                    fontfamily="serif",
+                    ha="center",
+                    va="center",
+                    color="black",
+                    parse_math=False,
+                    usetex=False,
+                    bbox={"facecolor": "white", "edgecolor": "none", "pad": 1},
+                    label=tooltip,
+                    zorder=2,
+                )
+        for name, (x, y) in centers.items():
+            rx, ry = radii[name]
+            ax.add_patch(
+                Ellipse(
+                    (x, y),
+                    2 * rx,
+                    2 * ry,
+                    facecolor="white",
+                    edgecolor="black",
+                    linewidth=0.8,
+                    zorder=3,
+                )
+            )
+            ax.text(
+                x,
+                y,
+                name,
+                ha="center",
+                va="center",
+                multialignment="center",
+                fontsize=11,
+                fontfamily="serif",
+                color="black",
+                parse_math=False,
+                usetex=False,
+                zorder=4,
+            )
+        ax.set_xlim(0, width)
+        ax.set_ylim(height, 0)
+        ax.set_aspect("equal")
         ax.set_axis_off()
-        ax.set_title("True graph" if true_panel else prediction_title, fontsize=10)
-    _header(fig, summary, title)
+        ax.set_title(
+            "True graph" if true_panel else prediction_title, fontsize=10, parse_math=False
+        )
     return fig
 
 
