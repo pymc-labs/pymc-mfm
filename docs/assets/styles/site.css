@@ -151,10 +151,11 @@ body.mfm-landing .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-l
   outline-color: var(--mfm-peach);
 }
 
-/* In the collapsed navbar it ends the list, on its own line. */
+/* In the collapsed navbar it ends the list, on its own line, inset so the scrolling list
+   does not clip its focus ring. */
 @media (max-width: 991.98px) {
   .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
-    margin: 0.4rem 0 0.6rem;
+    margin: 0.4rem 0 0.6rem 0.25rem;
   }
 }
 
