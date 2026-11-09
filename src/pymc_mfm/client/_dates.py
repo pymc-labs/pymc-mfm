@@ -14,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 WEEK = timedelta(days=7)
+UNORDERED = "Dates must increase by one week for each row. The client does not sort your data."
 
 
 def check_weekly_dates(dates: Sequence[Any], label: str) -> None:
@@ -49,9 +50,14 @@ def check_plan_follows_history(plan: Any, history_end: date) -> None:
     days = [_as_date(value) for value in dates]
     required = history_end + WEEK
     if days[0] != required:
+        start = f"Your history ends on {history_end}. Your plan starts on {days[0]}."
+        if days[0] > required and required in days:  # a later week came first
+            raise ValueError(
+                f"{start} The next required date is {required}, which is in row "
+                f"{days.index(required) + 1} of your plan. {UNORDERED}"
+            )
         raise ValueError(
-            f"Your history ends on {history_end}. Your plan starts on {days[0]}. "
-            f"The next required date is {required}. "
+            f"{start} The next required date is {required}. "
             "Check whether a week is missing from your history or plan."
         )
     check_weekly_dates(days, "plan")
@@ -63,13 +69,12 @@ def _check_step(
     gap = day - previous
     expected = previous + WEEK
     where = f"Row {row} of your {label} has the date {day}, but row {row - 1} has {previous}."
-    unordered = "Dates must increase by one week for each row. The client does not sort your data."
     if day < previous:
-        raise ValueError(f"{where} {unordered}")
+        raise ValueError(f"{where} {UNORDERED}")
     if gap != WEEK and expected in rows_of:
         raise ValueError(
             f"{where} The next required date is {expected}, which is in row "
-            f"{rows_of[expected]}. {unordered}"
+            f"{rows_of[expected]}. {UNORDERED}"
         )
     if gap % WEEK:
         raise ValueError(

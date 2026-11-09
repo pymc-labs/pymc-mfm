@@ -84,3 +84,15 @@ def test_plan_rows_are_checked_after_the_start():
 def test_a_plan_without_dates_is_left_to_the_service():
     check_plan_follows_history({"spend": {}}, date(2024, 7, 22))
     check_plan_follows_history({"dates": []}, date(2024, 7, 22))
+
+
+def test_a_plan_whose_first_rows_are_swapped_is_out_of_order():
+    with pytest.raises(ValueError) as error:
+        check_plan_follows_history(
+            {"dates": ["2024-08-05", "2024-07-29", "2024-08-12"]}, date(2024, 7, 22)
+        )
+    assert str(error.value) == (
+        "Your history ends on 2024-07-22. Your plan starts on 2024-08-05. "
+        "The next required date is 2024-07-29, which is in row 2 of your plan. "
+        "Dates must increase by one week for each row. The client does not sort your data."
+    )
