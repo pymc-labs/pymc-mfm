@@ -1,0 +1,93 @@
+---
+title: "Call the River API"
+description: "Use the torch-free HTTP client to upload a history and run River API analyses."
+---
+
+## Create a client
+
+[pymc_mfm.client](../reference/client.Client.qmd) is the torch-free HTTP client for River API v3.1. It works with the light base install; install `pymc-mfm[client]` to read per-draw files and create client plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
+
+```python
+from pymc_mfm.client import Client
+
+client = Client("https://api.example.com")  # API key from MFM_API_KEY
+```
+
+A `Client` closes its connection pool with `close()` and can be used as a context manager.
+
+## Create a dataset and analysis
+
+A [Dataset](../reference/client.Dataset.qmd) stores a weekly history and its column roles. `history_ranges` reports the weekly 5th and 95th percentiles, maximum, zero-week share, and all-zero status for each channel and control, which helps keep plans inside the observed history range.
+
+```python
+import pandas as pd
+
+from pymc_mfm.client import Client, grid, move, scale, scenario, shift
+
+client = Client("https://api.example.com")
+dataset = client.datasets.create(
+    history,
+    date="week",
+    outcome="sales",
+    spend=["tv", "search"],
+    controls=["price"],
+    name="brand-a",
+)
+
+analysis = client.analyze(
+    dataset,
+    plan,
+    scenarios=[
+        scenario("half", scale(0.5)),
+        scenario("tv_to_search", move("tv", "search", share=0.2)),
+        scenario("front_loaded", shift("tv", into_weeks=(1, 4))),
+        *grid(tv=[0.5, 1.5], search=[0.5, 1.5]),
+    ],
+    decision_weeks=(1, 8),
+    seed=7,
+)
+analysis.wait()
+results = analysis.table
+```
+
+[scenario](../reference/client.scenario.qmd) names an ordered set of changes to the baseline plan. Use [scale](../reference/client.scale.qmd) to multiply one or more channels, [move](../reference/client.move.qmd) to transfer a spend share or amount, and [shift](../reference/client.shift.qmd) to retime one channel's spend. [grid](../reference/client.grid.qmd) expands channel multipliers into named scenarios. [set_controls](../reference/client.set_controls.qmd) replaces control values in the decision window, and [curve](../reference/client.curve.qmd) requests spend-level response curves.
+
+`decision_weeks=(i, j)` is 1-based and inclusive. Omit `draws` and `seed` to use the service defaults.
+
+## Preview and explore
+
+Pass `preview=True` to `analyze` or `explore` to return a [Preview](../reference/client.Preview.qmd) without storing or running an analysis. A preview exposes expanded plans, run count, estimated duration, assumptions, and warnings.
+
+```python
+preview = client.analyze(dataset, plan, preview=True)
+first_look = client.explore(dataset, plan, preview=True)
+```
+
+`explore` builds one response curve per channel at nine levels from 0 to 2 times baseline spend in 0.25 increments, plus two total-budget scenarios at 0.5 and 1.5 times baseline. Retrieve an existing analysis with `client.get(analysis_id)`.
+
+## Read an analysis
+
+An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until it is done, failed, or deleted.
+
+| Member | Result |
+| --- | --- |
+| `table` | One row per plan and component, including mean, `p05`, `p95`, and window summaries |
+| `weekly(scenario_id)` | Weekly component means and 5th–95th percentiles for one plan |
+| `draws(scenario_ids=None)` | Per-draw files as one `xarray.Dataset` stacked along `scenario`; needs the `draws` extra |
+| `plot_curves()` | Response-curve figure; needs the `plot` extra |
+| `plot_compare()` | Scenario-versus-base mean differences with simulation-error bars; needs the `plot` extra |
+| `delete()` | Cancels unstarted work and deletes the analysis and its data |
+
+`draws()` refreshes expired signed URLs and fetches the result again; it never reruns the analysis.
+
+::: {.callout-note}
+## Read labels before comparing plans
+
+Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the result. Intervals are pointwise 5th–95th percentiles of expected outcome, exclude observation noise, and are not causal lift. The service supplies no interval for a difference between plans; `simulation_se` is numerical precision of the mean difference, not model uncertainty.
+:::
+
+## Retries and errors
+
+Every request that creates a dataset or analysis carries an `Idempotency-Key`. Automatic retries reuse that key, so they do not start work twice. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
+
+Service responses raise typed [ApiError](../reference/client.ApiError.qmd) subclasses. Common responses include `NotFound`, `Gone`, `Conflict`, `NotReady`, `RateLimited`, and `ValidationError`; their errors expose the service `code`, `message`, and `field`. Exhausted connection retries raise `ApiConnectionError`, a separate `ClientError` without a service payload.

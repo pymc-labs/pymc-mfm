@@ -1,0 +1,322 @@
+---
+title: "River 1.0"
+subtitle: "PyMC Labs' first Marketing Foundation Model"
+description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
+date: 2026-11-07
+author: "PyMC Labs"
+categories: [Release, River]
+image: ../../assets/img/models/river.jpg
+# Read by the Models page (models/models.ejs); announced models are in models/upcoming.yml.
+name: River
+order: 1
+badge: New
+specs:
+  - "2.4M parameters"
+  - "200,000 training worlds"
+  - "1–10 channels"
+pagetitle: "Introducing River 1.0 · PyMC MFM"
+page-layout: custom
+title-block-style: none
+toc: false
+anchor-sections: false
+body-classes: mfm-landing mfm-river-page
+css:
+  - ../../assets/styles/landing.css
+  - ../../assets/styles/model.css
+---
+
+<!--
+Sources: the PyMC Labs white paper "Marketing Foundational Models" and the academic
+paper "Marketing Foundational Models: Amortized Bayesian Inference over Mixtures of
+Marketing Mix Models" (October 2026), the public page at
+pymc-labs.com/marketing-foundation-models, and this repository's README and RELEASE
+notes. Keep every number traceable to one of them.
+-->
+
+:::::: {.mfm-river}
+
+```{=html}
+<section class="mfm-river__hero" aria-labelledby="mfm-river-title">
+  <canvas class="mfm-river__canvas" data-mfm="river" aria-hidden="true"></canvas>
+  <div class="mfm-river__numbers" aria-hidden="true"></div>
+  <div class="mfm-grain" aria-hidden="true"></div>
+  <h1 id="mfm-river-title" class="mfm-river__title">River <span class="mfm-river__version">v1.0.0</span></h1>
+  <canvas class="mfm-river__veil" data-mfm="veil" aria-hidden="true"></canvas>
+  <a class="mfm-hero__scroll" href="#introducing">Scroll to read<span aria-hidden="true"></span></a>
+</section>
+```
+
+::::: {.mfm-river__layout}
+
+```{=html}
+<nav class="mfm-river__toc" aria-label="On this page">
+  <a href="#introducing">Introducing River 1.0</a>
+  <a href="#what">What River does</a>
+  <a href="#training">How River was trained</a>
+  <a href="#benchmarks">Benchmarks</a>
+  <a href="#speed">Speed</a>
+  <a href="#structure">Causal structure</a>
+  <a href="#limits">Limits</a>
+  <a href="#get">Get River</a>
+</nav>
+```
+
+:::: {.mfm-river__article}
+
+## Introducing River 1.0 {#introducing .mfm-visually-hidden}
+
+::: {.mfm-lede}
+We're introducing **River 1.0**, the first Marketing Foundation Model from PyMC Labs and
+the first network for the PyMC MFM library. River reads one weekly marketing table
+(spend per channel, controls and sales) and returns draws of every contribution, with
+the causal graph behind each draw. It needs no new parameter fit: it learned from
+200,000 simulated marketing worlds with known answers, and its weights stay fixed for
+every new dataset.
+:::
+
+River is a research preview. All of its tests use simulated data with known truth, and
+validation against real-world incrementality tests remains open.
+
+```{=html}
+<div class="mfm-stats mfm-reveal">
+  <div><strong>2.4M</strong><span>parameters</span></div>
+  <div><strong>200,000</strong><span>simulated training worlds</span></div>
+  <div><strong>1.25 s</strong><span>median first answer for one query week</span></div>
+  <div><strong>11 of 15</strong><span>comparisons with a majority of paired wins</span></div>
+</div>
+<div class="mfm-links mfm-reveal">
+  <a href="https://huggingface.co/pymc-labs/mfm">Hugging Face <span aria-hidden="true">↗</span></a>
+  <a href="https://www.pymc-labs.com/marketing-foundation-models">White paper <span aria-hidden="true">↗</span></a>
+  <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o">Watch the explainer <span aria-hidden="true">↗</span></a>
+  <a href="../../guide/examples/river_1_quickstart.html">Quickstart <span aria-hidden="true">→</span></a>
+</div>
+```
+
+## What River does {#what}
+
+Give River a weekly table: spend for each channel, control variables such as price or
+promotions, and sales. For every week it returns the part of sales that came from the
+baseline, from each channel and from each control, as draws, so each part has an
+uncertainty interval. The table can continue past the last observed sales: supply spend
+and controls for those weeks and River decomposes them too. Weeks with sales are
+*context*; weeks without are the *query*.
+
+Each draw also carries a causal graph: which inputs have a direct effect on sales. A
+conventional marketing mix model fixes one structure; River averages over the
+structures its training allowed, including inputs that are present but have no effect.
+You can also take the most frequent graph, or fix your own.
+
+River rescales every series with statistics of its context weeks, so sales, spend and
+controls can be in any units. After conversion back, the estimates differ only by
+numerical rounding.
+
+## How River was trained {#training}
+
+**The prior.** A simulator writes down the assumptions: how spend carries over, how
+response saturates, how the baseline moves, and which inputs drive sales. From it we
+drew 200,000 accepted worlds of 208 weeks: 196,000 for training and 4,000 held out. The
+prior mixes 50 equally weighted combinations: five response shapes, including a linear
+one, each with or without geometric carryover, times five input settings (calm,
+hectic, mixed, spiky inputs and a hectic baseline). A world has 1 to 10 channels and
+1 to 10 controls, and an input that is present need not affect sales. No real company
+data were used.
+
+**The network.** A transformer encoder reads the weekly table. A router samples a
+complete graph of direct effects, a graph conditioner adapts the encoder's
+representations to that graph, and a conditional decoder turns fresh noise into
+contribution draws. Conditional flow matching trains the network to carry noise to
+samples; at inference, sixteen fixed Euler steps do the carrying.
+
+```{=html}
+<dl class="mfm-specs mfm-reveal">
+  <div><dt>Parameters</dt><dd>2,443,583</dd></div>
+  <div><dt>Encoder</dt><dd>4 blocks, width 128, 8 attention heads, feed-forward 512</dd></div>
+  <div><dt>Flow networks</dt><dd>two hidden layers of 256 (SiLU)</dd></div>
+  <div><dt>Training worlds</dt><dd>200,000 × 208 weeks (196,000 train, 4,000 held out)</dd></div>
+  <div><dt>Context lengths</dt><dd>75 to 207 weeks</dd></div>
+  <div><dt>Optimisation</dt><dd>62,500 AdamW updates of 64 views (3.4 epochs)</dd></div>
+  <div><dt>Hardware</dt><dd>one NVIDIA H100</dd></div>
+  <div><dt>Bundle</dt><dd>about 10 MB, 10 control slots</dd></div>
+</dl>
+```
+
+## Benchmarks {#benchmarks}
+
+We tested River on 500 cases with known truth: five conditions of 100 held-out worlds.
+Three conditions follow the training assumptions (all inputs, a logistic saturation
+response, a smoothly varying baseline). Two hide information: the channel or the
+control with the largest effect. Each case is read at three splits, with 99, 185 or
+207 weeks of sales to estimate the next 109, 23 or one week: 1,500 scored views.
+
+The references are PathMC with carryover and saturation, ordinary least squares (OLS),
+and a PyMC-Marketing MMM with default settings. The score is the continuous ranked
+probability score (CRPS) of each input's contribution over the query weeks; it judges
+the whole distribution, and lower is better.
+
+```{=html}
+<figure class="mfm-chart mfm-reveal" aria-label="Query channel CRPS with full inputs, mean over 100 held-out worlds. 109 query weeks: River 0.030, PathMC 0.037, PyMC-Marketing MMM 0.066, OLS 0.214. 23 weeks: River 0.024, PathMC 0.037, MMM 0.058, OLS 0.132. One week: River 0.026, PathMC 0.040, MMM 0.060, OLS 0.118.">
+  <figcaption>
+    <strong>Channel contribution error, all inputs available</strong>
+    <span>Query channel CRPS, mean over 100 held-out worlds. Lower is better.</span>
+  </figcaption>
+  <div class="mfm-chart__legend" aria-hidden="true">
+    <span style="--c: #b4e7dd">River 1.0</span>
+    <span style="--c: #9faae2">PathMC</span>
+    <span style="--c: #c8b4e7">PyMC-Marketing MMM</span>
+    <span style="--c: #5d6d8a">OLS</span>
+  </div>
+  <div class="mfm-chart__groups" aria-hidden="true" style="--max: 0.22">
+    <div class="mfm-chart__group">
+      <p>109 query weeks</p>
+      <div class="mfm-bar" style="--v: 0.0295; --c: #b4e7dd"><i></i><b>0.030</b></div>
+      <div class="mfm-bar" style="--v: 0.0370; --c: #9faae2"><i></i><b>0.037</b></div>
+      <div class="mfm-bar" style="--v: 0.0659; --c: #c8b4e7"><i></i><b>0.066</b></div>
+      <div class="mfm-bar" style="--v: 0.2136; --c: #5d6d8a"><i></i><b>0.214</b></div>
+    </div>
+    <div class="mfm-chart__group">
+      <p>23 query weeks</p>
+      <div class="mfm-bar" style="--v: 0.0241; --c: #b4e7dd"><i></i><b>0.024</b></div>
+      <div class="mfm-bar" style="--v: 0.0365; --c: #9faae2"><i></i><b>0.037</b></div>
+      <div class="mfm-bar" style="--v: 0.0580; --c: #c8b4e7"><i></i><b>0.058</b></div>
+      <div class="mfm-bar" style="--v: 0.1322; --c: #5d6d8a"><i></i><b>0.132</b></div>
+    </div>
+    <div class="mfm-chart__group">
+      <p>One query week</p>
+      <div class="mfm-bar" style="--v: 0.0263; --c: #b4e7dd"><i></i><b>0.026</b></div>
+      <div class="mfm-bar" style="--v: 0.0396; --c: #9faae2"><i></i><b>0.040</b></div>
+      <div class="mfm-bar" style="--v: 0.0596; --c: #c8b4e7"><i></i><b>0.060</b></div>
+      <div class="mfm-bar" style="--v: 0.1175; --c: #5d6d8a"><i></i><b>0.118</b></div>
+    </div>
+  </div>
+  <p class="mfm-chart__note">Scores use each world's sales scale. The oracle, a fit given the true structure, scores lower than River.</p>
+</figure>
+```
+
+Across all five conditions and all three horizons, River's mean channel and control
+scores are lower than those of PathMC and OLS. On the same world, River beats both in a
+majority of worlds in 11 of the 15 condition-and-horizon comparisons for channels.
+
+A separate test compares River with the configured PyMC-Marketing MMM on 100 full-input
+worlds at the three horizons. The MMM's mean error is a multiple of River's:
+
+```{=html}
+<div class="mfm-ratios mfm-reveal">
+  <div><strong>2.1–2.4×</strong><span>channel contributions</span></div>
+  <div><strong>5.4–5.7×</strong><span>control contributions</span></div>
+  <div><strong>4.0–5.1×</strong><span>baseline</span></div>
+</div>
+```
+
+These are ratios of cohort means, not typical world-level ratios, and the MMM fits
+include runs that failed sampler diagnostics. They do not establish an advantage over
+converged Bayesian MMMs in general.
+
+## Speed {#speed}
+
+River needs no new fit, so a new dataset gets an answer as soon as the network has
+read it. In the timing test (100 twelve-channel worlds), River ran on a GPU and the
+MMM on eight CPU cores:
+
+```{=html}
+<figure class="mfm-chart mfm-reveal" aria-label="Median time to the first answer, log scale. One query week: River 1.25 seconds, MMM fit plus first prediction 387.30 seconds. 109 query weeks: River 113.78 seconds, MMM 238.66 seconds.">
+  <figcaption>
+    <strong>Time to the first answer</strong>
+    <span>Median seconds, log scale. MMM time is a fresh fit plus its first prediction.</span>
+  </figcaption>
+  <div class="mfm-chart__groups mfm-chart__groups--time" aria-hidden="true">
+    <div class="mfm-chart__group">
+      <p>One query week</p>
+      <div class="mfm-bar" style="--w: 3.2%; --c: #b4e7dd"><span>River 1.0</span><i></i><b>1.25 s</b></div>
+      <div class="mfm-bar" style="--w: 86.3%; --c: #c8b4e7"><span>PyMC-Marketing MMM</span><i></i><b>387.30 s</b></div>
+    </div>
+    <div class="mfm-chart__group">
+      <p>109 query weeks</p>
+      <div class="mfm-bar" style="--w: 68.6%; --c: #b4e7dd"><span>River 1.0</span><i></i><b>113.78 s</b></div>
+      <div class="mfm-bar" style="--w: 79.3%; --c: #c8b4e7"><span>PyMC-Marketing MMM</span><i></i><b>238.66 s</b></div>
+    </div>
+  </div>
+  <p class="mfm-chart__note">Latency grows with query length. Once fitted, the MMM answers a warm 109-week query in about 4 s, faster than River's 114 s. Times exclude River's one-off training.</p>
+</figure>
+```
+
+Smaller problems are quicker. With the library's quickstart world (two channels,
+42 query weeks), 1,000 draws took 2.0 s on an Apple M3 Max CPU.
+
+## Causal structure {#structure}
+
+River samples which inputs have a direct effect. Within its training prior, on 100
+full-input worlds:
+
+```{=html}
+<div class="mfm-ratios mfm-reveal">
+  <div><strong>≈ 90%</strong><span>precision and recall for active channels</span></div>
+  <div><strong>45–51%</strong><span>of worlds with the complete active-channel set recovered</span></div>
+  <div><strong>82–86</strong><span>of 100 worlds with the true graph among 2,048 drawn graphs</span></div>
+</div>
+```
+
+This is partial recovery inside the permitted family of direct effects, not
+unrestricted causal discovery. Selecting the one correct graph remains harder than
+covering it.
+
+## Limits {#limits}
+
+- **Simulation only.** River is tested on simulated worlds with known truth. A
+  separate study approximates two observed marketing collections, which does not
+  establish accuracy on observed business data. Do not use River alone for budget
+  decisions.
+- **Calibration is open.** River gives intervals for every contribution, but
+  long-query contribution intervals under-cover. Calibration and validation come
+  before intervals can support budget decisions.
+- **Contributions, not forecasts.** Lower contribution error does not mean better
+  total-sales prediction: for one-week totals, the fitted references score better.
+- **Direct effects only.** The current weights support direct effects on sales, and
+  1 to 10 channels as trained.
+
+## Get River {#get}
+
+River ships as the profile `river-1` of the Hugging Face repository `pymc-labs/mfm`,
+currently private to the PyMC Labs organisation. Log in with `hf auth login` (or set
+`HF_TOKEN`), then load it at its pinned commit:
+
+```bash
+pip install "pymc-mfm[hub] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+```
+
+```python
+from pymc_mfm import from_pretrained
+
+model = from_pretrained(
+    "pymc-labs/mfm",
+    profile="river-1",
+    revision="970e6095f14824d7e25ecace7e20a47bebde35b8",
+)
+```
+
+```{=html}
+<div class="mfm-resources mfm-reveal">
+  <a href="https://huggingface.co/pymc-labs/mfm"><strong>Hugging Face</strong><span>pymc-labs/mfm · profile river-1</span><i aria-hidden="true">↗</i></a>
+  <a href="https://www.pymc-labs.com/marketing-foundation-models"><strong>White paper</strong><span>For practitioners and decision makers</span><i aria-hidden="true">↗</i></a>
+  <div class="is-pending"><strong>Academic paper</strong><span>Amortized Bayesian Inference over Mixtures of Marketing Mix Models · arXiv preprint coming soon</span></div>
+  <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o"><strong>Explainer video</strong><span>What Are Marketing Foundation Models?</span><i aria-hidden="true">↗</i></a>
+  <a href="../../guide/examples/river_1_quickstart.html"><strong>Quickstart notebook</strong><span>Decompose a simulated dataset with River 1.0</span><i aria-hidden="true">→</i></a>
+  <a href="../../guide/index.html"><strong>Guide</strong><span>Install, concepts and the library API</span><i aria-hidden="true">→</i></a>
+</div>
+<p class="mfm-authors mfm-reveal">
+  <span>Authors</span>
+  <a href="https://www.pymc-labs.com/team/carlos-trujillo">Carlos Trujillo</a>,
+  <a href="https://www.pymc-labs.com/team/teemu-saeilynoja">Teemu Säilynoja</a>,
+  <a href="https://www.pymc-labs.com/team/camilo-saldarriaga">Camilo Saldarriaga</a>,
+  <a href="https://www.pymc-labs.com/team/masataka-hayashi">Masataka Hayashi</a>,
+  <a href="https://www.pymc-labs.com/team/thomas-wiecki">Thomas Wiecki</a> and
+  <a href="https://www.pymc-labs.com/team/luca-fiaschi">Luca Fiaschi</a>, PyMC Labs.
+</p>
+```
+
+::::
+:::::
+::::::
+
+```{=html}
+<script src="../../assets/js/river.js" defer></script>
+```
