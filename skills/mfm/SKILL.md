@@ -10,7 +10,7 @@ an outcome. One resource, an **analysis**, answers every question: a forecast of
 scenarios (spend plans to compare) or response curves. This skill uses the Python client,
 `pymc_mfm.client`. Agents without Python read `reference/http.md`.
 
-Research prototype. Synthetic data. Not for budget decisions on its own.
+Research prototype. Synthetic or internal data only. Not for budget decisions on its own.
 
 ## Set up
 
@@ -48,7 +48,7 @@ match.
 ```python
 import pandas as pd
 
-from pymc_mfm.client import Client, curve, grid, move, scale, scenario, shift
+from pymc_mfm.client import Client, move, scale, scenario
 
 client = Client()  # reads MFM_API_URL and MFM_API_KEY
 
@@ -70,28 +70,23 @@ dataset = client.datasets.create(
 print(dataset.dataset_id, dataset.weeks, dataset.start, dataset.end)
 print(dataset.history_ranges)  # weekly p05 and p95 of each series: warning thresholds
 
-# 2. Forecast the baseline plan.
+# 2. Compare the current plan with two alternatives. The base plan is the implicit baseline,
+#    so two scenarios make three plans in one analysis. Preview first: it runs nothing.
 plan = pd.read_csv("plan.csv", parse_dates=["date"])
-first = client.analyze(dataset, plan, seed=7).wait(timeout=600)
-print(first.table[["scenario_id", "component", "mean", "p05", "p95"]])
-
-# 3. Compare scenarios. Preview first: it runs nothing.
 scenarios = [
     scenario("reduce_20", scale(0.8)),
     scenario("tv_to_search", move("tv", "search", share=1 / 3)),
-    scenario("tv_front_loaded", shift("tv", into_weeks=(1, 4))),
-    *grid(tv=[0.5, 1.5], search=[0.5, 1.5]),
 ]
 preview = client.analyze(dataset, plan, scenarios=scenarios, preview=True)
 print(preview.runs_total, preview.estimate_seconds, preview.warnings)
 print(preview.spend().groupby(level="scenario_id").sum())
 
-analysis = client.analyze(dataset, plan, scenarios=scenarios, seed=7, name="Spend scenarios")
+analysis = client.analyze(dataset, plan, scenarios=scenarios, seed=7, name="Plan comparison")
 analysis.wait(timeout=600)
 print("result link:", analysis.url)  # give this link to the user
 print("analysis id:", analysis.id)  # resume with client.get(analysis.id)
 
-# 4. Read the results.
+# 3. Read the results.
 outcome = analysis.table.query("component == 'outcome'")
 print(outcome[["scenario_id", "spend_total", "mean", "p05", "p95", "mean_difference"]])
 print(
@@ -99,15 +94,41 @@ print(
 )
 print(analysis.labels)  # how the service says to read these numbers
 
-# Response curves: each channel alone at spend levels 0 to 2 times the baseline.
+# 4. Show the comparison: save the chart as PNG, then show the file to the user.
+analysis.plot_compare().savefig("compare.png", dpi=150)
+```
+
+Use the user's own alternatives in place of `reduce_20` and `tv_to_search`, with ids that name them.
+Keep the preview step. Add the optional examples below only when the user asks for them.
+
+Response curves, only when the user asks for curves: each channel alone at spend levels 0 to 2
+times the baseline.
+
+<!-- skill-example: curves -->
+```python
+from pymc_mfm.client import curve
+
 curves = client.analyze(
     dataset, plan, curves=[curve("tv", [0, 0.5, 1.5, 2]), curve("search", [0, 0.5, 1.5, 2])], seed=7
 ).wait(timeout=600)
 print("curves analysis id:", curves.id)
-
-# Show the results: save both charts as PNG, then show the files to the user.
-analysis.plot_compare().savefig("compare.png", dpi=150)
 curves.plot_curves().savefig("curves.png", dpi=150)
+```
+
+A grid and `shift` front-loading, only when the user asks for a grid or for spend timing:
+
+<!-- skill-example: grid -->
+```python
+from pymc_mfm.client import grid, shift
+
+grid_scenarios = [
+    scenario("tv_front_loaded", shift("tv", into_weeks=(1, 4))),
+    *grid(tv=[0.5, 1.5], search=[0.5, 1.5]),
+]
+grid_analysis = client.analyze(dataset, plan, scenarios=grid_scenarios, seed=7, name="Spend grid")
+grid_analysis.wait(timeout=600)
+print("result link:", grid_analysis.url)
+grid_analysis.plot_compare().savefig("grid.png", dpi=150)
 ```
 
 Do not delete the dataset in the same script: deleting it also deletes the analyses the user opens
@@ -142,15 +163,16 @@ outside the history's 5th to 95th percentile gets a warning, and the model has l
 
 ## Show the results to the user
 
-Do not only print tables. Save `plot_compare()` and `plot_curves()` as PNG (the example does this)
-and show both files to the user. Give the person the result link, `analysis.url`, to open the
-analysis on the MFM API site. If `url` is `None`, give the analysis id instead. Say what each chart is:
+Do not only print tables. Save `plot_compare()` as PNG (the example does this) and show the file to
+the user. Save and show `plot_curves()` only when the user asked for curves. Give the person the
+result link, `analysis.url`, to open the analysis on the MFM API site. If `url` is `None`, give the
+analysis id instead. Say what each chart is:
 
 - `plot_compare()` draws each scenario's mean difference from its base plan. The bars are simulation
   error, not model uncertainty.
-- `plot_curves()` draws each channel's contribution at each spend level, with the mean and the
-  pointwise 5th to 95th percentile band. A red open marker means that plan has a warning, and the
-  warnings are printed under the chart.
+- `plot_curves()` (only for curves) draws each channel's contribution at each spend level, with the
+  mean and the pointwise 5th to 95th percentile band. A red open marker means that plan has a
+  warning, and the warnings are printed under the chart.
 
 If the machine has no display, set `MPLBACKEND=Agg` before you run the script.
 `analysis.export("analysis.json")` saves the whole analysis (request, scenario inputs, warnings,
@@ -195,6 +217,11 @@ work twice. It raises these errors, all in `pymc_mfm.client`:
 | `Conflict` (other 409) | `idempotency_conflict`: the key was used with another body; use a new key. `plan_failed`: that plan has no result. |
 | `RateLimited` (429) | Too many requests, or `overloaded_user_analyses`: 20 unfinished analyses. Wait `error.retry_after` seconds, or delete one. |
 | `ServerError` (5xx), `ApiConnectionError` | The retries ran out. Wait and try again later. |
+
+Before it uploads a history or submits an analysis, the client raises `ValueError` when the dates
+have a missing week, a duplicate, the wrong order, or a plan that does not start the week after
+the history. Read the message, which names the row and dates, and fix the input. Never sort, fill
+or shift data to make it pass.
 
 `wait(timeout=600)` raises `TimeoutError` when the analysis is still running. The first run after an
 idle period can take about 20 seconds more (cold start). There are no partial results. Do not create

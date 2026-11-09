@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from ._dates import check_weekly_dates
 from ._hash import frame_content_hash
 from ._http import Http, new_idempotency_key
 from ._wire import as_names, check_currency, dataset_body
@@ -120,6 +121,11 @@ class Datasets:
         With ``reuse=True`` the call first lists your datasets and returns the one whose
         ``content_hash`` equals the hash of this history, and uploads nothing. It never
         matches by name or by number of weeks. If no dataset matches, it uploads as usual.
+
+        Before an upload, the history must have one row for each week, in date order, with
+        no repeated date; otherwise ``ValueError`` names the first bad row and nothing is
+        sent. A reused dataset is not checked, because the hash ignores row order. The
+        client never sorts or fills your data.
         """
         if currency is not None:
             check_currency(currency)  # refuse a bad code before any request, even when reusing
@@ -137,6 +143,7 @@ class Datasets:
             outcome_name=outcome if 1 <= len(outcome) <= MAX_OUTCOME_NAME else None,
             currency=currency,
         )
+        check_weekly_dates(body["dates"], "history")  # only here: reuse above ignores row order
         record = self._http.request(
             "POST",
             "/v1/datasets",
