@@ -140,6 +140,17 @@ body.mfm-landing .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-l
   color: var(--mfm-peach) !important;
 }
 
+/* Keyboard focus: a ring outside the pill in its own colour, in every variant. */
+.navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
+  outline: 2px solid var(--mfm-accent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+body.mfm-landing .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
+  outline-color: var(--mfm-peach);
+}
+
 /* In the collapsed navbar it ends the list, on its own line. */
 @media (max-width: 991.98px) {
   .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
