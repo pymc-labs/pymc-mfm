@@ -95,6 +95,58 @@ body.quarto-dark .navbar-logo {
   opacity: 0.6;
 }
 
+/* "Try it out": the one button in the navbar, to the hosted console (_quarto.yml).
+   A pill like the landing buttons: labs blue on light pages, aqua in dark mode and the
+   peach outline of the hero's primary button on the landing page. */
+.navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.2rem 0.35rem 0 0.5rem;
+  padding: 0.3rem 0.9rem;
+  border: 1px solid var(--mfm-accent);
+  border-radius: 999px;
+  background: var(--mfm-accent);
+  color: #ffffff;
+  font-weight: 500;
+  line-height: 1.25;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:hover,
+.navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
+  border-color: #151b72;
+  background: #151b72;
+  color: #ffffff;
+}
+
+body.quarto-dark .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"],
+body.quarto-dark .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:hover,
+body.quarto-dark .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
+  border-color: var(--mfm-accent);
+  background: var(--mfm-accent);
+  color: var(--mfm-navy-deep);
+}
+
+body.mfm-landing .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
+  border-color: rgba(246, 174, 114, 0.55);
+  background: rgba(246, 174, 114, 0.1);
+  color: var(--mfm-peach) !important;
+}
+
+body.mfm-landing .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:hover,
+body.mfm-landing .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
+  border-color: var(--mfm-peach);
+  background: rgba(246, 174, 114, 0.18);
+  color: var(--mfm-peach) !important;
+}
+
+/* In the collapsed navbar it ends the list, on its own line. */
+@media (max-width: 991.98px) {
+  .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
+    margin: 0.4rem 0 0.6rem;
+  }
+}
+
 /* Typography --------------------------------------------------------------- */
 h1,
 h2,
