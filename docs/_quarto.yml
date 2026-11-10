@@ -131,6 +131,7 @@ quartodoc:
         - name: model.MFM
           members:
             - add_context
+            - input_usage
             - inference
             - build_idata
             - idata

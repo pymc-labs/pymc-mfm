@@ -24,6 +24,76 @@ query = model.inference(plan, n_samples=500)
 
 A prediction does not append itself to history. Reuse one context for repeated plans; another successful `add_context` atomically replaces it. Calling `inference` before context loading raises an error, while a failed context load preserves the prior successful context. Model bundles never include observed history, so add context again after loading a model.
 
+## Inspect input usage
+
+After `add_context`, inspect the stored history or preflight a future plan without
+running the encoder, graph router, or decoder:
+
+```python
+context_usage = model.input_usage()
+usage = model.input_usage(plan)
+
+print(usage["context"]["represented_tokens"])
+print(usage["total"]["allocated_tokens"])
+
+query = model.inference(plan, n_samples=500)
+assert query.provenance["input_usage"] == usage
+```
+
+Both calls require loaded context. Without a plan, the returned dictionary contains
+only `context`; it does not invent a zero-length query or a complete-request total.
+With a plan, it contains:
+
+| Section | Fields |
+| --- | --- |
+| `context` | `steps`, `allocated_tokens`, `represented_tokens` for observed history |
+| `query` | The same fields for the supplied query horizon |
+| `total` | `allocated_tokens` and `represented_tokens` for the full input timeline |
+
+The records contain ordinary Python integers and can be serialized as JSON. Each
+call returns a new dictionary. Inspection leaves history, retained predictions,
+exports, model mode, and random state unchanged. A supplied plan follows inference's
+date, column, numeric-domain, context-scale, and model-dtype validation; this can
+scan and preprocess arrays, but it never samples or trains weights.
+
+### What counts as a token
+
+One encoder token is a cell for one time step and one media/control slot, plus
+one revenue cell per time step. With `K` channel slots and `M` configured control
+slots, **allocated tokens** for a window are `steps * (K + M + 1)`. `M` includes
+padded controls; the array interface can also contain explicitly padded channels.
+
+**Represented tokens** exclude masked padding: multiply the steps by the sum of
+the channel mask, the sum of the control mask, and one revenue cell. A represented
+series still counts when its values are all zero. Padding is not inferred from
+values or causal activity, and masking does not shrink the allocated grid.
+Query revenue has an unobserved zero value, but its cell still counts.
+
+The 31 features within a cell are not 31 tokens. Embedding width, latent slots,
+graph edges, encoder layers, and posterior draw counts do not multiply input usage.
+These counts describe input positions, not effective information, accuracy, causal
+identifiability, runtime, peak memory, or a guaranteed maximum context window.
+Runtime and memory also depend on attention geometry, graph structure, draw counts,
+and the execution backend; sparse conditional-decoder work can depend on sampled
+graph support. The local model has no configured `max_tokens` budget to turn into
+a percentage-used indicator.
+
+### Recorded usage
+
+`inference` and array-level `decompose` automatically record library-computed
+`provenance["input_usage"]`. A caller annotation with that name is replaced by
+the computed record. Even a `window="context"` result records the full
+context-plus-query encoder input, not just its selected output rows.
+
+`result.save()` preserves this metadata, and `DecompositionResult.load()` restores
+it without inference. Older saved results may omit the key and remain readable;
+loading them does not invent usage. Model weight bundles remain dataset-free.
+
+A complete count depends on query length and padding geometry; represented counts
+also depend on masks. This is not an embedding cache: the encoder's relative time
+coordinate depends on total context-plus-query length, so the same raw history
+can encode differently for a different query horizon.
+
 ## Context and query snapshots
 
 Install `pymc-mfm[arviz]` to export the two window marginals after a successful context load and prediction. [MFM.build_idata](../reference/model.MFM.qmd) returns an `xarray.DataTree`; passing `store=True` also exposes that same tree through the passive `model.idata` property.

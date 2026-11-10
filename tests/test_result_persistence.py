@@ -1,4 +1,4 @@
-"""Saved results bind arrays and metadata; edited or legacy evidence never reloads."""
+"""Saved results bind arrays and metadata while retaining supported older evidence."""
 
 import copy
 import hashlib
@@ -10,8 +10,10 @@ from dataclasses import fields, replace
 import numpy as np
 import pytest
 from test_diagnostics import make_result
+from test_inference import observed
 
 from pymc_mfm.inference._artifact_schema import json_bytes
+from pymc_mfm.inference.api import decompose
 from pymc_mfm.inference.result import DecompositionResult
 
 
@@ -94,6 +96,33 @@ def test_version_one_results_are_rejected_by_version(tmp_path):
     write_payload(path, {"format_version": 1, **legacy})
     with pytest.raises(ValueError, match="format_version 1"):
         DecompositionResult.load(path)
+
+
+def test_version_two_results_without_input_usage_preserve_original_evidence(
+    model, synthetic_corpus, tmp_path
+):
+    result = decompose(
+        model,
+        observed(synthetic_corpus, row=2),
+        n_samples=3,
+        provenance={"scenario": "before input accounting"},
+    )
+    path = result.save(tmp_path / "older-result")
+    payload = read_payload(path)
+    assert payload["format_version"] == 2
+    assert payload["metadata"]["provenance"].pop("input_usage") == result.provenance["input_usage"]
+    payload["metadata_sha256"] = hashlib.sha256(json_bytes(payload["metadata"])).hexdigest()
+    write_payload(path, payload)
+
+    replay = DecompositionResult.load(path)
+    assert "input_usage" not in replay.provenance
+    assert replay.provenance == {
+        key: value for key, value in result.provenance.items() if key != "input_usage"
+    }
+    for name in ("components", "graphs", "time", "component_mask", "edge_mask"):
+        np.testing.assert_array_equal(getattr(replay, name), getattr(result, name))
+    assert replay.context_length == result.context_length
+    assert replay.window == result.window
 
 
 @pytest.mark.parametrize(

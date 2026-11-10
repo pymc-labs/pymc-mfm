@@ -6,6 +6,16 @@ approved or published release.
 
 ## Changes
 
+- **Encoder input-token accounting.** After `add_context`, `model.input_usage()`
+  reports context-only allocated and represented token counts.
+  `model.input_usage(future_data)` validates the complete request, including the
+  model's numeric precision, without neural inference or changing retained
+  predictions, exports, model mode, or random state. All decomposition results
+  automatically record authoritative per-world `provenance["input_usage"]` for
+  the full encoder timeline; result save/load preserves it and older results
+  without the key remain readable. Counts distinguish padded slots from
+  represented inputs, not effective information or runtime/capacity estimates.
+  No architecture, weight, checkpoint-format, or retraining changes are required.
 - **Graphviz DOT export and native default diagrams.** `result.plot.dot(graph=rank)`
   and `pymc_mfm.plotting.graph_to_dot(summary, graph=rank)` export an exact complete
   graph; omitting the rank exports marginal edges with numeric frequency labels
