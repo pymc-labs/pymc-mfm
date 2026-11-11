@@ -82,13 +82,13 @@ The three are `None` for an analysis of a plan. A backtest explains the history 
 
 ## Try more scenarios
 
-[Analysis.again](../reference/client.Analysis.qmd) starts a new analysis with the same dataset, weeks or plan, series, seed and draws, and new scenarios. It runs one more baseline, no curves unless you pass `curves`, and no history pass unless you set `explain_history`.
+[Analysis.again](../reference/client.Analysis.qmd) starts a new analysis with the same dataset, weeks or plan, series, `decision_weeks`, seed and draws, and new scenarios. It runs one more baseline, no curves unless you pass `curves`, and no history pass unless you set `explain_history`.
 
 ```python
 more = backtest.again([scenario("search_x1.5", {"search": 1.5})]).wait()
 ```
 
-Compare each scenario only with the baseline of its own analysis. Do not subtract numbers of two analyses: their draws are not paired. For a plan, `again` reads the baseline from the export, so it raises `NotReady` until every run has ended.
+Compare each scenario only with the baseline of its own analysis. Do not subtract numbers of two analyses: their draws are not paired. `again` reads the baseline and its decision window from the export, so it raises `NotReady` until every run has ended: call `wait()` first. Repeating the same call returns the same analysis; pass `idempotency_key` to run it once more.
 
 ## Preview and explore
 
@@ -127,6 +127,6 @@ Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the resul
 
 ## Retries and errors
 
-Every request that creates a dataset or analysis carries an `Idempotency-Key` derived from the request content. Automatic retries and repeated equal calls reuse that key, so they do not start work twice; pass `idempotency_key` to run an equal request again. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
+Every request that creates a dataset or analysis carries an `Idempotency-Key` derived from the request content. Automatic retries and repeated equal calls reuse that key, so they do not start work twice; pass `idempotency_key` to run an equal request again. If the earlier equal request was deleted or expired, the service answers 410 and the client raises `Gone`; pass a new `idempotency_key` to run it again. The client never picks a new key itself. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
 
 Service responses raise typed [ApiError](../reference/client.ApiError.qmd) subclasses. Common responses include `NotFound`, `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge` (send fewer weeks, scenarios or curves), `RateLimited`, and `ValidationError`; their errors expose the service `code`, `message`, and `field`. Scenario steps were removed: a request with `steps` gets `ValidationError` with code `steps_removed`. Exhausted connection retries raise `ApiConnectionError`, a separate `ClientError` without a service payload.

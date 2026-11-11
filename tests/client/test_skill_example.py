@@ -17,6 +17,7 @@ from .client_fixtures import (
     FakeService,
     curve_result,
     dataset_record,
+    export_record,
     result_record,
     result_rows,
     started,
@@ -181,6 +182,9 @@ def test_backtest_example_sends_the_weeks_form_and_reads_fit_shares_and_curves(
 def test_again_example_starts_a_second_analysis_with_the_same_weeks(workdir, service):
     service.on("GET", "/v1/analyses/an_2", (200, weeks_status()))
     service.on("GET", "/v1/analyses/an_2/result", (200, weeks_result()))
+    weeks = ["2024-07-22", "2024-07-29", "2024-08-05"]
+    inputs = {"dates": weeks, "spend": {}, "controls": {}, "decision_dates": weeks}
+    service.on("GET", "/v1/analyses/an_2/export", (200, export_record(inputs)))
     namespace = {"__name__": "skill_example"}
     run_example("main", namespace)
     run_example("backtest", namespace)
@@ -193,6 +197,7 @@ def test_again_example_starts_a_second_analysis_with_the_same_weeks(workdir, ser
     assert body["scenarios"] == [{"id": "search_x1.5", "multipliers": {"search": 1.5}}]
     assert not body.get("curves") and body["explain_history"] is False
     assert (body["seed"], body["draws"]) == (7, 500)
+    assert "decision_weeks" not in body  # the window was all the predicted weeks
     assert service.sent("GET", "/v1/analyses/an_3/result")
 
 

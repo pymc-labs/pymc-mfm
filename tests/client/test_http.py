@@ -88,28 +88,19 @@ def test_a_caller_key_is_used_as_given(client, service, history):
     assert service.requests[0].headers["Idempotency-Key"] == "mine-1"
 
 
-def test_a_410_for_the_content_key_is_retried_once_with_a_random_key(client, service, history):
+def test_a_410_for_the_content_key_is_raised_and_names_the_way_out(client, service, history):
     service.on(
-        "POST", "/v1/datasets", (410, error_body("expired", "deleted")), (201, dataset_record())
+        "POST", "/v1/datasets", (410, error_body("gone", "deleted")), (201, dataset_record())
     )
-    create(client, history)
-    first, second = service.requests
-    assert first.headers["Idempotency-Key"].startswith("mfm1-")
-    assert not second.headers["Idempotency-Key"].startswith("mfm1-")
-    assert second.headers["Idempotency-Key"] != first.headers["Idempotency-Key"]
-    assert first.content == second.content
-
-
-def test_a_second_410_is_raised(client, service, history):
-    service.on("POST", "/v1/datasets", (410, error_body("expired", "deleted")))
-    with pytest.raises(Gone):
+    with pytest.raises(Gone, match="Pass a new idempotency_key") as caught:
         create(client, history)
-    assert len(service.requests) == 2
+    assert (caught.value.status, caught.value.code) == (410, "gone")
+    assert len(service.requests) == 1  # no retry with a key of the client's choice
 
 
 def test_a_410_with_a_caller_key_is_raised_without_a_retry(client, service, history):
     service.on("POST", "/v1/datasets", (410, error_body("expired", "deleted")))
-    with pytest.raises(Gone):
+    with pytest.raises(Gone, match="deleted$"):
         client.datasets.create(
             history, date="week", outcome="sales", spend="tv", idempotency_key="mine-1"
         )

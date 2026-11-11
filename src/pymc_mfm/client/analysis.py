@@ -145,15 +145,23 @@ def start_analysis(
 
 def _plan_fields(inputs: Mapping[str, Any]) -> dict[str, Any]:
     """The ``plan`` and ``decision_weeks`` of a request, from a scenario's exported inputs."""
-    dates = list(inputs["dates"])
-    fields: dict[str, Any] = {
-        "plan": {"dates": dates, "spend": inputs["spend"], "controls": inputs["controls"]}
+    plan = {
+        "dates": list(inputs["dates"]),
+        "spend": inputs["spend"],
+        "controls": inputs["controls"],
     }
+    return {"plan": plan, **_decision_fields(inputs)}
+
+
+def _decision_fields(inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """``decision_weeks`` (1-based, inclusive) from a scenario's exported inputs, only when the
+    window is narrower than the forecast weeks; empty otherwise, as the service's default."""
+    dates = list(inputs["dates"])
     decision = list(inputs.get("decision_dates") or ())
-    if decision and decision != dates:
-        first = dates.index(decision[0]) + 1
-        fields["decision_weeks"] = [first, first + len(decision) - 1]
-    return fields
+    if not decision or decision == dates:
+        return {}
+    first = dates.index(decision[0]) + 1
+    return {"decision_weeks": [first, first + len(decision) - 1]}
 
 
 def _labelled(rows: list[dict[str, Any]], columns: Sequence[str], labels: Any) -> pd.DataFrame:
@@ -235,26 +243,34 @@ class Analysis:
         *,
         curves: Sequence[Mapping[str, Any]] | None = None,
         explain_history: bool = False,
+        idempotency_key: str | None = None,
     ) -> Analysis:
         """Start a new analysis with this one's inputs and new ``scenarios``; return it.
 
         The new analysis repeats the dataset, the weeks, channels and controls of a backtest
-        (or the baseline plan and ``decision_weeks`` of a plan), the seed and the draws.
+        (or the baseline plan of a plan), the ``decision_weeks``, the seed and the draws.
         It runs no curves unless you pass ``curves``, and no history pass unless you set
         ``explain_history``, because this analysis already has them. It costs one more
-        baseline run plus its scenarios. Repeating the same call returns the same analysis.
+        baseline run plus its scenarios.
+
+        Repeating the same call returns the same analysis. Pass a new ``idempotency_key`` to
+        run it once more, for example after that analysis was deleted (``Gone``).
 
         Compare each scenario only with the baseline of its own analysis, not across
         analyses: equal draws across analyses are not guaranteed.
 
-        For an analysis of a plan, the plan is read from the export, so every run must have
-        ended: this raises ``NotReady`` until then.
+        The baseline and its decision window are read from the export, so every run must
+        have ended: this raises ``NotReady`` until then. Call ``wait()`` first.
         """
         record = self._read_status()
         if record.get("dataset_id") is None:
             raise ValueError(f"Analysis {self.id} has no stored dataset to analyze again")
+        inputs = self._baseline_inputs()
         context = record.get("context")
-        same = self._baseline_fields() if context is None else _weeks_of(context)
+        if context is None:
+            same = _plan_fields(inputs)
+        else:
+            same = {**_weeks_of(context), **_decision_fields(inputs)}
         body: dict[str, Any] = {
             "dataset_id": record["dataset_id"],
             **same,
@@ -264,14 +280,15 @@ class Analysis:
         if curves is not None:
             body["curves"] = list(curves)
         body.update({key: record[key] for key in ("seed", "draws") if record.get(key) is not None})
-        return start_analysis(self._http, body)
+        return start_analysis(self._http, body, idempotency_key=idempotency_key)
 
-    def _baseline_fields(self) -> dict[str, Any]:
+    def _baseline_inputs(self) -> Mapping[str, Any]:
+        """The exported inputs of the baseline. Raises ``NotReady`` until every run ends."""
         export = json.loads(self._http.download_authenticated(f"/v1/analyses/{self.id}/export"))
         baseline = next((item for item in export["scenarios"] if item["kind"] == "baseline"), None)
         if baseline is None or baseline.get("inputs") is None:
             raise ValueError(f"Analysis {self.id} has no stored baseline plan to repeat")
-        return _plan_fields(baseline["inputs"])
+        return baseline["inputs"]
 
     # Results
 

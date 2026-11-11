@@ -622,6 +622,8 @@ def test_a_backtest_table_has_multipliers(backtest):
 
 # Analysis.again
 
+QUERY_WEEKS = ["2024-07-22", "2024-07-29", "2024-08-05"]  # the predicted weeks of weeks_status
+
 
 def baseline_inputs(**extra):
     return {
@@ -632,9 +634,20 @@ def baseline_inputs(**extra):
     }
 
 
-def test_again_repeats_a_backtest(client, service, backtest):
+def backtest_inputs(decision_dates=QUERY_WEEKS):
+    return baseline_inputs(dates=QUERY_WEEKS, decision_dates=decision_dates)
+
+
+@pytest.fixture
+def repeatable(service, backtest):
+    """The backtest, with an export whose decision window is all its query weeks."""
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(backtest_inputs())))
+    return backtest
+
+
+def test_again_repeats_a_backtest(client, service, repeatable):
     service.on("POST", "/v1/analyses", (202, {**started(2), "analysis_id": "an_2"}))
-    more = backtest.again([scenario("search_x1.5", {"search": 1.5})])
+    more = repeatable.again([scenario("search_x1.5", {"search": 1.5})])
     assert body_of(service) == {
         "dataset_id": "ds_123",
         "context": {"start": "2024-07-01", "end": "2024-07-15"},
@@ -647,24 +660,36 @@ def test_again_repeats_a_backtest(client, service, backtest):
         "draws": 500,
     }
     assert more.id == "an_2"
-    assert not service.sent("GET", "/v1/analyses/an_1/export")  # the weeks need no export
 
 
-def test_again_passes_curves_and_explain_history(client, service, backtest):
+def test_again_of_a_backtest_keeps_a_narrower_decision_window(client, service, backtest):
+    inputs = backtest_inputs(decision_dates=QUERY_WEEKS[1:])
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(inputs)))
     service.on("POST", "/v1/analyses", (202, started(1)))
-    backtest.again([], curves=[curve("tv", [0, 2])], explain_history=True)
+    backtest.again([scenario("tv_up", {"tv": amount(100)})])
+    body = body_of(service)
+    assert body["decision_weeks"] == [2, 3]
+    assert body["query"] == {"end": "2024-08-05"} and "plan" not in body
+
+
+def test_again_passes_curves_and_explain_history(client, service, repeatable):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    repeatable.again([], curves=[curve("tv", [0, 2])], explain_history=True)
     body = body_of(service)
     assert body["curves"] == [{"channel": "tv", "levels": [0, 2], "base": "baseline"}]
     assert body["explain_history"] is True
 
 
-def test_again_repeated_sends_the_same_idempotency_key(client, service, backtest):
+def test_again_repeated_sends_the_same_idempotency_key(client, service, repeatable):
     service.on("POST", "/v1/analyses", (202, started(1)))
     scenarios = [scenario("search_x1.5", {"search": 1.5})]
-    backtest.again(scenarios)
-    backtest.again(scenarios)
-    first, second = service.sent("POST", "/v1/analyses")
+    repeatable.again(scenarios)
+    repeatable.again(scenarios)
+    repeatable.again(scenarios, idempotency_key="again-2")
+    first, second, third = service.sent("POST", "/v1/analyses")
     assert first.headers["Idempotency-Key"] == second.headers["Idempotency-Key"]
+    assert third.headers["Idempotency-Key"] == "again-2"
+    assert third.content == first.content
 
 
 def classic_status(**extra):
@@ -719,11 +744,13 @@ def test_again_needs_a_stored_baseline_plan(client, service):
     assert not service.sent("POST", "/v1/analyses")
 
 
-def test_again_of_a_plan_waits_for_the_runs(client, service):
-    service.on("GET", "/v1/analyses/an_1", (200, classic_status()))
+@pytest.mark.parametrize("status", [classic_status, weeks_status], ids=["plan", "backtest"])
+def test_again_waits_for_the_runs(client, service, status):
+    service.on("GET", "/v1/analyses/an_1", (200, status()))
     service.on("GET", "/v1/analyses/an_1/export", (409, error_body("not_ready", "running")))
     with pytest.raises(NotReady):
         client.get("an_1").again([])
+    assert not service.sent("POST", "/v1/analyses")
 
 
 # Errors and keys
