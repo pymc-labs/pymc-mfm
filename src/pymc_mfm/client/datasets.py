@@ -11,7 +11,7 @@ import pandas as pd
 
 from ._dates import check_weekly_dates
 from ._hash import frame_content_hash
-from ._http import Http, new_idempotency_key
+from ._http import Http
 from ._wire import as_names, check_currency, dataset_body
 
 MAX_OUTCOME_NAME = 60  # characters the service accepts in ``outcome_name``
@@ -111,8 +111,10 @@ class Datasets:
         """Upload a weekly history from a DataFrame.
 
         ``date``, ``outcome``, ``spend`` and ``controls`` name columns of ``frame``. Dates
-        are sent as ISO dates. Pass the same ``idempotency_key`` to repeat a call safely;
-        by default each call gets a new key, reused on automatic retries.
+        are sent as ISO dates. By default the ``Idempotency-Key`` comes from the request
+        content, so the same upload repeated returns the stored dataset and stores no copy;
+        after that dataset is deleted or expired, the upload stores a new one. Pass your own
+        ``idempotency_key`` to choose the key.
 
         The site labels results with ``outcome_name``, which is the ``outcome`` column name
         (sent only if it has 1 to 60 characters), and with ``currency``, an optional ISO 4217
@@ -144,12 +146,7 @@ class Datasets:
             currency=currency,
         )
         check_weekly_dates(body["dates"], "history")  # only here: reuse above ignores row order
-        record = self._http.request(
-            "POST",
-            "/v1/datasets",
-            body=body,
-            idempotency_key=idempotency_key or new_idempotency_key(),
-        )
+        record = self._http.create("/v1/datasets", body, idempotency_key=idempotency_key)
         return Dataset.from_wire(record, name=name, date_column=date)
 
     def find(
