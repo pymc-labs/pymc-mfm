@@ -23,7 +23,7 @@ deleted resources return `410`.
 | `GET /v1/datasets/{id}` | The summary, with the same fields. |
 | `DELETE /v1/datasets/{id}` | Delete the dataset and all its analyses. `202`. |
 | `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded plans, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
-| `GET /v1/analyses/{id}` | Status and counts, with `name`, `url` and `expires_at`. |
+| `GET /v1/analyses/{id}` | Status and counts, with `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history` and `context` (`null` for a plan). |
 | `GET /v1/analyses/{id}/result` | The result table. `409 not_ready` until the analysis ends. |
 | `GET /v1/analyses/{id}/weekly?scenario_id=` | Weekly rows for one plan. |
 | `GET /v1/analyses/{id}/export` | The whole analysis as one JSON file (`mfm-analysis-export-v1`). `409 not_ready` until every run ends. |
@@ -76,31 +76,53 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
 3. `POST /v1/analyses` with `"preview": true` first. It needs no `Idempotency-Key`. Show the user
    the run count and the warnings. If `runs_total` is large, give the count and the estimate before
    you start.
-4. `POST /v1/analyses` without `preview`, with a fresh `Idempotency-Key`. Body:
+4. `POST /v1/analyses` without `preview`, with a fresh `Idempotency-Key`. The baseline comes in one
+   of two forms. A **plan** gives the weeks after the history:
 
    ```json
    {"dataset_id": "ds_123",
-    "plan": {"dates": ["2026-07-06", "... 8 weeks"],
-             "spend": {"tv": [100, "..."], "search": [50, "..."]},
+    "plan": {"dates": ["2026-11-09", "... 8 weeks"],
+             "spend": {"tv": [9000, "..."], "search": [6000, "..."]},
              "controls": {"holiday": ["..."]}},
     "name": "Spend scenarios", "decision_weeks": [1, 8],
     "scenarios": [
-      {"id": "half", "steps": [{"scale": 0.5}]},
-      {"id": "tv_to_search", "steps": [{"move": {"from": "tv", "to": "search", "share": 0.2}}]},
-      {"id": "mine", "plan": {"spend": {"tv": ["..."]}}}],
+      {"id": "reduce_20", "multipliers": {"tv": 0.8, "search": 0.8}},
+      {"id": "tv_to_search", "multipliers": {"tv": 0.8, "search": {"amount": 62400}}}],
     "curves": [{"channel": "tv", "levels": [0, 0.5, 1.5, 2]}],
     "draws": 1000, "seed": 7}
    ```
 
+   A **backtest** uses weeks the dataset already holds. The model reads the input weeks
+   `context.start` to `context.end` and predicts the weeks after them up to `query.end`. It does not
+   see the outcome of the predicted weeks, so the result can score the forecast against it:
+
+   ```json
+   {"dataset_id": "ds_123", "context": {"start": "2024-11-11", "end": "2026-08-03"},
+    "query": {"end": "2026-11-02"}, "channels": ["tv", "search"], "controls": ["holiday"],
+    "scenarios": [{"id": "budget_x1.2", "multipliers": {"tv": 1.2, "search": 1.2}}],
+    "curves": [{"channel": "tv", "levels": [0, 0.5, 1.5, 2]}],
+    "seed": 7, "name": "Q4 backtest"}
+   ```
+
    - `plan` is the baseline (id `baseline`, reserved): spend for every channel and a value for every
      control, for every forecast week. Its dates start the week after the history.
-   - `decision_weeks` `[i, j]` (1-based, inclusive; default the whole plan) is the only window that
-     steps and curves may change.
-   - A scenario has a unique `id` (1 to 64 characters from `A-Za-z0-9_.-`; `baseline` and the `curve:`
-     prefix are reserved) and exactly one of `steps` or `plan`. A scenario `plan` gives only the series
-     it changes.
+   - In a backtest the baseline is the dataset's own spend and controls in the predicted weeks.
+     `context` and `query` come together; every date is a week of the dataset, and `query.end` is
+     after `context.end`. Do not send `plan` with them (`422 plan_with_context`). `channels` and
+     `controls` choose series of the dataset (default: all). `explain_history` defaults to `true` for a
+     backtest and `false` for a plan.
+   - The window is the only part of the forecast that scenarios and curves change: the predicted
+     weeks of a backtest, or `decision_weeks` `[i, j]` of a plan (1-based, inclusive; default the whole
+     plan).
+   - A scenario is `{"id", "multipliers"}`. The `id` is unique (1 to 64 characters from
+     `A-Za-z0-9_.-`; `baseline` and the `curve:` prefix are reserved). `multipliers` maps a channel to a
+     number from 0 to 5 (rounded to 4 decimals), which multiplies its spend in the window, or to
+     `{"amount": X}` (X 0 or more, rounded to cents), which sets its total spend in the window to X. An
+     amount keeps the weekly pattern; on a channel with no spend in the window it puts X / W in each of
+     the W window weeks. A channel left out keeps its spend. A scenario keeps every control. There are
+     no default scenarios.
    - A curve is `{"channel", "levels", "base"?}`. Each level multiplies that channel's spend in the
-     decision window. Level 1 equals the base and does not run again. Level ids are
+     window. Level 1 equals the base and does not run again. Level ids are
      `curve:<channel>:<base>:<level>`. For a first look use levels 0 to 2 in steps of 0.25.
    - `name` is optional: 1 to 120 characters, trimmed; `422` otherwise.
    - `draws` is 1 to 2,000 (default 1,000). Use 200 to 500 for exploration. `seed` is 0 to 2147483647;
@@ -108,8 +130,10 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
    - At most 200 different plans per analysis. Equal plans run once.
 5. Poll `GET /v1/analyses/{id}` every 3 seconds until `status` is `done`, `failed` or `deleted`.
    `status` is one of `queued`, `running`, `done`, `failed`, `deleted`. The first run after idle can take
-   about 20 seconds more. There are no partial results. `409 not_ready` from the result call means:
-   keep polling.
+   about 20 seconds more. The result is ready only when every run has ended. A `done` analysis can
+   still have failed scenario or curve plans: their rows have `status` `failed` and no numbers.
+   `failed` means the baseline failed. `409 not_ready` from the result call means: keep polling.
+   A scenario added to the analysis on the site sets a `done` analysis back to `running` until it ends.
 6. `GET /v1/analyses/{id}/result` for the table, and `GET /v1/analyses/{id}/weekly?scenario_id=` for one
    plan's weekly rows (`scenario_id`, `rows` with `date`, `component`, `mean`, `p05`, `p95`). Each
    `table[*].draws_url` is a signed link to that plan's draws file.
@@ -118,28 +142,59 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
    whole analysis as JSON. `DELETE /v1/analyses/{id}` or `DELETE /v1/datasets/{id}` (this also
    deletes all its analyses) when the user agrees. A `410` after the delete is expected.
 
-## Steps
+## More scenarios
 
-Steps apply in the listed order, inside `decision_weeks`.
+There is no endpoint that adds scenarios to an analysis. To try more, send a new `POST /v1/analyses`
+with the same baseline, `seed` and `draws` and the new scenarios. Read them from
+`GET /v1/analyses/{id}`: a backtest repeats its `context` (`start`, `end`, `query_end`, `channels`,
+`controls`). For a plan, read the export: in its `scenarios` list, the entry with `kind` `baseline`
+has `inputs` with `dates`, `spend` and `controls` (the plan) and `decision_dates` (the window, from
+which you get `decision_weeks`). Set `explain_history` to `false` and leave out curves you
+already have. Compare each scenario only with the baseline of its own analysis, never with a number
+from another analysis: their draws are not paired.
 
-| Step | Effect |
+## Refusals
+
+The service rejects these before any run, with `422`. Warnings are never refusals.
+
+| Code | Cause |
 | --- | --- |
-| `{"scale": k}` | Multiply every channel's spend by `k` (0 or more). With `"channels": [...]`, only those. |
-| `{"move": {"from": a, "to": b, "share": s}}` | Move share `s` (0 to 1) of `a`'s total to `b`. Use `amount` instead of `share` for an absolute amount. Total spend stays the same. |
-| `{"shift": {"channel": c, "into_weeks": [i, j]}}` | Put `c`'s total evenly into weeks `i` to `j`. Or give `pattern`, one non-negative weight per window week. |
-| `{"set_controls": {"holiday": [...]}}` | Replace control values. One value per window week. |
+| `steps_removed` (field `scenarios[i].steps`) | Scenario steps were removed. Send `multipliers`. |
+| `scenario_plan_removed` | Scenario plans were removed. Send `multipliers`. |
+| `invalid_scenario` | The scenario changes no spend, for example a multiplier on a channel with no spend in the window (send an amount there). |
+| `unknown_name` | A scenario or curve names a channel the dataset does not have. |
+| `value_out_of_range` | A multiplier outside 0 to 5, or a negative amount. |
+| `plan_with_context` | A body with both `plan` and `context`. |
+| `invalid_window`, `context_too_short`, `too_long` | A backtest date that is not a week of the dataset, a query that does not follow the context, a context under 2 weeks, or too many weeks in total. |
+| `history_all_zero` | Spend or control values that are not zero where the history (or the context) series is all zero. |
 
-The service rejects, before any run, spend or control values that are not zero where the history
-series is all zero, negative spend, and unknown names. Warnings are never refusals.
+The service also refuses negative spend and unknown series names.
 
 ## The result
 
 `table` has one row per plan and component. Columns: `scenario_id`, `kind` (`baseline`, `scenario`,
-`curve`), `base_scenario_id`, `varied_channel`, `level`, `steps`, `run_id`, `status` (`ok`, `failed`),
+`curve`), `base_scenario_id`, `varied_channel`, `level`, `multipliers`, `run_id`, `status` (`ok`, `failed`),
 `spend_total`, `component`, `mean`, `p05`, `p95`, `window_mean`, `mean_difference`, `simulation_se`,
 `sensitivity`, `warnings`, `draws_url`, `draws_url_expires_at`. Components are `outcome`, `baseline`,
-each channel, each control, `latent` and active `indirect:*` rows. The response also has `assumptions`,
-`meta` and `labels`. Quote `labels` when you share a result. Read the numbers as `SKILL.md` says.
+each channel, each control, `latent` and active `indirect:*` rows. `mean`, `p05` and `p95` are totals
+over the whole forecast. `window_mean` is also a total, not a weekly mean: the mean over draws of the
+total over the window. `mean_difference` is a paired mean difference from the base plan; there is no
+interval for a difference between scenarios. The response also has `assumptions`, `meta` and `labels`.
+Quote `labels` when you share a result. Read the numbers as `SKILL.md` says.
+
+A backtest's result also has:
+
+- `context`: `start`, `end`, `query_end`, `channels`, `controls`.
+- `fit`: `{"context": ..., "query": ...}`, one for the input and one for the predicted weeks. Each has
+  `dates`, `actual`, `mean`, `p05`, `p95`, `r2` and `mape` (`{"value", "sd"}`; `value` scores the mean
+  line, `sd` is the spread over draws; `r2` is `null` when the outcome never changes), `crps` and
+  `shares` (per series: `name`, `group`, and `total` and `mean` shares as `{"value", "p05", "p95"}`).
+- `response_curves`: `[{"channel", "spend", "points": [{"level", "value", "p05", "p95"}]}]`, where
+  `spend` is the channel's baseline spend in the predicted weeks. Numbers are `null` where a level was
+  not asked or its run failed.
+
+A plan's result has `null` in these three fields. Every result also has `input_usage`: the model's
+input token counts for the baseline run, or `null` before it is done.
 
 ## Errors and retries
 
@@ -148,14 +203,15 @@ Error bodies look like `{"error": {"code", "message", "field"?}}`.
 - After a timeout or a connection error, repeat the same create call with the same key and body. This
   never starts the work twice.
 - `429` and `502/503/504`: wait `Retry-After` seconds (or back off from 2 s, cap 60 s) and repeat with
-  the same key. `rate_limited` waits 60 s. `overloaded_user_analyses` means 20 unfinished analyses: wait
-  or delete one.
+  the same key. `rate_limited` waits 60 s. `overloaded_user_analyses` means 20 unfinished analyses and
+  `overloaded_user_runs` 200 unfinished runs: wait or delete one.
+- `413`: the body is too large. Send fewer weeks, scenarios or curves in one call.
 - `409 idempotency_conflict`: the key was used with another body. Use a new key. `409 plan_failed`: that
   plan has no result.
 - `410`: the resource was deleted or expired. Do not retry.
 - `404`: wrong id or another user's id. `401`: bad key; stop and tell the user.
-- `422`: read `error.code`, `error.field` and `error.message`. Fix the request. Nothing started. Do not
-  loop on a `422`.
+- `422`: read `error.code`, `error.field` and `error.message`. Fix the request (see "Refusals"). Nothing
+  started. Do not loop on a `422`.
 
 ## Draws files
 

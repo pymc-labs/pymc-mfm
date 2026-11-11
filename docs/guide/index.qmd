@@ -81,7 +81,7 @@ query.component_names
 - Read [How it works](concepts.qmd) for the encoder, graph router, decoder, and draw semantics.
 - Read [Decompose a time series](decompose.qmd) for dataframe rules, array inputs, exports, and repeated sampling.
 - Read [Load and share models](models-hub.qmd) to use local folders and Hub profiles.
-- Use the [River API](river-api.qmd) when local PyTorch inference is not the interface you need.
+- Use the [River API](http-api.qmd) when local PyTorch inference is not the interface you need.
 - Read [Train a network](training.qmd) to prepare a simulated corpus and train a model.
 - Run the [River-1 quickstart](examples/river_1_quickstart.ipynb) for a complete simulated-data workflow.
 - Browse the [API reference](../reference/index.qmd) for signatures and parameter details.

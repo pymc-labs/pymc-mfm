@@ -69,9 +69,19 @@ approved or published release.
   install running models: install `pymc-mfm[local]`. The extras `hub`, `training`,
   `diagnostics`, `arviz`, `generation` and `examples` include `local`, so they behave as
   before. New `pymc_mfm.client` is a torch-free client for the River API v3.1: datasets,
-  analyses with scenarios and curves, `explore`, pandas results, per-draw xarray files and
-  two plots. New extras `draws` (`xarray`, `h5netcdf`, `h5py`), `plot` (`matplotlib`) and
-  `client` (both). CI adds a `light` job that tests the client without PyTorch.
+  analyses of a plan or a backtest of the dataset's own weeks (`context=`, `query_end=`,
+  `channels=`, `controls=`), budget scenarios and response curves, `explore` (curves at 0
+  to 2 times spend and the scenarios `spend_x1.2`, `spend_x1.4` and `spend_x1.6`),
+  `Analysis.again` for more scenarios on the same inputs, pandas results (`table`, and for
+  a backtest `fit`, `shares` and `curves`), per-draw xarray files and two plots. A
+  scenario is `scenario(id, multipliers)`: a number multiplies a channel's spend in the
+  window and `amount(x)` sets its total there; `grid` takes a mapping of channels to
+  multipliers. The scenario step builders `scale`, `move`, `shift` and `set_controls` and
+  `scenario(plan=)` are removed, with no deprecation period, and the service refuses
+  steps with `422 steps_removed`. Create calls derive their idempotency key from the
+  request content, and a 413 raises `PayloadTooLarge`. New extras `draws` (`xarray`,
+  `h5netcdf`, `h5py`), `plot` (`matplotlib`) and `client` (both). CI adds a `light` job
+  that tests the client without PyTorch.
 - **Opt-in compiled sampling.** `model.compile_sampling()` compiles the per-step flow
   velocity with `torch.compile`; `warm_up_sampling` compiles representative inputs
   ahead of use, and `model.sampling_status` reports compilations and any eager
