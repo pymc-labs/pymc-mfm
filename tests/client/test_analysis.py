@@ -8,12 +8,12 @@ from pymc_mfm.client import (
     Analysis,
     Gone,
     NotReady,
+    PayloadTooLarge,
     Preview,
+    amount,
     curve,
     grid,
-    scale,
     scenario,
-    shift,
 )
 
 from .client_fixtures import (
@@ -21,8 +21,11 @@ from .client_fixtures import (
     curve_result,
     dataset_record,
     error_body,
+    export_record,
     started,
     status_record,
+    weeks_result,
+    weeks_status,
 )
 
 
@@ -45,8 +48,8 @@ def body_of(service: FakeService, path: str = "/v1/analyses"):
 def test_analyze_sends_the_plan_scenarios_and_curves(client, service, dataset, plan):
     service.on("POST", "/v1/analyses", (202, started()))
     scenarios = [
-        scenario("half", scale(0.5)),
-        scenario("half_frontload", scale(0.5), shift("tv", into_weeks=(1, 2))),
+        scenario("half", {"tv": 0.5, "search": 0.5}),
+        scenario("tv_to_search", {"tv": 0.8, "search": amount(120.0)}),
     ]
     analysis = client.analyze(
         dataset,
@@ -130,7 +133,7 @@ def test_plan_missing_a_channel_is_refused(client, service, dataset, plan):
 
 def test_grid_scenarios_go_out_as_given(client, service, dataset, plan):
     service.on("POST", "/v1/analyses", (202, started(4)))
-    client.analyze(dataset, plan, scenarios=grid(tv=[0.5, 1.5], search=[0.5, 1.5]))
+    client.analyze(dataset, plan, scenarios=grid({"tv": [0.5, 1.5], "search": [0.5, 1.5]}))
     ids = [item["id"] for item in body_of(service)["scenarios"]]
     assert ids == [
         "tv_0.5__search_0.5",
@@ -140,8 +143,10 @@ def test_grid_scenarios_go_out_as_given(client, service, dataset, plan):
     ]
 
 
-def test_explore_builds_nine_level_curves_and_two_budget_scenarios(client, service, dataset, plan):
-    service.on("POST", "/v1/analyses", (202, started(27)))
+def test_explore_builds_nine_level_curves_and_three_budget_scenarios(
+    client, service, dataset, plan
+):
+    service.on("POST", "/v1/analyses", (202, started(28)))
     client.explore(dataset, plan, seed=3)
     body = body_of(service)
     assert body["curves"] == [
@@ -153,10 +158,21 @@ def test_explore_builds_nine_level_curves_and_two_budget_scenarios(client, servi
         for channel in ("tv", "search")
     ]
     assert body["scenarios"] == [
-        {"id": "budget_x0.5", "steps": [{"scale": 0.5}]},
-        {"id": "budget_x1.5", "steps": [{"scale": 1.5}]},
+        {"id": f"spend_x{factor}", "multipliers": {"tv": factor, "search": factor}}
+        for factor in (1.2, 1.4, 1.6)
     ]
     assert body["seed"] == 3
+
+
+def test_explore_of_some_channels_varies_only_those(client, service, dataset):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.explore(
+        dataset, context=("2024-07-01", "2024-07-15"), query_end="2024-08-05", channels=["tv"]
+    )
+    body = body_of(service)
+    assert [item["channel"] for item in body["curves"]] == ["tv"]
+    assert body["scenarios"][0] == {"id": "spend_x1.2", "multipliers": {"tv": 1.2}}
+    assert body["channels"] == ["tv"] and "plan" not in body
 
 
 def test_explore_refuses_its_own_arguments(client, dataset, plan):
@@ -172,8 +188,12 @@ def test_preview_returns_the_expansion_and_stores_nothing(client, service, datas
             200,
             {
                 "plans": [
-                    {"scenario_id": "baseline", "steps": [], "spend": {"tv": [1.0, 1.0]}},
-                    {"scenario_id": "half", "steps": [{"scale": 0.5}], "spend": {"tv": [0.5, 0.5]}},
+                    {"scenario_id": "baseline", "multipliers": None, "spend": {"tv": [1.0, 1.0]}},
+                    {
+                        "scenario_id": "half",
+                        "multipliers": {"tv": 0.5},
+                        "spend": {"tv": [0.5, 0.5]},
+                    },
                 ],
                 "runs_total": 2,
                 "estimate_seconds": 30.0,
@@ -182,7 +202,7 @@ def test_preview_returns_the_expansion_and_stores_nothing(client, service, datas
             },
         ),
     )
-    preview = client.analyze(dataset, plan, scenarios=[scenario("half", scale(0.5))], preview=True)
+    preview = client.analyze(dataset, plan, scenarios=[scenario("half", {"tv": 0.5})], preview=True)
     assert body_of(service)["preview"] is True
     assert isinstance(preview, Preview)
     assert preview.runs_total == 2 and preview.warnings == ["spend above history"]
@@ -243,12 +263,13 @@ def done(client, service):
 
 def test_table_is_a_long_pandas_table(done):
     table = done.table
-    assert list(table.columns[:5]) == [
+    assert list(table.columns[:6]) == [
         "scenario_id",
         "kind",
         "base_scenario_id",
         "varied_channel",
         "level",
+        "multipliers",
     ]
     assert {"window_mean", "mean_difference", "simulation_se", "draws_url"} <= set(table.columns)
     assert set(table["kind"]) == {"baseline", "scenario", "curve"}
@@ -256,6 +277,13 @@ def test_table_is_a_long_pandas_table(done):
     row = table[(table["scenario_id"] == "half") & (table["component"] == "tv")].iloc[0]
     assert (row["mean"], row["p05"], row["p95"], row["window_mean"]) == (50.0, 40.0, 60.0, 25.0)
     assert row["mean_difference"] == 5.0 and row["simulation_se"] == 0.5
+
+
+def test_multipliers_column_holds_each_scenarios_change(done):
+    table = done.table
+    half = table.query("scenario_id == 'half'")["multipliers"]
+    assert half.tolist() == [{"tv": 0.5, "search": 0.5}] * 6  # one row per component
+    assert table.query("scenario_id == 'baseline'")["multipliers"].isna().all()
 
 
 def test_failed_plan_rows_have_missing_numbers(done):
@@ -347,7 +375,7 @@ def test_analyze_omits_the_name_and_an_older_server_has_no_url(client, service, 
     assert analysis.name is None and analysis.url is None
 
 
-def test_get_reads_name_and_url_and_the_expiry_can_move(client, service):
+def test_get_reads_name_and_url_and_the_expiry_can_change(client, service):
     first = {
         **status_record("running"),
         "name": "Mine",
@@ -468,3 +496,297 @@ def test_a_wire_plan_with_array_dates_is_sent_as_before(client, service, dataset
     client.analyze(dataset, wire_plan(container(dates)))
     first, second = (r.content for r in service.requests[-2:])
     assert json.loads(first)["plan"] == json.loads(second)["plan"]
+
+
+# The weeks (backtest) form
+
+CONTEXT = ("2024-07-01", "2024-07-15")
+QUERY_END = "2024-08-05"
+
+
+def test_analyze_sends_the_weeks_form_without_a_plan(client, service, dataset):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, context=CONTEXT, query_end=QUERY_END, seed=7)
+    assert body_of(service) == {
+        "dataset_id": "ds_123",
+        "context": {"start": "2024-07-01", "end": "2024-07-15"},
+        "query": {"end": "2024-08-05"},
+        "scenarios": [],
+        "curves": [],
+        "seed": 7,
+    }
+
+
+def test_weeks_form_sends_chosen_series_and_accepts_timestamps(client, service, dataset):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(
+        "ds_123",
+        context=(pd.Timestamp("2024-07-01"), pd.Timestamp("2024-07-15").date()),
+        query_end=pd.Timestamp(QUERY_END),
+        channels="tv",
+        controls=[],
+    )
+    body = body_of(service)
+    assert body["context"] == {"start": "2024-07-01", "end": "2024-07-15"}
+    assert body["query"] == {"end": "2024-08-05"}
+    assert body["channels"] == ["tv"] and body["controls"] == []
+    assert not service.sent("GET", "/v1/datasets/ds_123")  # the weeks form needs no lookup
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ({}, "plan, or context and query_end"),
+        ({"context": CONTEXT}, "context and query_end together"),
+        ({"query_end": QUERY_END}, "context and query_end together"),
+        ({"context": CONTEXT, "query_end": QUERY_END, "plan": {}}, "not both"),
+        ({"context": ("2024-07-01",), "query_end": QUERY_END}, "pair"),
+        ({"context": "2024-07-01", "query_end": QUERY_END}, "pair"),
+    ],
+)
+def test_bad_weeks_arguments_are_refused_before_any_request(
+    client, service, dataset, arguments, message
+):
+    with pytest.raises(ValueError, match=message):
+        client.analyze(dataset, **arguments)
+    assert not service.sent("POST", "/v1/analyses")
+
+
+@pytest.mark.parametrize("option", ["channels", "controls"])
+def test_series_choice_needs_the_weeks_form(client, service, dataset, plan, option):
+    with pytest.raises(ValueError, match="channels and controls"):
+        client.analyze(dataset, plan, **{option: ["tv"]})
+    assert not service.sent("POST", "/v1/analyses")
+
+
+def test_weeks_form_preview_sends_the_flag(client, service, dataset):
+    service.on(
+        "POST",
+        "/v1/analyses",
+        (200, {"plans": [], "runs_total": 1, "estimate_seconds": 5.0, "warnings": []}),
+    )
+    preview = client.analyze(dataset, context=CONTEXT, query_end=QUERY_END, preview=True)
+    assert isinstance(preview, Preview)
+    assert body_of(service)["preview"] is True
+
+
+# fit, shares and curves
+
+
+@pytest.fixture
+def backtest(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, weeks_status()))
+    service.on("GET", "/v1/analyses/an_1/result", (200, weeks_result()))
+    return client.get("an_1")
+
+
+def test_fit_has_one_row_per_window_and_metric(backtest):
+    fit = backtest.fit
+    assert list(fit.columns) == ["window", "metric", "value", "sd"]
+    assert fit["window"].tolist() == ["context"] * 3 + ["query"] * 3
+    assert fit["metric"].tolist() == ["r2", "mape", "crps"] * 2
+    query_r2 = fit.query("window == 'query' and metric == 'r2'").iloc[0]
+    assert (query_r2["value"], query_r2["sd"]) == (0.8, 0.02)
+    crps = fit.query("metric == 'crps'")
+    assert crps["value"].tolist() == [12.5, 12.5] and crps["sd"].isna().all()
+    assert fit.attrs["labels"] == backtest.labels
+
+
+def test_shares_have_a_total_and_a_mean_per_series_and_window(backtest):
+    shares = backtest.shares
+    assert list(shares.columns) == ["window", "name", "group", "share", "value", "p05", "p95"]
+    assert len(shares) == 2 * 2 * 2  # windows, series, total and mean
+    row = shares.query("window == 'query' and name == 'tv' and share == 'total'").iloc[0]
+    assert row["group"] == "channel"
+    assert [row["value"], row["p05"], row["p95"]] == pytest.approx([0.4, 0.35, 0.45])
+    control = shares.query("name == 'price' and share == 'mean'").iloc[0]
+    assert control["group"] == "control" and control["value"] == pytest.approx(-0.05)
+
+
+def test_curves_have_one_row_per_channel_and_level(backtest):
+    curves = backtest.curves
+    assert list(curves.columns) == ["channel", "spend", "level", "value", "p05", "p95"]
+    assert curves["level"].tolist() == [0.0, 0.5, 1.5]
+    assert curves["spend"].tolist() == [220.0] * 3
+    assert curves.query("level == 0.5").iloc[0]["value"] == 40.0
+    assert curves.query("level == 1.5")[["value", "p05", "p95"]].isna().all().all()
+
+
+def test_fit_shares_and_curves_are_none_for_a_plan(done):
+    assert done.fit is None and done.shares is None and done.curves is None
+
+
+def test_a_backtest_table_has_multipliers(backtest):
+    assert backtest.table.query("scenario_id == 'half'")["multipliers"].iloc[0] == {"tv": 0.5}
+
+
+# Analysis.again
+
+QUERY_WEEKS = ["2024-07-22", "2024-07-29", "2024-08-05"]  # the predicted weeks of weeks_status
+
+
+def baseline_inputs(**extra):
+    return {
+        "dates": ["2024-07-29", "2024-08-05", "2024-08-12"],
+        "spend": {"tv": [1.0, 2.0, 3.0], "search": [4.0, 5.0, 6.0]},
+        "controls": {"price": [10.0, 10.0, 10.0]},
+        **extra,
+    }
+
+
+def backtest_inputs(decision_dates=QUERY_WEEKS):
+    return baseline_inputs(dates=QUERY_WEEKS, decision_dates=decision_dates)
+
+
+@pytest.fixture
+def repeatable(service, backtest):
+    """The backtest, with an export whose decision window is all its query weeks."""
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(backtest_inputs())))
+    return backtest
+
+
+def test_again_repeats_a_backtest(client, service, repeatable):
+    service.on("POST", "/v1/analyses", (202, {**started(2), "analysis_id": "an_2"}))
+    more = repeatable.again([scenario("search_x1.5", {"search": 1.5})])
+    assert body_of(service) == {
+        "dataset_id": "ds_123",
+        "context": {"start": "2024-07-01", "end": "2024-07-15"},
+        "query": {"end": "2024-08-05"},
+        "channels": ["tv", "search"],
+        "controls": ["price"],
+        "scenarios": [{"id": "search_x1.5", "multipliers": {"search": 1.5}}],
+        "explain_history": False,
+        "seed": 7,
+        "draws": 500,
+    }
+    assert more.id == "an_2"
+
+
+def test_again_of_a_backtest_keeps_a_narrower_decision_window(client, service, backtest):
+    inputs = backtest_inputs(decision_dates=QUERY_WEEKS[1:])
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(inputs)))
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    backtest.again([scenario("tv_up", {"tv": amount(100)})])
+    body = body_of(service)
+    assert body["decision_weeks"] == [2, 3]
+    assert body["query"] == {"end": "2024-08-05"} and "plan" not in body
+
+
+def test_again_passes_curves_and_explain_history(client, service, repeatable):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    repeatable.again([], curves=[curve("tv", [0, 2])], explain_history=True)
+    body = body_of(service)
+    assert body["curves"] == [{"channel": "tv", "levels": [0, 2], "base": "baseline"}]
+    assert body["explain_history"] is True
+
+
+def test_again_repeated_sends_the_same_idempotency_key(client, service, repeatable):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    scenarios = [scenario("search_x1.5", {"search": 1.5})]
+    repeatable.again(scenarios)
+    repeatable.again(scenarios)
+    repeatable.again(scenarios, idempotency_key="again-2")
+    first, second, third = service.sent("POST", "/v1/analyses")
+    assert first.headers["Idempotency-Key"] == second.headers["Idempotency-Key"]
+    assert third.headers["Idempotency-Key"] == "again-2"
+    assert third.content == first.content
+
+
+def classic_status(**extra):
+    return status_record("done", dataset_id="ds_123", seed=3, draws=200, **extra)
+
+
+def test_again_repeats_a_plan_from_the_exports_baseline(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, classic_status()))
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(baseline_inputs())))
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.get("an_1").again([scenario("tv_up", {"tv": 1.2})])
+    body = body_of(service)
+    assert body["plan"] == {
+        "dates": ["2024-07-29", "2024-08-05", "2024-08-12"],
+        "spend": {"tv": [1.0, 2.0, 3.0], "search": [4.0, 5.0, 6.0]},
+        "controls": {"price": [10.0, 10.0, 10.0]},
+    }
+    assert "decision_weeks" not in body and "context" not in body
+    assert (body["dataset_id"], body["seed"], body["draws"]) == ("ds_123", 3, 200)
+
+
+def test_again_turns_decision_dates_into_decision_weeks(client, service):
+    inputs = baseline_inputs(decision_dates=["2024-08-05", "2024-08-12"])
+    service.on("GET", "/v1/analyses/an_1", (200, classic_status()))
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(inputs)))
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.get("an_1").again([scenario("tv_up", {"tv": 1.2})])
+    assert body_of(service)["decision_weeks"] == [2, 3]
+
+
+def test_again_ignores_decision_dates_that_cover_the_plan(client, service):
+    inputs = baseline_inputs(decision_dates=baseline_inputs()["dates"])
+    service.on("GET", "/v1/analyses/an_1", (200, classic_status()))
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(inputs)))
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.get("an_1").again([])
+    assert "decision_weeks" not in body_of(service)
+
+
+def test_again_needs_a_stored_dataset(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("done", dataset_id=None)))
+    with pytest.raises(ValueError, match="no stored dataset"):
+        client.get("an_1").again([])
+    assert not service.sent("POST", "/v1/analyses")
+
+
+def test_again_needs_a_stored_baseline_plan(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, classic_status()))
+    service.on("GET", "/v1/analyses/an_1/export", (200, export_record(None)))
+    with pytest.raises(ValueError, match="no stored baseline plan"):
+        client.get("an_1").again([])
+    assert not service.sent("POST", "/v1/analyses")
+
+
+@pytest.mark.parametrize("status", [classic_status, weeks_status], ids=["plan", "backtest"])
+def test_again_waits_for_the_runs(client, service, status):
+    service.on("GET", "/v1/analyses/an_1", (200, status()))
+    service.on("GET", "/v1/analyses/an_1/export", (409, error_body("not_ready", "running")))
+    with pytest.raises(NotReady):
+        client.get("an_1").again([])
+    assert not service.sent("POST", "/v1/analyses")
+
+
+# Errors and keys
+
+
+def test_a_413_raises_payload_too_large_without_retries(client, service, dataset, plan, sleeps):
+    service.on("POST", "/v1/analyses", (413, error_body("payload_too_large", "Too big.")))
+    with pytest.raises(PayloadTooLarge) as caught:
+        client.analyze(dataset, plan)
+    assert caught.value.status == 413
+    assert len(service.sent("POST", "/v1/analyses")) == 1 and sleeps == []
+
+
+def test_wait_raises_gone_when_the_analysis_is_deleted_meanwhile(client, service):
+    service.on(
+        "GET",
+        "/v1/analyses/an_1",
+        (200, status_record("running")),
+        (410, error_body("expired", "The analysis was deleted.")),
+    )
+    with pytest.raises(Gone):
+        client.get("an_1").wait(poll=0)
+
+
+def test_an_equal_analyze_call_sends_the_same_content_key(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    scenarios = [scenario("half", {"tv": 0.5})]
+    client.analyze(dataset, plan, scenarios=scenarios, seed=1)
+    client.analyze(dataset, plan, scenarios=scenarios, seed=1)
+    client.analyze(dataset, plan, scenarios=scenarios, seed=2)
+    keys = [r.headers["Idempotency-Key"] for r in service.sent("POST", "/v1/analyses")]
+    same, again, other = keys
+    assert same == again != other
+
+
+def test_analyze_uses_a_caller_key_as_given(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, plan, idempotency_key="mine-1")
+    assert service.sent("POST", "/v1/analyses")[0].headers["Idempotency-Key"] == "mine-1"

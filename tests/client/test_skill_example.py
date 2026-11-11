@@ -17,10 +17,13 @@ from .client_fixtures import (
     FakeService,
     curve_result,
     dataset_record,
+    export_record,
     result_record,
     result_rows,
     started,
     status_record,
+    weeks_result,
+    weeks_status,
 )
 
 matplotlib = pytest.importorskip("matplotlib")
@@ -30,6 +33,12 @@ SKILL_DIR = Path(__file__).resolve().parents[2] / "skills" / "mfm"
 SKILL = SKILL_DIR / "SKILL.md"
 EXAMPLE = r"<!-- skill-example: {name} -->\n```python\n(.*?)```"
 ALLOWED_URLS = ("https://github.com/pymc-labs/pymc-mfm.git",)
+GRID_IDS = (
+    "tv_0.5__search_0.5",
+    "tv_0.5__search_1.5",
+    "tv_1.5__search_0.5",
+    "tv_1.5__search_1.5",
+)
 
 
 def skill_example(name: str = "main") -> str:
@@ -47,7 +56,7 @@ def compare_rows() -> list[dict]:
 
 def grid_rows() -> list[dict]:
     rows = result_rows("baseline", "baseline")
-    for scenario_id in ("tv_front_loaded", "grid:tv=0.5,search=0.5"):
+    for scenario_id in GRID_IDS:
         rows += result_rows(scenario_id, "scenario", base="baseline")
     return rows
 
@@ -72,7 +81,7 @@ def analysis_id(number: int) -> dict:
 
 @pytest.fixture
 def service() -> FakeService:
-    """The routes the examples call: preview, comparison, then one optional example."""
+    """The routes the examples call: preview, comparison, then optional examples."""
     fake = FakeService()
     fake.on("GET", "/v1/datasets", (200, {"datasets": []}))
     fake.on("POST", "/v1/datasets", (201, example_dataset_record()))
@@ -84,11 +93,13 @@ def service() -> FakeService:
         (200, preview),
         (202, analysis_id(1)),
         (202, analysis_id(2)),
+        (202, analysis_id(3)),
     )
-    for number in (1, 2):
+    for number in (1, 2, 3):
         fake.on("GET", f"/v1/analyses/an_{number}", (200, status_record("done")))
     fake.on("GET", "/v1/analyses/an_1/result", (200, result_record(compare_rows())))
     fake.on("GET", "/v1/analyses/an_2/result", (200, curve_result()))  # the optional example
+    fake.on("GET", "/v1/analyses/an_3/result", (200, result_record(compare_rows())))
     weekly = [{"date": "2024-07-29", "component": "outcome", "mean": 1.0, "p05": 0.5, "p95": 1.5}]
     weekly_reply = {"scenario_id": "tv_to_search", "rows": weekly}
     fake.on("GET", "/v1/analyses/an_1/weekly", (200, weekly_reply))
@@ -132,12 +143,62 @@ def test_main_example_compares_three_plans_in_one_analysis(workdir, service, cap
     assert (workdir / "compare.png").stat().st_size > 0
     preview, analysis = analysis_posts(service)  # exactly one preview and one analysis
     assert preview["preview"] is True and not analysis.get("preview")
+    plan = pd.read_csv(workdir / "plan.csv")
+    moved = plan["search"].sum() + 0.2 * plan["tv"].sum()
     for body in (preview, analysis):
         assert [s["id"] for s in body["scenarios"]] == ["reduce_20", "tv_to_search"]
+        reduce, move = (s["multipliers"] for s in body["scenarios"])
+        assert reduce == {"tv": 0.8, "search": 0.8}
+        assert move["tv"] == 0.8 and move["search"] == {"amount": pytest.approx(moved)}
         assert not body.get("curves")
+        assert all("steps" not in s for s in body["scenarios"])
     assert "result link:" in capsys.readouterr().out
     assert service.sent("DELETE", "/v1/datasets/ds_123")
     assert all(r.headers["Authorization"] == "Bearer test-key" for r in service.requests)
+
+
+def test_backtest_example_sends_the_weeks_form_and_reads_fit_shares_and_curves(
+    workdir, service, capsys
+):
+    service.on("GET", "/v1/analyses/an_2", (200, weeks_status()))
+    service.on("GET", "/v1/analyses/an_2/result", (200, weeks_result()))
+    namespace = {"__name__": "skill_example"}
+    run_example("main", namespace)
+    run_example("backtest", namespace)
+
+    body = analysis_posts(service)[2]
+    assert body["context"] == {"start": "2024-11-11", "end": "2026-08-03"}
+    assert body["query"] == {"end": "2026-11-02"}
+    assert "plan" not in body
+    assert len(body["scenarios"]) == 1  # one budget scenario
+    assert body["scenarios"][0]["multipliers"] == {"tv": 1.2, "search": 1.2}
+    assert [c["channel"] for c in body["curves"]] == ["tv", "search"]
+    assert (body["seed"], body["name"]) == (7, "Backtest")
+    output = capsys.readouterr().out
+    assert "r2" in output and "crps" in output  # the fit table was printed
+    assert "channel" in output  # the shares and the curves were printed
+
+
+def test_again_example_starts_a_second_analysis_with_the_same_weeks(workdir, service):
+    service.on("GET", "/v1/analyses/an_2", (200, weeks_status()))
+    service.on("GET", "/v1/analyses/an_2/result", (200, weeks_result()))
+    weeks = ["2024-07-22", "2024-07-29", "2024-08-05"]
+    inputs = {"dates": weeks, "spend": {}, "controls": {}, "decision_dates": weeks}
+    service.on("GET", "/v1/analyses/an_2/export", (200, export_record(inputs)))
+    namespace = {"__name__": "skill_example"}
+    run_example("main", namespace)
+    run_example("backtest", namespace)
+    run_example("again", namespace)
+
+    body = analysis_posts(service)[3]
+    assert body["dataset_id"] == "ds_123"
+    assert body["context"] == {"start": "2024-07-01", "end": "2024-07-15"}
+    assert body["query"] == {"end": "2024-08-05"}
+    assert body["scenarios"] == [{"id": "search_x1.5", "multipliers": {"search": 1.5}}]
+    assert not body.get("curves") and body["explain_history"] is False
+    assert (body["seed"], body["draws"]) == (7, 500)
+    assert "decision_weeks" not in body  # the window was all the predicted weeks
+    assert service.sent("GET", "/v1/analyses/an_3/result")
 
 
 def test_curves_example_requests_one_curve_per_channel(workdir, service):
@@ -151,15 +212,15 @@ def test_curves_example_requests_one_curve_per_channel(workdir, service):
     assert (workdir / "curves.png").stat().st_size > 0
 
 
-def test_grid_example_requests_shift_and_grid_scenarios(workdir, service):
+def test_grid_example_requests_one_scenario_per_combination(workdir, service):
     service.on("GET", "/v1/analyses/an_2/result", (200, result_record(grid_rows())))
     namespace = {"__name__": "skill_example"}
     run_example("main", namespace)
     run_example("grid", namespace)
 
     body = analysis_posts(service)[2]
-    ids = [s["id"] for s in body["scenarios"]]
-    assert ids[0] == "tv_front_loaded" and len(ids) == 5  # shift plus a 2x2 grid
+    assert [s["id"] for s in body["scenarios"]] == list(GRID_IDS)  # a 2x2 grid
+    assert body["scenarios"][0]["multipliers"] == {"tv": 0.5, "search": 0.5}
     assert not body.get("curves")
     assert (workdir / "grid.png").stat().st_size > 0
 

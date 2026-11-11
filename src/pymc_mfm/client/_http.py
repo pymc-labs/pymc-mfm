@@ -3,23 +3,24 @@
 from __future__ import annotations
 
 import email.utils
+import hashlib
 import json
 import os
 import time
-import uuid
 from typing import Any
 
 import httpx
 
 from pymc_mfm import __version__
 
-from ._wire import to_json
-from .errors import ApiConnectionError, ApiError, error_from_response
+from ._wire import canonical_json, to_json
+from .errors import ApiConnectionError, ApiError, Gone, error_from_response
 
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_WAIT = 60.0  # seconds; default cap on a Retry-After wait
 BACKOFF_BASE = 0.5  # seconds; doubles on each retry when there is no Retry-After
 BACKOFF_CAP = 8.0
+CONTENT_KEY_PREFIX = "mfm1-"
 
 
 def parse_retry_after(value: str | None, *, now: float | None = None) -> float | None:
@@ -37,9 +38,11 @@ def parse_retry_after(value: str | None, *, now: float | None = None) -> float |
     return max(0.0, when.timestamp() - (time.time() if now is None else now))
 
 
-def new_idempotency_key() -> str:
-    """One key per logical call; retries of that call reuse it."""
-    return str(uuid.uuid4())
+def content_idempotency_key(path: str, body: Any) -> str:
+    """A key derived from the request path and body: an equal request gets an equal key, so
+    the service returns the earlier resource instead of starting the work again."""
+    digest = hashlib.sha256(path.encode() + b"\n" + canonical_json(body)).hexdigest()
+    return CONTENT_KEY_PREFIX + digest
 
 
 class Http:
@@ -107,6 +110,32 @@ class Http:
             method, self.base_url + path, headers=headers, content=content, params=params
         )
         return self._decode(response)
+
+    def create(self, path: str, body: Any, *, idempotency_key: str | None = None) -> Any:
+        """POST a create request and return the decoded JSON body.
+
+        Without ``idempotency_key`` the key comes from the request content, so an equal
+        request gets the earlier resource back. If that resource was deleted or expired, the
+        service answers 410 and this raises ``Gone``: pass a new ``idempotency_key`` to run
+        the request again. The client never picks a new key itself, because each new key
+        starts new work.
+        """
+        if idempotency_key is not None:
+            return self.request("POST", path, body=body, idempotency_key=idempotency_key)
+        try:
+            return self.request(
+                "POST", path, body=body, idempotency_key=content_idempotency_key(path, body)
+            )
+        except Gone as error:
+            raise Gone(
+                error.status,
+                error.code,
+                f"{error.message} The Idempotency-Key comes from the request content, so this "
+                "can mean that an earlier equal request was deleted or expired. Pass a new "
+                "idempotency_key to run it again.",
+                error.field,
+                retry_after=error.retry_after,
+            ) from error
 
     def download_authenticated(self, path: str) -> bytes:
         """Fetch the raw bytes of an API path, with the key. Raises ``ApiError`` on failure."""

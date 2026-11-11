@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,13 +15,15 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 
 from ._http import Http
+from ._wire import weeks_fields
 from .datasets import parse_datetime
 from .errors import Forbidden
 
 if TYPE_CHECKING:
     import xarray
 
-TERMINAL_STATUSES = frozenset({"done", "failed", "deleted"})
+#: The service answers 410 (``Gone``) for a deleted analysis, so no status says so.
+TERMINAL_STATUSES = frozenset({"done", "failed"})
 URL_RENEWAL_MARGIN = 30.0  # seconds; renew a signed URL this close to its expiry
 
 #: Columns of the result table, in order. Fields the service adds later follow them.
@@ -30,7 +33,7 @@ TABLE_COLUMNS = (
     "base_scenario_id",
     "varied_channel",
     "level",
-    "steps",
+    "multipliers",
     "run_id",
     "status",
     "spend_total",
@@ -46,6 +49,8 @@ TABLE_COLUMNS = (
     "draws_url",
     "draws_url_expires_at",
 )
+#: Scores of ``Analysis.fit``, in order. ``crps`` has no ``sd``.
+FIT_METRICS = ("r2", "mape", "crps")
 
 
 @dataclass(frozen=True)
@@ -116,11 +121,63 @@ def result_table(rows: Iterable[dict[str, Any]], labels: dict[str, Any]) -> pd.D
     return table
 
 
+def start_analysis(
+    http: Http, body: dict[str, Any], *, idempotency_key: str | None = None
+) -> Analysis:
+    """Send one ``POST /v1/analyses`` body and return the analysis it started."""
+    response = http.create("/v1/analyses", body, idempotency_key=idempotency_key)
+    status = AnalysisStatus.from_wire(
+        {
+            "status": "queued",
+            "runs_done": 0,
+            "runs_failed": 0,
+            **{key: response[key] for key in ("runs_total", "estimate_seconds", "expires_at")},
+        }
+    )
+    return Analysis(
+        http,
+        response["analysis_id"],
+        status,
+        name=response.get("name", body.get("name")),
+        url=response.get("url"),
+    )
+
+
+def _plan_fields(inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """The ``plan`` and ``decision_weeks`` of a request, from a scenario's exported inputs."""
+    plan = {
+        "dates": list(inputs["dates"]),
+        "spend": inputs["spend"],
+        "controls": inputs["controls"],
+    }
+    return {"plan": plan, **_decision_fields(inputs)}
+
+
+def _decision_fields(inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """``decision_weeks`` (1-based, inclusive) from a scenario's exported inputs, only when the
+    window is narrower than the forecast weeks; empty otherwise, as the service's default."""
+    dates = list(inputs["dates"])
+    decision = list(inputs.get("decision_dates") or ())
+    if not decision or decision == dates:
+        return {}
+    first = dates.index(decision[0]) + 1
+    return {"decision_weeks": [first, first + len(decision) - 1]}
+
+
+def _labelled(rows: list[dict[str, Any]], columns: Sequence[str], labels: Any) -> pd.DataFrame:
+    frame = pd.DataFrame.from_records(rows, columns=list(columns))
+    for column in ("value", "sd", "p05", "p95", "spend", "level"):
+        if column in frame.columns:
+            frame[column] = pd.to_numeric(frame[column])
+    frame.attrs["labels"] = labels
+    return frame
+
+
 class Analysis:
     """One analysis: a baseline forecast, with scenarios and curves if asked.
 
-    Get one from ``Client.analyze`` or ``Client.get``. ``name`` is the optional name given
-    to ``analyze``. ``url`` is the address of the result page on the service's site; give
+    Get one from ``Client.analyze``, ``Client.get`` or ``again``. ``name`` is the optional
+    name given to ``analyze``. ``url`` is the address of the result page on the service's site; give
     it to the person, who opens it to read the analysis. It is ``None`` when the service
     has no site address set or is an older version. Results follow the service's
     labels, kept in ``labels`` and in each table's ``attrs``: intervals are pointwise,
@@ -154,18 +211,24 @@ class Analysis:
         return self._status.expires_at
 
     def status(self) -> AnalysisStatus:
-        """Fetch the current status and run counts."""
+        """Fetch the current status and run counts. Raises ``Gone`` once the analysis is
+        deleted or expired."""
+        self._read_status()
+        return self._status
+
+    def _read_status(self) -> dict[str, Any]:
         record = self._http.request("GET", f"/v1/analyses/{self.id}")
         self._status = AnalysisStatus.from_wire(record)
         self.name = record.get("name", self.name)
         self.url = record.get("url", self.url)
-        return self._status
+        return record
 
     def wait(self, timeout: float | None = None, poll: float = 2.0) -> Analysis:
-        """Poll until the analysis is ``done``, ``failed`` or ``deleted``; return ``self``.
+        """Poll until the analysis is ``done`` or ``failed``; return ``self``.
 
-        Raises ``TimeoutError`` after ``timeout`` seconds. A ``failed`` analysis (its
-        baseline failed) still has a result table with ``status == "failed"`` rows.
+        Raises ``TimeoutError`` after ``timeout`` seconds, and ``Gone`` if the analysis is
+        deleted or expires meanwhile. A ``failed`` analysis (its baseline failed) still has
+        a result table with ``status == "failed"`` rows.
         """
         deadline = None if timeout is None else time.monotonic() + timeout
         while not self.status().finished:
@@ -173,6 +236,59 @@ class Analysis:
                 raise TimeoutError(f"Analysis {self.id} is still {self._status.status!r}")
             time.sleep(poll)
         return self
+
+    def again(
+        self,
+        scenarios: Sequence[Mapping[str, Any]],
+        *,
+        curves: Sequence[Mapping[str, Any]] | None = None,
+        explain_history: bool = False,
+        idempotency_key: str | None = None,
+    ) -> Analysis:
+        """Start a new analysis with this one's inputs and new ``scenarios``; return it.
+
+        The new analysis repeats the dataset, the weeks, channels and controls of a backtest
+        (or the baseline plan of a plan), the ``decision_weeks``, the seed and the draws.
+        It runs no curves unless you pass ``curves``, and no history pass unless you set
+        ``explain_history``, because this analysis already has them. It costs one more
+        baseline run plus its scenarios.
+
+        Repeating the same call returns the same analysis. Pass a new ``idempotency_key`` to
+        run it once more, for example after that analysis was deleted (``Gone``).
+
+        Compare each scenario only with the baseline of its own analysis, not across
+        analyses: equal draws across analyses are not guaranteed.
+
+        The baseline and its decision window are read from the export, so every run must
+        have ended: this raises ``NotReady`` until then. Call ``wait()`` first.
+        """
+        record = self._read_status()
+        if record.get("dataset_id") is None:
+            raise ValueError(f"Analysis {self.id} has no stored dataset to analyze again")
+        inputs = self._baseline_inputs()
+        context = record.get("context")
+        if context is None:
+            same = _plan_fields(inputs)
+        else:
+            same = {**_weeks_of(context), **_decision_fields(inputs)}
+        body: dict[str, Any] = {
+            "dataset_id": record["dataset_id"],
+            **same,
+            "scenarios": list(scenarios),
+            "explain_history": explain_history,
+        }
+        if curves is not None:
+            body["curves"] = list(curves)
+        body.update({key: record[key] for key in ("seed", "draws") if record.get(key) is not None})
+        return start_analysis(self._http, body, idempotency_key=idempotency_key)
+
+    def _baseline_inputs(self) -> Mapping[str, Any]:
+        """The exported inputs of the baseline. Raises ``NotReady`` until every run ends."""
+        export = json.loads(self._http.download_authenticated(f"/v1/analyses/{self.id}/export"))
+        baseline = next((item for item in export["scenarios"] if item["kind"] == "baseline"), None)
+        if baseline is None or baseline.get("inputs") is None:
+            raise ValueError(f"Analysis {self.id} has no stored baseline plan to repeat")
+        return baseline["inputs"]
 
     # Results
 
@@ -194,6 +310,85 @@ class Analysis:
         if result.get("history") is None:
             return None
         return result_table(result["history"], result["labels"])
+
+    @property
+    def fit(self) -> pd.DataFrame | None:
+        """How well the baseline follows the actual outcome, for a backtest.
+
+        One row per ``window`` (``context``: the input weeks; ``query``: the predicted weeks)
+        and ``metric`` (``r2``, ``mape`` as a fraction, ``crps``), with ``value`` (the score
+        of the mean line) and ``sd`` (its spread over draws; none for ``crps``). ``None`` for
+        an analysis of a plan, which has no actual outcome to compare with.
+        """
+        result = self._fetch_result()
+        fit = result.get("fit")
+        if fit is None:
+            return None
+        rows = []
+        for window, scores in fit.items():
+            for metric in FIT_METRICS:
+                score = (scores or {}).get(metric)
+                if isinstance(score, Mapping):
+                    value, sd = score.get("value"), score.get("sd")
+                else:  # crps is one number; r2 is null when the outcome never changes
+                    value, sd = score, None
+                rows.append({"window": window, "metric": metric, "value": value, "sd": sd})
+        return _labelled(rows, ["window", "metric", "value", "sd"], result["labels"])
+
+    @property
+    def shares(self) -> pd.DataFrame | None:
+        """Each channel's and control's share of the expected outcome, for a backtest.
+
+        One row per ``window``, series (``name``, ``group``: ``channel`` or ``control``) and
+        ``share``: ``total`` is the series' total over the window divided by the total
+        expected outcome, ``mean`` is the average of its weekly shares. ``value`` is the mean
+        over draws, ``p05`` and ``p95`` the 5th and 95th percentiles. ``None`` for an
+        analysis of a plan.
+        """
+        result = self._fetch_result()
+        fit = result.get("fit")
+        if fit is None:
+            return None
+        rows = [
+            {
+                "window": window,
+                "name": item["name"],
+                "group": item["group"],
+                "share": share,
+                **{key: (item.get(share) or {}).get(key) for key in ("value", "p05", "p95")},
+            }
+            for window, scores in fit.items()
+            for item in (scores or {}).get("shares") or ()
+            for share in ("total", "mean")
+        ]
+        columns = ["window", "name", "group", "share", "value", "p05", "p95"]
+        return _labelled(rows, columns, result["labels"])
+
+    @property
+    def curves(self) -> pd.DataFrame | None:
+        """Response curves of a backtest: one row per channel and spend level.
+
+        ``spend`` is the channel's baseline spend in the query weeks and ``level`` a
+        multiple of it; ``value``, ``p05`` and ``p95`` are the mean, 5th and 95th percentile
+        of the channel's own contribution over those weeks. They are missing where a level
+        was not asked or its run failed. ``None`` for an analysis of a plan: read its curve
+        rows in ``table`` or draw them with ``plot_curves()``.
+        """
+        result = self._fetch_result()
+        curves = result.get("response_curves")
+        if curves is None:
+            return None
+        rows = [
+            {
+                "channel": item["channel"],
+                "spend": item.get("spend"),
+                **{key: point.get(key) for key in ("level", "value", "p05", "p95")},
+            }
+            for item in curves
+            for point in item["points"]
+        ]
+        columns = ["channel", "spend", "level", "value", "p05", "p95"]
+        return _labelled(rows, columns, result["labels"])
 
     @property
     def assumptions(self) -> dict[str, Any]:
@@ -304,6 +499,17 @@ class Analysis:
         from .plots import plot_compare
 
         return plot_compare(self.table, **kwargs)
+
+
+def _weeks_of(context: Mapping[str, Any]) -> dict[str, Any]:
+    """The weeks and series of a request, from an analysis's ``context``."""
+    return weeks_fields(
+        context["start"],
+        context["end"],
+        context["query_end"],
+        channels=context["channels"],
+        controls=context["controls"],
+    )
 
 
 def _require_xarray() -> Any:

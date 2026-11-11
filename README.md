@@ -408,7 +408,7 @@ An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md)
 ```python
 import pandas as pd
 
-from pymc_mfm.client import Client, grid, move, scale, scenario, shift
+from pymc_mfm.client import Client, amount, curve, grid, scenario
 
 client = Client("https://api.example.com")  # key from MFM_API_KEY
 
@@ -426,12 +426,11 @@ print(dataset.history_ranges)  # per series; p05 and p95 are warning thresholds,
 
 analysis = client.analyze(
     dataset,
-    plan,  # the baseline plan, a DataFrame or a dict
+    plan,  # the baseline plan for the weeks after the history, a DataFrame or a dict
     scenarios=[
-        scenario("half", scale(0.5)),
-        scenario("tv_to_search", move("tv", "search", share=0.2)),
-        scenario("front_loaded", shift("tv", into_weeks=(1, 4))),
-        *grid(tv=[0.5, 1.5], search=[0.5, 1.5]),
+        scenario("half", {"tv": 0.5, "search": 0.5}),  # a number multiplies a channel's spend
+        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_000)}),  # sets a total
+        *grid({"tv": [0.5, 1.5], "search": [0.5, 1.5]}),
     ],
     decision_weeks=(1, 8),
     seed=7,
@@ -441,12 +440,40 @@ analysis.wait()
 analysis.url  # the result page for the person; None when the service has no site address
 analysis.export("analysis.json")  # the whole analysis as one JSON file
 analysis.table  # one row per plan and component; mean, p05, p95, window_mean, ...
+
+# A backtest: read the input weeks, predict the weeks after them and score the forecast.
+backtest = client.analyze(
+    dataset,
+    context=("2024-11-11", "2026-08-03"),  # first and last input week
+    query_end="2026-11-02",  # last predicted week
+    scenarios=[scenario("budget_x1.2", {"tv": 1.2, "search": 1.2})],
+    curves=[curve("tv", [0, 0.5, 1.5, 2])],
+).wait()
+backtest.fit  # r2, mape and crps against the actual outcome, input and predicted weeks
+backtest.shares  # each channel's and control's share of the expected outcome
+backtest.curves  # each channel's contribution at each spend level
+
+# More scenarios: a new analysis with the same inputs, seed and draws.
+more = backtest.again([scenario("search_x1.5", {"search": 1.5})]).wait()
 ```
 
+A scenario changes spend in a window: the predicted weeks of a backtest, or
+`decision_weeks` of a plan. In `scenario(id, multipliers)` a number from 0 to 5 multiplies
+a channel's spend there, and `amount(x)` sets its total there to `x`, keeping the weekly
+pattern (a channel with no spend gets `x` split evenly). Channels left out keep their
+spend. Scenarios do not change spend timing or controls. A backtest's `channels=` and
+`controls=` choose series of the dataset (default: all); `fit`, `shares` and `curves` are
+`None` for a plan. `again(scenarios, curves=None, explain_history=False, idempotency_key=None)`
+repeats the dataset, weeks or plan, series, `decision_weeks`, seed and draws, and runs one
+more baseline. It reads the baseline from the export, so it raises `NotReady` until the
+analysis has ended: call `wait()` first. Compare each scenario only with the baseline of
+its own analysis.
+
 `client.explore(dataset, plan)` is a first look: a response curve for every channel at
-nine spend levels (0 to 2 times the baseline in steps of 0.25) and two budget scenarios.
-Pass `preview=True` to `analyze` or `explore` to see the expanded plans, run count and
-warnings without starting anything. `client.get(analysis_id)` resumes an analysis.
+nine spend levels (0 to 2 times the baseline in steps of 0.25) and the budget scenarios
+`spend_x1.2`, `spend_x1.4` and `spend_x1.6`. It also takes `context=` and `query_end=` for
+a backtest. Pass `preview=True` to `analyze` or `explore` to see the expanded plans, run
+count and warnings without starting anything. `client.get(analysis_id)` resumes an analysis.
 
 `client.datasets.list()` returns your stored datasets with `content_hash`, `created_at`,
 `last_used_at`, `analyses` (the live analyses) and `expires_at`. Those fields are `None` when an
@@ -456,8 +483,9 @@ not the name. `client.datasets.find(frame, ...)` and `create(..., reuse=True)` r
 dataset only when its hash equals that of the frame: never by name or by number of weeks.
 `dataset_content_hash(body)` and `frame_content_hash(frame, ...)` compute the hash locally.
 
-An `Analysis` has `status()`, `wait(timeout=, poll=)`, `table`, `weekly(scenario_id)`,
-`draws(scenario_ids=None)`, `plot_curves()`, `plot_compare()`, `export(path)` and `delete()`.
+An `Analysis` has `status()`, `wait(timeout=, poll=)`, `table`, `history`, `fit`, `shares`,
+`curves`, `weekly(scenario_id)`, `draws(scenario_ids=None)`, `plot_curves()`,
+`plot_compare()`, `again(scenarios)`, `export(path)` and `delete()`.
 It also has `name` and `url`. The plots mark plans that have warnings and print the warnings
 under the chart. `draws()` reads
 each plan's per-draw file into one `xarray.Dataset` stacked along `scenario`; if a signed
@@ -465,15 +493,21 @@ URL has expired it fetches the result again for new URLs and never reruns anythi
 
 Read the numbers as the result's `labels` say, which the client keeps on the objects
 (`analysis.labels`, and `attrs["labels"]` on tables). Intervals are pointwise 5th to 95th
-percentiles of expected outcome and are not causal lift. The service gives no interval for
-the difference between two plans: `simulation_se` measures numerical precision of the mean
-difference only, and `plot_compare()` draws it as "simulation error, not model uncertainty".
+percentiles of expected outcome and are not causal lift. `mean`, `p05`, `p95` and
+`window_mean` are totals: `window_mean` is the expected total over the window, not a weekly
+mean. The service gives no interval for a difference between scenarios, only the paired mean
+difference `mean_difference`: `simulation_se` measures its numerical precision only, and
+`plot_compare()` draws it as "simulation error, not model uncertainty".
 
-Every request that creates something carries an `Idempotency-Key`, reused when the client
-retries, so a retry never starts the work twice. The client retries HTTP 429, 502, 503 and 504
+Every request that creates something carries an `Idempotency-Key` derived from the request
+content and reused when the client retries, so a retry or a repeated call never starts the
+work twice; pass `idempotency_key=` to run an equal request again. If the earlier equal
+request was deleted or expired, the service answers 410 and the client raises `Gone`: pass a
+new `idempotency_key=` to run it again. The client never picks a new key itself. The client retries HTTP 429, 502, 503 and 504
 and connection errors, and waits as long as `Retry-After` asks, up to `Client(max_retry_after=...)` seconds (default 60). Errors raise `NotFound`,
-`Gone`, `Conflict`, `NotReady`, `RateLimited`, `ValidationError` and others, each with
-`code`, `message` and `field` from the service.
+`Gone`, `Conflict`, `NotReady`, `PayloadTooLarge`, `RateLimited`, `ValidationError` and
+others, each with `code`, `message` and `field` from the service. Scenario steps were
+removed: a body with `steps` gets `422 steps_removed`.
 
 ## Train an amortized network
 

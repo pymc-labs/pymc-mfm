@@ -1,0 +1,132 @@
+---
+title: "Call the River API"
+description: "Use the torch-free HTTP client to upload a history, run River API analyses and backtests, and compare budget scenarios."
+---
+
+## Create a client
+
+[pymc_mfm.client](../reference/client.Client.qmd) is the torch-free HTTP client for River API v3.1. It works with the light base install; install `pymc-mfm[client]` to read per-draw files and create client plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
+
+```python
+from pymc_mfm.client import Client
+
+client = Client("https://api.example.com")  # API key from MFM_API_KEY
+```
+
+A `Client` closes its connection pool with `close()` and can be used as a context manager.
+
+## Create a dataset and analysis
+
+A [Dataset](../reference/client.Dataset.qmd) stores a weekly history and its column roles. `history_ranges` reports the weekly 5th and 95th percentiles, maximum, zero-week share, and all-zero status for each channel and control, which helps keep plans inside the observed history range.
+
+```python
+import pandas as pd
+
+from pymc_mfm.client import Client, amount, curve, grid, scenario
+
+client = Client("https://api.example.com")
+dataset = client.datasets.create(
+    history,
+    date="week",
+    outcome="sales",
+    spend=["tv", "search"],
+    controls=["price"],
+    name="brand-a",
+)
+
+analysis = client.analyze(
+    dataset,
+    plan,
+    scenarios=[
+        scenario("half", {"tv": 0.5, "search": 0.5}),
+        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_000)}),
+        *grid({"tv": [0.5, 1.5], "search": [0.5, 1.5]}),
+    ],
+    decision_weeks=(1, 8),
+    seed=7,
+)
+analysis.wait()
+results = analysis.table
+```
+
+`plan` is the baseline for the weeks after the history. A [scenario](../reference/client.scenario.qmd) is a named budget change against it: one multiplier per channel that changes. A number from 0 to 5 multiplies the channel's spend in the window, and [amount](../reference/client.amount.qmd) sets the channel's total spend in the window, keeping its weekly pattern; a channel with no spend in the window gets the amount split evenly over its weeks. Channels left out keep their spend. Scenarios do not change spend timing or control values. [grid](../reference/client.grid.qmd) expands channel multipliers into one scenario for every combination, and [curve](../reference/client.curve.qmd) requests spend-level response curves.
+
+The window is `decision_weeks=(i, j)` of a plan, 1-based and inclusive (default: the whole plan). Omit `draws` and `seed` to use the service defaults.
+
+## Run a backtest
+
+A backtest forecasts weeks that the dataset already holds, so the forecast can be scored against what happened. `context=(start, end)` gives the first and last input week, and `query_end` the last predicted week; prediction starts the week after `end`. The model does not see the outcome of the predicted weeks. The baseline is the dataset's own spend and controls in those weeks, and the predicted weeks are the scenario window.
+
+```python
+backtest = client.analyze(
+    dataset,
+    context=("2024-11-11", "2026-08-03"),
+    query_end="2026-11-02",
+    channels=["tv", "search"],  # optional: some series of the dataset (default: all)
+    scenarios=[scenario("budget_x1.2", {"tv": 1.2, "search": 1.2})],
+    curves=[curve("tv", [0, 0.5, 1.5, 2]), curve("search", [0, 0.5, 1.5, 2])],
+    seed=7,
+).wait()
+backtest.fit
+backtest.shares
+backtest.curves
+```
+
+| Member | Result |
+| --- | --- |
+| `fit` | One row per window (`context`: input weeks; `query`: predicted weeks) and metric: `r2` and `mape` (a fraction) of the mean line with their spread over draws, and `crps` of the draws |
+| `shares` | Each channel's and control's share of the expected outcome per window: `total` (its total over the window divided by the total outcome) and `mean` (the average weekly share), with the 5th and 95th percentiles |
+| `curves` | Per channel and spend level, the channel's own contribution over the predicted weeks; `spend` is its baseline spend there |
+
+The three are `None` for an analysis of a plan. A backtest explains the history by default (`explain_history=True`).
+
+## Try more scenarios
+
+[Analysis.again](../reference/client.Analysis.qmd) starts a new analysis with the same dataset, weeks or plan, series, `decision_weeks`, seed and draws, and new scenarios. It runs one more baseline, no curves unless you pass `curves`, and no history pass unless you set `explain_history`.
+
+```python
+more = backtest.again([scenario("search_x1.5", {"search": 1.5})]).wait()
+```
+
+Compare each scenario only with the baseline of its own analysis. Do not subtract numbers of two analyses: their draws are not paired. `again` reads the baseline and its decision window from the export, so it raises `NotReady` until every run has ended: call `wait()` first. Repeating the same call returns the same analysis; pass `idempotency_key` to run it once more.
+
+## Preview and explore
+
+Pass `preview=True` to `analyze` or `explore` to return a [Preview](../reference/client.Preview.qmd) without storing or running an analysis. A preview exposes expanded plans, run count, estimated duration, assumptions, and warnings.
+
+```python
+preview = client.analyze(dataset, plan, preview=True)
+first_look = client.explore(dataset, plan, preview=True)
+```
+
+`explore` builds one response curve per channel at nine levels from 0 to 2 times baseline spend in 0.25 increments, plus the budget scenarios `spend_x1.2`, `spend_x1.4` and `spend_x1.6`, which multiply every channel's spend by 1.2, 1.4 and 1.6. For a backtest, pass `context` and `query_end` in place of `plan`. Retrieve an existing analysis with `client.get(analysis_id)`.
+
+## Read an analysis
+
+An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until it is done or failed; `wait` raises `Gone` if the analysis is deleted or expires meanwhile.
+
+| Member | Result |
+| --- | --- |
+| `table` | One row per plan and component: `mean`, `p05` and `p95` of the total over the forecast, `window_mean` (the expected total over the window, not a weekly mean), and `mean_difference` from the base plan |
+| `weekly(scenario_id)` | Weekly component means and 5th–95th percentiles for one plan |
+| `draws(scenario_ids=None)` | Per-draw files as one `xarray.Dataset` stacked along `scenario`; needs the `draws` extra |
+| `plot_curves()` | Response-curve figure; needs the `plot` extra |
+| `plot_compare()` | Scenario-versus-base mean differences with simulation-error bars; needs the `plot` extra |
+| `fit`, `shares`, `curves` | Backtest scores, shares and response curves; `None` for a plan |
+| `again(scenarios)` | A new analysis with the same inputs and new scenarios |
+| `export(path)` | The whole analysis as one JSON file, once every run has ended |
+| `delete()` | Cancels unstarted work and deletes the analysis and its data |
+
+`draws()` refreshes expired signed URLs and fetches the result again; it never reruns the analysis. A `done` analysis can still have failed scenario or curve plans: their rows have `status == "failed"` and no numbers. A `failed` analysis means its baseline failed.
+
+::: {.callout-note}
+## Read labels before comparing plans
+
+Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the result. Intervals are pointwise 5th–95th percentiles of expected outcome, exclude observation noise, and are not causal lift. The service supplies no interval for a difference between scenarios, only the paired mean difference `mean_difference`; `simulation_se` is numerical precision of that mean difference, not model uncertainty.
+:::
+
+## Retries and errors
+
+Every request that creates a dataset or analysis carries an `Idempotency-Key` derived from the request content. Automatic retries and repeated equal calls reuse that key, so they do not start work twice; pass `idempotency_key` to run an equal request again. If the earlier equal request was deleted or expired, the service answers 410 and the client raises `Gone`; pass a new `idempotency_key` to run it again. The client never picks a new key itself. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
+
+Service responses raise typed [ApiError](../reference/client.ApiError.qmd) subclasses. Common responses include `NotFound`, `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge` (send fewer weeks, scenarios or curves), `RateLimited`, and `ValidationError`; their errors expose the service `code`, `message`, and `field`. Scenario steps were removed: a request with `steps` gets `ValidationError` with code `steps_removed`. Exhausted connection retries raise `ApiConnectionError`, a separate `ClientError` without a service payload.

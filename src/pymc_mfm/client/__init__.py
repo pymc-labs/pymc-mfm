@@ -5,7 +5,7 @@ needs the ``draws`` extra and plots need the ``plot`` extra.
 
 .. code-block:: python
 
-    from pymc_mfm.client import Client
+    from pymc_mfm.client import Client, amount, scenario
 
     client = Client("https://api.example.com", api_key="...")  # or MFM_API_URL, MFM_API_KEY
     dataset = client.datasets.create(
@@ -14,12 +14,15 @@ needs the ``draws`` extra and plots need the ``plot`` extra.
     analysis = client.explore(dataset, plan).wait()
     analysis.table
     analysis.plot_curves()
+    again = analysis.again(
+        [scenario("tv_to_search", {"tv": 0.8, "search": amount(30000)})]
+    ).wait()
 """
 
 from ._client import Client
 from ._hash import dataset_content_hash, frame_content_hash
 from .analysis import Analysis, AnalysisStatus, Preview
-from .builders import curve, grid, move, scale, scenario, set_controls, shift
+from .builders import amount, curve, grid, scenario
 from .datasets import Dataset
 from .errors import (
     ApiConnectionError,
@@ -30,6 +33,7 @@ from .errors import (
     Gone,
     NotFound,
     NotReady,
+    PayloadTooLarge,
     RateLimited,
     ServerError,
     Unauthorized,
@@ -49,18 +53,16 @@ __all__ = [
     "Gone",
     "NotFound",
     "NotReady",
+    "PayloadTooLarge",
     "Preview",
     "RateLimited",
     "ServerError",
     "Unauthorized",
     "ValidationError",
+    "amount",
     "curve",
     "dataset_content_hash",
     "frame_content_hash",
     "grid",
-    "move",
-    "scale",
     "scenario",
-    "set_controls",
-    "shift",
 ]

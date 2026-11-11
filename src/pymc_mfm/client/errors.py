@@ -71,6 +71,11 @@ class Gone(ApiError):
     """The resource expired or was deleted (410)."""
 
 
+class PayloadTooLarge(ApiError):
+    """The request body is larger than the service accepts (413). Send fewer weeks,
+    scenarios or curves in one call."""
+
+
 class RateLimited(ApiError):
     """Too many requests (429). ``retry_after`` is in seconds, when given."""
 
@@ -86,6 +91,7 @@ _BY_STATUS: dict[int, type[ApiError]] = {
     404: NotFound,
     409: Conflict,
     410: Gone,
+    413: PayloadTooLarge,
     422: ValidationError,
     429: RateLimited,
 }
