@@ -145,11 +145,13 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
 ## More scenarios
 
 There is no endpoint that adds scenarios to an analysis. To try more, send a new `POST /v1/analyses`
-with the same baseline, `seed` and `draws` and the new scenarios. Read them from
+with the same baseline, window, `seed` and `draws` and the new scenarios. Read them from
 `GET /v1/analyses/{id}`: a backtest repeats its `context` (`start`, `end`, `query_end`, `channels`,
-`controls`). For a plan, read the export: in its `scenarios` list, the entry with `kind` `baseline`
-has `inputs` with `dates`, `spend` and `controls` (the plan) and `decision_dates` (the window, from
-which you get `decision_weeks`). Set `explain_history` to `false` and leave out curves you
+`controls`). Then read the export (`409 not_ready` until the analysis has ended): in its `scenarios`
+list, the entry with `kind` `baseline` has `inputs` with `dates` (the forecast weeks), `spend` and
+`controls` (for a plan, the plan) and `decision_dates` (the window). When `decision_dates` are fewer
+than `dates`, send `decision_weeks` `[i, j]`: the 1-based positions of the first and last decision
+date in `dates`. This applies to both forms. Set `explain_history` to `false` and leave out curves you
 already have. Compare each scenario only with the baseline of its own analysis, never with a number
 from another analysis: their draws are not paired.
 

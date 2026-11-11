@@ -391,9 +391,11 @@ a channel's spend there, and `amount(x)` sets its total there to `x`, keeping th
 pattern (a channel with no spend gets `x` split evenly). Channels left out keep their
 spend. Scenarios do not change spend timing or controls. A backtest's `channels=` and
 `controls=` choose series of the dataset (default: all); `fit`, `shares` and `curves` are
-`None` for a plan. `again(scenarios, curves=None, explain_history=False)` repeats the
-dataset, weeks or plan, series, seed and draws, and runs one more baseline. Compare each
-scenario only with the baseline of its own analysis.
+`None` for a plan. `again(scenarios, curves=None, explain_history=False, idempotency_key=None)`
+repeats the dataset, weeks or plan, series, `decision_weeks`, seed and draws, and runs one
+more baseline. It reads the baseline from the export, so it raises `NotReady` until the
+analysis has ended: call `wait()` first. Compare each scenario only with the baseline of
+its own analysis.
 
 `client.explore(dataset, plan)` is a first look: a response curve for every channel at
 nine spend levels (0 to 2 times the baseline in steps of 0.25) and the budget scenarios
@@ -427,7 +429,9 @@ difference `mean_difference`: `simulation_se` measures its numerical precision o
 
 Every request that creates something carries an `Idempotency-Key` derived from the request
 content and reused when the client retries, so a retry or a repeated call never starts the
-work twice; pass `idempotency_key=` to run an equal request again. The client retries HTTP 429, 502, 503 and 504
+work twice; pass `idempotency_key=` to run an equal request again. If the earlier equal
+request was deleted or expired, the service answers 410 and the client raises `Gone`: pass a
+new `idempotency_key=` to run it again. The client never picks a new key itself. The client retries HTTP 429, 502, 503 and 504
 and connection errors, and waits as long as `Retry-After` asks, up to `Client(max_retry_after=...)` seconds (default 60). Errors raise `NotFound`,
 `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge`, `RateLimited`, `ValidationError` and
 others, each with `code`, `message` and `field` from the service. Scenario steps were

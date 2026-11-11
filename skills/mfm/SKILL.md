@@ -141,8 +141,9 @@ more = backtest.again([scenario("search_x1.5", {"search": 1.5})]).wait(timeout=6
 print(more.table.query("component == 'outcome'")[["scenario_id", "mean", "mean_difference"]])
 ```
 
-`again` starts a new analysis with the same dataset, weeks (or plan), series, seed and draws. It
-runs one more baseline and the new scenarios, but no curves unless you pass `curves=`. Compare each
+`again` starts a new analysis with the same dataset, weeks (or plan), series, `decision_weeks`, seed
+and draws. It reads them from the export, so it raises `NotReady` until the analysis has ended: call
+`wait()` first. It runs one more baseline and the new scenarios, but no curves unless you pass `curves=`. Compare each
 scenario only with the baseline of its own analysis, never with a number from another analysis.
 
 Response curves, only when the user asks for curves: each channel alone at spend levels 0 to 2
@@ -266,7 +267,7 @@ work twice. It raises these errors, all in `pymc_mfm.client`:
 | `Unauthorized` (401) | Bad key. Stop and tell the user. |
 | `ValidationError` (400, 422) | Read `error.code`, `error.field` and `error.message`. Fix the request. Nothing started. Do not loop. `steps_removed`: scenario steps were removed; send multipliers. |
 | `NotFound` (404) | Wrong id, or another user's id. |
-| `Gone` (410) | The resource was deleted or expired. Do not retry. Create it again if the user needs it. |
+| `Gone` (410) | The resource was deleted or expired. Do not retry the same call. On a create call (`create`, `analyze`, `again`), an earlier equal request was deleted: if the user needs it again, pass a new `idempotency_key=`. |
 | `NotReady` (409 `not_ready`) | The analysis is not finished. Call `wait()`. |
 | `Conflict` (other 409) | `idempotency_conflict`: the key was used with another body; use a new key. `plan_failed`: that plan has no result. |
 | `PayloadTooLarge` (413) | The request is too large. Send fewer weeks, scenarios or curves in one call. |
