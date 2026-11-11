@@ -190,10 +190,11 @@ def decompose(
         if (batch["sales_scale"] <= 0).any():
             raise ValueError("sales_scale must be positive")
     else:
-        batch = observation_batch(
-            **observations, model_config=model.config, device=parameter.device
-        )
-    batch = _model_batch(batch, device=parameter.device, dtype=parameter.dtype)
+        batch = observation_batch(**observations, model_config=model.config, device="cpu")
+    # Checks, hashes and summaries read a CPU copy in the model's dtype, so a GPU model
+    # waits for no device round trip; only sampling reads the device copy.
+    batch = _model_batch(batch, device="cpu", dtype=parameter.dtype)
+    device_batch = _to_device(batch, parameter.device)
     if graph is not None:
         # Validate the caller's precision before the model converts graph dtype. A
         # copy keeps a caller's (possibly read-only) array out of the tensor.
@@ -216,6 +217,27 @@ def decompose(
                 raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
         identity.update(provenance)
     _drop_recorded_evaluation(identity, getattr(model, "provenance", {}).get("training_evaluation"))
+    if time is not None:
+        full_length = batch["ctx_spend_z"].shape[1] + batch["qry_spend_z"].shape[1]
+        time = _validate_time(time, length=full_length, allow_bool=False)
+    was_training = model.training
+    # Switching modes walks every submodule; skip it when every module already evaluates.
+    switch_modes = any(module.training for module in model.modules())
+    try:
+        if switch_modes:
+            model.eval()
+        components, graphs = model.sample_disentangled(
+            device_batch,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            window=window,
+        )
+    finally:
+        if switch_modes:
+            model.train(was_training)
+    # Hash and summarize while an asynchronous device may still be sampling.
     # Hash only the representation read by inference; never write observations.
     identity["data_sha256"] = observation_identity(batch)
     identity["head"] = "conditional"
@@ -233,22 +255,6 @@ def decompose(
     identity["input_support"] = {}
     for key, (values, input_units) in support_arrays.items():
         identity["input_support"][key] = _input_summary(values, input_units)
-    if time is not None:
-        full_length = batch["ctx_spend_z"].shape[1] + batch["qry_spend_z"].shape[1]
-        time = _validate_time(time, length=full_length, allow_bool=False)
-    was_training = model.training
-    try:
-        model.eval()
-        components, graphs = model.sample_disentangled(
-            batch,
-            n_samples=n_samples,
-            mode=mode,
-            graph=graph,
-            router_samples=router_samples,
-            window=window,
-        )
-    finally:
-        model.train(was_training)
     result = result_from_batch(
         batch,
         components,
@@ -270,6 +276,23 @@ def decompose(
         )
         result = replace(result, time=selected)
     return result
+
+
+def _to_device(batch: dict[str, torch.Tensor], device: torch.device) -> dict[str, torch.Tensor]:
+    """Sampling copy of ``batch`` on ``device``; ``sales_scale`` stays on the CPU.
+
+    The other tensors move in one transfer, as views of one buffer: on a GPU each
+    separate copy would wait for the device.
+    """
+    if device.type == "cpu":
+        return dict(batch)
+    moved = [key for key in batch if key != "sales_scale"]
+    flat = torch.cat([batch[key].reshape(-1) for key in moved]).to(device)
+    views = dict(zip(moved, flat.split([batch[key].numel() for key in moved]), strict=True))
+    return {
+        key: value if key == "sales_scale" else views[key].view(value.shape)
+        for key, value in batch.items()
+    }
 
 
 def _drop_recorded_evaluation(identity: dict, recorded) -> None:

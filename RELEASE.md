@@ -6,6 +6,72 @@ approved or published release.
 
 ## Changes
 
+- **GPU sampling on Apple and NVIDIA GPUs, same draws on every device.** With the model on
+  an Apple GPU (`device="mps"`) or an NVIDIA GPU (`device="cuda"`), each Euler step
+  evaluates every live coordinate network in one fused kernel: the first layer is built in
+  on-chip memory, the hidden product runs on simdgroup matrices (Metal) or register tiles
+  (CUDA) and the output layer reduces in registers, so no activation reaches device
+  memory. The week-pooled trajectory contexts, the Euler update with the entity moments
+  and the context projections of every network are small kernels of their own. The CUDA
+  kernels are compiled by NVRTC, which PyTorch's CUDA wheels include, in background threads
+  as sampling starts, and loaded through the NVIDIA driver, so no CUDA toolkit or compiler
+  is needed (about 1 s when no compiled copy is cached, overlapping the first call); on PyTorch
+  2.6–2.8, which do not find NVRTC themselves, the versioned library name PyTorch loaded is
+  used, and the kernels compile as C++17, as CUDA 11.8 builds need. Other CUDA devices than
+  the current one, ROCm and GPUs on which any of the kernels fails to build keep PyTorch's
+  operations, in the batch size they had before. On an
+  Apple GPU each transport commits its kernels as soon as they are
+  queued, and the encoder's attention runs as Metal kernels. GPU sampling draws base noise
+  with the CPU generator on a worker thread, in the inline order, while the GPU encodes
+  and transports (pinned buffers on CUDA; on an Apple GPU the generator draws only the
+  uniforms `torch.randn` would use and the GPU finishes them into the same normals), so
+  seeded GPU draws equal CPU draws up to float32 round-off; before this change MPS and
+  CUDA used their own generators. The CPU stays ahead of the GPU: activity masks, live
+  coordinates, router graphs, distinct (task, graph) pairs and decoder masks are decided
+  on small host copies, copies to the GPU do not wait for queued work, and the router
+  skips the work its graphs do not read (the last step of the decomposition networks and
+  the support rules). `decompose` checks, hashes and summarizes a CPU copy of the encoded
+  inputs and moves only the sampling copy to the device. On the GPU the conditional
+  decoder conditions each distinct (task, graph) pair once per call instead of once per
+  batch and keeps its representations, masks and first-layer inputs once per pair rather
+  than once per draw; when the pairs outnumber a batch's draws (a model that draws nearly a
+  graph per draw) it conditions per batch, in chunks of a CPU batch, so memory stays bounded
+  (random weights of River-1's architecture at 205 weeks: 4.2 GiB peak on an Apple M3 Max
+  GPU, 1.2 GiB on NVIDIA GPUs). The CPU conditions each batch's pairs in its batch worker,
+  as before. Sampling on an Apple GPU needs PyTorch 2.9 or newer (2.8 MPS
+  computes linear layers of column-sliced weights wrongly) and raises otherwise; it also
+  raises on a GPU whose MPS linear layers are wrong (a macOS virtual machine's
+  paravirtual GPU computes them with a bias 30–80% off), checked once per process. No
+  weights, bundles or training change. Off Apple silicon, CPU sampling transports up to
+  eight batches at once, each on its own share of PyTorch's threads (it ran one batch on
+  every thread), and each network's static and context terms fill its first layer before
+  the scalar product accumulates into it; on x86 its hidden layer also runs on row chunks
+  that stay in cache. Linux x86 capped at 8 CPUs: 1.6–2.4x faster on AMD EPYC and
+  1.0–1.35x on Intel Xeon; GitHub's 2-vCPU runners: Windows x86 1.25–1.36x, Linux x86 (one
+  thread) 1.14–1.16x, Linux ARM 1.04–1.06x plus 1–2% from the fill. As on the GPU, the CPU
+  router skips its decomposition networks' last Euler step. Draws equal up to float32
+  round-off (Apple silicon keeps eight batches sharing every thread and the previous
+  first-layer order, and its CPU draws are bitwise unchanged). River-1, 1,000
+  query draws on the quickstart world with a 166-week context at 10, 50, 150 and 205 query
+  weeks: Apple M3 Max CPU 0.66, 2.51, 7.25 and 10.17 s; its GPU 0.075, 0.30, 0.86 and 1.17 s
+  (8.4–8.8x; the previous MPS path took 0.42, 1.61, 4.50 and 6.15 s); NVIDIA L4 0.10, 0.35,
+  1.00 and 1.35 s; A100 0.084, 0.23, 0.60 and 0.80 s; H100 0.063, 0.13, 0.32 and 0.41 s; B200
+  0.037, 0.094, 0.25 and 0.33 s (2.7–7.2x faster than PyTorch's GPU operations at 50–205
+  weeks on T4 to H100 and B200, 2.3–3.3x at 10). Graphs are identical to the CPU draws on
+  every device and components agree within 2e-6 of the largest component.
+  `benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps` (or `--device
+  cuda`) reproduces the timings; with `--check-reference` and CPU draws written by the same
+  script it checks the draws, failing on any flipped graph.
+- **Faster loading.** `from_pretrained` (and `load_checkpoint` for training checkpoints)
+  built the model on PyTorch's meta device before loading its weights; initializing
+  parameters there runs Python reference kernels whose first call imports `torch._dynamo`
+  and with it sympy, Triton and `torch.distributed`. Both now build the model on the CPU
+  without advancing PyTorch's generator, and sampling checks shapes with NumPy rather than
+  `torch.broadcast_shapes`, which imported sympy. Neither loading nor sampling imports
+  `torch._dynamo` or sympy now: loading River-1 took 1.9–3.7 s on Linux hosts and 0.5 s on
+  an Apple M3 Max, now 0.27–0.39 s and 0.13 s; River-1's architecture on GitHub's Windows,
+  macOS and Linux runners took 0.6–4.6 s (most on a first load after installing), now
+  0.04–0.11 s. Weights and draws are unchanged.
 - **Encoder input-token accounting.** After `add_context`, `model.input_usage()`
   reports context-only allocated and represented token counts.
   `model.input_usage(future_data)` validates the complete request, including the

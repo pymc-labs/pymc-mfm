@@ -13,6 +13,7 @@ from pymc_mfm.data.features import (
     MEDIA_FEATURE_BLOCKS,
     MOMENT_FEATURE_BLOCKS,
 )
+from pymc_mfm.model import _metal
 from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.primitives import MultiHeadAttention, RMSNorm, SwiGLU
 
@@ -38,7 +39,10 @@ class BiAttentionBlock(nn.Module):
         x: Tensor,
         time_mask: Tensor,
         entity_active: Tensor | None = None,
+        *,
+        causal: bool = False,
     ) -> Tensor:
+        """``causal`` declares ``time_mask`` lower-triangular (see ``MultiHeadAttention``)."""
         b, t, c, d = x.shape
         if entity_active is None:
             entity_active = torch.ones(b, c, dtype=torch.bool, device=x.device)
@@ -50,30 +54,29 @@ class BiAttentionBlock(nn.Module):
         active_grid = active[:, None, :, None].to(x.dtype)
         x = x * active_grid
         xt = x.permute(0, 2, 1, 3).reshape(b * c, t, d)
-        xt = xt + self.time_attn(self.time_norm(xt), time_mask)
+        xt = xt + self.time_attn(self.time_norm(xt), time_mask, causal=causal)
         x = xt.reshape(b, c, t, d).permute(0, 2, 1, 3) * active_grid
 
         xc = x.reshape(b * t, c, d)
         normed = self.chan_norm(xc)
-        qkv = self.chan_attn.qkv(normed).reshape(
-            b * t,
-            c,
-            3,
-            self.chan_attn.n_heads,
-            self.chan_attn.d_head,
-        )
-        query, key, value = qkv.unbind(dim=2)
-        query = query.transpose(1, 2)
-        key = key.transpose(1, 2)
-        value = value.transpose(1, 2)
-        key_active = active[:, None, :].expand(b, t, c).reshape(b * t, 1, 1, c)
-        attended = F.scaled_dot_product_attention(
-            query,
-            key,
-            value,
-            attn_mask=key_active,
-        )
-        attended = attended.transpose(1, 2).reshape(b * t, c, d)
+        packed = self.chan_attn.qkv(normed)
+        if _metal.attention_supported(packed, self.chan_attn.d_head):
+            # Each week's entities attend the active entities of the week's task.
+            attended = _metal.masked_attention(packed, self.chan_attn.n_heads, active)
+        else:
+            qkv = packed.reshape(b * t, c, 3, self.chan_attn.n_heads, self.chan_attn.d_head)
+            query, key, value = qkv.unbind(dim=2)
+            query = query.transpose(1, 2)
+            key = key.transpose(1, 2)
+            value = value.transpose(1, 2)
+            key_active = active[:, None, :].expand(b, t, c).reshape(b * t, 1, 1, c)
+            attended = F.scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                attn_mask=key_active,
+            )
+            attended = attended.transpose(1, 2).reshape(b * t, c, d)
         xc = xc + self.chan_attn.out(attended)
         x = xc.reshape(b, t, c, d) * active_grid
         return (x + self.ffn(self.ffn_norm(x))) * active_grid
@@ -173,21 +176,27 @@ class BiAttentionEncoder(nn.Module):
         active_c = active_c.to(device=device)
         if active_c.shape != (b, c):
             raise ValueError(f"active_c_mask must have shape {(b, c)}, got {tuple(active_c.shape)}")
-        if ((active_c != 0) & (active_c != 1)).any():
-            raise ValueError("active_c_mask must be binary")
-        if (active_c.sum(dim=-1) == 0).any():
-            raise ValueError("encoder batch contains a task with no active media channels")
         active_m = batch.get("active_m_mask")
         if active_m is None:
             active_m = torch.ones(b, n_controls, device=device, dtype=dtype)
         active_m = active_m.to(device=device)
-        if active_m.shape != (b, n_controls):
+        # Check both masks from one host copy: each check of a GPU tensor waits for it.
+        m_shaped = active_m.shape == (b, n_controls)
+        joined = m_shaped and active_m.dtype == active_c.dtype
+        host = torch.cat([active_c, active_m] if joined else [active_c], dim=-1).cpu()
+        host_c = host[:, :c]
+        host_m = host[:, c:] if joined else active_m.cpu()
+        if ((host_c != 0) & (host_c != 1)).any():
+            raise ValueError("active_c_mask must be binary")
+        if (host_c.sum(dim=-1) == 0).any():
+            raise ValueError("encoder batch contains a task with no active media channels")
+        if not m_shaped:
             raise ValueError(
                 f"active_m_mask must have shape {(b, n_controls)}, got {tuple(active_m.shape)}"
             )
-        if ((active_m != 0) & (active_m != 1)).any():
+        if ((host_m != 0) & (host_m != 1)).any():
             raise ValueError("active_m_mask must be binary")
-        if n_controls > 0 and (active_m.sum(dim=-1) == 0).any():
+        if n_controls > 0 and (host_m.sum(dim=-1) == 0).any():
             raise ValueError("encoder batch contains a task with no active controls")
         active_parts = [active_c, active_m, torch.ones(b, 1, device=device, dtype=dtype)]
         entity_active = torch.cat(active_parts, dim=-1).to(torch.bool)
@@ -236,9 +245,9 @@ class BiAttentionEncoder(nn.Module):
         cells, n_ctx, n_q, n_real, entity_active = self._cell_grid(batch)
         x = self.input_proj(cells)
         n_weeks = n_ctx + n_q
-        time_mask = torch.tril(torch.ones(n_weeks, n_weeks, dtype=torch.bool)).to(x.device)
+        time_mask = torch.ones(n_weeks, n_weeks, dtype=torch.bool, device=x.device).tril()
         for block in self.blocks:
-            x = block(x, time_mask, entity_active)
+            x = block(x, time_mask, entity_active, causal=True)
         x = self.norm(x)
         return TimelineRepresentations(
             context=self._split(x[:, :n_ctx], n_real),

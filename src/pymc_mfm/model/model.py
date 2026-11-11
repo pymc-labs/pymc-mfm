@@ -6,9 +6,11 @@ from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Self
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 
+from . import _metal
 from .compiled import CompiledVelocity, SamplingStatus
 from .config import LossWeights, ModelConfig
 from .encoder import BiAttentionEncoder, SplitRepresentations
@@ -17,12 +19,19 @@ from .flow import (
     _FLOW_SAMPLE_ROWS,
     DEFAULT_N_SAMPLES,
     JointFlowHead,
+    _draw_host_noise,
     _edge_slot_layout,
     _map_batches,
+    _noise_device,
+    _NoisePrefetch,
+    _NoiseRequest,
     _sample_count,
+    _sample_rows,
+    _to_device,
 )
 from .graph import (
     STRUCT_EDGE_KEYS,
+    STRUCT_MASK_KEYS,
     EdgeSlotLayout,
     GraphConditioner,
     StructureHead,
@@ -37,6 +46,47 @@ if TYPE_CHECKING:
 
     from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
     from pymc_mfm.inference.result import DecompositionResult
+
+
+def _move_together(tensors: Sequence[Tensor], device: torch.device) -> list[Tensor]:
+    """``tensors`` on ``device``, moved with one copy when they share a dtype.
+
+    Each blocking copy waits for the GPU; a host-to-MPS copy does not wait (see ``_to_device``).
+    """
+    if all(tensor.device == device for tensor in tensors):
+        return list(tensors)
+    if len({tensor.dtype for tensor in tensors}) > 1:
+        return [_to_device(tensor, device) for tensor in tensors]
+    flat = _to_device(torch.cat([tensor.reshape(-1) for tensor in tensors]), device)
+    parts = flat.split([tensor.numel() for tensor in tensors])
+    return [part.view(tensor.shape) for part, tensor in zip(parts, tensors, strict=True)]
+
+
+def _distinct_task_graphs(graphs: Tensor, n_tasks: int) -> tuple[Tensor, Tensor]:
+    """``torch.unique(keys, dim=0, return_inverse=True)`` of the ``[task, graph]`` keys.
+
+    ``graphs[S*B, L]`` are binary host draws, task-minor. Each key is compared as its
+    big-endian task index and packed graph bits, which order as the keys do, so the
+    distinct keys, their order and the inverse match ``torch.unique`` at a fraction
+    of its cost.
+    """
+    count = graphs.shape[0]
+    task = torch.arange(n_tasks).repeat(count // n_tasks)
+    keys = np.concatenate(
+        [
+            task.numpy().astype(">u4").view(np.uint8).reshape(count, 4),
+            np.packbits((graphs > 0.5).numpy(), axis=-1),
+        ],
+        axis=1,
+    )
+    _, first, inverse = np.unique(
+        keys.view(np.dtype((np.void, keys.shape[1]))).ravel(),
+        return_index=True,
+        return_inverse=True,
+    )
+    first = torch.from_numpy(first)
+    distinct = torch.cat([task[first].unsqueeze(-1).to(graphs.dtype), graphs[first]], dim=-1)
+    return distinct, torch.from_numpy(inverse.reshape(-1))
 
 
 class MFM(nn.Module):
@@ -159,11 +209,15 @@ class MFM(nn.Module):
         g_weekly = g.unsqueeze(1).expand(-1, targets_z.shape[1], -1)
         return torch.cat([targets_z, g_weekly], dim=-1)
 
-    def _flow_state_mask(self, batch: dict[str, Tensor]) -> Tensor:
+    def _flow_state_mask(
+        self, batch: dict[str, Tensor], host_masks: Mapping[str, Tensor] | None = None
+    ) -> Tensor:
         """Mask decomposition entities and graph slots using only node activity.
 
         The decomposition prefix is ``[1 | active_c | active_m | 1,1,1,1]``;
-        a graph slot is active exactly when both incident nodes are active.
+        a graph slot is active exactly when both incident nodes are active. Given
+        ``host_masks``, host copies of the batch's activity masks, the mask is built on
+        the host.
         """
         missing = [name for name in ("active_c_mask", "active_m_mask") if name not in batch]
         if missing:
@@ -172,9 +226,14 @@ class MFM(nn.Module):
         active_m = batch["active_m_mask"]
         if active_c.ndim != 2 or active_m.ndim != 2 or active_c.shape[0] != active_m.shape[0]:
             raise ValueError("decomposition activity masks must be rank-2 with a shared batch axis")
+        if host_masks is not None:
+            active_c, active_m = host_masks["active_c_mask"], host_masks["active_m_mask"]
+        # Validate on a host copy: the masks are tiny, and each check of a GPU tensor would
+        # wait for the device.
+        host = torch.cat([active_c, active_m], dim=-1).cpu()
         for name, family, active in (
-            ("active_c_mask", "media channels", active_c),
-            ("active_m_mask", "controls", active_m),
+            ("active_c_mask", "media channels", host[:, : active_c.shape[-1]]),
+            ("active_m_mask", "controls", host[:, active_c.shape[-1] :]),
         ):
             if not torch.isfinite(active).all() or ((active != 0) & (active != 1)).any():
                 raise ValueError(f"{name} must be finite and binary")
@@ -195,18 +254,27 @@ class MFM(nn.Module):
         active_j = batch["active_j_mask"]
         if active_j.ndim != 2 or active_j.shape[0] != active_c.shape[0]:
             raise ValueError("active_j_mask must be rank-2 with the shared batch axis")
-        if not torch.isfinite(active_j).all() or ((active_j != 0) & (active_j != 1)).any():
+        if host_masks is not None:
+            active_j = host_masks["active_j_mask"]
+        host_j = active_j.cpu()
+        if not torch.isfinite(host_j).all() or ((host_j != 0) & (host_j != 1)).any():
             raise ValueError("active_j_mask must be finite and binary")
-        if active_j.shape[-1] > 0 and (active_j.sum(dim=-1) == 0).any():
+        if host_j.shape[-1] > 0 and (host_j.sum(dim=-1) == 0).any():
             raise ValueError("joint graph has a task with no active demand entities")
         layout = _edge_slot_layout(n_channels, n_controls, int(active_j.shape[-1]))
         slot_mask = layout.active_slot_mask(active_c, active_m, active_j)
         return torch.cat([prefix, slot_mask], dim=-1).unsqueeze(1)
 
     def _graph_conditional_geometry(
-        self, batch: dict[str, Tensor], representations: SplitRepresentations
+        self,
+        batch: dict[str, Tensor],
+        representations: SplitRepresentations,
+        host_masks: Mapping[str, Tensor] | None = None,
     ) -> tuple[EdgeSlotLayout, Tensor, Tensor]:
-        """Resolve geometry from observations and padding masks, never graph truth."""
+        """Resolve geometry from observations and padding masks, never graph truth.
+
+        With ``host_masks`` (see :meth:`_flow_state_mask`) the state mask is on the host.
+        """
         weekly, channels, controls = (
             representations.weekly,
             representations.channels,
@@ -224,7 +292,7 @@ class MFM(nn.Module):
         ):
             if key not in batch or batch[key].shape != (weekly.shape[0], width):
                 raise ValueError(f"{key} must have shape {(weekly.shape[0], width)}")
-        state_mask = self._flow_state_mask(batch)
+        state_mask = self._flow_state_mask(batch, host_masks)
         active_nodes = torch.cat(
             [
                 batch["active_c_mask"],
@@ -251,11 +319,8 @@ class MFM(nn.Module):
         allowed = (shape,) if n_samples is None else (shape, (n_samples, *shape))
         if tuple(graph.shape) not in allowed:
             raise ValueError(f"graph shape must be one of {allowed}, got {tuple(graph.shape)}")
-        if (
-            graph.is_complex()
-            or not torch.isfinite(graph).all()
-            or ((graph != 0) & (graph != 1)).any()
-        ):
+        # A non-finite value is neither 0 nor 1.
+        if graph.is_complex() or ((graph != 0) & (graph != 1)).any():
             raise ValueError("graph must contain only finite binary values 0 or 1")
         graph = graph.to(device=state_mask.device, dtype=state_mask.dtype)
         active_slots = state_mask[:, 0, -layout.n_slots :]
@@ -271,6 +336,7 @@ class MFM(nn.Module):
         graph: Tensor,
         layout: EdgeSlotLayout,
         active_nodes: Tensor,
+        live_slots: Tensor | None = None,
     ) -> SplitRepresentations:
         return SplitRepresentations(
             *self.graph_conditioner(
@@ -280,6 +346,7 @@ class MFM(nn.Module):
                 graph,
                 layout,
                 active_nodes,
+                live_slots,
             )
         )
 
@@ -720,98 +787,247 @@ class MFM(nn.Module):
         router_count = _sample_count(
             s if router_samples is None else router_samples, "router_samples"
         )
-        if window == "context":
-            timeline = self.encoder.forward_timeline(batch)
-            query_repr, selected_repr = timeline.query, timeline.context
-        else:
-            query_repr = SplitRepresentations(*self.encoder.forward_with_controls(batch))
-            selected_repr = query_repr
-        layout, state_mask, active_nodes = self._graph_conditional_geometry(batch, selected_repr)
-        if mode == "fixed":
-            graphs = self._validate_conditional_graph(graph, layout, state_mask, n_samples=s)
-        else:
-            _, graph_flow = self.sample(
-                batch,
-                query_repr.weekly,
-                query_repr.channels,
-                n_samples=router_count,
-                return_structure=True,
-                control_repr=query_repr.controls,
-                structure_only=True,
+        # On a GPU the CPU generator draws the base noise (see _noise_device). A worker thread
+        # draws the router's and then the decoder's chunks, in the inline order, while the
+        # GPU encodes and transports. The router's chunks follow the query window's shape.
+        query = batch["qry_spend_z"]
+        prefetch = None
+        if mode != "fixed" and _noise_device(query.device) != query.device:
+            prefetch = _NoisePrefetch(pin=query.device.type == "cuda")
+        # On an NVIDIA GPU the sampling kernels build in background threads while the GPU
+        # encodes (see _cuda.prefetch); compiled sampling runs PyTorch operations instead.
+        if query.device.type == "cuda" and self.head._compiled_velocity is None:
+            _metal.prepare(query.device, (self.head, self.conditional_head))
+        # On a GPU the host copies the activity masks before the encoder is queued; the host
+        # then decides the live coordinates and graph masks without waiting for the GPU.
+        host_masks = None
+        if query.device.type in ("mps", "cuda") and all(key in batch for key in STRUCT_MASK_KEYS):
+            host_masks = dict(
+                zip(
+                    STRUCT_MASK_KEYS,
+                    _move_together([batch[key] for key in STRUCT_MASK_KEYS], torch.device("cpu")),
+                    strict=True,
+                )
             )
+        try:
+            router_noise = None
+            if prefetch is not None:
+                router_noise = prefetch.request(
+                    self.head.noise_shapes(
+                        tuple(query.shape[:2]),
+                        query.shape[-1],
+                        batch["qry_controls_z"].shape[-1],
+                        router_count,
+                    ),
+                    next(self.parameters()).dtype,
+                )
+            if window == "context":
+                timeline = self.encoder.forward_timeline(batch)
+                query_repr, selected_repr = timeline.query, timeline.context
+            else:
+                query_repr = SplitRepresentations(*self.encoder.forward_with_controls(batch))
+                selected_repr = query_repr
+            layout, state_mask, active_nodes = self._graph_conditional_geometry(
+                batch, selected_repr, host_masks
+            )
+            head = self.conditional_head
+            n_dec = head.state_dim(layout.K, layout.M)
+            b, t = selected_repr.weekly.shape[:2]
+            weekly = selected_repr.weekly
+            # Conditional base noise is drawn once per chunk of _FLOW_SAMPLE_CHUNK draws, in
+            # draw order; seeded draws depend on this chunking, not on the batches below.
+            noise_shapes = [
+                (1, (min(start + _FLOW_SAMPLE_CHUNK, s) - start) * b, t, n_dec)
+                for start in range(0, s, _FLOW_SAMPLE_CHUNK)
+            ]
+            decoder_noise = None
+            if prefetch is not None:
+                decoder_noise = prefetch.request(noise_shapes, weekly.dtype)
+
+            def draw_noise() -> tuple[Tensor, Tensor]:
+                device = weekly.device
+                if _noise_device(device) == device:
+                    noise = [
+                        head._draw_noise(shape, device=device, dtype=weekly.dtype)
+                        for shape in noise_shapes
+                    ]
+                    return (
+                        torch.cat([white for white, _ in noise], dim=1),
+                        torch.cat([z for _, z in noise], dim=1),
+                    )
+                if decoder_noise is None:
+                    uniform = _metal.uniform_normals()
+                    noise = [
+                        _draw_host_noise(shape, weekly.dtype, uniform) for shape in noise_shapes
+                    ]
+                else:
+                    noise = list(decoder_noise)
+                return tuple(
+                    _metal.to_device(parts, device).view(1, s * b, *parts[0].shape[2:])
+                    for parts in ([white for white, _ in noise], [z for _, z in noise])
+                )
+
+            if mode == "fixed":
+                graphs = self._validate_conditional_graph(graph, layout, state_mask, n_samples=s)
+                white, latents = draw_noise()
+            else:
+                _, graph_flow = self.sample(
+                    batch,
+                    query_repr.weekly,
+                    query_repr.channels,
+                    n_samples=router_count,
+                    return_structure=True,
+                    control_repr=query_repr.controls,
+                    structure_only=True,
+                    noise=router_noise,
+                    state_mask=state_mask,
+                )
+                graphs = binary_graphs_from_flow(graph_flow)
+                # Taken before the graphs are read, so a GPU router runs while the CPU draws.
+                white, latents = draw_noise()
+        finally:
+            if prefetch is not None:
+                prefetch.close()
+
+        # Conditioning depends only on a draw's task and graph: condition each distinct
+        # (task, graph) pair once (per call or per transport batch, see below), then index it
+        # for every draw that shares it. The host checks router graphs and finds the distinct
+        # pairs and their masks: on a GPU, a copy each way instead of a round trip per step.
+        device = weekly.device
+        host_state_mask = state_mask.cpu()
+        if mode != "fixed":
             graphs = self._validate_conditional_graph(
-                binary_graphs_from_flow(graph_flow), layout, state_mask, n_samples=router_count
+                graphs.cpu(), layout, host_state_mask, n_samples=router_count
             )
             if mode == "map":
                 graphs = empirical_full_graph_mode(graphs).unsqueeze(0).expand(s, -1, -1)
-        head = self.conditional_head
-        n_dec = head.state_dim(layout.K, layout.M)
-        b, t = selected_repr.weekly.shape[:2]
-        weekly = selected_repr.weekly
-        # Conditional base noise is drawn once per chunk of _FLOW_SAMPLE_CHUNK draws, in
-        # draw order; seeded draws depend on this chunking, not on the batches below.
-        noise = [
-            head._draw_noise(
-                (1, (min(start + _FLOW_SAMPLE_CHUNK, s) - start) * b, t, n_dec),
-                device=weekly.device,
-                dtype=weekly.dtype,
-            )
-            for start in range(0, s, _FLOW_SAMPLE_CHUNK)
-        ]
-        white = torch.cat([white for white, _ in noise], dim=1)
-        latents = torch.cat([z for _, z in noise], dim=1)
-
-        def repeat(value: Tensor, n: int) -> Tensor:
-            """Fold ``n`` draws into the batch axis, draw-major."""
-            return value.unsqueeze(0).expand(n, *value.shape).reshape(n * b, *value.shape[1:])
-
-        flat_graphs = graphs.reshape(s * b, layout.n_slots)
+        distinct, inverse = _distinct_task_graphs(graphs.cpu().reshape(s * b, layout.n_slots), b)
+        tasks = distinct[:, 0].long()
+        # The masks stay on the host, where transport decides its live coordinates.
         masks = self._conditioned_state_mask(
-            repeat(state_mask[..., :n_dec], s), flat_graphs, layout
+            host_state_mask[tasks][..., :n_dec], distinct[:, 1:], layout
         )
-        # Conditioning depends only on a draw's task and graph: condition each distinct
-        # (task, graph) pair once, then gather it for every draw that shares it.
-        task = torch.arange(b, device=flat_graphs.device).repeat(s)
-        keys = torch.cat([task.unsqueeze(-1).to(flat_graphs.dtype), flat_graphs], dim=-1)
         live_width = int((masks != 0).reshape(-1, n_dec).any(dim=0).sum())
-
-        def decode(start: int, stop: int) -> Tensor:
-            n = stop - start
-            rows = slice(start * b, stop * b)
-            distinct, inverse = torch.unique(keys[rows], dim=0, return_inverse=True)
-            tasks = distinct[:, 0].long()
-            conditioned = self._condition_on_graph(
-                SplitRepresentations(
-                    weekly[tasks], selected_repr.channels[tasks], selected_repr.controls[tasks]
-                ),
-                distinct[:, 1:],
-                layout,
-                active_nodes[tasks],
-            )
-            conditioned = SplitRepresentations(
-                conditioned.weekly[inverse],
-                conditioned.channels[inverse],
-                conditioned.controls[inverse],
-            )
-            x, trajectory_latent = head._mix_noise(
-                white[:, rows], latents[:, rows], conditioned.weekly
-            )
-            return head._transport(
-                x,
-                trajectory_latent,
-                conditioned.weekly,
-                conditioned.channels,
-                conditioned.controls,
-                masks[rows],
-                apply_zero_atom=True,
-            ).reshape(n, b, t, n_dec)
-
-        sampled = torch.cat(
-            _map_batches(
-                decode, s, max(1, _FLOW_SAMPLE_ROWS // (b * t * live_width)), weekly.device
-            ),
-            dim=0,
+        # Draws per transport batch, from the decision the decoder's transports make: the
+        # fused GPU kernels take larger batches than PyTorch operations (see _sample_rows).
+        batch_draws = max(
+            1,
+            _sample_rows(head._uses_kernels(device, weekly.dtype, masks.shape))
+            // (b * t * live_width),
         )
+        if device.type == "cpu":
+            # On the CPU each transport batch conditions its own distinct pairs in its
+            # worker: a model drawing many distinct graphs conditions them concurrently,
+            # and every product keeps the shape, and so the round-off, it had before.
+            flat_graphs = graphs.reshape(s * b, layout.n_slots)
+
+            def decode(start: int, stop: int) -> Tensor:
+                n = stop - start
+                rows = slice(start * b, stop * b)
+                pairs, index = _distinct_task_graphs(flat_graphs[rows], b)
+                pair_tasks = pairs[:, 0].long()
+                conditioned = self._condition_on_graph(
+                    SplitRepresentations(
+                        weekly[pair_tasks],
+                        selected_repr.channels[pair_tasks],
+                        selected_repr.controls[pair_tasks],
+                    ),
+                    pairs[:, 1:],
+                    layout,
+                    active_nodes[pair_tasks],
+                )
+                weekly_rows = conditioned.weekly[index]
+                x, trajectory_latent = head._mix_noise(
+                    white[:, rows], latents[:, rows], weekly_rows
+                )
+                return head._transport(
+                    x,
+                    trajectory_latent,
+                    weekly_rows,
+                    conditioned.channels[index],
+                    conditioned.controls[index],
+                    masks[inverse[rows]],
+                    apply_zero_atom=True,
+                ).reshape(n, b, t, n_dec)
+
+        else:
+            # The GPU kernels read conditioned representations once per distinct pair. Pairs
+            # that fit one transport batch are conditioned once per call; otherwise (a diffuse
+            # graph posterior draws nearly one graph per draw) each batch conditions its own,
+            # so conditioned representations never outgrow a batch.
+            host_graphs = graphs.cpu().reshape(s * b, layout.n_slots)
+            (graphs,) = _move_together((graphs,), device)
+            # Pairs per graph-conditioner call: as many as a CPU transport batch holds, which
+            # bounds the conditioner's intermediates (per pair, week and live slot).
+            pair_chunk = max(1, _FLOW_SAMPLE_ROWS // (t * live_width))
+
+            def condition(pairs: Tensor) -> tuple[SplitRepresentations, Tensor]:
+                """Condition the distinct host ``pairs`` on the device; also their host masks."""
+                pair_tasks = pairs[:, 0].long()
+                pair_masks = self._conditioned_state_mask(
+                    host_state_mask[pair_tasks][..., :n_dec], pairs[:, 1:], layout
+                )
+                live_slots = torch.nonzero((pairs[:, 1:] != 0).any(dim=0)).squeeze(-1)
+                (pairs,) = _move_together((pairs,), device)
+                pair_tasks, live_slots = _move_together((pair_tasks, live_slots), device)
+                parts = [
+                    self._condition_on_graph(
+                        SplitRepresentations(
+                            weekly[part_tasks],
+                            selected_repr.channels[part_tasks],
+                            selected_repr.controls[part_tasks],
+                        ),
+                        part_pairs[:, 1:],
+                        layout,
+                        active_nodes[part_tasks],
+                        live_slots,
+                    )
+                    for part_tasks, part_pairs in zip(
+                        pair_tasks.split(pair_chunk), pairs.split(pair_chunk), strict=True
+                    )
+                ]
+                if len(parts) == 1:
+                    return parts[0], pair_masks
+                conditioned = SplitRepresentations(
+                    torch.cat([part.weekly for part in parts]),
+                    torch.cat([part.channels for part in parts]),
+                    torch.cat([part.controls for part in parts]),
+                )
+                return conditioned, pair_masks
+
+            if distinct.shape[0] <= batch_draws * b:
+                every_pair = condition(distinct)
+                (inverse,) = _move_together((inverse,), device)
+
+                def conditioned_rows(rows: slice) -> tuple[SplitRepresentations, Tensor, Tensor]:
+                    return (*every_pair, inverse[rows])
+
+            else:
+
+                def conditioned_rows(rows: slice) -> tuple[SplitRepresentations, Tensor, Tensor]:
+                    pairs, index = _distinct_task_graphs(host_graphs[rows], b)
+                    (index,) = _move_together((index,), device)
+                    return (*condition(pairs), index)
+
+            def decode(start: int, stop: int) -> Tensor:
+                n = stop - start
+                rows = slice(start * b, stop * b)
+                conditioned, pair_masks, index = conditioned_rows(rows)
+                x, trajectory_latent = head._mix_noise(
+                    white[:, rows], latents[:, rows], conditioned.weekly[index]
+                )
+                return head._transport(
+                    x,
+                    trajectory_latent,
+                    conditioned.weekly,
+                    conditioned.channels,
+                    conditioned.controls,
+                    pair_masks,
+                    apply_zero_atom=True,
+                    representation_index=index,
+                ).reshape(n, b, t, n_dec)
+
+        sampled = torch.cat(_map_batches(decode, s, batch_draws, weekly.device), dim=0)
         for gate, contribution_slice, edge_slice in self.head.zero_atom_gate_slices(
             layout.K, layout.M
         ):
@@ -854,19 +1070,25 @@ class MFM(nn.Module):
         control_repr: Tensor | None = None,
         *,
         structure_only: bool = False,
+        noise: _NoiseRequest | None = None,
+        state_mask: Tensor | None = None,
     ) -> Tensor | tuple[Tensor | None, Tensor]:
         """Draw a router marginal from already-encoded window representations.
 
         ``structure_only=True`` (with ``return_structure=True``) returns
-        ``(None, g_samples)`` and skips the fixed confounder and indirect totals:
-        they feed no other coordinate, so the graph draws are unchanged.
+        ``(None, g_samples)`` and skips the fixed confounder and indirect totals and
+        other work that only the decomposition coordinates read: no graph coordinate
+        depends on them, so the graph draws are unchanged. ``noise`` optionally supplies
+        the router's prefetched base-noise chunks, and ``state_mask`` this batch's
+        :meth:`_flow_state_mask` when the caller already has it.
         """
         if structure_only and not return_structure:
             raise ValueError("structure_only requires return_structure=True")
         c = channel_repr.shape[-2]
         m = control_repr.shape[-2] if control_repr is not None else self.head.n_controls
         n_decomp = 1 + c + m + self.head.n_fixed
-        state_mask = self._flow_state_mask(batch)
+        if state_mask is None:
+            state_mask = self._flow_state_mask(batch)
         if structure_only:
             state_mask = state_mask.clone()
             state_mask[..., 1 + c + m : n_decomp] = 0.0
@@ -876,6 +1098,8 @@ class MFM(nn.Module):
             n_samples=n_samples,
             control_repr=control_repr,
             state_mask=state_mask,
+            noise=noise,
+            graph_only=structure_only,
         )
         g_samples = flow_samples[..., n_decomp:]
         if structure_only:

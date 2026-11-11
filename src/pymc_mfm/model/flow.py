@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 import platform
 import sys
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from numbers import Integral
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from . import _metal
 from .compiled import CompiledVelocity
 from .config import ModelConfig
 from .graph import N_NODE_TYPES, STRUCT_EDGE_KEYS, EdgeSlotLayout
@@ -36,10 +40,32 @@ _FLOW_SAMPLE_CHUNK = 16
 #: State rows (draws × tasks × weeks × live coordinates) per sampling velocity evaluation.
 #: It bounds memory without changing base-noise draws; kernel shapes may change rounding.
 _FLOW_SAMPLE_ROWS = 2**15
-# Apple's BLAS (Accelerate) runs matrix products on a separate matrix unit. On Apple
-# silicon, transporting several batches at once overlaps one batch's products with the
-# others' elementwise work and Python overhead. In-flight memory scales with the count.
-_SAMPLE_BATCH_WORKERS = 8 if sys.platform == "darwin" and platform.machine() == "arm64" else 1
+#: GPUs with the fused sampling kernels (see :mod:`._metal`) run few, large batches best:
+#: the kernels keep no per-row activations.
+_FLOW_SAMPLE_ROWS_GPU = 2**19
+# Transporting several batches at once overlaps one batch's matrix products with the others'
+# elementwise work and Python overhead. Off Apple silicon each batch worker runs on its own
+# share of PyTorch's threads: on Linux x86 capped at 8 CPUs, eight one-thread workers
+# sampled about 2x faster than one batch on every thread on AMD EPYC and about as fast on
+# Intel Xeon, while workers that each used every thread oversubscribed the cores and lost.
+# On Apple silicon, where Accelerate runs the products on a separate matrix unit, eight
+# workers share every thread; splitting gained nothing there. In-flight memory scales with
+# the count.
+_APPLE_SILICON = sys.platform == "darwin" and platform.machine() == "arm64"
+_SAMPLE_BATCH_WORKERS = 8
+_SPLIT_SAMPLE_THREADS = not _APPLE_SILICON
+_X86 = platform.machine().lower() in ("x86_64", "amd64")
+#: On x86 CPUs, eager sampling runs each network's hidden and output layers on row chunks
+#: of this size, so a chunk's activations stay in cache through the product, bias, SiLU and
+#: output layer instead of streaming through memory between them. With ARM BLAS libraries
+#: the chunks ran slower (Accelerate on Apple silicon 13%, NVPL on Linux ARM 1.5-3.5%).
+_HIDDEN_CHUNK_ROWS = 4096 if _X86 else None
+#: Off Apple silicon, each network's static and context terms fill its first layer and the
+#: scalar product accumulates into it, one pass fewer over the activation than adding both
+#: terms to the product. Eager and compiled sampling both do this, so a compiled sampler that
+#: falls back to eager draws exactly what eager sampling draws. Apple silicon keeps the
+#: previous order, and with it main's draws bit for bit.
+_FOLD_FIRST_LAYER = not _APPLE_SILICON
 
 # Fixed architecture numerics shared by A/B and every new training.
 #: Fourier frequencies of the flow-time embedding; they set layer input widths.
@@ -98,6 +124,57 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     return int(value)
 
 
+def _sample_rows(kernels: bool) -> int:
+    """State rows per sampling velocity evaluation, for a transport that runs the fused GPU
+    kernels (``kernels``) or PyTorch operations."""
+    return _FLOW_SAMPLE_ROWS_GPU if kernels else _FLOW_SAMPLE_ROWS
+
+
+def _noise_device(device: torch.device) -> torch.device:
+    """Where sampling draws base noise for ``device``.
+
+    GPU sampling (MPS and CUDA) draws with the CPU generator and copies the noise to the
+    GPU, so a seeded call draws the same base noise, and the same samples up to round-off,
+    on every device.
+    """
+    return torch.device("cpu") if device.type in ("mps", "cuda") else device
+
+
+def _to_device(value: Tensor, device: torch.device) -> Tensor:
+    """``value`` on ``device``; a host-to-GPU copy does not wait for queued GPU work."""
+    if value.device != device and device.type in ("mps", "cuda") and value.device.type == "cpu":
+        return _metal.to_device_async(value, device)
+    return value.to(device)
+
+
+@lru_cache(maxsize=1)
+def _thread_counts_per_thread() -> bool:
+    """Whether ``torch.set_num_threads`` in one thread leaves other threads' count alone.
+
+    It does under PyTorch's OpenMP backend, whose thread count is per thread; CPU batch
+    workers split the threads only then. The native backend keeps one count per process,
+    which its first set or its first parallel work fixes (later sets only warn), so it is
+    not probed: the probe's own set could fix the count at one thread. The probe thread must
+    see its count change and the caller's stay. The call also sets the count that threads
+    started later begin with, so the caller sets its own count again afterwards.
+    """
+    if "ATen parallel backend: OpenMP" not in torch.__config__.parallel_info():
+        return False
+    before = torch.get_num_threads()
+    seen = []
+
+    def probe() -> None:
+        torch.set_num_threads(1)
+        seen.append(torch.get_num_threads())
+
+    thread = threading.Thread(target=probe)
+    thread.start()
+    thread.join()
+    per_thread = seen == [1] and torch.get_num_threads() == before
+    torch.set_num_threads(before)
+    return per_thread
+
+
 def _map_batches[T](
     fn: Callable[[int, int], T], total: int, max_size: int, device: torch.device
 ) -> list[T]:
@@ -107,9 +184,11 @@ def _map_batches[T](
     their count is then a multiple of the workers, so no worker idles in a short last
     round. Batches share no state and draw no randomness, preserving sample identity.
     Different batch shapes may introduce floating-point round-off. Grad mode is
-    thread-local and carried into workers, which never outnumber ``torch.get_num_threads()``.
+    thread-local and carried into workers, which never outnumber ``torch.get_num_threads()``;
+    off Apple silicon they split those threads between them.
     """
-    workers = min(_SAMPLE_BATCH_WORKERS, torch.get_num_threads()) if device.type == "cpu" else 1
+    threads = torch.get_num_threads()
+    workers = min(_SAMPLE_BATCH_WORKERS, threads) if device.type == "cpu" else 1
     count = -(-total // max_size)
     if workers > 1:
         count = min(total, -(-count // workers) * workers)
@@ -117,13 +196,162 @@ def _map_batches[T](
     if workers < 2 or count < 2:
         return [fn(start, stop) for start, stop in bounds]
     grad_enabled = torch.is_grad_enabled()
+    pool_size = min(workers, count)
+    initializer = None
+    if _SPLIT_SAMPLE_THREADS and _thread_counts_per_thread():
+        share, extra = divmod(threads, pool_size)
+        slots = itertools.count()
+
+        def split_threads() -> None:
+            # Per pool thread, which ends with the pool.
+            torch.set_num_threads(share + (next(slots) < extra))
+
+        initializer = split_threads
 
     def run(bound: tuple[int, int]) -> T:
         with torch.set_grad_enabled(grad_enabled):
             return fn(*bound)
 
-    with ThreadPoolExecutor(max_workers=min(workers, count)) as pool:
-        return list(pool.map(run, bounds))
+    try:
+        with ThreadPoolExecutor(max_workers=pool_size, initializer=initializer) as pool:
+            return list(pool.map(run, bounds))
+    finally:
+        if initializer is not None:
+            # The workers' calls also set the count that threads started later begin with;
+            # setting the caller's count again restores it.
+            torch.set_num_threads(threads)
+
+
+class _OrderedNoise:
+    """Base draws for consecutive draw ranges, taken chunk by chunk as transport asks.
+
+    ``chunks`` yields the host noise chunks ``(white, z)`` (see :func:`_draw_host_noise`)
+    in draw order, exactly as when all are drawn up front. Each range is finished and
+    mixed on the GPU, which transports one batch while the CPU draws the next batch's
+    noise. Ranges must be taken in order. The copies to the GPU do not wait for queued
+    work (see :func:`_metal.to_device_async`).
+    """
+
+    def __init__(
+        self,
+        head: JointFlowHead,
+        chunks: Iterator[tuple[_metal.HostNoise, _metal.HostNoise]],
+        weekly_repr: Tensor,
+    ):
+        self.head = head
+        self.chunks = chunks
+        self.weekly_repr = weekly_repr
+        self.drawn = self.taken = 0
+        self.white: list[Tensor] = []
+        self.z: list[Tensor] = []
+
+    def __call__(
+        self, start: int, stop: int, columns: Tensor | None = None
+    ) -> tuple[Tensor, Tensor]:
+        """Mixed base draws ``[start, stop)``, restricted to state ``columns`` if given."""
+        if start != self.taken:
+            raise RuntimeError("base draws must be taken in draw order")
+        pending = []
+        while self.drawn < stop:
+            pending.append(next(self.chunks))
+            self.drawn += pending[-1][0].shape[0]
+        if pending:
+            device = self.weekly_repr.device
+            rows = sum(white.shape[0] for white, _ in pending)
+            for part, taken in ((0, self.white), (1, self.z)):
+                parts = [chunk[part] for chunk in pending]
+                values = _metal.to_device(parts, device)
+                taken.append(values.view(rows, *parts[0].shape[1:]))
+        white = torch.cat(self.white) if len(self.white) > 1 else self.white[0]
+        z = torch.cat(self.z) if len(self.z) > 1 else self.z[0]
+        n = stop - start
+        self.white, self.z = [white[n:]], [z[n:]]
+        self.taken = stop
+        white, z = white[:n], z[:n]
+        if columns is not None:
+            # Mixing acts on each state column separately: mix only the ones transported.
+            white, z = white.index_select(-1, columns), z.index_select(-2, columns)
+        return self.head._mix_noise(white, z, self.weekly_repr)
+
+
+def _draw_host_noise(
+    shape: tuple[int, ...],
+    dtype: torch.dtype,
+    uniform: bool,
+    out: tuple[Tensor, Tensor] | None = None,
+) -> tuple[_metal.HostNoise, _metal.HostNoise]:
+    """:meth:`JointFlowHead._draw_noise` drawn on the host for the GPU to finish.
+
+    White noise, then the rank-four latents; see :func:`_metal.draw_host`. ``out``
+    optionally holds the two flat host tensors that receive them.
+    """
+    white, z = (None, None) if out is None else out
+    return (
+        _metal.draw_host(shape, dtype, uniform, white),
+        _metal.draw_host(_latent_shape(shape), dtype, uniform, z),
+    )
+
+
+def _latent_shape(shape: tuple[int, ...]) -> tuple[int, ...]:
+    """Shape of the rank-four trajectory latents drawn with white noise of ``shape``."""
+    return (*shape[:-2], shape[-1], _TRAJECTORY_RANK)
+
+
+@dataclass(frozen=True)
+class _NoiseRequest:
+    """Noise chunks of the given shapes, drawn in order by a :class:`_NoisePrefetch`."""
+
+    shapes: tuple[tuple[int, ...], ...]
+    dtype: torch.dtype
+    chunks: tuple[Future, ...]
+
+    def __iter__(self) -> Iterator[tuple[_metal.HostNoise, _metal.HostNoise]]:
+        return (chunk.result() for chunk in self.chunks)
+
+
+class _NoisePrefetch:
+    """Draws base-noise chunks with the CPU generator on a worker thread, in request order.
+
+    GPU sampling draws its noise on the CPU (see :func:`_noise_device`). Requesting the
+    chunks as soon as their shapes are known overlaps the generator with GPU work. One
+    worker draws the requests in submission order, so the noise equals drawing it inline,
+    provided nothing else draws random numbers until :meth:`close` returns. A request's
+    chunks land end to end in one buffer per kind, which the GPU copy reads directly;
+    ``pin`` (for CUDA) page-locks those buffers so the copy does not wait.
+    """
+
+    def __init__(self, *, pin: bool = False):
+        self._worker = ThreadPoolExecutor(max_workers=1)
+        self._pin = pin
+        # Decided here: the check runs GPU work, which stays on the calling thread.
+        self._uniform = _metal.uniform_normals()
+
+    def request(self, shapes: list[tuple[int, ...]], dtype: torch.dtype) -> _NoiseRequest:
+        sizes = [
+            (
+                _metal.host_size(tuple(shape), dtype, self._uniform),
+                _metal.host_size(_latent_shape(tuple(shape)), dtype, self._uniform),
+            )
+            for shape in shapes
+        ]
+        values_dtype = torch.float32 if self._uniform and dtype == torch.float32 else dtype
+        white = torch.empty(
+            sum(size for size, _ in sizes), dtype=values_dtype, pin_memory=self._pin
+        )
+        z = torch.empty(sum(size for _, size in sizes), dtype=values_dtype, pin_memory=self._pin)
+        chunks, white_start, z_start = [], 0, 0
+        for shape, (white_size, z_size) in zip(shapes, sizes, strict=True):
+            out = (white[white_start : white_start + white_size], z[z_start : z_start + z_size])
+            chunks.append(
+                self._worker.submit(_draw_host_noise, tuple(shape), dtype, self._uniform, out)
+            )
+            white_start += white_size
+            z_start += z_size
+        return _NoiseRequest(tuple(map(tuple, shapes)), dtype, tuple(chunks))
+
+    def close(self) -> None:
+        """Wait for the worker; requests not yet started are dropped."""
+        self._worker.shutdown(wait=True, cancel_futures=True)
 
 
 class JointFlowHead(nn.Module):
@@ -551,9 +779,10 @@ class JointFlowHead(nn.Module):
                 "weekly_repr and flow state must share the query-week axis, "
                 f"got {tuple(weekly_repr.shape)} and {shape}"
             )
+        # numpy's check: torch.broadcast_shapes imports sympy and torch.fx on first use.
         try:
-            torch.broadcast_shapes(weekly_repr.shape[:-2], shape[:-2])
-        except RuntimeError as error:
+            np.broadcast_shapes(tuple(weekly_repr.shape[:-2]), shape[:-2])
+        except ValueError as error:
             raise ValueError(
                 "weekly_repr must broadcast over the flow state's leading axes, "
                 f"got {tuple(weekly_repr.shape)} and {shape}"
@@ -770,6 +999,18 @@ class JointFlowHead(nn.Module):
             raise ValueError("flow objective has no active state coordinates")
         return numerator / denominator
 
+    def noise_shapes(
+        self, lead: tuple[int, ...], n_channels: int, n_controls: int | None, n_samples: int
+    ) -> list[tuple[int, ...]]:
+        """Shapes of the base-noise chunks :meth:`sample` draws, in draw order.
+
+        ``lead`` is the representations' ``weekly_repr.shape[:-1]``.
+        """
+        s = _sample_count(n_samples)
+        d = self.state_dim(n_channels, n_controls)
+        chunk = _FLOW_SAMPLE_CHUNK if self.graph_router else s
+        return [(min(chunk, s - start), *lead, d) for start in range(0, s, chunk)]
+
     @torch.no_grad()
     def sample(
         self,
@@ -779,37 +1020,63 @@ class JointFlowHead(nn.Module):
         control_repr: Tensor | None = None,
         state_mask: Tensor | None = None,
         apply_zero_atom: bool = True,
+        *,
+        noise: _NoiseRequest | None = None,
+        graph_only: bool = False,
     ) -> Tensor:
         """Draw decomposition trajectories and, for the router, full graph states.
 
         Each draw integrates ``FLOW_STEPS_SAMPLE`` uniform Euler steps. The router
         draws base noise in chunks of ``_FLOW_SAMPLE_CHUNK`` draws; seeded draws
         depend on that chunking but not on how draws are batched for transport.
+        ``noise`` optionally supplies those chunks, prefetched for :meth:`noise_shapes`.
+        With ``graph_only`` only the graph coordinates are draws: the decomposition
+        coordinates skip work no graph coordinate depends on (their final Euler step on
+        the GPU, the support rules), so they are left unfinished.
         """
         s = _sample_count(n_samples)
-        c = channel_repr.shape[-2]
-        d = self.state_dim(c, control_repr.shape[-2] if control_repr is not None else None)
-        lead = weekly_repr.shape[:-1]
-        chunk = _FLOW_SAMPLE_CHUNK if self.graph_router else s
-        noise = [
-            self._draw_noise(
-                (min(chunk, s - start), *lead, d),
-                device=weekly_repr.device,
-                dtype=weekly_repr.dtype,
-            )
-            for start in range(0, s, chunk)
-        ]
-        x, trajectory_latent = self._mix_noise(
-            torch.cat([white for white, _ in noise]), torch.cat([z for _, z in noise]), weekly_repr
+        shapes = self.noise_shapes(
+            tuple(weekly_repr.shape[:-1]),
+            channel_repr.shape[-2],
+            control_repr.shape[-2] if control_repr is not None else None,
+            s,
         )
-        return self._transport(
-            x,
-            trajectory_latent,
+        device, noise_device = weekly_repr.device, _noise_device(weekly_repr.device)
+        if noise is not None and (
+            noise_device == device
+            or noise.shapes != tuple(shapes)
+            or noise.dtype != weekly_repr.dtype
+        ):
+            raise ValueError("prefetched noise does not match the sampled draws")
+        if noise_device == device:
+            drawn = [
+                self._draw_noise(shape, device=device, dtype=weekly_repr.dtype) for shape in shapes
+            ]
+            x, trajectory_latent = self._mix_noise(
+                torch.cat([white for white, _ in drawn]),
+                torch.cat([z for _, z in drawn]),
+                weekly_repr,
+            )
+
+            def draws(start: int, stop: int) -> tuple[Tensor, Tensor]:
+                return x[start:stop], trajectory_latent[start:stop]
+
+        else:
+            if noise is None:
+                uniform = _metal.uniform_normals()
+                chunks = (_draw_host_noise(shape, weekly_repr.dtype, uniform) for shape in shapes)
+            else:
+                chunks = iter(noise)
+            draws = _OrderedNoise(self, chunks, weekly_repr)
+        return self._transport_draws(
+            draws,
+            s,
             weekly_repr,
             channel_repr,
             control_repr,
             state_mask,
             apply_zero_atom=apply_zero_atom,
+            graph_only=graph_only,
         )
 
     def _transport(
@@ -822,26 +1089,106 @@ class JointFlowHead(nn.Module):
         state_mask: Tensor | None,
         *,
         apply_zero_atom: bool,
+        representation_index: Tensor | None = None,
     ) -> Tensor:
         """Transport base draws ``x[S, ..., T, D]`` and apply the sampler's support rules.
 
-        Draws are integrated in batches of about ``_FLOW_SAMPLE_ROWS`` evaluated
-        state rows. Every draw is integrated independently, so batching bounds
-        memory without changing any draw.
+        ``representation_index`` optionally maps the batch axis of ``x`` to rows of the
+        representations and ``state_mask``, given once per distinct conditioning.
         """
-        s = x.shape[0]
+        return self._transport_draws(
+            lambda start, stop: (x[start:stop], trajectory_latent[start:stop]),
+            x.shape[0],
+            weekly_repr,
+            channel_repr,
+            control_repr,
+            state_mask,
+            apply_zero_atom=apply_zero_atom,
+            representation_index=representation_index,
+        )
+
+    def _uses_kernels(
+        self, device: torch.device, dtype: torch.dtype, mask_shape: torch.Size
+    ) -> bool:
+        """Whether transporting this flow on ``device`` in ``dtype`` under a state mask of
+        ``mask_shape`` runs the fused GPU kernels (see :mod:`._metal`): eager sampling of a
+        model and mask they serve, on a GPU that has them. Batch sizes follow it too."""
+        return self._compiled_velocity is None and _metal.supported(self, device, dtype, mask_shape)
+
+    def _transport_draws(
+        self,
+        draws: Callable[[int, int], tuple[Tensor, Tensor]],
+        s: int,
+        weekly_repr: Tensor,
+        channel_repr: Tensor,
+        control_repr: Tensor | None,
+        state_mask: Tensor | None,
+        *,
+        apply_zero_atom: bool,
+        representation_index: Tensor | None = None,
+        graph_only: bool = False,
+    ) -> Tensor:
+        """Transport ``s`` base draws and apply the sampler's support rules.
+
+        ``draws(start, stop)`` returns the base state and trajectory latent of draws
+        ``[start, stop)``, ``[stop - start, ..., T, D]``. Draws are integrated in batches
+        of about ``_FLOW_SAMPLE_ROWS`` evaluated state rows (``_FLOW_SAMPLE_ROWS_GPU`` when
+        the fused GPU kernels transport them, see :meth:`_uses_kernels`). Every draw is
+        integrated independently, so batching bounds memory without changing any draw.
+        """
         c = channel_repr.shape[-2]
-        lead = weekly_repr.shape[:-1]
-        weight = None
-        if state_mask is not None:
-            weight = state_mask.to(x.dtype)
-            x = x * weight
-            trajectory_latent = trajectory_latent * weight
+        n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
+        device = weekly_repr.device
+        if device.type == "mps" and torch.__version__ < _metal.MIN_TORCH:
+            raise RuntimeError(
+                f"sampling on an Apple GPU (MPS) needs PyTorch 2.9 or newer, found "
+                f"{torch.__version__}: older MPS releases miscompute or lack operations this "
+                "sampler uses. Upgrade PyTorch or sample on the CPU."
+            )
+        if device.type == "mps" and not _metal.linear_correct():
+            raise RuntimeError(
+                "PyTorch's Apple GPU (MPS) backend computes linear layers wrongly on this GPU "
+                "(the paravirtual GPU of a macOS virtual machine), so sampling here would "
+                "return wrong draws. Sample on the CPU."
+            )
+        weight = None if state_mask is None else state_mask.to(weekly_repr.dtype)
+        host_weight = None
+        if weight is not None and weight.device != device:
+            # A host state mask decides the live coordinates and support rules without
+            # waiting for the device, and its copy to the device does not wait either.
+            host_weight, weight = weight, _to_device(weight, device)
+        if representation_index is not None and not (
+            weight is not None and self._uses_kernels(device, weight.dtype, weight.shape)
+        ):
+            # Only the GPU kernels read per-conditioning rows; give the rest one row per draw.
+            weekly_repr, channel_repr, control_repr, weight = (
+                None if value is None else value[representation_index]
+                for value in (weekly_repr, channel_repr, control_repr, weight)
+            )
+            representation_index = host_weight = None
+        if representation_index is None:
+            lead = weekly_repr.shape[:-1]
+            draw_weight = weight
+        else:
+            lead = (representation_index.numel(), *weekly_repr.shape[1:-1])
+            draw_weight = weight[representation_index]
+        if draw_weight is not None and not graph_only:
+            # Decide the support rules before transport: reading a GPU tensor here would
+            # wait for every batch queued below. A host mask has a row for every draw's.
+            channel_active = draw_weight[..., 1 : 1 + c] > 0.0
+            control_slice = slice(1 + c, 1 + c + n_controls)
+            control_active = draw_weight[..., control_slice] > 0.0
+            if host_weight is not None:
+                inactive_controls = bool((~(host_weight[..., control_slice] > 0.0)).any())
+            else:
+                inactive_controls = bool((~control_active).any())
 
         grid = self._time_grid(FLOW_STEPS_SAMPLE)
         if weight is None:
 
-            def flow(x: Tensor, latent: Tensor) -> Tensor:
+            def flow(start: int, stop: int) -> Tensor:
+                x, latent = draws(start, stop)
+
                 def expand(value: Tensor | None) -> Tensor | None:
                     if value is None:
                         return None
@@ -855,32 +1202,41 @@ class JointFlowHead(nn.Module):
 
                 return integrate_flow(x, drift, grid)
 
-            width = x.shape[-1]
+            width, kernels = self.state_dim(c, n_controls), False
         else:
-            live = _LiveVelocity(self, weekly_repr, channel_repr, control_repr, weight)
+            live = _LiveVelocity(self, weekly_repr, channel_repr, control_repr, weight, host_weight)
+            # With the GPU kernels, ordered host noise is mixed for the live columns only.
+            columns = live.index if live.metal and isinstance(draws, _OrderedNoise) else None
 
-            def flow(x: Tensor, latent: Tensor) -> Tensor:
-                return live.integrate(x, latent, grid)
+            def flow(start: int, stop: int) -> Tensor:
+                if columns is None:
+                    x, latent = draws(start, stop)
+                    return live.integrate(
+                        x * draw_weight,
+                        latent * draw_weight,
+                        grid,
+                        representation_index,
+                        graph_only,
+                    )
+                x, latent = draws(start, stop, columns)
+                return live.integrate_live(
+                    x * live.weight, latent * live.weight, grid, representation_index, graph_only
+                )
 
-            width = live.index.numel()
+            width, kernels = live.index.numel(), live.metal
         x = torch.cat(
             _map_batches(
-                lambda start, stop: flow(x[start:stop], trajectory_latent[start:stop]),
-                s,
-                max(1, _FLOW_SAMPLE_ROWS // (math.prod(lead) * width)),
-                x.device,
+                flow, s, max(1, _sample_rows(kernels) // (math.prod(lead) * width)), device
             )
         )
-        if weight is not None:
-            n_controls = control_repr.shape[-2] if control_repr is not None else self.n_controls
+        if graph_only:
+            return x
+        if draw_weight is not None:
             # Direct contributions are nonnegative; padding uses the same natural zero.
-            channel_active = weight[..., 1 : 1 + c] > 0.0
             contribution = x[..., 1 : 1 + c].clamp_min(0.0)
             contribution = torch.where(channel_active, contribution, contribution.new_zeros(()))
             x = torch.cat([x[..., :1], contribution, x[..., 1 + c :]], dim=-1)
-            control_slice = slice(1 + c, 1 + c + n_controls)
-            control_active = weight[..., control_slice] > 0.0
-            if (~control_active).any():
+            if inactive_controls:
                 controls_zeroed = torch.where(
                     control_active,
                     x[..., control_slice],
@@ -898,8 +1254,8 @@ class JointFlowHead(nn.Module):
             x = self.project_zero_atom(
                 x,
                 n_channels=c,
-                n_controls=control_repr.shape[-2] if control_repr is not None else self.n_controls,
-                state_mask=weight,
+                n_controls=n_controls,
+                state_mask=draw_weight,
             )
         return x
 
@@ -933,6 +1289,8 @@ class _LiveNetwork:
         scalar_index: Tensor,
         context_weight: Tensor,
         context_index: Tensor,
+        chunk_rows: int | None = None,
+        fold: bool = False,
     ):
         _, act, hidden_layer, act2, output_layer = net
         if not (isinstance(act, nn.SiLU) and isinstance(act2, nn.SiLU)):
@@ -949,6 +1307,10 @@ class _LiveNetwork:
         self.context_weight = context_weight
         self.context_index = context_index
         self.rows = scalar_index.shape[0]
+        #: Rows per chunk of the hidden and output layers; ``None`` runs them in one call.
+        self.chunk_rows = chunk_rows
+        #: Whether the static and context terms fill the first layer before the product.
+        self.fold = fold
 
     def __call__(self, scalars: Tensor, contexts: Tensor, time: Tensor) -> Tensor:
         if self.rows == 0:
@@ -957,13 +1319,36 @@ class _LiveNetwork:
         state = state.unflatten(-1, tuple(self.scalar_index.shape))
         context = contexts.index_select(-2, self.context_index.flatten())
         context = context.unflatten(-2, tuple(self.context_index.shape)).flatten(-2)
-        hidden = F.linear(state, self.scalar_weight)
-        hidden += self.static
-        hidden += F.linear(context, self.context_weight, F.linear(time, self.time_weight))
-        hidden = F.silu(hidden, inplace=True).view(-1, hidden.shape[-1])
-        hidden = torch.mm(hidden, self.hidden_weight).add_(self.hidden_bias)
-        hidden = F.silu(hidden, inplace=True)
-        return torch.mv(hidden, self.output_weight).add_(self.output_bias).view(state.shape[:-1])
+        projected = F.linear(context, self.context_weight, F.linear(time, self.time_weight))
+        chunk = self.chunk_rows
+        if not self.fold:
+            hidden = F.linear(state, self.scalar_weight)
+            hidden += self.static
+            hidden += projected
+            hidden = hidden.view(-1, hidden.shape[-1])
+        else:
+            # One pass fewer over the [rows, hidden] activation: the static and projected
+            # terms fill it, and the scalar product accumulates into it in place.
+            shape = (*state.shape[:-1], self.static.shape[-1])
+            hidden = torch.add(self.static, projected)
+            if hidden.shape != shape:
+                hidden = hidden.expand(shape)
+            hidden = hidden.contiguous().view(-1, shape[-1])
+            hidden.addmm_(state.reshape(-1, state.shape[-1]), self.scalar_weight.t())
+        if chunk is None or hidden.shape[0] <= chunk:
+            hidden = F.silu(hidden, inplace=True)
+            hidden = torch.mm(hidden, self.hidden_weight).add_(self.hidden_bias)
+            hidden = F.silu(hidden, inplace=True)
+            output = torch.mv(hidden, self.output_weight)
+        else:
+            output = hidden.new_empty(hidden.shape[0])
+            for start in range(0, hidden.shape[0], chunk):
+                # The first layer's SiLU too, while the product is about to read the chunk.
+                part = F.silu(hidden[start : start + chunk], inplace=True)
+                part = torch.mm(part, self.hidden_weight)
+                part = F.silu(part.add_(self.hidden_bias), inplace=True)
+                torch.mv(part, self.output_weight, out=output[start : start + chunk])
+        return output.add_(self.output_bias).view(state.shape[:-1])
 
 
 class _LiveVelocity:
@@ -987,14 +1372,21 @@ class _LiveVelocity:
         channel_repr: Tensor,
         control_repr: Tensor | None,
         weight: Tensor,
+        host_weight: Tensor | None = None,
     ):
         entity_repr = head._entity_repr(channel_repr, control_repr)
         self.compiled = head._compiled_velocity
         device = weekly_repr.device
+        # Eager CPU sampling chunks the networks' hidden layers (see _HIDDEN_CHUNK_ROWS);
+        # compiled sampling traces one call per layer.
+        chunk_rows = _HIDDEN_CHUNK_ROWS if self.compiled is None and device.type == "cpu" else None
+        fold = _FOLD_FIRST_LAYER and device.type == "cpu"
         n_channels, n_entities = channel_repr.shape[-2], entity_repr.shape[-2]
         n_fixed = head.n_fixed
         n_decomposition = 1 + n_entities + n_fixed
         d = weight.shape[-1]
+        #: Full flow-state width.
+        self.width = d
         layout = None
         if head.graph_router:
             layout = _edge_slot_layout(n_channels, n_entities - n_channels, head.n_demand)
@@ -1006,35 +1398,53 @@ class _LiveVelocity:
                 )
         entity_mask = weight[..., 1 : 1 + n_entities]
         try:
-            torch.broadcast_shapes(entity_mask.shape, (*weekly_repr.shape[:-1], n_entities))
-        except RuntimeError as error:
+            np.broadcast_shapes(tuple(entity_mask.shape), (*weekly_repr.shape[:-1], n_entities))
+        except ValueError as error:
             raise ValueError(
                 "state_mask entity prefix does not broadcast to the flow state: "
                 f"{tuple(weight.shape)} versus {tuple(weekly_repr.shape[:-1])}"
             ) from error
         entity_count = entity_mask.sum(dim=-1, keepdim=True)
+        # Live state order: baseline, then live entities, fixed slots and edge slots. The
+        # host decides which coordinates are live from the caller's host copy of the mask,
+        # if any, else from one copy of these small masks.
+        decided = weight if host_weight is None else host_weight
+        live = (decided != 0).expand(*decided.shape[:-1], d).reshape(-1, d).any(dim=0)
+        if host_weight is None:
+            empty = (entity_count == 0).any()
+        else:
+            empty = (host_weight[..., 1 : 1 + n_entities].sum(dim=-1) == 0).any()
+        host = torch.cat([live, empty.reshape(1)]).cpu()
         if head.graph_router:
-            if (entity_count == 0).any():
+            if host[-1]:
                 raise ValueError("flow state has a task/week with no active entities")
         else:
             # An all-off conditioning graph leaves only baseline stochastic.
             entity_count = entity_count.clamp_min(1)
-
-        # Live state order: baseline, then live entities, fixed slots and edge slots.
-        live = (weight != 0).expand(*weight.shape[:-1], d).reshape(-1, d).any(dim=0)
+        live = host[:-1]
         live_entities = torch.nonzero(live[1 : 1 + n_entities]).squeeze(-1)
         live_fixed = torch.nonzero(live[1 + n_entities : n_decomposition]).squeeze(-1)
         live_slots = torch.nonzero(live[n_decomposition:]).squeeze(-1)
-        self.index = torch.cat(
-            [
-                torch.zeros(1, dtype=torch.long, device=device),
-                1 + live_entities,
-                1 + n_entities + live_fixed,
-                n_decomposition + live_slots,
-            ]
+        widths = (1, live_entities.numel(), live_fixed.numel(), live_slots.numel())
+        self.index = _to_device(
+            torch.cat(
+                [
+                    torch.zeros(1, dtype=torch.long),
+                    1 + live_entities,
+                    1 + n_entities + live_fixed,
+                    n_decomposition + live_slots,
+                ]
+            ),
+            device,
         )
+        _, live_entities, live_fixed, live_slots = self.index.split(widths)
+        live_entities = live_entities - 1
+        live_fixed = live_fixed - (1 + n_entities)
+        live_slots = live_slots - n_decomposition
         n_live = self.index.numel()
         n_live_entities = live_entities.numel()
+        #: Live columns before the graph slots (baseline, entities, fixed totals).
+        self.decomposition_width = n_live - live_slots.numel()
         # Bank positions: a shared zero column after the live state, then the moments.
         zero, mean, std = n_live, n_live + 1, n_live + 2
         position = torch.full((d,), zero, dtype=torch.long, device=device)
@@ -1094,6 +1504,8 @@ class _LiveVelocity:
                 scalar_index=columns(1, 0, mean, std),
                 context_weight=base["context"],
                 context_index=columns(1, 0),
+                chunk_rows=chunk_rows,
+                fold=fold,
             )
         ]
 
@@ -1136,12 +1548,13 @@ class _LiveVelocity:
         context_blocks = [contrib["context"]]
         if layout is not None:
             # Each entity also reads its own outcome edge: cy for channels, zb for controls.
+            cy, zb = layout.slices["cy"], layout.slices["zb"]
             own_slot = torch.cat(
                 [
-                    torch.arange(layout.slices["cy"].start, layout.slices["cy"].stop),
-                    torch.arange(layout.slices["zb"].start, layout.slices["zb"].stop),
+                    torch.arange(cy.start, cy.stop, device=device),
+                    torch.arange(zb.start, zb.stop, device=device),
                 ]
-            ).to(device)
+            )
             own_positions = position[n_decomposition + own_slot[live_entities]]
             scalar_columns.append(own_positions)
             context_columns.append(own_positions)
@@ -1156,6 +1569,8 @@ class _LiveVelocity:
                 scalar_index=columns(n_live_entities, *scalar_columns),
                 context_weight=torch.cat(context_blocks, dim=1),
                 context_index=columns(n_live_entities, *context_columns),
+                chunk_rows=chunk_rows,
+                fold=fold,
             )
         )
 
@@ -1183,8 +1598,13 @@ class _LiveVelocity:
                 scalar_index=columns(live_fixed.numel(), fixed_positions, mean, std),
                 context_weight=fixed["context"],
                 context_index=columns(live_fixed.numel(), fixed_positions),
+                chunk_rows=chunk_rows,
+                fold=fold,
             )
         )
+        #: Networks that write the decomposition columns (base, contributions, fixed totals);
+        #: the router's edge network follows them.
+        self.decomposition_networks = len(networks)
 
         if layout is not None:
             edge_layer = head.edge_net[0]
@@ -1252,9 +1672,14 @@ class _LiveVelocity:
                         [edge["context"], edge["src_context"], edge["dst_context"]], dim=1
                     ),
                     context_index=slot_rows,
+                    chunk_rows=chunk_rows,
+                    fold=fold,
                 )
             )
         self.networks = networks
+        # Decided last: on an NVIDIA GPU it waits for every kernel to build (see
+        # _cuda.available), while nothing above depends on it.
+        self.metal = head._uses_kernels(weight.device, weight.dtype, weight.shape)
 
     def trajectory_offset(self, trajectory_latent: Tensor) -> Tensor:
         """Step-invariant part of the live trajectory tokens for one batch of draws."""
@@ -1264,11 +1689,21 @@ class _LiveVelocity:
             self.token_latent_weight,
         )
 
-    def velocity(self, x: Tensor, t_val: float, trajectory_offset: Tensor) -> Tensor:
-        """Velocity of the live state ``x[..., index]`` at flow time ``t_val``."""
-        return self._velocity(x, _fourier_time(x.new_full((), t_val)), trajectory_offset)
+    def velocity(
+        self, x: Tensor, t_val: float, trajectory_offset: Tensor, *, graph_only: bool = False
+    ) -> Tensor:
+        """Velocity of the live state ``x[..., index]`` at flow time ``t_val``.
 
-    def _velocity(self, x: Tensor, time: Tensor, trajectory_offset: Tensor) -> Tensor:
+        With ``graph_only`` only the graph coordinates' velocities are computed; the
+        decomposition columns are zero.
+        """
+        return self._velocity(
+            x, _fourier_time(x.new_full((), t_val)), trajectory_offset, graph_only
+        )
+
+    def _velocity(
+        self, x: Tensor, time: Tensor, trajectory_offset: Tensor, graph_only: bool = False
+    ) -> Tensor:
         """:meth:`velocity` at Fourier flow time ``time``, a tensor, as compilation needs."""
         hidden = F.silu(
             torch.addcmul(trajectory_offset, x.unsqueeze(-1), self.token_state_weight),
@@ -1290,27 +1725,75 @@ class _LiveVelocity:
             / self.entity_count_sqrt
         )
         scalars = torch.cat([x, x.new_zeros(*x.shape[:-1], 1), mean, std], dim=-1)
+        if graph_only:
+            graph = self.networks[self.decomposition_networks :]
+            decomposition = scalars.new_zeros(*scalars.shape[:-1], self.decomposition_width)
+            return torch.cat([decomposition, *(net(scalars, contexts, time) for net in graph)], -1)
         return torch.cat([network(scalars, contexts, time) for network in self.networks], dim=-1)
 
-    def integrate(self, x: Tensor, trajectory_latent: Tensor, grid) -> Tensor:
-        """Euler-integrate masked ``x``; coordinates masked in every task stay zero."""
+    def integrate(
+        self,
+        x: Tensor,
+        trajectory_latent: Tensor,
+        grid,
+        index: Tensor | None = None,
+        graph_only: bool = False,
+    ) -> Tensor:
+        """Euler-integrate masked ``x``; coordinates masked in every task stay zero.
+
+        ``index`` maps the last lead axis of ``x`` to the representations' batch rows when
+        those were given once per distinct conditioning (GPU kernels only). With
+        ``graph_only`` eager sampling and the GPU kernels skip the decomposition networks at
+        the final step: they only move decomposition coordinates, which the caller drops.
+        """
+        grid = tuple(grid)
         weight = self.weight
-        offset = self.trajectory_offset(trajectory_latent)
         compiled = self.compiled
+        state = x.index_select(-1, self.index)
+        if self.metal:
+            return self.integrate_live(
+                state, trajectory_latent.index_select(-1, self.index), grid, index, graph_only
+            )
+        if index is not None:
+            raise ValueError("indexed representations need the GPU sampling kernels")
+        offset = self.trajectory_offset(trajectory_latent)
         # Flow times as tensors: a Python float would recompile at every Euler step.
         times = (
             {} if compiled is None else {t: _fourier_time(x.new_full((), t)) for t, _, _ in grid}
         )
+        final = grid[-1][0] if graph_only else None
 
         def drift(state: Tensor, t_val: float) -> Tensor:
             if compiled is None:
-                return self.velocity(state, t_val, offset)
+                return self.velocity(state, t_val, offset, graph_only=t_val == final)
             return compiled(self, state, times[t_val], offset)
 
         live = integrate_flow(
-            x.index_select(-1, self.index),
+            state,
             drift,
             grid,
             project=lambda state, _t_next: state * weight,
         )
         return x.new_zeros(x.shape).index_copy_(-1, self.index, live)
+
+    def integrate_live(
+        self,
+        state: Tensor,
+        trajectory_latent: Tensor,
+        grid,
+        index: Tensor | None = None,
+        graph_only: bool = False,
+    ) -> Tensor:
+        """:meth:`integrate` with the GPU kernels, given only the live columns ``index``.
+
+        Returns the full-width state, zero in coordinates masked in every task.
+        """
+        live = _metal.integrate(
+            self,
+            state,
+            trajectory_latent,
+            grid,
+            index,
+            final_from=self.decomposition_width if graph_only else 0,
+        )
+        return state.new_zeros(*state.shape[:-1], self.width).index_copy_(-1, self.index, live)

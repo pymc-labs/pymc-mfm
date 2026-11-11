@@ -5,18 +5,51 @@ the sampler never evaluates its velocity. On every coordinate it does evaluate,
 the velocity must equal the trained ``JointFlowHead.velocity`` up to float64
 round-off; otherwise seeded draws would silently leave the trained sampler.
 Noise is drawn per chunk of draws; how draws are then batched for transport, and
-whether batches run concurrently, must not change any draw.
+whether batches run concurrently on a share of the threads, must not change any graph
+and changes draws by float round-off at most.
 """
+
+import copy
+import threading
 
 import pytest
 import torch
 
 import pymc_mfm.model.flow as flow
-import pymc_mfm.model.model as model_module
+from pymc_mfm.model import _metal
+from pymc_mfm.model.encoder import BiAttentionBlock
 from pymc_mfm.model.flow import _LiveVelocity
 from pymc_mfm.model.graph import EdgeSlotLayout
 
 ROUND_OFF = {"rtol": 1e-10, "atol": 1e-12}
+#: Sampling and the encoder's kernels on an Apple GPU need PyTorch ``_metal.MIN_TORCH``;
+#: older releases raise a clear error (sampling) or keep PyTorch's attention (encoder).
+#: Sampling also refuses a GPU whose MPS linear layers are wrong (macOS virtual machines).
+APPLE_GPU = (
+    torch.backends.mps.is_available()
+    and torch.__version__ >= _metal.MIN_TORCH
+    and _metal.linear_correct()
+)
+#: Why the Apple GPU cases skip.
+NO_APPLE_GPU = "needs an Apple GPU with PyTorch 2.9 or newer and correct MPS linear layers"
+GPUS = [
+    pytest.param(
+        "mps",
+        marks=pytest.mark.skipif(not APPLE_GPU, reason=NO_APPLE_GPU),
+    ),
+    pytest.param(
+        "cuda", marks=pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+    ),
+]
+
+
+def _fresh_thread_count() -> int:
+    """PyTorch's thread count in a thread started now."""
+    seen = []
+    thread = threading.Thread(target=lambda: seen.append(torch.get_num_threads()))
+    thread.start()
+    thread.join()
+    return seen[0]
 
 
 @pytest.fixture
@@ -105,7 +138,6 @@ def test_decoder_live_velocity_matches_the_trained_velocity(model64, batch64, gr
 
 def _draws(model, batch, monkeypatch, *, rows, workers, window):
     monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS", rows)
-    monkeypatch.setattr(model_module, "_FLOW_SAMPLE_ROWS", rows)
     monkeypatch.setattr(flow, "_SAMPLE_BATCH_WORKERS", workers)
     torch.manual_seed(41)
     # 19 draws cross the 16-draw noise chunk.
@@ -116,6 +148,8 @@ def _draws(model, batch, monkeypatch, *, rows, workers, window):
 def test_transport_batches_and_their_schedule_never_change_a_draw(
     model64, batch64, monkeypatch, window
 ):
+    # Concurrent batches split the caller's threads between them on every platform here.
+    monkeypatch.setattr(flow, "_SPLIT_SAMPLE_THREADS", True)
     threads = torch.get_num_threads()
     torch.set_num_threads(max(threads, 4))
     try:
@@ -129,12 +163,102 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
         concurrent, concurrent_graphs = _draws(
             model64, batch64, monkeypatch, rows=1, workers=4, window=window
         )
+        # The workers' share of threads leaks neither into the caller nor into threads
+        # started afterwards.
+        assert torch.get_num_threads() == max(threads, 4)
+        assert _fresh_thread_count() == max(threads, 4)
     finally:
         torch.set_num_threads(threads)
     assert torch.equal(serial_graphs, whole_graphs)
     torch.testing.assert_close(serial, whole, **ROUND_OFF)
     assert torch.equal(concurrent_graphs, serial_graphs)
-    assert torch.equal(concurrent, serial)
+    # Fewer threads per batch may reorder floating-point sums.
+    torch.testing.assert_close(concurrent, serial, **ROUND_OFF)
+
+
+@pytest.mark.parametrize("window", ["query", "context"])
+def test_x86_network_layout_never_changes_a_draw(model64, batch64, monkeypatch, window):
+    monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", None)
+    monkeypatch.setattr(flow, "_FOLD_FIRST_LAYER", False)
+    whole, whole_graphs = _draws(
+        model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
+    )
+    # Seven-row chunks split every network's rows; most counts leave a short last chunk.
+    # Each first layer is filled with its static and context terms before the scalar
+    # product accumulates into it.
+    monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", 7)
+    monkeypatch.setattr(flow, "_FOLD_FIRST_LAYER", True)
+    chunked, chunked_graphs = _draws(
+        model64, batch64, monkeypatch, rows=2**30, workers=1, window=window
+    )
+    assert torch.equal(chunked_graphs, whole_graphs)
+    torch.testing.assert_close(chunked, whole, **ROUND_OFF)
+
+
+@pytest.mark.parametrize("device", GPUS)
+@pytest.mark.parametrize("rows", [2**30, 1])
+@pytest.mark.parametrize("window", ["query", "context"])
+def test_gpu_draws_the_cpu_samples(model, batch, monkeypatch, device, rows, window):
+    # Noise comes from the CPU generator on every device, so seeded draws agree up to
+    # float32 round-off; a one-row budget draws noise and transports one draw at a time.
+    # The fused kernels transport the draws wherever the GPU has them.
+    monkeypatch.setattr(flow, "_FLOW_SAMPLE_ROWS_GPU", rows)
+    integrate = flow._metal.integrate
+    calls = []
+    monkeypatch.setattr(
+        flow._metal, "integrate", lambda *a, **k: calls.append(1) or integrate(*a, **k)
+    )
+    torch.manual_seed(41)
+    cpu, cpu_graphs = model.sample_disentangled(batch, 19, window=window)
+    gpu_model = copy.deepcopy(model).to(device)
+    torch.manual_seed(41)
+    gpu, gpu_graphs = gpu_model.sample_disentangled(
+        {key: value.to(device) for key, value in batch.items()}, 19, window=window
+    )
+    hidden = model.conditional_head.base_net[2].weight.shape[0]
+    assert bool(calls) == flow._metal.has_kernels(torch.device(device), hidden)
+    assert torch.equal(gpu_graphs.cpu(), cpu_graphs)
+    torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.parametrize("device", GPUS)
+def test_gpu_decodes_a_graph_that_turns_every_entity_off(model, batch, device):
+    # With every edge off no entity contribution is live: the GPU kernels transport only
+    # the baseline and fixed totals, as the CPU path does.
+    tasks, _, n_channels = batch["qry_spend_z"].shape
+    layout = EdgeSlotLayout(n_channels, model.config.n_controls, model.config.n_demand)
+    graph = torch.zeros(tasks, layout.n_slots)
+    torch.manual_seed(41)
+    cpu, _ = model.sample_disentangled(batch, 19, mode="fixed", graph=graph)
+    gpu_model = copy.deepcopy(model).to(device)
+    torch.manual_seed(41)
+    gpu, _ = gpu_model.sample_disentangled(
+        {key: value.to(device) for key, value in batch.items()}, 19, mode="fixed", graph=graph
+    )
+    torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
+
+
+@pytest.mark.skipif(not APPLE_GPU, reason=NO_APPLE_GPU)
+def test_apple_gpu_attention_kernels_match_masked_attention(monkeypatch):
+    # 16-wide heads run the Metal kernels. 70 weeks span three runs of 32 causal keys;
+    # the two tasks pad different entities and the last entity is active in neither.
+    torch.manual_seed(12)
+    block = BiAttentionBlock(d_model=32, n_heads=2, d_ff=64).to("mps").eval()
+    x = torch.randn(2, 70, 5, 32, device="mps")
+    time_mask = torch.ones(70, 70, dtype=torch.bool, device="mps").tril()
+    active = torch.tensor([[1, 1, 0, 1, 0], [1, 0, 1, 1, 0]], dtype=torch.bool, device="mps")
+    calls = []
+    for name in ("causal_attention", "masked_attention"):
+        kernel = getattr(_metal, name)
+        monkeypatch.setattr(
+            _metal, name, lambda *a, kernel=kernel, name=name: calls.append(name) or kernel(*a)
+        )
+    with torch.no_grad():
+        kernels = block(x, time_mask, active, causal=True)
+        monkeypatch.setattr(_metal, "attention_supported", lambda *_: False)
+        reference = block(x, time_mask, active, causal=True)
+    assert calls == ["causal_attention", "masked_attention"]
+    torch.testing.assert_close(kernels.cpu(), reference.cpu(), rtol=1e-5, atol=1e-5)
 
 
 @pytest.mark.parametrize("window", ["query", "context"])

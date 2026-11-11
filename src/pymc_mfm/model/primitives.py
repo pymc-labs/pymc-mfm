@@ -4,6 +4,8 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from . import _metal
+
 
 class RMSNorm(nn.Module):
     def __init__(self, d: int, eps: float = 1e-6):
@@ -37,9 +39,17 @@ class MultiHeadAttention(nn.Module):
         self.qkv = nn.Linear(d_model, 3 * d_model, bias=False)
         self.out = nn.Linear(d_model, d_model, bias=False)
 
-    def forward(self, x: Tensor, mask: Tensor | None = None) -> Tensor:
+    def forward(self, x: Tensor, mask: Tensor | None = None, *, causal: bool = False) -> Tensor:
+        """Attend over ``x[B, N, D]``; ``causal`` declares ``mask`` lower-triangular.
+
+        A causal call without gradients on an Apple GPU runs as one kernel that never
+        reads the mask; elsewhere ``mask`` is applied as given.
+        """
         B, N, D = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.n_heads, self.d_head)
+        qkv = self.qkv(x)
+        if causal and _metal.attention_supported(qkv, self.d_head):
+            return self.out(_metal.causal_attention(qkv, self.n_heads))
+        qkv = qkv.reshape(B, N, 3, self.n_heads, self.d_head)
         q, k, v = qkv.unbind(dim=2)
         # (B, H, N, d_head)
         q = q.transpose(1, 2)

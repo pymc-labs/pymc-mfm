@@ -287,6 +287,78 @@ Characters that cannot appear in valid XML 1.0 SVG labels raise `ValueError`
 when exporting DOT, creating a diagram or building the inspector, rather than
 silently replacing the labels.
 
+### Sampling on a GPU (Apple or NVIDIA)
+
+Load the model on the GPU. The same calls then sample with fused kernels and need no
+training, conversion or installed compiler; the first CUDA call in a process compiles the
+kernels (see below):
+
+```python
+model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")  # Apple silicon
+model = from_pretrained("pymc-labs/mfm", profile="river-1", device="cuda")  # NVIDIA GPU
+result = decompose(model, observations, n_samples=1000)  # or model.inference(...)
+```
+
+River-1, 1,000 draws, the quickstart world with a 166-week context, PyTorch 2.14, median
+of warm calls (`benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps`
+or `--device cuda`):
+
+| Query weeks | CPU, Apple M3 Max (s) | Apple M3 Max GPU (s) | NVIDIA L4 (s) | NVIDIA A100 (s) | NVIDIA H100 (s) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 0.66 | 0.075 | 0.10 | 0.084 | 0.063 |
+| 50 | 2.51 | 0.30 | 0.35 | 0.23 | 0.13 |
+| 150 | 7.25 | 0.86 | 1.00 | 0.60 | 0.32 |
+| 205 | 10.17 | 1.17 | 1.35 | 0.80 | 0.41 |
+
+- GPU sampling draws its base noise with PyTorch's CPU generator, so a seeded call draws
+  the same samples on CPU, Apple and NVIDIA GPUs up to float32 round-off (identical graphs
+  on these inputs on an Apple M3 Max and NVIDIA T4, A10G, L4, A100 and H100). The noise is
+  drawn on a worker thread while the GPU runs; do not draw random numbers from other
+  threads during a call. CUDA sampling used to draw with the CUDA generator.
+- Each Euler step runs one kernel per coordinate network that computes its first layer,
+  its hidden product and its output without writing activations to memory: Metal on Apple
+  GPUs; CUDA C++ on NVIDIA GPUs, compiled by NVRTC, which PyTorch's CUDA wheels include
+  (no CUDA toolkit or compiler; found on every supported PyTorch, 2.6 and newer, in its
+  CUDA 11.8 to 13 builds). Against PyTorch's GPU operations on the same GPU
+  this is 2.7–7.2x faster at 50–205 query weeks and 2.3–3.3x at 10, where the CPU sets
+  more of the pace (NVIDIA T4 to H100 and B200).
+- The NVIDIA kernels run on the current CUDA device. Other devices, ROCm, float64 models,
+  compiled sampling and GPUs on which any of the kernels fails to build (sampling warns
+  once) use PyTorch's operations, in the smaller batches those need, with the same draws.
+- A process's first CUDA sampling call compiles the kernels: about 1 s of NVRTC on a T4 or
+  L4 (1.4 s with CUDA 11.8 builds), in background threads from the start of the call, so
+  it overlaps the call's other first-use work. PyTorch 2.14's CUDA 13 build leaves the
+  compiled kernels in the NVIDIA driver's cache (`~/.nv/ComputeCache`), so later processes
+  on the machine skip it; with PyTorch 2.6's CUDA 12.4 and 2.7's CUDA 11.8 builds every
+  process compiles.
+- Sampling on an Apple GPU needs PyTorch 2.9 or newer: older MPS releases miscompute
+  sampling (2.8) or lack operations it uses, and raise a clear error.
+- On the CPU, sampling transports up to eight batches at once, never more than PyTorch's
+  thread count. Off Apple silicon each batch runs on its own share of the threads, and
+  each network's static and context terms fill its first layer before the scalar product
+  accumulates into it; on x86 its hidden layer also runs on row chunks that stay in cache.
+  On Linux x86 capped at 8 CPUs the calls above ran 1.6–2.4x faster on AMD EPYC (Zen 3
+  and 4) and 1.0–1.35x faster on Intel Xeon (Ice Lake, Skylake or Cascade Lake, Sapphire
+  and Emerald Rapids), whose multi-threaded matrix products already used the cores well. On
+  GitHub's 2-vCPU runners (random weights of River-1's architecture, against main in the
+  same environment) Windows x86 sampled 1.25–1.36x faster, Linux x86 (one PyTorch thread)
+  1.14–1.16x and Linux ARM 1.04–1.06x, plus 1–2% from the first-layer fill there (measured
+  against the previous revision). Off Apple silicon draws agree with main up to
+  float32 round-off (no graph flipped; components within 2e-7 of the largest on the
+  runners, 9e-7 against the Mac reference on Linux x86). Apple silicon already ran eight
+  batches sharing every thread, and each batch still conditions its own graphs, so its CPU
+  draws are bitwise unchanged.
+- A call at 205 query weeks used about 1 GiB on the Apple GPU (Metal driver allocation)
+  and 0.3 GiB on NVIDIA GPUs (PyTorch allocation). GPU sampling conditions each distinct
+  graph once per call when they fit one batch (River-1 draws 3–4 on this world), else per
+  batch: random weights of River-1's architecture, which draw a distinct graph almost every
+  draw, peaked at 4.2 GiB on the Apple GPU and 1.2 GiB on NVIDIA GPUs at 205 weeks (main:
+  1.2 and 0.4 GiB) and sampled 3.4x (M3 Max) and 2.5x (T4) faster than main.
+- In a macOS virtual machine (GPU "Apple Paravirtual device", as on GitHub's macOS
+  runners), PyTorch 2.14's MPS computes every linear layer with a bias wrongly (30–80%
+  relative error), so sampling there raises an error instead of returning wrong draws;
+  sample on the CPU in a VM.
+
 ### Faster repeated sampling (optional)
 
 A long-running process that samples many times, such as a service, can compile the
@@ -575,7 +647,10 @@ uv run --no-sync pytest -q tests/client --confcutdir=tests/client
 `benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1 on
 the quickstart data, read from the local Hugging Face cache (load River-1 once
 while logged in). `--write-reference` saves the seeded draws of one version and
-`--check-reference` compares another version's draws against them.
+`--check-reference` compares another version's draws against them; a check fails on any
+flipped graph by default. Write the reference with this script while the other version is
+the one imported (for example `PYTHONPATH=<main checkout>/src`) and the same
+`--query-weeks` or `--windows`.
 
 With Conda or Mamba:
 

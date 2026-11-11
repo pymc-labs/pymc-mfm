@@ -458,7 +458,11 @@ def result_from_batch(
 
     if window not in ("query", "context"):
         raise ValueError("window must be context or query")
-    components, graphs = _numpy(components), _numpy(graphs)
+    # Shapes are checked and labels built before the draws are read: reading a GPU tensor
+    # waits for the device, which may still be sampling.
+    components, graphs = (
+        value if hasattr(value, "detach") else _numpy(value) for value in (components, graphs)
+    )
     if components.ndim != 4 or graphs.ndim != 3:
         raise ValueError("expected components [S,B,T,D] and graphs [S,B,L]")
     if type(world) is not int or not 0 <= world < components.shape[1]:
@@ -551,14 +555,17 @@ def result_from_batch(
     metadata["head"] = "conditional"
     metadata["graph_source"] = "supplied_hypothesis" if mode == "fixed" else "joint_router"
     metadata["marginal_windows"] = "separately sampled; not aligned across windows"
+    component_mask = np.r_[True, active_c, active_m, active_j.any(), True, True, True]
+    edge_mask = layout.active_slot_mask(active_c, active_m, active_j).astype(bool)
+    components, graphs = _numpy(components), _numpy(graphs)
     return DecompositionResult(
         components=components[:, world].astype(np.float64) * scale,
         graphs=graphs[:, world],
         component_names=names,
         component_families=families,
-        component_mask=np.r_[True, active_c, active_m, active_j.any(), True, True, True],
+        component_mask=component_mask,
         edge_names=edges,
-        edge_mask=layout.active_slot_mask(active_c, active_m, active_j).astype(bool),
+        edge_mask=edge_mask,
         channel_names=channels,
         control_names=controls,
         time=np.arange(length) + (context_length if window == "query" else 0),

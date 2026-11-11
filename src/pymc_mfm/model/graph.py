@@ -216,6 +216,27 @@ def _offdiag_mask(n: int, device=None) -> Tensor:
     return _offdiag_mask_cached(int(n), torch.device("cpu") if device is None else device)
 
 
+@lru_cache(maxsize=32)
+def _conditioner_index(
+    n_channels: int, n_controls: int, n_demand: int, device: torch.device
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Cache node types and slot endpoints/families: each fresh tensor is a device copy."""
+    layout = EdgeSlotLayout(n_channels, n_controls, n_demand)
+    node_types = torch.tensor(
+        [NODE_CHANNEL] * layout.K
+        + [NODE_CONTROL] * layout.M
+        + [NODE_DEMAND] * layout.J
+        + [NODE_BASELINE, NODE_SALES],
+        device=device,
+    )
+    src = torch.as_tensor(layout.slot_src_index, device=device)
+    dst = torch.as_tensor(layout.slot_dst_index, device=device)
+    edge_types = torch.tensor(
+        [STRUCT_EDGE_KEYS.index(family) for family in layout.slot_edge_types], device=device
+    )
+    return node_types, src, dst, edge_types
+
+
 class PairwiseBilinearEdge(nn.Module):
     """Shared bilinear edge scorer, equivariant over both endpoint axes."""
 
@@ -434,30 +455,25 @@ class GraphConditioner(nn.Module):
         graph: Tensor,
         layout: EdgeSlotLayout,
         active_nodes: Tensor,
+        live_slots: Tensor | None = None,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        """Condition one batch of windows on validated binary ``graph[B,L]``."""
+        """Condition one batch of windows on validated binary ``graph[B,L]``.
+
+        ``live_slots`` optionally gives the slots present in some graph (see below), so
+        that a GPU ``graph`` is not read back here.
+        """
         b, t, _ = weekly.shape
         h = channels.shape[-1]
         device = weekly.device
-        node_types = torch.tensor(
-            [NODE_CHANNEL] * layout.K
-            + [NODE_CONTROL] * layout.M
-            + [NODE_DEMAND] * layout.J
-            + [NODE_BASELINE, NODE_SALES],
-            device=device,
-        )
+        node_types, src, dst, edge_types = _conditioner_index(layout.K, layout.M, layout.J, device)
         latent = self.weekly_node(weekly).unsqueeze(-2).expand(b, t, layout.J + 2, h)
         nodes = torch.cat([channels, controls, latent], dim=-2)
         mask = active_nodes[:, None, :, None].to(nodes.dtype)
         nodes = (nodes + self.node_type(node_types)) * mask
-        src = torch.as_tensor(layout.slot_src_index, device=device)
-        dst = torch.as_tensor(layout.slot_dst_index, device=device)
-        edge_types = torch.tensor(
-            [STRUCT_EDGE_KEYS.index(family) for family in layout.slot_edge_types],
-            device=device,
-        )
         # A slot absent from every graph sends zero messages: skip it exactly.
-        live = torch.nonzero((graph != 0).any(dim=0)).squeeze(-1)
+        live = live_slots
+        if live is None:
+            live = torch.nonzero((graph != 0).any(dim=0)).squeeze(-1)
         live_src, live_dst = src[live], dst[live]
         messages = self.message(
             torch.cat(
