@@ -110,8 +110,10 @@ def started(runs_total: int = 3) -> dict[str, Any]:
 
 
 def status_record(
-    status: str = "done", runs_total: int = 3, runs_failed: int = 0
+    status: str = "done", runs_total: int = 3, runs_failed: int = 0, **extra: Any
 ) -> dict[str, Any]:
+    """The body of ``GET /v1/analyses/{id}``. ``extra`` adds fields such as ``dataset_id``,
+    ``context``, ``seed`` and ``draws``."""
     return {
         "status": status,
         "runs_total": runs_total,
@@ -119,6 +121,7 @@ def status_record(
         "runs_failed": runs_failed,
         "estimate_seconds": 42.0,
         "expires_at": EXPIRES,
+        **extra,
     }
 
 
@@ -132,6 +135,7 @@ def result_rows(
     base: str | None = None,
     channel: str | None = None,
     level: float | None = None,
+    multipliers: dict[str, Any] | None = None,
     tv_mean: float = 100.0,
     search_mean: float = 50.0,
     failed: bool = False,
@@ -159,7 +163,7 @@ def result_rows(
                 "base_scenario_id": base,
                 "varied_channel": channel,
                 "level": level,
-                "steps": [],
+                "multipliers": multipliers,
                 "run_id": None if failed else f"run_{scenario_id}",
                 "status": "failed" if failed else "ok",
                 "spend_total": spend_total,
@@ -201,7 +205,14 @@ def curve_result(levels: tuple[float, ...] = (0.0, 0.5, 1.5, 2.0)) -> dict[str, 
     Level 1 has no curve row: the service does not run it again.
     """
     rows = result_rows("baseline", "baseline")
-    rows += result_rows("half", "scenario", base="baseline", tv_mean=50.0, search_mean=25.0)
+    rows += result_rows(
+        "half",
+        "scenario",
+        base="baseline",
+        multipliers={"tv": 0.5, "search": 0.5},
+        tv_mean=50.0,
+        search_mean=25.0,
+    )
     rows += result_rows("broken", "scenario", base="baseline", failed=True)
     for channel in ("tv", "search"):
         for level in levels:
@@ -216,3 +227,74 @@ def curve_result(levels: tuple[float, ...] = (0.0, 0.5, 1.5, 2.0)) -> dict[str, 
                 **means,
             )
     return result_record(rows)
+
+
+def weeks_status(status: str = "done", **extra: Any) -> dict[str, Any]:
+    """A status record of an analysis in the weeks (backtest) form."""
+    return status_record(
+        status,
+        dataset_id="ds_123",
+        context={
+            "start": "2024-07-01",
+            "end": "2024-07-15",
+            "query_end": "2024-08-05",
+            "channels": ["tv", "search"],
+            "controls": ["price"],
+        },
+        seed=7,
+        draws=500,
+        **extra,
+    )
+
+
+def _share(name: str, group: str, total: float) -> dict[str, Any]:
+    return {
+        "name": name,
+        "group": group,
+        "total": {"value": total, "p05": total - 0.05, "p95": total + 0.05},
+        "mean": {"value": total / 2, "p05": total / 2 - 0.05, "p95": total / 2 + 0.05},
+    }
+
+
+def fit_record() -> dict[str, Any]:
+    """The ``fit`` object of a backtest result: scores and shares per window."""
+    return {
+        window: {
+            "r2": {"value": r2, "sd": 0.02},
+            "mape": {"value": 0.1, "sd": 0.01},
+            "crps": 12.5,
+            "shares": [_share("tv", "channel", 0.4), _share("price", "control", -0.1)],
+        }
+        for window, r2 in (("context", 0.95), ("query", 0.8))
+    }
+
+
+def response_curves_record() -> list[dict[str, Any]]:
+    """The ``response_curves`` list of a backtest result: tv at three levels, one failed."""
+    points = [
+        {"level": 0.0, "value": 0.0, "p05": 0.0, "p95": 0.0},
+        {"level": 0.5, "value": 40.0, "p05": 35.0, "p95": 45.0},
+        {"level": 1.5, "value": None, "p05": None, "p95": None},
+    ]
+    return [{"channel": "tv", "spend": 220.0, "points": points}]
+
+
+def weeks_result() -> dict[str, Any]:
+    """A backtest result: a baseline, one scenario, fit and response curves."""
+    rows = result_rows("baseline", "baseline")
+    rows += result_rows(
+        "half", "scenario", base="baseline", multipliers={"tv": 0.5}, tv_mean=50.0
+    )
+    return {**result_record(rows), "fit": fit_record(), "response_curves": response_curves_record()}
+
+
+def export_record(inputs: dict[str, Any] | None) -> dict[str, Any]:
+    """An analysis export whose baseline scenario holds ``inputs`` (or none)."""
+    return {
+        "format": "mfm-analysis-export-v1",
+        "analysis_id": "an_1",
+        "scenarios": [
+            {"scenario_id": "baseline", "kind": "baseline", "inputs": inputs},
+            {"scenario_id": "half", "kind": "scenario", "inputs": None},
+        ],
+    }

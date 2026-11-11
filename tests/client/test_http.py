@@ -9,6 +9,7 @@ from pymc_mfm.client import (
     Gone,
     NotFound,
     NotReady,
+    PayloadTooLarge,
     RateLimited,
     ServerError,
     Unauthorized,
@@ -52,12 +53,14 @@ def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
         Client(BASE_URL)
 
 
-def test_post_sends_an_idempotency_key_and_each_call_gets_a_new_one(client, service, history):
+def test_post_sends_a_content_derived_idempotency_key(client, service, history):
     service.on("POST", "/v1/datasets", (201, dataset_record()))
     create(client, history)
     create(client, history)
-    keys = [r.headers["Idempotency-Key"] for r in service.requests]
-    assert len(keys) == 2 and keys[0] != keys[1]
+    client.datasets.create(history, date="week", outcome="sales", spend="tv")
+    same, again, other = (r.headers["Idempotency-Key"] for r in service.requests)
+    assert same == again != other
+    assert same.startswith("mfm1-")
 
 
 def test_get_sends_no_idempotency_key(client, service):
@@ -83,6 +86,34 @@ def test_a_caller_key_is_used_as_given(client, service, history):
         history, date="week", outcome="sales", spend="tv", idempotency_key="mine-1"
     )
     assert service.requests[0].headers["Idempotency-Key"] == "mine-1"
+
+
+def test_a_410_for_the_content_key_is_retried_once_with_a_random_key(client, service, history):
+    service.on(
+        "POST", "/v1/datasets", (410, error_body("expired", "deleted")), (201, dataset_record())
+    )
+    create(client, history)
+    first, second = service.requests
+    assert first.headers["Idempotency-Key"].startswith("mfm1-")
+    assert not second.headers["Idempotency-Key"].startswith("mfm1-")
+    assert second.headers["Idempotency-Key"] != first.headers["Idempotency-Key"]
+    assert first.content == second.content
+
+
+def test_a_second_410_is_raised(client, service, history):
+    service.on("POST", "/v1/datasets", (410, error_body("expired", "deleted")))
+    with pytest.raises(Gone):
+        create(client, history)
+    assert len(service.requests) == 2
+
+
+def test_a_410_with_a_caller_key_is_raised_without_a_retry(client, service, history):
+    service.on("POST", "/v1/datasets", (410, error_body("expired", "deleted")))
+    with pytest.raises(Gone):
+        client.datasets.create(
+            history, date="week", outcome="sales", spend="tv", idempotency_key="mine-1"
+        )
+    assert len(service.requests) == 1
 
 
 @pytest.mark.parametrize("status", [429, 502, 503, 504])
@@ -185,6 +216,7 @@ def test_rate_limit_error_keeps_retry_after_after_the_last_retry(service, sleeps
         (409, "idempotency_conflict", Conflict),
         (409, "not_ready", NotReady),
         (410, "expired", Gone),
+        (413, "payload_too_large", PayloadTooLarge),
         (422, "invalid", ValidationError),
         (400, "bad_request", ValidationError),
         (500, "internal", ServerError),
