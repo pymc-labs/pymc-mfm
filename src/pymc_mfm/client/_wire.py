@@ -29,12 +29,24 @@ def to_json(body: Any) -> bytes:
     return json.dumps(body, default=_json_default, allow_nan=False).encode()
 
 
+def canonical_json(body: Any) -> bytes:
+    """Encode a request body with sorted keys and no spaces, so equal bodies give equal bytes."""
+    return json.dumps(
+        body, default=_json_default, allow_nan=False, sort_keys=True, separators=(",", ":")
+    ).encode()
+
+
 def iso_dates(values: Iterable[Any], *, name: str = "date") -> list[str]:
     """Convert a date column to ISO ``YYYY-MM-DD`` strings."""
     dates = pd.to_datetime(pd.Series(list(values)))
     if dates.isna().any():
         raise ValueError(f"Column {name!r} has missing dates")
     return dates.dt.strftime("%Y-%m-%d").tolist()
+
+
+def iso_date(value: Any, *, name: str) -> str:
+    """Convert one date (a string, ``date`` or ``Timestamp``) to an ISO ``YYYY-MM-DD`` string."""
+    return iso_dates([value], name=name)[0]
 
 
 def finite_floats(values: Iterable[Any], *, name: str) -> list[float]:
@@ -115,6 +127,33 @@ def check_currency(currency: str) -> str:
     ):
         raise ValueError(f"currency must be 3 uppercase letters such as 'USD', not {currency!r}")
     return currency
+
+
+def weeks_fields(
+    start: Any,
+    end: Any,
+    query_end: Any,
+    *,
+    channels: str | Sequence[str] | None = None,
+    controls: str | Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """The weeks-form fields of an analysis: ``context``, ``query`` and the chosen series.
+
+    ``start`` and ``end`` are the first and last input weeks, ``query_end`` the last predicted
+    week. ``channels`` and ``controls`` left as ``None`` are not sent: the service uses all.
+    """
+    fields: dict[str, Any] = {
+        "context": {
+            "start": iso_date(start, name="context start"),
+            "end": iso_date(end, name="context end"),
+        },
+        "query": {"end": iso_date(query_end, name="query_end")},
+    }
+    if channels is not None:
+        fields["channels"] = as_names(channels)
+    if controls is not None:
+        fields["controls"] = as_names(controls)
+    return fields
 
 
 def plan_body(

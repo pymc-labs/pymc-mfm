@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import email.utils
+import hashlib
 import json
 import os
 import time
@@ -13,13 +14,14 @@ import httpx
 
 from pymc_mfm import __version__
 
-from ._wire import to_json
-from .errors import ApiConnectionError, ApiError, error_from_response
+from ._wire import canonical_json, to_json
+from .errors import ApiConnectionError, ApiError, Gone, error_from_response
 
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_WAIT = 60.0  # seconds; default cap on a Retry-After wait
 BACKOFF_BASE = 0.5  # seconds; doubles on each retry when there is no Retry-After
 BACKOFF_CAP = 8.0
+CONTENT_KEY_PREFIX = "mfm1-"
 
 
 def parse_retry_after(value: str | None, *, now: float | None = None) -> float | None:
@@ -38,8 +40,15 @@ def parse_retry_after(value: str | None, *, now: float | None = None) -> float |
 
 
 def new_idempotency_key() -> str:
-    """One key per logical call; retries of that call reuse it."""
+    """A random key: the call starts new work even when an equal request ran before."""
     return str(uuid.uuid4())
+
+
+def content_idempotency_key(path: str, body: Any) -> str:
+    """A key derived from the request path and body: an equal request gets an equal key, so
+    the service returns the earlier resource instead of starting the work again."""
+    digest = hashlib.sha256(path.encode() + b"\n" + canonical_json(body)).hexdigest()
+    return CONTENT_KEY_PREFIX + digest
 
 
 class Http:
@@ -107,6 +116,23 @@ class Http:
             method, self.base_url + path, headers=headers, content=content, params=params
         )
         return self._decode(response)
+
+    def create(self, path: str, body: Any, *, idempotency_key: str | None = None) -> Any:
+        """POST a create request and return the decoded JSON body.
+
+        Without ``idempotency_key`` the key comes from the request content. If the earlier
+        resource of that key was deleted or expired (410), the call is sent once more with a
+        random key, so it starts new work; a 410 for another reason, such as a deleted
+        dataset, comes back again and is raised.
+        """
+        if idempotency_key is not None:
+            return self.request("POST", path, body=body, idempotency_key=idempotency_key)
+        try:
+            return self.request(
+                "POST", path, body=body, idempotency_key=content_idempotency_key(path, body)
+            )
+        except Gone:
+            return self.request("POST", path, body=body, idempotency_key=new_idempotency_key())
 
     def download_authenticated(self, path: str) -> bytes:
         """Fetch the raw bytes of an API path, with the key. Raises ``ApiError`` on failure."""
