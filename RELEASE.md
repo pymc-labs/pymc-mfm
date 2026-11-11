@@ -72,6 +72,44 @@ approved or published release.
   an Apple M3 Max, now 0.27–0.39 s and 0.13 s; River-1's architecture on GitHub's Windows,
   macOS and Linux runners took 0.6–4.6 s (most on a first load after installing), now
   0.04–0.11 s. Weights and draws are unchanged.
+- **Encoder input-token accounting.** After `add_context`, `model.input_usage()`
+  reports context-only allocated and represented token counts.
+  `model.input_usage(future_data)` validates the complete request, including the
+  model's numeric precision, without neural inference or changing retained
+  predictions, exports, model mode, or random state. All decomposition results
+  automatically record authoritative per-world `provenance["input_usage"]` for
+  the full encoder timeline; result save/load preserves it and older results
+  without the key remain readable. Counts distinguish padded slots from
+  represented inputs, not effective information or runtime/capacity estimates.
+  No architecture, weight, checkpoint-format, or retraining changes are required.
+- **Graphviz DOT export and native default diagrams.** `result.plot.dot(graph=rank)`
+  and `pymc_mfm.plotting.graph_to_dot(summary, graph=rank)` export an exact complete
+  graph; omitting the rank exports marginal edges with numeric frequency labels
+  and exact probability attributes. Diagnostics expose the same accessor, and the
+  optional offline inspector downloads the currently selected view as DOT or SVG.
+  Named active nodes remain in empty graphs; supplied truth and padded nodes are
+  excluded from DOT. Labels are quoted literally and must be XML 1.0-compatible.
+  Diagrams now use Graphviz's actual `dot` engine with its default shapes, edge
+  routing, typography and spacing; all custom graph geometry and orthogonal
+  routing have been removed. `dag()` returns `GraphvizGraph`, not a Matplotlib
+  figure, with native PNG display and PNG/vector SVG `savefig` export without
+  Matplotlib-only options. Rendering and building the optional inspector require
+  the system Graphviz tools on `PATH`; writing DOT and opening saved HTML do not.
+  The fully executed quickstart contains rank tables, average and individual
+  diagrams, and SVG/DOT exports, without the custom HTML inspector.
+- **Individual sampled graphs and an offline inspector.** `result.plot.dag(graph=rank)`
+  draws an exact complete graph at its zero-based frequency rank; `dag()` keeps the
+  marginal-average view. `result.plot.graph_inspector()` displays every observed graph
+  in an isolated notebook frame or saves a standalone HTML selector with paginated
+  counts/frequencies and current-view SVG export. Both accessors also work on
+  diagnostics, and the standalone renderers accept saved summaries without inference.
+  Active named nodes remain visible for empty graphs; padding is omitted. Frequency
+  is not a fit score or causal-identification claim, and MAP/fixed views do not invent
+  the lost pre-selection distribution. Generated HTML contains graph topology and
+  column labels; review it before sharing.
+  The quickstart demonstrates Average, ranked graph selection and SVG export with
+  saved notebook outputs. The `examples` extra now installs IPython, which its
+  explicit display calls also need when the notebook runs headlessly in CI.
 - **Documentation website.** `docs/` is a Quarto site in the PyMC Labs palette and brand
   type (Archivo Expanded for headlines and large text, Inter for body text): a landing
   page, a Guide (written pages plus every notebook in `examples/`, rendered from stored

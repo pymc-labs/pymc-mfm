@@ -1,5 +1,6 @@
 """The observation boundary uses no synthetic labels and preserves result identity."""
 
+import copy
 import json
 import subprocess
 import sys
@@ -14,7 +15,7 @@ from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.inference.api import decompose, observation_batch
 from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.inference.hub import from_pretrained
-from pymc_mfm.inference.result import DecompositionResult
+from pymc_mfm.inference.result import DecompositionResult, result_from_batch
 from pymc_mfm.model.graph import EdgeSlotLayout
 
 
@@ -51,14 +52,24 @@ def test_observed_representation_matches_training_without_targets(model, synthet
 
 
 def test_result_replay_retains_labels_and_rejects_corruption(model, synthetic_corpus, tmp_path):
+    inputs = {
+        **observed(synthetic_corpus, row=2),
+        "channel_mask": np.array([1, 1, 0]),
+        "control_mask": np.array([1, 1]),
+    }
     result = decompose(
         model,
-        observed(synthetic_corpus),
+        inputs,
         n_samples=4,
         channel_names=("paid social", "search", "padding"),
         control_names=("price", "holiday"),
         units="USD",
     )
+    assert result.provenance["input_usage"] == {
+        "context": {"steps": 9, "allocated_tokens": 54, "represented_tokens": 45},
+        "query": {"steps": 3, "allocated_tokens": 18, "represented_tokens": 15},
+        "total": {"allocated_tokens": 72, "represented_tokens": 60},
+    }
     path = result.save(tmp_path / "evidence")
     replay = DecompositionResult.load(path)
     np.testing.assert_array_equal(replay.components, result.components)
@@ -211,6 +222,94 @@ def test_encoded_observations_preserve_dtype_and_ignore_training_truth(model, sy
     np.testing.assert_array_equal(actual.components, expected.components)
     np.testing.assert_array_equal(actual.graphs, expected.graphs)
     assert actual.provenance["data_sha256"] == expected.provenance["data_sha256"]
+
+
+def test_input_usage_is_owned_metadata_for_raw_encoded_and_zero_valued_inputs(
+    model, synthetic_corpus
+):
+    inputs = observed(synthetic_corpus, row=2)
+    inputs["spend"] = inputs["spend"].copy()
+    inputs["controls"] = inputs["controls"].copy()
+    inputs["spend"][:, 1:] = 0
+    inputs["controls"][:, 1] = 0
+    inputs["channel_mask"] = np.array([1, 0, 0])
+    inputs["control_mask"] = np.array([1, 0])
+    expected_usage = {
+        "context": {"steps": 9, "allocated_tokens": 54, "represented_tokens": 27},
+        "query": {"steps": 3, "allocated_tokens": 18, "represented_tokens": 9},
+        "total": {"allocated_tokens": 72, "represented_tokens": 36},
+    }
+    annotations = {
+        "input_usage": {"context": {"steps": -1}, "total": {"allocated_tokens": -1}},
+        "scenario": {"name": "synthetic forecast"},
+    }
+    original_annotations = copy.deepcopy(annotations)
+    torch.manual_seed(95)
+    reference = decompose(model, inputs, n_samples=3)
+    encoded = observation_batch(**inputs, model_config=model.config)
+    for observations in (inputs, encoded):
+        torch.manual_seed(95)
+        result = decompose(model, observations, n_samples=3, provenance=annotations)
+        assert result.provenance["input_usage"] == expected_usage
+        assert result.provenance["scenario"] == original_annotations["scenario"]
+        assert annotations == original_annotations
+        assert result.provenance["data_sha256"] == reference.provenance["data_sha256"]
+        np.testing.assert_array_equal(result.components, reference.components)
+        np.testing.assert_array_equal(result.graphs, reference.graphs)
+
+    # Identical zero columns are represented when masks are omitted, not padding.
+    unmasked = {name: inputs[name] for name in ("spend", "controls", "context_outcome")}
+    represented = decompose(model, unmasked, n_samples=2)
+    assert represented.provenance["input_usage"] == {
+        "context": {"steps": 9, "allocated_tokens": 54, "represented_tokens": 54},
+        "query": {"steps": 3, "allocated_tokens": 18, "represented_tokens": 18},
+        "total": {"allocated_tokens": 72, "represented_tokens": 72},
+    }
+
+
+def test_input_usage_uses_selected_world_masks_for_both_output_windows(model, batch):
+    encoded = {
+        **batch,
+        "active_c_mask": batch["active_c_mask"].clone(),
+        "sales_scale": torch.tensor([100.0, 200.0], dtype=torch.float64),
+    }
+    encoded["active_c_mask"][0] = torch.tensor([1.0, 0.0, 0.0])
+    expected_usage = (
+        {
+            "context": {"steps": 5, "allocated_tokens": 30, "represented_tokens": 20},
+            "query": {"steps": 3, "allocated_tokens": 18, "represented_tokens": 12},
+            "total": {"allocated_tokens": 48, "represented_tokens": 32},
+        },
+        {
+            "context": {"steps": 5, "allocated_tokens": 30, "represented_tokens": 25},
+            "query": {"steps": 3, "allocated_tokens": 18, "represented_tokens": 15},
+            "total": {"allocated_tokens": 48, "represented_tokens": 40},
+        },
+    )
+    query, query_graphs = model.sample_disentangled(encoded, 2)
+    context, context_graphs = model.sample_disentangled(
+        encoded,
+        3,
+        window="context",
+        mode="fixed",
+        graph=torch.zeros(2, EdgeSlotLayout(3, 2, 2).n_slots),
+    )
+    for window, components, graphs, mode in (
+        ("query", query, query_graphs, "model_average"),
+        ("context", context, context_graphs, "fixed"),
+    ):
+        for world, usage in enumerate(expected_usage):
+            result = result_from_batch(
+                encoded,
+                components,
+                graphs,
+                model_config=model.config,
+                world=world,
+                window=window,
+                mode=mode,
+            )
+            assert result.provenance["input_usage"] == usage
+            assert result.components.shape[1] == (5 if window == "context" else 3)
 
 
 def test_context_is_a_separate_marginal_and_preserves_training_mode(

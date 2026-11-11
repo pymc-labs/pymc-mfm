@@ -275,6 +275,8 @@ def _finish(summary, root, provenance, *, strict, source_manifest=None):
     if summary.get("scoring_error"):
         failures.append(f"scoring: {summary['scoring_error']}")
     (root / "figures").mkdir(exist_ok=True)
+    from pymc_mfm.plotting._graphviz import GraphvizGraph
+
     for name, panel in manifest["panels"].items():
         manifest["statuses"][f"panel/{name}"] = dict(panel)
         if panel["status"] in ("unavailable", "not_applicable", "failed"):
@@ -285,7 +287,10 @@ def _finish(summary, root, provenance, *, strict, source_manifest=None):
 
             figure = plot_panel(name, summary)
             relative = f"figures/{name}.png"
-            figure.savefig(root / relative, dpi=120, bbox_inches="tight")
+            if isinstance(figure, GraphvizGraph):
+                figure.savefig(root / relative)
+            else:
+                figure.savefig(root / relative, dpi=120, bbox_inches="tight")
             panel["path"] = relative
             panel["render_status"] = "ok"
             manifest["artifacts"].append(
@@ -304,7 +309,7 @@ def _finish(summary, root, provenance, *, strict, source_manifest=None):
             )
             failures.append(f"{name}: {type(exc).__name__}: {exc}")
         finally:
-            if figure is not None:
+            if figure is not None and not isinstance(figure, GraphvizGraph):
                 figure.clear()
         manifest["statuses"][f"panel/{name}"] = dict(panel)
     if failures:

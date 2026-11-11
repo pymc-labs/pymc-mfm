@@ -93,6 +93,26 @@ def observation_batch(
     return tensors
 
 
+def _model_batch(
+    batch: dict[str, torch.Tensor], *, device: str | torch.device, dtype: torch.dtype
+) -> dict[str, torch.Tensor]:
+    """Narrow model inputs while retaining float64 CPU sales-scale metadata."""
+    batch = {
+        key: (
+            value.to(device="cpu", dtype=torch.float64)
+            if key == "sales_scale"
+            else value.to(device=device, dtype=dtype)
+        )
+        for key, value in batch.items()
+    }
+    for key, value in batch.items():
+        if not torch.isfinite(value).all():
+            raise ValueError(f"{key} exceeds the finite model representation")
+    if (batch["sales_scale"] <= 0).any():
+        raise ValueError("sales_scale must remain positive")
+    return batch
+
+
 def decompose(
     model: MFM,
     observations: Mapping[str, object],
@@ -173,17 +193,7 @@ def decompose(
         batch = observation_batch(**observations, model_config=model.config, device="cpu")
     # Checks, hashes and summaries read a CPU copy in the model's dtype, so a GPU model
     # waits for no device round trip; only sampling reads the device copy.
-    batch = {
-        key: value.to(
-            device="cpu", dtype=torch.float64 if key == "sales_scale" else parameter.dtype
-        )
-        for key, value in batch.items()
-    }
-    for key, value in batch.items():
-        if not torch.isfinite(value).all():
-            raise ValueError(f"{key} exceeds the finite model representation")
-    if (batch["sales_scale"] <= 0).any():
-        raise ValueError("sales_scale must remain positive")
+    batch = _model_batch(batch, device="cpu", dtype=parameter.dtype)
     device_batch = _to_device(batch, parameter.device)
     if graph is not None:
         # Validate the caller's precision before the model converts graph dtype. A

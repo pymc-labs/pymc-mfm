@@ -528,6 +528,47 @@ class MFM(nn.Module):
         self._idata = None
         return self
 
+    def input_usage(self, data: DataFrame | None = None) -> dict[str, object]:
+        """Report input-volume counts without running the neural model.
+
+        ``context`` and, with query ``data``, ``query`` contain ``steps``,
+        ``allocated_tokens`` for all padded entity slots, and
+        ``represented_tokens`` for unmasked slots. Tokens are time/entity cells,
+        including one revenue slot per step. With query data, ``total`` contains
+        both token sums. With ``data=None``, return only ``context``; no query
+        is inferred from earlier predictions.
+
+        Query data is validated as for ``inference``. These counts measure input
+        volume, not model capacity, maximum supported length, or runtime limits.
+        """
+        from pymc_mfm.inference._usage import _input_usage
+
+        context = self._inference_context
+        if context is None:
+            raise RuntimeError("call add_context(history, ...) before input_usage(data)")
+        if data is None:
+            return _input_usage(
+                context_steps=context.spend.shape[0],
+                channel_slots=context.spend.shape[1],
+                control_slots=context.controls.shape[1],
+                represented_channels=len(context.channel_columns),
+                represented_controls=int(context.control_mask.sum()),
+            )
+
+        from pymc_mfm.inference.api import _model_batch, observation_batch
+
+        observations, _ = context.observations(data)
+        batch = observation_batch(**observations, model_config=self.config, device="cpu")
+        batch = _model_batch(batch, device="cpu", dtype=next(self.parameters()).dtype)
+        return _input_usage(
+            context_steps=batch["ctx_spend_z"].shape[1],
+            query_steps=batch["qry_spend_z"].shape[1],
+            channel_slots=batch["ctx_spend_z"].shape[2],
+            control_slots=batch["ctx_controls_z"].shape[2],
+            represented_channels=int(batch["active_c_mask"][0].count_nonzero()),
+            represented_controls=int(batch["active_m_mask"][0].count_nonzero()),
+        )
+
     def inference(
         self,
         data: DataFrame,

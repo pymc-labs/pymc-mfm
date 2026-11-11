@@ -95,6 +95,12 @@ body.quarto-dark .navbar-logo {
   opacity: 0.6;
 }
 
+/* "Try it out" (_quarto.yml), to the hosted console: only the River model page shows
+   it, as a button (model.css). */
+.navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
+  display: none;
+}
+
 /* Typography --------------------------------------------------------------- */
 h1,
 h2,

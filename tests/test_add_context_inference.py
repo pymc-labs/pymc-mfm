@@ -24,6 +24,11 @@ COLUMN_ROLES = {
     "channel_columns": CHANNELS,
     "control_columns": CONTROLS,
 }
+REQUEST_USAGE = {
+    "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20},
+    "query": {"steps": 3, "allocated_tokens": 15, "represented_tokens": 12},
+    "total": {"allocated_tokens": 40, "represented_tokens": 32},
+}
 
 
 @pytest.fixture
@@ -98,8 +103,44 @@ def _assert_same_result(actual, expected):
         "context_length",
     ):
         assert getattr(actual, name) == getattr(expected, name), name
-    for name in ("data_sha256", "sales_scale"):
+    for name in ("data_sha256", "sales_scale", "input_usage"):
         assert actual.provenance[name] == expected.provenance[name], name
+
+
+def test_input_usage_inspects_context_and_horizons_without_a_prediction(model, history, future):
+    model.add_context(history, **COLUMN_ROLES)
+    before = torch.get_rng_state()
+    context = model.input_usage()
+    assert context == {"context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}}
+    usage = model.input_usage(future)
+    assert usage == REQUEST_USAGE
+    assert model.input_usage(future.iloc[:1]) == {
+        "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20},
+        "query": {"steps": 1, "allocated_tokens": 5, "represented_tokens": 4},
+        "total": {"allocated_tokens": 30, "represented_tokens": 24},
+    }
+    ignored_columns = future.assign(sales=["unobserved", None, -np.inf], note="not an input")
+    independent = model.input_usage(ignored_columns.iloc[::-1])
+    assert independent == REQUEST_USAGE
+    for section in independent.values():
+        assert type(section) is dict
+        assert all(type(value) is int for value in section.values())
+
+    # Every section is caller-owned, including across context-only/full requests.
+    for section in usage.values():
+        for key in section:
+            section[key] = -1
+    assert context == {"context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}}
+    assert independent == REQUEST_USAGE
+    context["context"]["steps"] = -1
+    assert model.input_usage() == {
+        "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}
+    }
+    assert model.input_usage(future) == REQUEST_USAGE
+    assert model.idata is None
+    with pytest.raises(RuntimeError, match="inference"):
+        model.build_idata()
+    assert torch.equal(torch.get_rng_state(), before)
 
 
 def test_add_context_chains_and_inference_matches_decompose_with_sorted_alignment(
@@ -133,6 +174,7 @@ def test_add_context_chains_and_inference_matches_decompose_with_sorted_alignmen
     np.testing.assert_array_equal(actual.time, future["date"].to_numpy(dtype="datetime64[ns]"))
     assert actual.time.dtype == np.dtype("datetime64[ns]")
     assert actual.window == "query" and actual.provenance["head"] == "conditional"
+    assert actual.provenance["input_usage"] == model.input_usage(future_input) == REQUEST_USAGE
     pd.testing.assert_frame_equal(history_input, original_history)
     pd.testing.assert_frame_equal(future_input, original_future)
 
@@ -160,6 +202,7 @@ def test_inference_preserves_graph_options_units_and_provenance(model, history, 
     _assert_same_result(actual, expected)
     assert actual.n_samples == 3 and actual.mode == mode and actual.units == "USD"
     assert actual.provenance["scenario"] == "board forecast"
+    assert actual.provenance["input_usage"] == REQUEST_USAGE
     if mode == "fixed":
         np.testing.assert_array_equal(actual.graphs, np.broadcast_to(graph, actual.graphs.shape))
         assert actual.provenance["graph_source"] == "supplied_hypothesis"
@@ -207,6 +250,7 @@ def test_history_and_role_lists_are_snapshots_and_context_replacement_is_atomic(
     controls.clear()
     torch.manual_seed(704)
     _assert_same_result(model.inference(future, n_samples=3), expected)
+    assert model.input_usage(future) == REQUEST_USAGE
 
     invalid_refit = pristine.rename(columns={"search": "new_search"}).assign(sales=0.0)
     before = torch.get_rng_state()
@@ -218,12 +262,24 @@ def test_history_and_role_lists_are_snapshots_and_context_replacement_is_atomic(
     torch.manual_seed(704)
     _assert_same_result(model.inference(future, n_samples=3), expected)
 
-    replacement = pristine.assign(
-        sales=pristine["sales"] * [1.0, 1.8, 0.7, 2.3, 1.2],
-        search=pristine["search"] + [4.0, 15.0, 1.0, 20.0, 7.0],
-        temperature=pristine["temperature"] * [-1.0, 2.0, 0.5, 3.0, -2.0],
+    replacement = (
+        pristine.assign(
+            sales=pristine["sales"] * [1.0, 1.8, 0.7, 2.3, 1.2],
+            search=pristine["search"] + [4.0, 15.0, 1.0, 20.0, 7.0],
+            temperature=pristine["temperature"] * [-1.0, 2.0, 0.5, 3.0, -2.0],
+        )
+        .iloc[1:]
+        .copy()
     )
     assert model.add_context(replacement, **COLUMN_ROLES) is model
+    assert model.input_usage() == {
+        "context": {"steps": 4, "allocated_tokens": 20, "represented_tokens": 16}
+    }
+    assert model.input_usage(future) == {
+        "context": {"steps": 4, "allocated_tokens": 20, "represented_tokens": 16},
+        "query": {"steps": 3, "allocated_tokens": 15, "represented_tokens": 12},
+        "total": {"allocated_tokens": 35, "represented_tokens": 28},
+    }
     torch.manual_seed(704)
     actual = model.inference(future, n_samples=3)
     torch.manual_seed(704)
@@ -287,6 +343,15 @@ def test_inference_adapts_channel_count_and_full_control_capacity(model, history
         n_samples=3,
     )
     _assert_same_result(actual, expected)
+    assert (
+        actual.provenance["input_usage"]
+        == model.input_usage(future)
+        == {
+            "context": {"steps": 5, "allocated_tokens": 20, "represented_tokens": 20},
+            "query": {"steps": 3, "allocated_tokens": 12, "represented_tokens": 12},
+            "total": {"allocated_tokens": 32, "represented_tokens": 32},
+        }
+    )
     assert actual.channel_names == channels and actual.control_names == controls
     control_axis = np.array([family == "control" for family in actual.component_families])
     np.testing.assert_array_equal(actual.component_mask[control_axis], [True, True])
@@ -305,6 +370,7 @@ def test_loaded_weights_state_and_mode_are_unchanged_and_bundles_exclude_context
     loaded.train()
     assert loaded.add_context(history, **COLUMN_ROLES) is loaded
     assert loaded.training
+    assert loaded.input_usage(future) == REQUEST_USAGE
     torch.manual_seed(708)
     training_mode_result = loaded.inference(future, n_samples=3)
     assert loaded.training
@@ -335,16 +401,24 @@ def test_loaded_weights_state_and_mode_are_unchanged_and_bundles_exclude_context
     restored = from_pretrained(fitted_bundle)
     with pytest.raises(RuntimeError):
         restored.inference(future, n_samples=2)
+    with pytest.raises(RuntimeError, match="add_context"):
+        restored.input_usage()
 
 
 def test_inference_without_context_does_not_consume_rng(model, history, future):
     before = torch.get_rng_state()
+    with pytest.raises(RuntimeError, match="add_context"):
+        model.input_usage()
+    with pytest.raises(RuntimeError, match="add_context"):
+        model.input_usage(future)
     with pytest.raises(RuntimeError):
         model.inference(future, n_samples=2)
     with pytest.raises(ValueError):
         model.add_context(history.assign(sales=0.0), **COLUMN_ROLES)
     with pytest.raises(RuntimeError):
         model.inference(future, n_samples=2)
+    with pytest.raises(RuntimeError, match="add_context"):
+        model.input_usage()
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -462,6 +536,8 @@ def test_inference_validates_query_schema_and_domains_before_rng_consumption(
         future = future.assign(temperature="unknown")
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
+        model.input_usage(future)
+    with pytest.raises(ValueError):
         model.inference(future, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
@@ -494,6 +570,8 @@ def test_inference_rejects_dates_outside_the_immediate_regular_horizon(
         future["date"] = dates
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
+        model.input_usage(future)
+    with pytest.raises(ValueError):
         model.inference(future, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
@@ -502,6 +580,8 @@ def test_inference_rejects_dates_outside_the_immediate_regular_horizon(
 def test_nonzero_query_inputs_cannot_use_zero_context_scales(model, history, future, column):
     model.add_context(history.assign(**{column: 0.0}), **COLUMN_ROLES)
     before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="zero context"):
+        model.input_usage(future)
     with pytest.raises(ValueError, match="zero context"):
         model.inference(future, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
@@ -554,6 +634,70 @@ def test_mixed_numeric_datetime_objects_cannot_be_coerced_to_date_labels(
         with pytest.raises(ValueError):
             model.inference(future, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
+
+
+@needs_arviz
+def test_input_usage_preserves_prediction_export_weights_mode_and_seeded_draws(
+    model, history, future
+):
+    import xarray as xr
+
+    # A constant represented channel also provides the known float16 overflow case.
+    history = history.assign(search=1.0)
+    future = future.assign(search=1.0)
+    model.add_context(history, **COLUMN_ROLES)
+    torch.manual_seed(711)
+    query = model.inference(future, n_samples=3)
+    stored = model.build_idata(store=True)
+    original = stored.copy(deep=True)
+    model.train()
+    trainability = [parameter.requires_grad for parameter in model.parameters()]
+
+    def assert_preserved(state, rng):
+        assert model.training
+        assert model.idata is stored
+        assert torch.equal(torch.get_rng_state(), rng)
+        for name, value in model.state_dict().items():
+            torch.testing.assert_close(value, state[name], rtol=0, atol=0)
+        assert [parameter.requires_grad for parameter in model.parameters()] == trainability
+        assert all(parameter.grad is None for parameter in model.parameters())
+        xr.testing.assert_identical(stored, original)
+        rebuilt = model.build_idata()
+        xr.testing.assert_equal(rebuilt, original)
+        for window in ("context", "query"):
+            assert (
+                rebuilt[window].attrs["metadata_sha256"]
+                == original[window].attrs["metadata_sha256"]
+            )
+        assert model.idata is stored
+        assert torch.equal(torch.get_rng_state(), rng)
+
+    state = {name: value.clone() for name, value in model.state_dict().items()}
+    before = torch.get_rng_state()
+    assert model.input_usage() == {
+        "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}
+    }
+    assert model.input_usage(future.iloc[:1]) == {
+        "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20},
+        "query": {"steps": 1, "allocated_tokens": 5, "represented_tokens": 4},
+        "total": {"allocated_tokens": 30, "represented_tokens": 24},
+    }
+    with pytest.raises(ValueError):
+        model.input_usage(future.assign(search=-1e-50))
+    assert_preserved(state, before)
+    torch.manual_seed(711)
+    reference = _canonical_result(model, history, future, query.control_names, n_samples=3)
+    _assert_same_result(query, reference)
+
+    # The canonical float32 query is finite, but cannot be narrowed to model dtype.
+    # Inspection must reject it before touching the completed prediction or export.
+    model.half()
+    state = {name: value.clone() for name, value in model.state_dict().items()}
+    before = torch.get_rng_state()
+    assert model.input_usage(future) == REQUEST_USAGE
+    with pytest.raises(ValueError, match="qry_spend_z.*finite model representation"):
+        model.input_usage(future.assign(search=1e100))
+    assert_preserved(state, before)
 
 
 @needs_arviz

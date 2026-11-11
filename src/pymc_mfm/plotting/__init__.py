@@ -1,5 +1,8 @@
 """Figures and reports built from inference and diagnostic results."""
 
+from ._graphviz import GraphvizGraph
+from .dot import graph_to_dot
+from .inspector import GraphInspector, plot_graph_inspector
 from .panels import (
     plot_attribution,
     plot_calibration,
@@ -32,6 +35,9 @@ from .panels import (
 )
 
 __all__ = [
+    "GraphInspector",
+    "GraphvizGraph",
+    "graph_to_dot",
     "plot_attribution",
     "plot_calibration",
     "plot_cardinality",
@@ -42,6 +48,7 @@ __all__ = [
     "plot_cycles",
     "plot_dag",
     "plot_family_totals",
+    "plot_graph_inspector",
     "plot_graph_posterior",
     "plot_graph_statistics",
     "plot_panel",

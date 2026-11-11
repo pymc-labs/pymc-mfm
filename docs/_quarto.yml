@@ -70,6 +70,11 @@ website:
         href: https://www.pymc-labs.com
         target: _blank
         rel: noopener
+      # The hosted console: sign in with a PyMC Labs Google account and compare scenarios
+      # from your agent. Only the River model page shows it, as a button: site.css hides
+      # it elsewhere and model.css draws it, both by this URL.
+      - text: "Try it out"
+        href: https://mfm-staging.pymc-labs.com/
   sidebar:
     - id: guide
       title: Guide
@@ -126,6 +131,7 @@ quartodoc:
         - name: model.MFM
           members:
             - add_context
+            - input_usage
             - inference
             - build_idata
             - idata
@@ -178,6 +184,19 @@ quartodoc:
         - diagnostics.calibration_summary
         - diagnostics.sbc_report
         - diagnostics.build_report
+    - title: Graph inspection
+      desc: Marginal and individual graphs, offline inspection and Graphviz DOT export.
+      contents:
+        - plotting.plot_dag
+        - name: plotting.GraphvizGraph
+          members:
+            - render
+            - savefig
+        - plotting.graph_to_dot
+        - plotting.plot_graph_inspector
+        - name: plotting.GraphInspector
+          members:
+            - save
 
 format:
   html:
