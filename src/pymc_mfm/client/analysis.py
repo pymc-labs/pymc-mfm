@@ -268,9 +268,7 @@ class Analysis:
 
     def _baseline_fields(self) -> dict[str, Any]:
         export = json.loads(self._http.download_authenticated(f"/v1/analyses/{self.id}/export"))
-        baseline = next(
-            (item for item in export["scenarios"] if item["kind"] == "baseline"), None
-        )
+        baseline = next((item for item in export["scenarios"] if item["kind"] == "baseline"), None)
         if baseline is None or baseline.get("inputs") is None:
             raise ValueError(f"Analysis {self.id} has no stored baseline plan to repeat")
         return _plan_fields(baseline["inputs"])

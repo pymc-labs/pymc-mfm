@@ -282,9 +282,7 @@ def response_curves_record() -> list[dict[str, Any]]:
 def weeks_result() -> dict[str, Any]:
     """A backtest result: a baseline, one scenario, fit and response curves."""
     rows = result_rows("baseline", "baseline")
-    rows += result_rows(
-        "half", "scenario", base="baseline", multipliers={"tv": 0.5}, tv_mean=50.0
-    )
+    rows += result_rows("half", "scenario", base="baseline", multipliers={"tv": 0.5}, tv_mean=50.0)
     return {**result_record(rows), "fit": fit_record(), "response_curves": response_curves_record()}
 
 

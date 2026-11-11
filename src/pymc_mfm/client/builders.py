@@ -36,8 +36,7 @@ def scenario(id: str, multipliers: Mapping[str, Multiplier]) -> Scenario:
     """
     if not isinstance(multipliers, Mapping):
         raise TypeError(
-            'Pass multipliers as a dict such as {"tv": 1.2}, not '
-            f"{type(multipliers).__name__}"
+            f'Pass multipliers as a dict such as {{"tv": 1.2}}, not {type(multipliers).__name__}'
         )
     return {"id": id, "multipliers": {name: _copy(value) for name, value in multipliers.items()}}
 
