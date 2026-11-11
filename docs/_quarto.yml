@@ -89,7 +89,7 @@ website:
           contents:
             - guide/decompose.qmd
             - guide/models-hub.qmd
-            - guide/river-api.qmd
+            - guide/http-api.qmd
         - section: Train
           contents:
             - guide/training.qmd
@@ -157,10 +157,7 @@ quartodoc:
         - client.AnalysisStatus
         - client.Preview
         - client.scenario
-        - client.scale
-        - client.move
-        - client.shift
-        - client.set_controls
+        - client.amount
         - client.grid
         - client.curve
         - client.ApiError
