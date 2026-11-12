@@ -103,7 +103,7 @@ first_look = client.explore(dataset, plan, preview=True)
 
 ## Read an analysis
 
-An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until it is done or failed; `wait` raises `Gone` if the analysis is deleted or expires meanwhile.
+An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until it is done or failed; `wait` raises `Gone` if the analysis is deleted or expires meanwhile. `wait` first prints the analysis id and the call that resumes it (`client.get("<id>").wait()`) to `sys.stderr`, and its `TimeoutError` gives the same call: the analysis keeps running, so resume it instead of calling `analyze` again.
 
 | Member | Result |
 | --- | --- |
@@ -127,6 +127,6 @@ Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the resul
 
 ## Retries and errors
 
-Every request that creates a dataset or analysis carries an `Idempotency-Key` derived from the request content. Automatic retries and repeated equal calls reuse that key, so they do not start work twice; pass `idempotency_key` to run an equal request again. If the earlier equal request was deleted or expired, the service answers 410 and the client raises `Gone`; pass a new `idempotency_key` to run it again. The client never picks a new key itself. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
+Every request that creates a dataset or analysis carries an `Idempotency-Key` derived from the request content. Automatic retries and repeated equal calls reuse that key, so they do not start work twice; pass `fresh=True` to `analyze`, `explore`, `Analysis.again` or `datasets.create` to start new work, or your own `idempotency_key` (not both). If the earlier equal request was deleted or expired, the service answers 410 and the client raises `Gone`; pass `fresh=True` to run it again. The client never retries a 410 with a new key itself. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
 
 Service responses raise typed [ApiError](../reference/client.ApiError.qmd) subclasses. Common responses include `NotFound`, `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge` (send fewer weeks, scenarios or curves), `RateLimited`, and `ValidationError`; their errors expose the service `code`, `message`, and `field`. Scenario steps were removed: a request with `steps` gets `ValidationError` with code `steps_removed`. Exhausted connection retries raise `ApiConnectionError`, a separate `ClientError` without a service payload.

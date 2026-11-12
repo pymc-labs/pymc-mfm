@@ -1,0 +1,63 @@
+{
+  "contract_version": 1,
+  "about": "What the SDK expects of the River API v3.1. test_contract.py checks the client and its test fakes against this file. Update it in the same change as any API change.",
+  "idempotency_key_pattern": "^[A-Za-z0-9._:-]{1,200}$",
+  "routes": [
+    {"method": "POST", "path": "/v1/datasets", "sdk": true},
+    {"method": "GET", "path": "/v1/datasets", "sdk": true},
+    {"method": "GET", "path": "/v1/datasets/{id}", "sdk": true},
+    {"method": "DELETE", "path": "/v1/datasets/{id}", "sdk": true},
+    {"method": "POST", "path": "/v1/analyses", "sdk": true},
+    {"method": "GET", "path": "/v1/analyses", "sdk": true},
+    {"method": "GET", "path": "/v1/analyses/{id}", "sdk": true},
+    {"method": "GET", "path": "/v1/analyses/{id}/result", "sdk": true},
+    {"method": "GET", "path": "/v1/analyses/{id}/weekly", "sdk": true},
+    {"method": "GET", "path": "/v1/analyses/{id}/export", "sdk": true},
+    {"method": "DELETE", "path": "/v1/analyses/{id}", "sdk": true}
+  ],
+  "errors": [
+    {"status": 401, "code": "unauthorized"},
+    {"status": 404, "code": "not_found"},
+    {"status": 404, "code": "unknown_scenario"},
+    {"status": 409, "code": "idempotency_conflict"},
+    {"status": 409, "code": "not_ready"},
+    {"status": 409, "code": "plan_failed"},
+    {"status": 410, "code": "gone"},
+    {"status": 413, "code": "body_too_large"},
+    {"status": 422, "code": "invalid_json"},
+    {"status": 422, "code": "invalid_input"},
+    {"status": 422, "code": "missing_field"},
+    {"status": 422, "code": "steps_removed"},
+    {"status": 429, "code": "overloaded_*"},
+    {"status": 500, "code": "internal_error"},
+    {"status": 503, "code": "maintenance"},
+    {"status": 503, "code": "busy"}
+  ],
+  "retry_statuses": [429, 502, 503, 504],
+  "fields": {
+    "dataset_response": {
+      "required": ["dataset_id", "expires_at", "summary"],
+      "optional": ["history_ranges", "warnings", "content_hash", "created_at", "last_used_at", "analyses", "name"]
+    },
+    "analysis_started_response": {
+      "required": ["analysis_id", "runs_total", "estimate_seconds", "expires_at"],
+      "optional": []
+    },
+    "analysis_status_response": {
+      "required": ["status", "runs_total", "runs_done", "runs_failed", "estimate_seconds", "expires_at"],
+      "optional": ["name", "url", "dataset_id", "context", "seed", "draws", "created_at"]
+    },
+    "analysis_list_item": {
+      "ordered": ["analysis_id", "dataset_id", "name", "url", "status", "runs_total", "runs_done", "runs_failed", "created_at", "expires_at"]
+    },
+    "result_row": {
+      "ordered": ["scenario_id", "kind", "base_scenario_id", "varied_channel", "level", "multipliers", "run_id", "status", "spend_total", "component", "mean", "p05", "p95", "window_mean", "mean_difference", "simulation_se", "sensitivity", "warnings", "draws_url", "draws_url_expires_at"]
+    },
+    "analysis_request": {
+      "optional": ["dataset_id", "plan", "context", "query", "channels", "controls", "scenarios", "curves", "decision_weeks", "draws", "seed", "explain_history", "name", "preview"]
+    },
+    "dataset_request": {
+      "optional": ["dates", "outcome", "spend", "controls", "name", "outcome_name", "currency"]
+    }
+  }
+}

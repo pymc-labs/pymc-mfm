@@ -87,9 +87,9 @@ print(preview.runs_total, preview.estimate_seconds, preview.warnings)
 print(preview.spend().groupby(level="scenario_id").sum())
 
 analysis = client.analyze(dataset, plan, scenarios=scenarios, seed=7, name="Plan comparison")
-analysis.wait(timeout=600)
+print("analysis id:", analysis.id)  # print first: after a timeout, resume with client.get(id)
 print("result link:", analysis.url)  # give this link to the user
-print("analysis id:", analysis.id)  # resume with client.get(analysis.id)
+analysis.wait(timeout=600)
 
 # 3. Read the results.
 outcome = analysis.table.query("component == 'outcome'")
@@ -267,7 +267,7 @@ work twice. It raises these errors, all in `pymc_mfm.client`:
 | `Unauthorized` (401) | Bad key. Stop and tell the user. |
 | `ValidationError` (400, 422) | Read `error.code`, `error.field` and `error.message`. Fix the request. Nothing started. Do not loop. `steps_removed`: scenario steps were removed; send multipliers. |
 | `NotFound` (404) | Wrong id, or another user's id. |
-| `Gone` (410) | The resource was deleted or expired. Do not retry the same call. On a create call (`create`, `analyze`, `again`), an earlier equal request was deleted: if the user needs it again, pass a new `idempotency_key=`. |
+| `Gone` (410) | The resource was deleted or expired. Do not retry the same call. On a create call (`create`, `analyze`, `again`), an earlier equal request was deleted: if the user needs it again, pass `fresh=True`. |
 | `NotReady` (409 `not_ready`) | The analysis is not finished. Call `wait()`. |
 | `Conflict` (other 409) | `idempotency_conflict`: the key was used with another body; use a new key. `plan_failed`: that plan has no result. |
 | `PayloadTooLarge` (413) | The request is too large. Send fewer weeks, scenarios or curves in one call. |
@@ -279,7 +279,10 @@ have a missing week, a duplicate, the wrong order, or a plan that does not start
 the history. Read the message, which names the row and dates, and fix the input. Never sort, fill
 or shift data to make it pass.
 
-`wait(timeout=600)` raises `TimeoutError` when the analysis is still running. The first run after an
+`wait(timeout=600)` raises `TimeoutError` when the analysis is still running. The analysis keeps
+running. Do not run the script again. Run `client.get("<analysis id>").wait(timeout=600)`. An identical
+`analyze` call returns the same analysis, because the client sends a key derived from the request. Use
+`fresh=True` only if the user wants a new run, for example after `failed`. The first run after an
 idle period can take about 20 seconds more (cold start). The result is ready only when every run has
 ended; then each plan has numbers or a `failed` row. Do not create analyses in a loop without checking
 `runs_total`. Per user, at most 20 unfinished analyses and 200 unfinished runs, and 50 runs run at once.

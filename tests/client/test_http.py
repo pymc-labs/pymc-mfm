@@ -1,3 +1,5 @@
+import re
+
 import httpx
 import pytest
 
@@ -63,6 +65,34 @@ def test_post_sends_a_content_derived_idempotency_key(client, service, history):
     assert same.startswith("mfm1-")
 
 
+def test_fresh_sends_a_new_key_on_each_call_and_one_key_across_retries(
+    client, service, sleeps, history
+):
+    service.on(
+        "POST",
+        "/v1/datasets",
+        (503, error_body("unavailable", "later")),
+        (201, dataset_record()),
+    )
+    kwargs = {"date": "week", "outcome": "sales", "spend": "tv"}
+    client.datasets.create(history, fresh=True, **kwargs)
+    client.datasets.create(history, fresh=True, **kwargs)
+    client.datasets.create(history, **kwargs)
+    first, retry, second, derived = (r.headers["Idempotency-Key"] for r in service.requests)
+    assert first == retry  # a retry is not new work
+    assert len({first, second, derived}) == 3
+    assert first.startswith("mfm1-fresh-") and derived.startswith("mfm1-")
+    assert re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", first)  # the service's key pattern
+
+
+def test_fresh_and_a_caller_key_together_are_refused(client, service, history):
+    with pytest.raises(ValueError, match="not both"):
+        client.datasets.create(
+            history, date="week", outcome="sales", spend="tv", fresh=True, idempotency_key="k"
+        )
+    assert service.requests == []
+
+
 def test_get_sends_no_idempotency_key(client, service):
     service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
     client.datasets.get("ds_123")
@@ -92,7 +122,7 @@ def test_a_410_for_the_content_key_is_raised_and_names_the_way_out(client, servi
     service.on(
         "POST", "/v1/datasets", (410, error_body("gone", "deleted")), (201, dataset_record())
     )
-    with pytest.raises(Gone, match="Pass a new idempotency_key") as caught:
+    with pytest.raises(Gone, match="Pass fresh=True") as caught:
         create(client, history)
     assert (caught.value.status, caught.value.code) == (410, "gone")
     assert len(service.requests) == 1  # no retry with a key of the client's choice

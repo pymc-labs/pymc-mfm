@@ -107,14 +107,15 @@ class Datasets:
         currency: str | None = None,
         reuse: bool = False,
         idempotency_key: str | None = None,
+        fresh: bool = False,
     ) -> Dataset:
         """Upload a weekly history from a DataFrame.
 
         ``date``, ``outcome``, ``spend`` and ``controls`` name columns of ``frame``. Dates
         are sent as ISO dates. By default the ``Idempotency-Key`` comes from the request
         content, so the same upload repeated returns the stored dataset and stores no copy;
-        after that dataset is deleted or expired, the upload stores a new one. Pass your own
-        ``idempotency_key`` to choose the key.
+        after that dataset is deleted or expired, the call raises ``Gone``. Pass ``fresh=True``
+        to store a new copy, or your own ``idempotency_key`` to choose the key; not both.
 
         The site labels results with ``outcome_name``, which is the ``outcome`` column name
         (sent only if it has 1 to 60 characters), and with ``currency``, an optional ISO 4217
@@ -146,7 +147,9 @@ class Datasets:
             currency=currency,
         )
         check_weekly_dates(body["dates"], "history")  # only here: reuse above ignores row order
-        record = self._http.create("/v1/datasets", body, idempotency_key=idempotency_key)
+        record = self._http.create(
+            "/v1/datasets", body, idempotency_key=idempotency_key, fresh=fresh
+        )
         return Dataset.from_wire(record, name=name, date_column=date)
 
     def find(

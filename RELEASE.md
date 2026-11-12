@@ -1,10 +1,23 @@
 # Release preparation
 
-PyMC MFM remains at **`0.0.1.dev0`**. These notes describe the standalone
-library's development capabilities and distribution prerequisites, not an
-approved or published release.
+PyMC MFM remains at **`0.0.1.dev0`**. The client changes below are prepared for the
+tag `client-v0.1.0`; the version bump and the tag come in the tagging commit, and nothing
+is published. These notes describe the standalone library's development capabilities and
+distribution prerequisites, not an approved or published release.
 
 ## Changes
+
+- **Client (for `client-v0.1.0`): repeat-safe `analyze`, resumable `wait`.** An identical `analyze`,
+  `explore` or `Analysis.again` call, also from a new process, returns the same analysis,
+  because the `Idempotency-Key` comes from the request content. New `fresh=True` on
+  `analyze`, `explore`, `again` and `datasets.create` sends a random key and starts new
+  work (for example to retry a failed analysis); it cannot be combined with
+  `idempotency_key`. `Analysis.wait` prints the analysis id and the resume call to
+  `sys.stderr` before it blocks (`announce=False` silences it), and its `TimeoutError`
+  says the analysis keeps running and gives the call that resumes it:
+  `client.get('<id>').wait()`. `Analysis.resume_call` returns that text. New drift tests
+  (`tests/client/test_contract.py`) check the client's routes, error codes and wire fields
+  against the committed `tests/client/contract.json`.
 
 - **GPU sampling on Apple and NVIDIA GPUs, same draws on every device.** With the model on
   an Apple GPU (`device="mps"`) or an NVIDIA GPU (`device="cuda"`), each Euler step

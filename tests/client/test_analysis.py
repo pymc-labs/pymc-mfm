@@ -1,11 +1,13 @@
 import json
 
+import httpx
 import numpy as np
 import pandas as pd
 import pytest
 
 from pymc_mfm.client import (
     Analysis,
+    Client,
     Gone,
     NotReady,
     PayloadTooLarge,
@@ -17,6 +19,7 @@ from pymc_mfm.client import (
 )
 
 from .client_fixtures import (
+    BASE_URL,
     FakeService,
     curve_result,
     dataset_record,
@@ -86,6 +89,51 @@ def test_analyze_omits_unset_options_and_sends_an_idempotency_key(client, servic
     assert {"decision_weeks", "draws", "seed", "preview"}.isdisjoint(body)
     assert body["scenarios"] == [] and body["curves"] == []
     assert service.sent("POST", "/v1/analyses")[0].headers["Idempotency-Key"]
+
+
+def analysis_keys(service):
+    return [r.headers["Idempotency-Key"] for r in service.sent("POST", "/v1/analyses")]
+
+
+def test_same_content_gives_the_same_key_and_other_content_another(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, plan, seed=7)
+    client.analyze(dataset, plan, seed=7)
+    client.analyze(dataset, plan, seed=8)
+    same, again, other = analysis_keys(service)
+    assert same == again != other
+
+
+def test_the_default_key_is_the_same_in_a_new_client(service, dataset, plan):
+    """A rerun in a new process has no state to share: the key comes from the content."""
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    for _ in range(2):
+        other = Client(BASE_URL, "test-key", transport=httpx.MockTransport(service))
+        other.analyze(dataset, plan, seed=7)
+    first, second = analysis_keys(service)
+    assert first == second
+
+
+def test_fresh_starts_a_new_analysis_each_time(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    client.analyze(dataset, plan)
+    client.analyze(dataset, plan, fresh=True)
+    client.analyze(dataset, plan, fresh=True)
+    assert len(set(analysis_keys(service))) == 3
+
+
+def test_fresh_with_a_caller_key_is_refused(client, service, dataset, plan):
+    with pytest.raises(ValueError, match="not both"):
+        client.analyze(dataset, plan, fresh=True, idempotency_key="mine")
+    assert service.sent("POST", "/v1/analyses") == []
+
+
+def test_preview_honours_fresh(client, service, dataset, plan):
+    service.on("POST", "/v1/analyses", (200, {"plans": [], "runs_total": 0, "estimate_seconds": 0}))
+    client.analyze(dataset, plan, preview=True)
+    client.analyze(dataset, plan, preview=True, fresh=True)
+    derived, fresh = analysis_keys(service)
+    assert derived != fresh
 
 
 def test_analyze_retries_with_one_idempotency_key(client, service, dataset, plan, sleeps):
@@ -235,11 +283,42 @@ def test_wait_polls_until_done(client, service):
     assert analysis.status().finished
 
 
-def test_wait_times_out(client, service):
+def test_wait_times_out_and_says_how_to_resume(client, service):
     service.on("GET", "/v1/analyses/an_1", (200, status_record("running")))
     analysis = client.get("an_1")
-    with pytest.raises(TimeoutError, match="running"):
+    with pytest.raises(TimeoutError, match="running") as caught:
         analysis.wait(timeout=0, poll=0.01)
+    assert "client.get('an_1').wait()" in str(caught.value)
+    assert "keeps running" in str(caught.value)
+
+
+def test_wait_prints_the_id_before_it_blocks(client, service, capsys):
+    service.on(
+        "GET",
+        "/v1/analyses/an_1",
+        (200, status_record("running")),  # client.get
+        (200, status_record("running")),  # the first poll of wait
+        (200, status_record("done")),
+    )
+    client.get("an_1").wait(poll=0)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.count("analysis id: an_1") == 1
+    assert "client.get('an_1').wait()" in captured.err
+
+
+def test_wait_prints_nothing_when_done_or_silenced(client, service, capsys):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("done")))
+    client.get("an_1").wait()
+    service.on(
+        "GET",
+        "/v1/analyses/an_2",
+        (200, status_record("running")),
+        (200, status_record("running")),
+        (200, status_record("done")),
+    )
+    client.get("an_2").wait(poll=0, announce=False)
+    assert capsys.readouterr().err == ""
 
 
 def test_wait_returns_for_a_failed_analysis(client, service):
@@ -678,6 +757,15 @@ def test_again_passes_curves_and_explain_history(client, service, repeatable):
     body = body_of(service)
     assert body["curves"] == [{"channel": "tv", "levels": [0, 2], "base": "baseline"}]
     assert body["explain_history"] is True
+
+
+def test_again_fresh_sends_a_new_key(client, service, repeatable):
+    service.on("POST", "/v1/analyses", (202, started(1)))
+    scenarios = [scenario("search_x1.5", {"search": 1.5})]
+    repeatable.again(scenarios)
+    repeatable.again(scenarios, fresh=True)
+    first, second = analysis_keys(service)
+    assert first != second
 
 
 def test_again_repeated_sends_the_same_idempotency_key(client, service, repeatable):
