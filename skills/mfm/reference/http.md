@@ -18,22 +18,25 @@ deleted resources return `410`.
 
 | Method and path | Purpose |
 | --- | --- |
-| `POST /v1/datasets` | Upload a history. `201` with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `expires_at`, `summary`, `history_ranges`, `warnings`. |
+| `POST /v1/datasets` | Upload a history. `201` with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings`, `warning_details`. |
 | `GET /v1/datasets` | List your datasets: `{"datasets": [...]}`, each with the same fields. |
 | `GET /v1/datasets/{id}` | The summary, with the same fields. |
 | `DELETE /v1/datasets/{id}` | Delete the dataset and all its analyses. `202`. |
-| `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded plans, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
-| `GET /v1/analyses/{id}` | Status and counts, with `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history` and `context` (`null` for a plan). |
+| `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
+| `GET /v1/analyses/{id}` | `status`, the run counts `runs_total`, `runs_done`, `runs_failed` and `runs_cancelled`, `estimate_seconds`, and `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history`, `context` (`null` for a plan), `dataset_id`, `created_at` and `warning_details`. |
 | `GET /v1/analyses/{id}/result` | The result table. `409 not_ready` until the analysis ends. |
 | `GET /v1/analyses/{id}/weekly?scenario_id=` | Weekly rows for one plan. |
 | `GET /v1/analyses/{id}/export` | The whole analysis as one JSON file (`mfm-analysis-export-v1`). `409 not_ready` until every run ends. |
 | `DELETE /v1/analyses/{id}` | Cancel unstarted runs and delete the analysis. `202`. |
-| `GET /v1/analyses?dataset_id=` | List your analyses. |
+| `GET /v1/analyses?dataset_id=` | List your analyses: `{"analyses": [...]}`, each with `analysis_id`, `dataset_id`, `name`, `url`, `status`, `runs_total`, `runs_done`, `runs_failed`, `created_at` and `expires_at`. |
 
 Do not call other endpoints.
 
-Older servers may leave out `content_hash`, `created_at`, `last_used_at`, `analyses`, `name` and
-`url`. Treat a missing field as unknown. `url` is `null` when the service has no site address.
+Older servers may leave out `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`,
+`url`, `runs_cancelled` and `warning_details`. Treat a missing field as unknown. `url` is `null`
+when the service has no site address.
+`runs_cancelled` counts runs that never started because the baseline run failed. `warning_details` lists the
+warnings as structured objects, next to the plain-text `warnings`.
 
 ## Retention
 

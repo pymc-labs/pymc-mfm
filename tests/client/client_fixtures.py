@@ -109,6 +109,17 @@ def started(runs_total: int = 3) -> dict[str, Any]:
     }
 
 
+def preview_record(runs_total: int = 2) -> dict[str, Any]:
+    """The 200 body of ``POST /v1/analyses`` with ``"preview": true``. Nothing is stored."""
+    return {
+        "plans": [],
+        "runs_total": runs_total,
+        "estimate_seconds": 42.0,
+        "assumptions": {},
+        "warnings": [],
+    }
+
+
 def status_record(
     status: str = "done", runs_total: int = 3, runs_failed: int = 0, **extra: Any
 ) -> dict[str, Any]:

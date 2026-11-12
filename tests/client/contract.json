@@ -3,13 +3,13 @@
   "about": "What the SDK expects of the River API v3.1. test_contract.py checks the client and its test fakes against this file. Update it in the same change as any API change.",
   "idempotency_key_pattern": "^[A-Za-z0-9._:-]{1,200}$",
   "routes": [
-    {"method": "POST", "path": "/v1/datasets", "sdk": true},
-    {"method": "GET", "path": "/v1/datasets", "sdk": true},
-    {"method": "GET", "path": "/v1/datasets/{id}", "sdk": true},
+    {"method": "POST", "path": "/v1/datasets", "sdk": true, "response": ["dataset_response"]},
+    {"method": "GET", "path": "/v1/datasets", "sdk": true, "response": ["dataset_response"]},
+    {"method": "GET", "path": "/v1/datasets/{id}", "sdk": true, "response": ["dataset_response"]},
     {"method": "DELETE", "path": "/v1/datasets/{id}", "sdk": true},
-    {"method": "POST", "path": "/v1/analyses", "sdk": true},
-    {"method": "GET", "path": "/v1/analyses", "sdk": true},
-    {"method": "GET", "path": "/v1/analyses/{id}", "sdk": true},
+    {"method": "POST", "path": "/v1/analyses", "sdk": true, "response": ["analysis_started_response", "analysis_preview_response"]},
+    {"method": "GET", "path": "/v1/analyses", "sdk": true, "response": ["analysis_list_item"]},
+    {"method": "GET", "path": "/v1/analyses/{id}", "sdk": true, "response": ["analysis_status_response"]},
     {"method": "GET", "path": "/v1/analyses/{id}/result", "sdk": true},
     {"method": "GET", "path": "/v1/analyses/{id}/weekly", "sdk": true},
     {"method": "GET", "path": "/v1/analyses/{id}/export", "sdk": true},
@@ -33,19 +33,28 @@
     {"status": 503, "code": "maintenance"},
     {"status": 503, "code": "busy"}
   ],
+  "http_reference": {
+    "file": "skills/mfm/reference/http.md",
+    "about": "The public HTTP reference names every response key below, and the table row of each SDK route names only keys listed under that route's response types (plus the words below).",
+    "not_keys": ["preview", "not_ready", "null"]
+  },
   "retry_statuses": [429, 502, 503, 504],
   "fields": {
     "dataset_response": {
       "required": ["dataset_id", "expires_at", "summary"],
-      "optional": ["history_ranges", "warnings", "content_hash", "created_at", "last_used_at", "analyses", "name"]
+      "optional": ["history_ranges", "warnings", "content_hash", "created_at", "last_used_at", "analyses", "name", "warning_details"]
     },
     "analysis_started_response": {
       "required": ["analysis_id", "runs_total", "estimate_seconds", "expires_at"],
-      "optional": []
+      "optional": ["name", "url"]
+    },
+    "analysis_preview_response": {
+      "required": ["plans", "runs_total", "estimate_seconds"],
+      "optional": ["assumptions", "warnings"]
     },
     "analysis_status_response": {
       "required": ["status", "runs_total", "runs_done", "runs_failed", "estimate_seconds", "expires_at"],
-      "optional": ["name", "url", "dataset_id", "context", "seed", "draws", "created_at"]
+      "optional": ["name", "url", "dataset_id", "context", "seed", "draws", "explain_history", "created_at", "runs_cancelled", "warning_details"]
     },
     "analysis_list_item": {
       "ordered": ["analysis_id", "dataset_id", "name", "url", "status", "runs_total", "runs_done", "runs_failed", "created_at", "expires_at"]

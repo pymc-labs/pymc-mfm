@@ -56,7 +56,11 @@ FIT_METRICS = ("r2", "mape", "crps")
 
 @dataclass(frozen=True)
 class AnalysisStatus:
-    """Counts and state of an analysis."""
+    """Counts and state of an analysis.
+
+    ``runs_cancelled`` and ``warning_details`` (structured warnings, next to the text
+    warnings) are ``0`` and empty when an older service does not send them.
+    """
 
     status: str
     runs_total: int
@@ -64,6 +68,8 @@ class AnalysisStatus:
     runs_failed: int
     estimate_seconds: float
     expires_at: datetime
+    runs_cancelled: int = 0
+    warning_details: tuple[dict[str, Any], ...] = ()
 
     @property
     def finished(self) -> bool:
@@ -78,6 +84,8 @@ class AnalysisStatus:
             runs_failed=record["runs_failed"],
             estimate_seconds=record["estimate_seconds"],
             expires_at=parse_datetime(record["expires_at"]),
+            runs_cancelled=record.get("runs_cancelled", 0),
+            warning_details=tuple(record.get("warning_details", ())),
         )
 
 
@@ -234,19 +242,18 @@ class Analysis:
     ) -> Analysis:
         """Poll until the analysis is ``done`` or ``failed``; return ``self``.
 
-        When it has to wait, it first prints the analysis id and the call that resumes it to
-        ``sys.stderr`` (``announce=False`` stays silent), so the id survives a killed or
-        timed-out script. Raises ``TimeoutError`` after ``timeout`` seconds; the analysis
-        keeps running, and the error text gives the call that resumes it. Raises ``Gone`` if
-        the analysis is deleted or expires meanwhile. A ``failed`` analysis (its baseline
-        failed) still has a result table with ``status == "failed"`` rows.
+        Unless the analysis is already known to be finished, it first prints the analysis id and
+        the call that resumes it to ``sys.stderr`` (``announce=False`` stays silent), before
+        the first request, so the id survives a killed, timed-out or unreachable service.
+        Raises ``TimeoutError`` after ``timeout`` seconds; the analysis keeps running, and the
+        error text gives the call that resumes it. Raises ``Gone`` if the analysis is deleted or
+        expires meanwhile. A ``failed`` analysis (its baseline failed) still has a result table with
+        ``status == "failed"`` rows.
         """
         deadline = None if timeout is None else time.monotonic() + timeout
-        announced = not announce
+        if announce and not self._status.finished:
+            print(f"analysis id: {self.id}  (resume: {self.resume_call})", file=sys.stderr)
         while not self.status().finished:
-            if not announced:
-                print(f"analysis id: {self.id}  (resume: {self.resume_call})", file=sys.stderr)
-                announced = True
             if deadline is not None and time.monotonic() + poll > deadline:
                 raise TimeoutError(
                     f"Analysis {self.id} is still {self._status.status!r} after waiting. "

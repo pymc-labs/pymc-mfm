@@ -1,8 +1,10 @@
-"""Drift tests: the SDK, its test fakes and the committed contract fixture agree.
+"""Drift tests: the SDK, its test fakes, the committed contract and the public HTTP reference agree.
 
-``contract.json`` lists the routes, error codes and wire fields the SDK relies on. These tests
-read only that file and the SDK source, never a service. When the API changes, change
-``contract.json`` in the same pull request; a failure here names what drifted.
+``contract.json`` lists the routes, error codes and wire fields the SDK relies on.
+``skills/mfm/reference/http.md`` is the public reference for the same API. These tests read only
+those two files and the SDK source, never a service. When the API changes, change both in the
+same pull request; a failure here names what drifted. A response key that a fake returns but the
+contract lacks fails here, and so does a contract key that ``http.md`` does not name.
 """
 
 import dataclasses
@@ -22,6 +24,16 @@ from . import client_fixtures as fakes
 CONTRACT = json.loads((Path(__file__).with_name("contract.json")).read_text())
 CLIENT_SRC = Path(errors.__file__).parent
 FIELDS = CONTRACT["fields"]
+HTTP_REFERENCE = Path(__file__).parents[2] / CONTRACT["http_reference"]["file"]
+#: Field groups that describe what the service sends back, as opposed to request bodies.
+RESPONSE_FIELDS = (
+    "dataset_response",
+    "analysis_started_response",
+    "analysis_preview_response",
+    "analysis_status_response",
+    "analysis_list_item",
+    "result_row",
+)
 # `request("GET", f"/v1/...")`, `create("/v1/...")` and `download_authenticated(f"/v1/...")`.
 ROUTE_CALL = re.compile(
     r"""(?:request\(\s*"(?P<method>[A-Z]+)",\s*|(?P<create>create\(\s*)|download_authenticated\(\s*)
@@ -45,6 +57,48 @@ def required(name: str) -> set[str]:
 
 def allowed(name: str) -> set[str]:
     return required(name) | set(FIELDS[name]["optional"])
+
+
+def keys_of(name: str, fields: dict | None = None) -> set[str]:
+    """Every key of a response field group, whether the contract lists it as required,
+    optional or ordered."""
+    group = (fields or FIELDS)[name]
+    return {key for part in ("required", "optional", "ordered") for key in group.get(part, ())}
+
+
+def check_fake_record(name: str, record: dict) -> None:
+    """Raise ``AssertionError`` when a fake response has a key the contract does not list or
+    lacks a required one."""
+    extra = record.keys() - keys_of(name)
+    assert not extra, (
+        f"{name}: keys {sorted(extra)} are not in contract.json; add them there and in http.md"
+    )
+    missing = required(name) - record.keys() if "required" in FIELDS[name] else set()
+    assert not missing, f"{name}: required keys {sorted(missing)} are missing"
+
+
+def unnamed_keys(reference: str, fields: dict) -> set[tuple[str, str]]:
+    """The (group, key) pairs of ``fields`` that ``reference`` does not name in backticks."""
+    return {
+        (name, key)
+        for name in RESPONSE_FIELDS
+        for key in keys_of(name, fields)
+        if f"`{key}`" not in reference
+    }
+
+
+def http_reference_text() -> str:
+    return HTTP_REFERENCE.read_text()
+
+
+def endpoint_cell(method: str, path: str) -> str:
+    """The purpose column of the ``http.md`` endpoint table row of one route."""
+    pattern = re.compile(
+        rf"^\| `{method} {re.escape(path)}(?:\?[^`]*)?` \| (?P<purpose>.*) \|$", re.MULTILINE
+    )
+    match = pattern.search(http_reference_text())
+    assert match, f"http.md has no endpoint table row for {method} {path}"
+    return match["purpose"]
 
 
 def test_the_routes_the_sdk_calls_are_the_routes_the_contract_marks_for_the_sdk():
@@ -85,22 +139,67 @@ def test_result_and_list_columns_follow_the_contract_in_order():
     assert list(_client.LIST_COLUMNS) == FIELDS["analysis_list_item"]["ordered"]
 
 
-def test_the_status_the_sdk_reads_is_required_by_the_contract():
+def test_the_status_the_sdk_reads_covers_the_required_fields_and_stays_in_the_contract():
     sdk_reads = {f.name for f in dataclasses.fields(analysis_module.AnalysisStatus)}
-    assert sdk_reads == required("analysis_status_response") & sdk_reads
-    assert sdk_reads == required("analysis_status_response")
+    assert required("analysis_status_response") <= sdk_reads <= allowed("analysis_status_response")
+    assert {"runs_cancelled", "warning_details"} <= sdk_reads
+
+
+def test_every_response_key_of_the_contract_is_named_in_the_http_reference():
+    missing = unnamed_keys(http_reference_text(), FIELDS)
+    assert not missing, f"http.md does not name these response keys: {sorted(missing)}"
+
+
+def test_the_http_reference_rows_name_only_keys_of_their_contract_response():
+    not_keys = set(CONTRACT["http_reference"]["not_keys"])
+    word = re.compile(r"`([a-z_]+)`")
+    for route in CONTRACT["routes"]:
+        if not route["sdk"] or "response" not in route:
+            continue
+        known = set().union(*(keys_of(name) for name in route["response"])) | not_keys
+        named = set(word.findall(endpoint_cell(route["method"], route["path"])))
+        assert named <= known, (
+            f"http.md row {route['method']} {route['path']} names {sorted(named - known)}, "
+            "which contract.json does not list for that response"
+        )
+
+
+def test_every_sdk_route_has_a_row_in_the_http_reference():
+    for route in CONTRACT["routes"]:
+        if route["sdk"]:
+            endpoint_cell(route["method"], route["path"])
 
 
 @pytest.mark.parametrize(
     ("name", "record"),
     [
         ("dataset_response", fakes.dataset_record(content_hash="h", name="n")),
+        ("dataset_response", fakes.dataset_record()),
         ("analysis_started_response", fakes.started()),
+        ("analysis_preview_response", fakes.preview_record()),
         ("analysis_status_response", fakes.status_record(dataset_id="ds", seed=1, draws=2)),
+        ("analysis_status_response", fakes.status_record(runs_cancelled=1, warning_details=[{}])),
     ],
 )
 def test_the_test_fakes_stay_inside_the_contract(name, record):
-    assert required(name) <= record.keys() <= allowed(name)
+    check_fake_record(name, record)
+
+
+def test_a_dummy_response_key_in_a_fake_fails_the_drift_check():
+    for name, record in [
+        ("analysis_started_response", fakes.started()),
+        ("dataset_response", fakes.dataset_record()),
+    ]:
+        with pytest.raises(AssertionError, match="dummy_key"):
+            check_fake_record(name, {**record, "dummy_key": 1})
+
+
+def test_a_dummy_contract_key_fails_until_the_http_reference_names_it():
+    fields = {**FIELDS, "analysis_started_response": {"required": ["dummy_key"]}}
+    reference = http_reference_text()
+    dummy = ("analysis_started_response", "dummy_key")
+    assert dummy in unnamed_keys(reference, fields)
+    assert dummy not in unnamed_keys(reference + "\n`dummy_key`", fields)
 
 
 def test_the_result_fake_has_every_contract_column():

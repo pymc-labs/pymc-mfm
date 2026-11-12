@@ -7,6 +7,7 @@ import pytest
 
 from pymc_mfm.client import (
     Analysis,
+    ApiConnectionError,
     Client,
     Gone,
     NotReady,
@@ -305,6 +306,38 @@ def test_wait_prints_the_id_before_it_blocks(client, service, capsys):
     assert captured.out == ""
     assert captured.err.count("analysis id: an_1") == 1
     assert "client.get('an_1').wait()" in captured.err
+
+
+def test_wait_prints_the_id_even_when_the_first_poll_cannot_connect(client, service, capsys):
+    service.on(
+        "GET",
+        "/v1/analyses/an_1",
+        (200, status_record("running")),  # client.get
+        httpx.ConnectError("refused"),  # the first poll of wait
+    )
+    analysis = client.get("an_1")
+    with pytest.raises(ApiConnectionError):
+        analysis.wait(poll=0)
+    assert "analysis id: an_1" in capsys.readouterr().err
+
+
+def test_status_reads_cancelled_runs_and_warning_details(client, service):
+    details = [{"code": "spend_above_history", "channel": "tv"}]
+    service.on(
+        "GET",
+        "/v1/analyses/an_1",
+        (200, status_record("done", runs_cancelled=2, warning_details=details)),
+    )
+    status = client.get("an_1").status()
+    assert status.runs_cancelled == 2
+    assert status.warning_details == tuple(details)
+
+
+def test_status_defaults_cancelled_runs_and_warning_details_for_an_older_service(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("done")))
+    status = client.get("an_1").status()
+    assert status.runs_cancelled == 0
+    assert status.warning_details == ()
 
 
 def test_wait_prints_nothing_when_done_or_silenced(client, service, capsys):

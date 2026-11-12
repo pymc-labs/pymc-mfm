@@ -17,7 +17,12 @@ distribution prerequisites, not an approved or published release.
   says the analysis keeps running and gives the call that resumes it:
   `client.get('<id>').wait()`. `Analysis.resume_call` returns that text. New drift tests
   (`tests/client/test_contract.py`) check the client's routes, error codes and wire fields
-  against the committed `tests/client/contract.json`.
+  against the committed `tests/client/contract.json`, and check that the contract and the
+  public HTTP reference `skills/mfm/reference/http.md` name the same response keys.
+  `AnalysisStatus` gains `runs_cancelled` and `warning_details`, and `Dataset` gains
+  `warning_details`; an older service leaves them `0` or empty. `Analysis.wait` prints the id
+  before its first request. `datasets.create` refuses `reuse=True` with `fresh=True` or
+  `idempotency_key` (`ValueError`, nothing sent).
 
 - **GPU sampling on Apple and NVIDIA GPUs, same draws on every device.** With the model on
   an Apple GPU (`device="mps"`) or an NVIDIA GPU (`device="cuda"`), each Euler step

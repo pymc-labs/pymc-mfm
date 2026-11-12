@@ -41,7 +41,8 @@ class Dataset:
     ``dataset_content_hash``). ``content_hash``, ``created_at``, ``last_used_at`` and
     ``analyses`` (the number of live analyses), ``outcome_name`` and ``currency`` (labels from
     the summary) are ``None`` when an older service does not
-    send them.
+    send them. ``warning_details`` holds the structured form of ``warnings`` and is empty when
+    the service does not send it.
     """
 
     dataset_id: str
@@ -61,6 +62,7 @@ class Dataset:
     analyses: int | None = None
     outcome_name: str | None = None
     currency: str | None = None
+    warning_details: tuple[dict[str, Any], ...] = ()
 
     @classmethod
     def from_wire(
@@ -78,6 +80,7 @@ class Dataset:
             controls=tuple(summary["controls"]),
             history_ranges=ranges,
             warnings=tuple(record.get("warnings", ())),
+            warning_details=tuple(record.get("warning_details", ())),
             name=name if name is not None else record.get("name"),
             date_column=date_column,
             content_hash=record.get("content_hash"),
@@ -124,12 +127,18 @@ class Datasets:
         With ``reuse=True`` the call first lists your datasets and returns the one whose
         ``content_hash`` equals the hash of this history, and uploads nothing. It never
         matches by name or by number of weeks. If no dataset matches, it uploads as usual.
+        ``reuse=True`` cannot combine with ``fresh=True`` or ``idempotency_key``: each asks for a
+        different outcome, and ``ValueError`` is raised before any request.
 
         Before an upload, the history must have one row for each week, in date order, with
         no repeated date; otherwise ``ValueError`` names the first bad row and nothing is
         sent. A reused dataset is not checked, because the hash ignores row order. The
         client never sorts or fills your data.
         """
+        if reuse and fresh:
+            raise ValueError("Pass reuse=True or fresh=True, not both")
+        if reuse and idempotency_key is not None:
+            raise ValueError("Pass reuse=True or idempotency_key, not both")
         if currency is not None:
             check_currency(currency)  # refuse a bad code before any request, even when reusing
         if reuse:
