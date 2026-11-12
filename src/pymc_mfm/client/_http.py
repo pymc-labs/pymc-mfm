@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -21,6 +22,7 @@ MAX_RETRY_WAIT = 60.0  # seconds; default cap on a Retry-After wait
 BACKOFF_BASE = 0.5  # seconds; doubles on each retry when there is no Retry-After
 BACKOFF_CAP = 8.0
 CONTENT_KEY_PREFIX = "mfm1-"
+FRESH_KEY_PREFIX = "mfm1-fresh-"
 
 
 def parse_retry_after(value: str | None, *, now: float | None = None) -> float | None:
@@ -43,6 +45,11 @@ def content_idempotency_key(path: str, body: Any) -> str:
     the service returns the earlier resource instead of starting the work again."""
     digest = hashlib.sha256(path.encode() + b"\n" + canonical_json(body)).hexdigest()
     return CONTENT_KEY_PREFIX + digest
+
+
+def fresh_idempotency_key() -> str:
+    """A random key, so the service treats the request as new work."""
+    return FRESH_KEY_PREFIX + uuid.uuid4().hex
 
 
 class Http:
@@ -111,15 +118,29 @@ class Http:
         )
         return self._decode(response)
 
-    def create(self, path: str, body: Any, *, idempotency_key: str | None = None) -> Any:
+    def create(
+        self,
+        path: str,
+        body: Any,
+        *,
+        idempotency_key: str | None = None,
+        fresh: bool = False,
+    ) -> Any:
         """POST a create request and return the decoded JSON body.
 
         Without ``idempotency_key`` the key comes from the request content, so an equal
-        request gets the earlier resource back. If that resource was deleted or expired, the
-        service answers 410 and this raises ``Gone``: pass a new ``idempotency_key`` to run
-        the request again. The client never picks a new key itself, because each new key
-        starts new work.
+        request gets the earlier resource back. With ``fresh=True`` the key is random, so
+        the request always starts new work; its retries still share that one key.
+
+        If an earlier equal resource was deleted or expired, the service answers 410 and this
+        raises ``Gone``: pass ``fresh=True`` to run the request again.
+        The client never retries a 410 with a new key itself,
+        because each new key starts new work.
         """
+        if idempotency_key is not None and fresh:
+            raise ValueError("Pass idempotency_key or fresh=True, not both")
+        if fresh:
+            idempotency_key = fresh_idempotency_key()
         if idempotency_key is not None:
             return self.request("POST", path, body=body, idempotency_key=idempotency_key)
         try:
@@ -131,8 +152,8 @@ class Http:
                 error.status,
                 error.code,
                 f"{error.message} The Idempotency-Key comes from the request content, so this "
-                "can mean that an earlier equal request was deleted or expired. Pass a new "
-                "idempotency_key to run it again.",
+                "can mean that an earlier equal request was deleted or expired. Pass fresh=True, "
+                "or a new idempotency_key, to run it again.",
                 error.field,
                 retry_after=error.retry_after,
             ) from error

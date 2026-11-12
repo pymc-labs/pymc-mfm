@@ -501,9 +501,13 @@ difference `mean_difference`: `simulation_se` measures its numerical precision o
 
 Every request that creates something carries an `Idempotency-Key` derived from the request
 content and reused when the client retries, so a retry or a repeated call never starts the
-work twice; pass `idempotency_key=` to run an equal request again. If the earlier equal
-request was deleted or expired, the service answers 410 and the client raises `Gone`: pass a
-new `idempotency_key=` to run it again. The client never picks a new key itself. The client retries HTTP 429, 502, 503 and 504
+work twice; pass `fresh=True` to run an equal request again. If the earlier equal
+request was deleted or expired, the service answers 410 and the client raises `Gone`: pass
+`fresh=True` (or a new `idempotency_key=`) to run it again. `fresh=True` and `idempotency_key=`
+cannot be combined, and `datasets.create(reuse=True)` takes neither. The client never picks
+a new key on its own. `AnalysisStatus` also has `runs_cancelled`, and `Dataset` and
+`AnalysisStatus` have `warning_details` (structured warnings); both are `0` or empty on an
+older service. The client retries HTTP 429, 502, 503 and 504
 and connection errors, and waits as long as `Retry-After` asks, up to `Client(max_retry_after=...)` seconds (default 60). Errors raise `NotFound`,
 `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge`, `RateLimited`, `ValidationError` and
 others, each with `code`, `message` and `field` from the service. Scenario steps were

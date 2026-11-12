@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import sys
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -55,7 +56,11 @@ FIT_METRICS = ("r2", "mape", "crps")
 
 @dataclass(frozen=True)
 class AnalysisStatus:
-    """Counts and state of an analysis."""
+    """Counts and state of an analysis.
+
+    ``runs_cancelled`` and ``warning_details`` (structured warnings, next to the text
+    warnings) are ``0`` and empty when an older service does not send them.
+    """
 
     status: str
     runs_total: int
@@ -63,6 +68,8 @@ class AnalysisStatus:
     runs_failed: int
     estimate_seconds: float
     expires_at: datetime
+    runs_cancelled: int = 0
+    warning_details: tuple[dict[str, Any], ...] = ()
 
     @property
     def finished(self) -> bool:
@@ -77,6 +84,8 @@ class AnalysisStatus:
             runs_failed=record["runs_failed"],
             estimate_seconds=record["estimate_seconds"],
             expires_at=parse_datetime(record["expires_at"]),
+            runs_cancelled=record.get("runs_cancelled", 0),
+            warning_details=tuple(record.get("warning_details", ())),
         )
 
 
@@ -122,10 +131,10 @@ def result_table(rows: Iterable[dict[str, Any]], labels: dict[str, Any]) -> pd.D
 
 
 def start_analysis(
-    http: Http, body: dict[str, Any], *, idempotency_key: str | None = None
+    http: Http, body: dict[str, Any], *, idempotency_key: str | None = None, fresh: bool = False
 ) -> Analysis:
     """Send one ``POST /v1/analyses`` body and return the analysis it started."""
-    response = http.create("/v1/analyses", body, idempotency_key=idempotency_key)
+    response = http.create("/v1/analyses", body, idempotency_key=idempotency_key, fresh=fresh)
     status = AnalysisStatus.from_wire(
         {
             "status": "queued",
@@ -223,17 +232,33 @@ class Analysis:
         self.url = record.get("url", self.url)
         return record
 
-    def wait(self, timeout: float | None = None, poll: float = 2.0) -> Analysis:
+    @property
+    def resume_call(self) -> str:
+        """The call that picks this analysis up again, for example after a timeout."""
+        return f"client.get({self.id!r}).wait()"
+
+    def wait(
+        self, timeout: float | None = None, poll: float = 2.0, *, announce: bool = True
+    ) -> Analysis:
         """Poll until the analysis is ``done`` or ``failed``; return ``self``.
 
-        Raises ``TimeoutError`` after ``timeout`` seconds, and ``Gone`` if the analysis is
-        deleted or expires meanwhile. A ``failed`` analysis (its baseline failed) still has
-        a result table with ``status == "failed"`` rows.
+        Unless the analysis is already known to be finished, it first prints the analysis id and
+        the call that resumes it to ``sys.stderr`` (``announce=False`` stays silent), before
+        the first request, so the id survives a killed, timed-out or unreachable service.
+        Raises ``TimeoutError`` after ``timeout`` seconds; the analysis keeps running, and the
+        error text gives the call that resumes it. Raises ``Gone`` if the analysis is deleted or
+        expires meanwhile. A ``failed`` analysis (its baseline failed) still has a result table with
+        ``status == "failed"`` rows.
         """
         deadline = None if timeout is None else time.monotonic() + timeout
+        if announce and not self._status.finished:
+            print(f"analysis id: {self.id}  (resume: {self.resume_call})", file=sys.stderr)
         while not self.status().finished:
             if deadline is not None and time.monotonic() + poll > deadline:
-                raise TimeoutError(f"Analysis {self.id} is still {self._status.status!r}")
+                raise TimeoutError(
+                    f"Analysis {self.id} is still {self._status.status!r} after waiting. "
+                    f"It keeps running. Do not start it again: resume with {self.resume_call}"
+                )
             time.sleep(poll)
         return self
 
@@ -244,6 +269,7 @@ class Analysis:
         curves: Sequence[Mapping[str, Any]] | None = None,
         explain_history: bool = False,
         idempotency_key: str | None = None,
+        fresh: bool = False,
     ) -> Analysis:
         """Start a new analysis with this one's inputs and new ``scenarios``; return it.
 
@@ -253,8 +279,9 @@ class Analysis:
         ``explain_history``, because this analysis already has them. It costs one more
         baseline run plus its scenarios.
 
-        Repeating the same call returns the same analysis. Pass a new ``idempotency_key`` to
-        run it once more, for example after that analysis was deleted (``Gone``).
+        Repeating the same call returns the same analysis. Pass ``fresh=True`` (or a new
+        ``idempotency_key``) to run it once more, for example after that analysis was deleted
+        (``Gone``) or failed.
 
         Compare each scenario only with the baseline of its own analysis, not across
         analyses: equal draws across analyses are not guaranteed.
@@ -280,7 +307,7 @@ class Analysis:
         if curves is not None:
             body["curves"] = list(curves)
         body.update({key: record[key] for key in ("seed", "draws") if record.get(key) is not None})
-        return start_analysis(self._http, body, idempotency_key=idempotency_key)
+        return start_analysis(self._http, body, idempotency_key=idempotency_key, fresh=fresh)
 
     def _baseline_inputs(self) -> Mapping[str, Any]:
         """The exported inputs of the baseline. Raises ``NotReady`` until every run ends."""

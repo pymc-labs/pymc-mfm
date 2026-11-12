@@ -41,7 +41,8 @@ class Dataset:
     ``dataset_content_hash``). ``content_hash``, ``created_at``, ``last_used_at`` and
     ``analyses`` (the number of live analyses), ``outcome_name`` and ``currency`` (labels from
     the summary) are ``None`` when an older service does not
-    send them.
+    send them. ``warning_details`` holds the structured form of ``warnings`` and is empty when
+    the service does not send it.
     """
 
     dataset_id: str
@@ -61,6 +62,7 @@ class Dataset:
     analyses: int | None = None
     outcome_name: str | None = None
     currency: str | None = None
+    warning_details: tuple[dict[str, Any], ...] = ()
 
     @classmethod
     def from_wire(
@@ -78,6 +80,7 @@ class Dataset:
             controls=tuple(summary["controls"]),
             history_ranges=ranges,
             warnings=tuple(record.get("warnings", ())),
+            warning_details=tuple(record.get("warning_details", ())),
             name=name if name is not None else record.get("name"),
             date_column=date_column,
             content_hash=record.get("content_hash"),
@@ -107,14 +110,15 @@ class Datasets:
         currency: str | None = None,
         reuse: bool = False,
         idempotency_key: str | None = None,
+        fresh: bool = False,
     ) -> Dataset:
         """Upload a weekly history from a DataFrame.
 
         ``date``, ``outcome``, ``spend`` and ``controls`` name columns of ``frame``. Dates
         are sent as ISO dates. By default the ``Idempotency-Key`` comes from the request
         content, so the same upload repeated returns the stored dataset and stores no copy;
-        after that dataset is deleted or expired, the upload stores a new one. Pass your own
-        ``idempotency_key`` to choose the key.
+        after that dataset is deleted or expired, the call raises ``Gone``. Pass ``fresh=True``
+        to store a new copy, or your own ``idempotency_key`` to choose the key; not both.
 
         The site labels results with ``outcome_name``, which is the ``outcome`` column name
         (sent only if it has 1 to 60 characters), and with ``currency``, an optional ISO 4217
@@ -123,12 +127,18 @@ class Datasets:
         With ``reuse=True`` the call first lists your datasets and returns the one whose
         ``content_hash`` equals the hash of this history, and uploads nothing. It never
         matches by name or by number of weeks. If no dataset matches, it uploads as usual.
+        ``reuse=True`` cannot combine with ``fresh=True`` or ``idempotency_key``: each asks for a
+        different outcome, and ``ValueError`` is raised before any request.
 
         Before an upload, the history must have one row for each week, in date order, with
         no repeated date; otherwise ``ValueError`` names the first bad row and nothing is
         sent. A reused dataset is not checked, because the hash ignores row order. The
         client never sorts or fills your data.
         """
+        if reuse and fresh:
+            raise ValueError("Pass reuse=True or fresh=True, not both")
+        if reuse and idempotency_key is not None:
+            raise ValueError("Pass reuse=True or idempotency_key, not both")
         if currency is not None:
             check_currency(currency)  # refuse a bad code before any request, even when reusing
         if reuse:
@@ -146,7 +156,9 @@ class Datasets:
             currency=currency,
         )
         check_weekly_dates(body["dates"], "history")  # only here: reuse above ignores row order
-        record = self._http.create("/v1/datasets", body, idempotency_key=idempotency_key)
+        record = self._http.create(
+            "/v1/datasets", body, idempotency_key=idempotency_key, fresh=fresh
+        )
         return Dataset.from_wire(record, name=name, date_column=date)
 
     def find(

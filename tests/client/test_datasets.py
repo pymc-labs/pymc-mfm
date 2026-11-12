@@ -119,6 +119,34 @@ def test_records_from_an_older_server_have_no_lifecycle_fields(client, service):
     assert dataset.last_used_at is None and dataset.analyses is None
 
 
+def test_warning_details_are_read_and_default_to_empty(client, service):
+    details = [{"code": "short_history", "weeks": 4}]
+    service.on("GET", "/v1/datasets/ds_1", (200, {**dataset_record(), "warning_details": details}))
+    service.on("GET", "/v1/datasets/ds_2", (200, dataset_record()))
+    assert client.datasets.get("ds_1").warning_details == tuple(details)
+    assert client.datasets.get("ds_2").warning_details == ()
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"fresh": True},
+        {"idempotency_key": "mine"},
+        {"fresh": True, "idempotency_key": "mine"},
+    ],
+)
+def test_reuse_cannot_combine_with_fresh_or_a_key_and_nothing_is_sent(
+    client, service, history, options
+):
+    stored = dataset_record(dataset_id="ds_9", content_hash=history_hash(history))
+    service.on("GET", "/v1/datasets", (200, {"datasets": [stored]}))  # a match must not win
+    with pytest.raises(ValueError, match="not both"):
+        client.datasets.create(
+            history, date="week", outcome="sales", spend=["tv", "search"], reuse=True, **options
+        )
+    assert service.requests == []
+
+
 def test_reuse_returns_the_dataset_with_the_same_content_hash(client, service, history):
     stored = dataset_record(dataset_id="ds_9", content_hash=history_hash(history))
     service.on("GET", "/v1/datasets", (200, {"datasets": [stored]}))

@@ -96,6 +96,7 @@ class Client:
         name: str | None = None,
         preview: bool = False,
         idempotency_key: str | None = None,
+        fresh: bool = False,
     ) -> Analysis | Preview:
         """Start an analysis, or with ``preview=True`` only check what it would run.
 
@@ -120,8 +121,9 @@ class Client:
         analysis on the site and in its export.
 
         By default the ``Idempotency-Key`` comes from the request content, so the same call
-        repeated returns the same analysis instead of starting the work again. Pass a new
-        ``idempotency_key`` to run an equal request once more.
+        repeated returns the same analysis instead of starting the work again, also from a new
+        process. Pass ``fresh=True`` to start a new analysis (for example to retry a failed
+        one), or your own ``idempotency_key``; not both.
         """
         weeks = _weeks_request(plan, context, query_end, channels, controls)
         if weeks is None:
@@ -140,9 +142,11 @@ class Client:
         body.update({key: value for key, value in optional.items() if value is not None})
         if preview:
             body["preview"] = True
-            response = self._http.create("/v1/analyses", body, idempotency_key=idempotency_key)
+            response = self._http.create(
+                "/v1/analyses", body, idempotency_key=idempotency_key, fresh=fresh
+            )
             return Preview.from_wire(response)
-        return start_analysis(self._http, body, idempotency_key=idempotency_key)
+        return start_analysis(self._http, body, idempotency_key=idempotency_key, fresh=fresh)
 
     def explore(
         self,

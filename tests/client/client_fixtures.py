@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from .contract_check import check_response
+
 BASE_URL = "https://api.example.com"
 EXPIRES = "2030-01-08T00:00:00Z"
 
@@ -38,6 +40,8 @@ class FakeService:
         if isinstance(reply, Exception):
             raise reply
         status, body, *headers = reply
+        if not isinstance(body, bytes):
+            check_response(request.method, request.url.path, status, body)
         content = body if isinstance(body, bytes) else json.dumps(body).encode()
         return httpx.Response(status, content=content, headers=headers[0] if headers else None)
 
@@ -106,6 +110,17 @@ def started(runs_total: int = 3) -> dict[str, Any]:
         "runs_total": runs_total,
         "estimate_seconds": 42.0,
         "expires_at": EXPIRES,
+    }
+
+
+def preview_record(runs_total: int = 2) -> dict[str, Any]:
+    """The 200 body of ``POST /v1/analyses`` with ``"preview": true``. Nothing is stored."""
+    return {
+        "plans": [],
+        "runs_total": runs_total,
+        "estimate_seconds": 42.0,
+        "assumptions": {},
+        "warnings": [],
     }
 
 
