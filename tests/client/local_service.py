@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from .client_fixtures import EXPIRES, error_body, preview_record, started, status_record
+from .contract_check import check_response
 
 API_KEY = "test-key"
 ANALYSIS_ROUTE = "/v1/analyses/"
@@ -27,6 +28,7 @@ class StubState:
         self.lock = threading.Lock()
         self.by_key: dict[str, str] = {}
         self.analyses: dict[str, dict[str, Any]] = {}
+        self.violations: list[str] = []  # contract breaks in responses; ``serve`` raises them
 
     def create(self, key: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         with self.lock:
@@ -87,6 +89,10 @@ def make_handler(state: StubState) -> type[BaseHTTPRequestHandler]:
             pass
 
         def reply(self, status: int, body: dict[str, Any]) -> None:
+            try:
+                check_response(self.command, self.path.split("?")[0], status, body)
+            except AssertionError as error:
+                state.violations.append(str(error))
             content = json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -145,3 +151,4 @@ def serve():
         server.shutdown()
         server.server_close()
         thread.join()
+    assert not state.violations, state.violations

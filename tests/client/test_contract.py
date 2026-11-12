@@ -12,6 +12,7 @@ import json
 import re
 from pathlib import Path
 
+import httpx
 import pytest
 
 from pymc_mfm.client import _client, errors
@@ -20,20 +21,20 @@ from pymc_mfm.client._http import FRESH_KEY_PREFIX, RETRY_STATUSES, content_idem
 from pymc_mfm.client.errors import ApiError, NotReady, error_from_response
 
 from . import client_fixtures as fakes
-
-CONTRACT = json.loads((Path(__file__).with_name("contract.json")).read_text())
-CLIENT_SRC = Path(errors.__file__).parent
-FIELDS = CONTRACT["fields"]
-HTTP_REFERENCE = Path(__file__).parents[2] / CONTRACT["http_reference"]["file"]
-#: Field groups that describe what the service sends back, as opposed to request bodies.
-RESPONSE_FIELDS = (
-    "dataset_response",
-    "analysis_started_response",
-    "analysis_preview_response",
-    "analysis_status_response",
-    "analysis_list_item",
-    "result_row",
+from . import local_service
+from .contract_check import (
+    CONTRACT,
+    FIELDS,
+    allowed,
+    check_fake_record,
+    endpoint_cell,
+    http_reference_text,
+    required,
+    row_drift,
+    unnamed_keys,
 )
+
+CLIENT_SRC = Path(errors.__file__).parent
 # `request("GET", f"/v1/...")`, `create("/v1/...")` and `download_authenticated(f"/v1/...")`.
 ROUTE_CALL = re.compile(
     r"""(?:request\(\s*"(?P<method>[A-Z]+)",\s*|(?P<create>create\(\s*)|download_authenticated\(\s*)
@@ -49,56 +50,6 @@ def sdk_routes() -> set[tuple[str, str]]:
             method = call["method"] or ("POST" if call["create"] else "GET")
             routes.add((method, re.sub(r"\{[^}]*\}", "{id}", call["path"])))
     return routes
-
-
-def required(name: str) -> set[str]:
-    return set(FIELDS[name]["required"])
-
-
-def allowed(name: str) -> set[str]:
-    return required(name) | set(FIELDS[name]["optional"])
-
-
-def keys_of(name: str, fields: dict | None = None) -> set[str]:
-    """Every key of a response field group, whether the contract lists it as required,
-    optional or ordered."""
-    group = (fields or FIELDS)[name]
-    return {key for part in ("required", "optional", "ordered") for key in group.get(part, ())}
-
-
-def check_fake_record(name: str, record: dict) -> None:
-    """Raise ``AssertionError`` when a fake response has a key the contract does not list or
-    lacks a required one."""
-    extra = record.keys() - keys_of(name)
-    assert not extra, (
-        f"{name}: keys {sorted(extra)} are not in contract.json; add them there and in http.md"
-    )
-    missing = required(name) - record.keys() if "required" in FIELDS[name] else set()
-    assert not missing, f"{name}: required keys {sorted(missing)} are missing"
-
-
-def unnamed_keys(reference: str, fields: dict) -> set[tuple[str, str]]:
-    """The (group, key) pairs of ``fields`` that ``reference`` does not name in backticks."""
-    return {
-        (name, key)
-        for name in RESPONSE_FIELDS
-        for key in keys_of(name, fields)
-        if f"`{key}`" not in reference
-    }
-
-
-def http_reference_text() -> str:
-    return HTTP_REFERENCE.read_text()
-
-
-def endpoint_cell(method: str, path: str) -> str:
-    """The purpose column of the ``http.md`` endpoint table row of one route."""
-    pattern = re.compile(
-        rf"^\| `{method} {re.escape(path)}(?:\?[^`]*)?` \| (?P<purpose>.*) \|$", re.MULTILINE
-    )
-    match = pattern.search(http_reference_text())
-    assert match, f"http.md has no endpoint table row for {method} {path}"
-    return match["purpose"]
 
 
 def test_the_routes_the_sdk_calls_are_the_routes_the_contract_marks_for_the_sdk():
@@ -150,18 +101,22 @@ def test_every_response_key_of_the_contract_is_named_in_the_http_reference():
     assert not missing, f"http.md does not name these response keys: {sorted(missing)}"
 
 
-def test_the_http_reference_rows_name_only_keys_of_their_contract_response():
-    not_keys = set(CONTRACT["http_reference"]["not_keys"])
-    word = re.compile(r"`([a-z_]+)`")
-    for route in CONTRACT["routes"]:
-        if not route["sdk"] or "response" not in route:
-            continue
-        known = set().union(*(keys_of(name) for name in route["response"])) | not_keys
-        named = set(word.findall(endpoint_cell(route["method"], route["path"])))
-        assert named <= known, (
-            f"http.md row {route['method']} {route['path']} names {sorted(named - known)}, "
-            "which contract.json does not list for that response"
-        )
+def test_each_http_reference_row_names_exactly_the_contract_keys_of_its_route():
+    assert row_drift(http_reference_text()) == {}
+
+
+def test_a_key_removed_from_one_http_reference_row_fails():
+    reference = http_reference_text()
+    status_row = endpoint_cell("GET", "/v1/analyses/{id}")
+    shortened = reference.replace(status_row, status_row.replace("`warning_details`", "nothing"))
+    assert row_drift(shortened) == {"GET /v1/analyses/{id}": ({"warning_details"}, set())}
+
+
+def test_a_key_added_to_one_http_reference_row_fails():
+    reference = http_reference_text()
+    list_row = endpoint_cell("GET", "/v1/analyses")
+    longer = reference.replace(list_row, list_row + " Also `dummy_key`.")
+    assert row_drift(longer) == {"GET /v1/analyses": (set(), {"dummy_key"})}
 
 
 def test_every_sdk_route_has_a_row_in_the_http_reference():
@@ -241,3 +196,22 @@ def test_idempotency_keys_match_the_service_pattern():
     pattern = re.compile(CONTRACT["idempotency_key_pattern"])
     keys = [content_idempotency_key("/v1/analyses", {"a": 1}), FRESH_KEY_PREFIX + "0" * 32]
     assert all(pattern.fullmatch(key) for key in keys)
+
+
+def test_every_json_response_of_the_fake_service_is_checked_against_the_contract(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, {**fakes.status_record(), "dummy_key": 1}))
+    with pytest.raises(AssertionError, match="dummy_key"):
+        client.get("an_1")
+    service.on(
+        "GET", "/v1/datasets", (200, {"datasets": [{**fakes.dataset_record(), "dummy_key": 1}]})
+    )
+    with pytest.raises(AssertionError, match="dummy_key"):
+        client.datasets.list()
+
+
+def test_a_dummy_key_in_a_local_service_list_response_fails(monkeypatch):
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    with pytest.raises(AssertionError, match="dummy_key"):
+        with local_service.serve() as (base_url, state):
+            monkeypatch.setattr(state, "listing", lambda: {"analyses": [{"dummy_key": 1}]})
+            httpx.get(f"{base_url}/v1/analyses", headers={"Authorization": "Bearer test-key"})

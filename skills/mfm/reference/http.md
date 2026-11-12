@@ -19,8 +19,8 @@ deleted resources return `410`.
 | Method and path | Purpose |
 | --- | --- |
 | `POST /v1/datasets` | Upload a history. `201` with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings`, `warning_details`. |
-| `GET /v1/datasets` | List your datasets: `{"datasets": [...]}`, each with the same fields. |
-| `GET /v1/datasets/{id}` | The summary, with the same fields. |
+| `GET /v1/datasets` | List your datasets: `{"datasets": [...]}`, each with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings` and `warning_details`. |
+| `GET /v1/datasets/{id}` | The summary, with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings` and `warning_details`. |
 | `DELETE /v1/datasets/{id}` | Delete the dataset and all its analyses. `202`. |
 | `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
 | `GET /v1/analyses/{id}` | `status`, the run counts `runs_total`, `runs_done`, `runs_failed` and `runs_cancelled`, `estimate_seconds`, and `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history`, `context` (`null` for a plan), `dataset_id`, `created_at` and `warning_details`. |
@@ -35,8 +35,8 @@ Do not call other endpoints.
 Older servers may leave out `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`,
 `url`, `runs_cancelled` and `warning_details`. Treat a missing field as unknown. `url` is `null`
 when the service has no site address.
-`runs_cancelled` counts runs that never started because the baseline run failed. `warning_details` lists the
-warnings as structured objects, next to the plain-text `warnings`.
+`runs_cancelled` counts runs that never started because the baseline run failed.
+`warning_details` lists the warnings as structured objects, next to the plain-text `warnings`.
 
 ## Retention
 
@@ -213,7 +213,8 @@ Error bodies look like `{"error": {"code", "message", "field"?}}`.
 - `413`: the body is too large. Send fewer weeks, scenarios or curves in one call.
 - `409 idempotency_conflict`: the key was used with another body. Use a new key. `409 plan_failed`: that
   plan has no result.
-- `410`: the resource was deleted or expired. Do not retry.
+- `410`: the resource was deleted or expired. Do not retry. A repeat of a create call whose earlier
+  analysis was deleted also gets `410`; only a new `Idempotency-Key` starts new work.
 - `404`: wrong id or another user's id. `401`: bad key; stop and tell the user.
 - `422`: read `error.code`, `error.field` and `error.message`. Fix the request (see "Refusals"). Nothing
   started. Do not loop on a `422`.

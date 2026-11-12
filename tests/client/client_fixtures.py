@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from .contract_check import check_response
+
 BASE_URL = "https://api.example.com"
 EXPIRES = "2030-01-08T00:00:00Z"
 
@@ -38,6 +40,8 @@ class FakeService:
         if isinstance(reply, Exception):
             raise reply
         status, body, *headers = reply
+        if not isinstance(body, bytes):
+            check_response(request.method, request.url.path, status, body)
         content = body if isinstance(body, bytes) else json.dumps(body).encode()
         return httpx.Response(status, content=content, headers=headers[0] if headers else None)
 
