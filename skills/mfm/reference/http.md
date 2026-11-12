@@ -24,9 +24,9 @@ deleted resources return `410`.
 | `DELETE /v1/datasets/{id}` | Delete the dataset and all its analyses. `202`. |
 | `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
 | `GET /v1/analyses/{id}` | `status`, the run counts `runs_total`, `runs_done`, `runs_failed` and `runs_cancelled`, `estimate_seconds`, and `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history`, `context` (`null` for a plan), `dataset_id`, `created_at` and `warning_details`. |
-| `GET /v1/analyses/{id}/result` | The result table. `409 not_ready` until the analysis ends. |
-| `GET /v1/analyses/{id}/weekly?scenario_id=` | Weekly rows for one plan. |
-| `GET /v1/analyses/{id}/export` | The whole analysis as one JSON file (`mfm-analysis-export-v1`). `409 not_ready` until every run ends. |
+| `GET /v1/analyses/{id}/result` | The result: `table`, `labels`, `history`, `assumptions`, `meta`, `context`, `fit`, `response_curves` and `input_usage`. `409 not_ready` until the analysis ends. |
+| `GET /v1/analyses/{id}/weekly?scenario_id=` | Weekly rows for one plan: `scenario_id` and `rows`, each with `date`, `component`, `mean`, `p05` and `p95`. |
+| `GET /v1/analyses/{id}/export` | The whole analysis as one JSON file (`mfm-analysis-export-v1`) with `format`, `analysis_id`, `name`, `created_at`, `expires_at`, `dataset`, `request`, `units`, `results`, `seed`, `draws`, `model_revision`, `library_revision`, `exported_at` and `scenarios`, each with `scenario_id`, `kind`, `base_scenario_id`, `multipliers`, `status`, `failure_code`, `inputs`, `warnings` and `warning_details`. `409 not_ready` until every run ends. |
 | `DELETE /v1/analyses/{id}` | Cancel unstarted runs and delete the analysis. `202`. |
 | `GET /v1/analyses?dataset_id=` | List your analyses: `{"analyses": [...]}`, each with `analysis_id`, `dataset_id`, `name`, `url`, `status`, `runs_total`, `runs_done`, `runs_failed`, `created_at` and `expires_at`. |
 

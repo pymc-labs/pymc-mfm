@@ -10,9 +10,9 @@
     {"method": "POST", "path": "/v1/analyses", "sdk": true, "response": ["analysis_started_response", "analysis_preview_response"]},
     {"method": "GET", "path": "/v1/analyses", "sdk": true, "response": ["analysis_list_item"]},
     {"method": "GET", "path": "/v1/analyses/{id}", "sdk": true, "response": ["analysis_status_response"]},
-    {"method": "GET", "path": "/v1/analyses/{id}/result", "sdk": true},
-    {"method": "GET", "path": "/v1/analyses/{id}/weekly", "sdk": true},
-    {"method": "GET", "path": "/v1/analyses/{id}/export", "sdk": true},
+    {"method": "GET", "path": "/v1/analyses/{id}/result", "sdk": true, "response": ["result_response"]},
+    {"method": "GET", "path": "/v1/analyses/{id}/weekly", "sdk": true, "response": ["weekly_response", "weekly_row"]},
+    {"method": "GET", "path": "/v1/analyses/{id}/export", "sdk": true, "response": ["export_response", "export_scenario"]},
     {"method": "DELETE", "path": "/v1/analyses/{id}", "sdk": true}
   ],
   "errors": [
@@ -58,6 +58,28 @@
     },
     "analysis_list_item": {
       "ordered": ["analysis_id", "dataset_id", "name", "url", "status", "runs_total", "runs_done", "runs_failed", "created_at", "expires_at"]
+    },
+    "result_response": {
+      "required": ["table", "labels"],
+      "optional": ["history", "assumptions", "meta", "context", "fit", "response_curves", "input_usage"],
+      "nested": {"table": "result_row"}
+    },
+    "weekly_response": {
+      "required": ["scenario_id", "rows"],
+      "optional": [],
+      "nested": {"rows": "weekly_row"}
+    },
+    "weekly_row": {
+      "ordered": ["date", "component", "mean", "p05", "p95"]
+    },
+    "export_response": {
+      "required": ["format", "scenarios"],
+      "optional": ["analysis_id", "name", "created_at", "expires_at", "dataset", "request", "units", "results", "seed", "draws", "model_revision", "library_revision", "exported_at"],
+      "nested": {"scenarios": "export_scenario"}
+    },
+    "export_scenario": {
+      "required": ["kind", "inputs"],
+      "optional": ["scenario_id", "base_scenario_id", "multipliers", "status", "failure_code", "warnings", "warning_details"]
     },
     "result_row": {
       "ordered": ["scenario_id", "kind", "base_scenario_id", "varied_channel", "level", "multipliers", "run_id", "status", "spend_total", "component", "mean", "p05", "p95", "window_mean", "mean_difference", "simulation_se", "sensitivity", "warnings", "draws_url", "draws_url_expires_at"]

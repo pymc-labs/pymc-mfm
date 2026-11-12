@@ -27,6 +27,7 @@ from .contract_check import (
     FIELDS,
     allowed,
     check_fake_record,
+    check_response,
     endpoint_cell,
     http_reference_text,
     required,
@@ -215,3 +216,33 @@ def test_a_dummy_key_in_a_local_service_list_response_fails(monkeypatch):
         with local_service.serve() as (base_url, state):
             monkeypatch.setattr(state, "listing", lambda: {"analyses": [{"dummy_key": 1}]})
             httpx.get(f"{base_url}/v1/analyses", headers={"Authorization": "Bearer test-key"})
+
+
+def test_every_json_route_of_the_sdk_has_a_contract_response_type():
+    """No route can be skipped by the response checks: only a DELETE has no JSON body."""
+    bare = [
+        f"{route['method']} {route['path']}"
+        for route in CONTRACT["routes"]
+        if route["sdk"] and route["method"] != "DELETE" and not route.get("response")
+    ]
+    assert bare == []
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        (
+            "/v1/analyses/an_1/result",
+            fakes.result_record(fakes.result_rows("baseline", "baseline")),
+        ),
+        ("/v1/analyses/an_1/weekly", {"scenario_id": "baseline", "rows": []}),
+        ("/v1/analyses/an_1/export", fakes.export_record(None)),
+    ],
+)
+def test_a_dummy_key_in_a_result_weekly_or_export_body_fails(path, body):
+    check_response("GET", path, 200, body)  # the stock body passes
+    with pytest.raises(AssertionError, match="dummy_key"):
+        check_response("GET", path, 200, {**body, "dummy_key": 1})
+    nested = next(key for key in ("table", "rows", "scenarios") if key in body)
+    with pytest.raises(AssertionError, match="dummy_key"):
+        check_response("GET", path, 200, {**body, nested: [{"dummy_key": 1}]})

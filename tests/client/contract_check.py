@@ -21,6 +21,11 @@ RESPONSE_FIELDS = (
     "analysis_preview_response",
     "analysis_status_response",
     "analysis_list_item",
+    "result_response",
+    "weekly_response",
+    "weekly_row",
+    "export_response",
+    "export_scenario",
     "result_row",
 )
 #: Routes whose body wraps a list of records: route -> (wrapper key, record group).
@@ -85,6 +90,15 @@ def check_response(method: str, path: str, status: int, body: Any) -> None:
                 f"{route}: keys {sorted(extra)} are not in contract.json; "
                 "add them there and in http.md"
             )
+            for name in names:
+                check_nested(name, body, route)
+
+
+def check_nested(name: str, body: dict, route: Any) -> None:
+    """Check the records under the keys that ``nested`` of a field group names."""
+    for key, group in FIELDS[name].get("nested", {}).items():
+        for record in body.get(key) or ():
+            check_unlisted_keys(group, record, route)
 
 
 def check_unlisted_keys(group: str, record: dict, route: Any) -> None:
@@ -126,7 +140,9 @@ def row_drift(reference: str) -> dict[str, tuple[set[str], set[str]]]:
             continue
         expected = set().union(*(keys_of(name) for name in route["response"]))
         named = set(
-            re.findall(r"`([a-z_]+)`", endpoint_cell(route["method"], route["path"], reference))
+            re.findall(
+                r"`([a-z_][a-z0-9_]*)`", endpoint_cell(route["method"], route["path"], reference)
+            )
         )
         named -= not_keys
         if named != expected:
