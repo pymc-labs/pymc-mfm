@@ -16,6 +16,8 @@ concurrency:
 jobs:
   contracts:
     runs-on: ubuntu-latest
+    # Whole-job hang guard: the longest observed full lane took 30.3 min.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +72,8 @@ jobs:
     # The default install is a light client with no PyTorch. Run its tests in two
     # environments: the bare install, and the install with the client's extras.
     runs-on: ubuntu-latest
+    # Whole-job hang guard: observed under 1 min.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
