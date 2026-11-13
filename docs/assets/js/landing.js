@@ -439,6 +439,25 @@
     items.forEach((el) => observer.observe(el));
   }
 
+  // Links to a section of this page ("Scroll to explore") scroll here instead of following
+  // the URL: at the host root the page carries a <base> that points its links at the site
+  // folder, so "#id" resolves to the site's copy of this page. Quarto also rewrites such
+  // links to absolute URLs, so match the resolved address: this page or the base folder.
+  const thisPage = (link) => {
+    const base = new URL(".", document.baseURI).pathname;
+    return [window.location.pathname, base, `${base}index.html`].includes(link.pathname);
+  };
+  function inPageLinks() {
+    root.addEventListener("click", (event) => {
+      const link = event.target.closest("a[href]");
+      const target = link && link.hash.length > 1 && thisPage(link) && document.getElementById(link.hash.slice(1));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      target.focus({ preventScroll: true });
+    });
+  }
+
   const hero = root.querySelector(".mfm-hero");
   const fieldCanvas = root.querySelector('[data-mfm="field"]');
   const glitchWord = root.querySelector('[data-mfm="glitch"]');
@@ -450,6 +469,7 @@
   if (glitchWord && hero) titleGlitch(glitchWord, hero);
   if (ide) notebook(ide);
   reveal();
+  inPageLinks();
   // Text splits measure glyphs: wait for the web fonts.
   const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
   ready.then(() => {
