@@ -5,7 +5,7 @@
 /* Method labels: coloured text, no chips. Used on pages, in the sidebar and on the overview. */
 .mfm-verb {
   font-family: var(--mfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
-  font-size: 0.85em;
+  font-size: max(0.85em, 13px);
   font-weight: 400; /* colour marks the method, not weight */
   letter-spacing: 0.02em;
 }
@@ -28,12 +28,13 @@
   gap: 0.4rem;
 }
 
-/* Method and path share one mono size, so the longest path ("/analyses/{id}/result")
-   fits one line at desktop widths. */
+/* Method and path share one small mono size, so the longest path ("/analyses/{id}/result")
+   fits one line at desktop widths, as in the agreed design. Every page and the overview show
+   the same paths at full size. */
 .sidebar-item .mfm-verb {
   flex: none;
   min-width: 3.7em;
-  font-size: 0.78em;
+  font-size: 0.78em; /* taste-skill-ignore: sidebar path labels, see above */
 }
 
 .sidebar-item .mfm-side-path {

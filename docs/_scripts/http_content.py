@@ -94,7 +94,7 @@ DATASET_RECORD = """{
   "name": "weekly-history",
   "expires_at": "2026-11-16T09:30:00Z",
   "summary": {
-    "weeks": 3, "start": "2024-07-01", "end": "2024-07-15",
+    "weeks": 3, "start": "2026-10-19", "end": "2026-11-02",
     "channels": ["tv", "search"], "controls": ["holiday"],
     "outcome": "sales", "currency": "USD"
   },
@@ -107,7 +107,7 @@ DATASET_RECORD = """{
 
 DATASET_BODY = """{
   "name": "weekly-history",
-  "dates": ["2024-07-01", "2024-07-08", "2024-07-15"],
+  "dates": ["2026-10-19", "2026-10-26", "2026-11-02"],
   "outcome": [1012.5, 1048.0, 1031.2],
   "spend": {"tv": [4000, 4200, 4400], "search": [2500, 2600, 2700]},
   "controls": {"holiday": [0, 0, 0]}
@@ -133,7 +133,7 @@ PLAN_BODY = """{
 BACKTEST_BODY = """{
   "dataset_id": "ds_123",
   "name": "Q4 backtest",
-  "context": {"start": "2024-11-11", "end": "2026-08-03"},
+  "context": {"start": "2026-10-19", "end": "2026-10-26"},
   "query": {"end": "2026-11-02"},
   "channels": ["tv", "search"],
   "controls": ["holiday"],
@@ -239,10 +239,11 @@ DETAILS: dict[tuple[str, str], Detail] = {
         response_text="The dataset record, with " + DATASET_FIELDS,
         errors=("401", "409_conflict", "413", "422", "429"),
         curl=(
+            "KEY=$(uuidgen)  # keep this key for every retry of this upload\n"
             'curl -sS -X POST "$MFM_API_URL/v1/datasets" \\\n'
             '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
-            '  -H "Idempotency-Key: $(uuidgen)" \\\n' + curl_data(DATASET_BODY)
+            '  -H "Idempotency-Key: $KEY" \\\n' + curl_data(DATASET_BODY)
         ),
         python=CLIENT + "\n# history: a pandas DataFrame with one row for each week\n"
         "dataset = client.datasets.create(\n"
@@ -411,12 +412,16 @@ DETAILS: dict[tuple[str, str], Detail] = {
         "with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`.",
         errors=("401", "409_conflict", "413", "422", "429"),
         curl=(
+            "KEY=$(uuidgen)  # keep this key for every retry of this analysis\n"
             'curl -sS -X POST "$MFM_API_URL/v1/analyses" \\\n'
             '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
-            '  -H "Idempotency-Key: $(uuidgen)" \\\n' + curl_data(PLAN_BODY)
+            '  -H "Idempotency-Key: $KEY" \\\n' + curl_data(PLAN_BODY)
         ),
         python=CLIENT + "\nfrom pymc_mfm.client import curve, scenario\n\n"
+        "# dataset: the Dataset from client.datasets.create (see Upload a dataset)\n"
+        "# plan: a DataFrame for the weeks after the history, from 2026-11-09:\n"
+        "#       a week column, spend for tv and search, and the holiday control\n"
         "analysis = client.analyze(\n"
         "    dataset, plan,\n"
         '    scenarios=[scenario("reduce_20", {"tv": 0.8, "search": 0.8})],\n'

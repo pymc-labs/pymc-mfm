@@ -84,6 +84,11 @@ website:
         - section: Train
           contents:
             - guide/training.qmd
+        # River's page is a docs page too, so it carries this sidebar.
+        - section: Models
+          contents:
+            - text: River 1.0
+              href: models/river-1/index.qmd
         - section: Examples
           # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
           contents: "guide/examples/*.ipynb"
