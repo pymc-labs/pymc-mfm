@@ -1,6 +1,5 @@
 ---
-title: "PyMC MFM"
-pagetitle: "PyMC MFM · Train once, decompose many."
+pagetitle: "PyMC MFM: Train once, decompose many."
 description: "Amortized neural networks for Bayesian marketing-mix decomposition: posterior draws of every contribution, with the causal graph behind each draw."
 page-layout: custom
 title-block-style: none
@@ -24,13 +23,15 @@ css: assets/styles/landing.css
   <div class="mfm-grain" aria-hidden="true"></div>
   <div class="mfm-hero__copy">
     <img class="mfm-hero__mark" data-mfm="mark" src="assets/img/logo/mfm-logo-light.svg" alt="" width="1107" height="1040">
-    <p class="mfm-hero__kicker">Marketing Foundation Models · by PyMC Labs</p>
-    <!-- Now and then the first word glitches into "Bayesian" for a second. -->
+    <!-- Once, on a desktop, the first word glitches into "Bayesian" for a second (landing.js). -->
     <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>
-    <p class="mfm-hero__line">Train once, decompose many.</p>
+    <p class="mfm-hero__line">Marketing foundation models by PyMC Labs. Train once, decompose many.</p>
     <div class="mfm-hero__actions">
       <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <span aria-hidden="true">→</span></a>
-      <a class="mfm-btn mfm-btn--ghost" href="https://github.com/pymc-labs/pymc-mfm">GitHub</a>
+      <a class="mfm-btn mfm-btn--ghost" href="https://mfm-staging.pymc-labs.com/">
+        <svg class="mfm-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.4l2 1.8-2 1.8M8.6 10h2.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Open Console
+      </a>
     </div>
   </div>
   <a class="mfm-hero__scroll" href="#mfm-statement">Scroll to explore<span aria-hidden="true"></span></a>
@@ -48,7 +49,6 @@ css: assets/styles/landing.css
 <!-- 3. The library at work: a notebook in an editor --------------------------------- -->
 <section class="mfm-show" aria-labelledby="mfm-show-title">
   <header class="mfm-show__head mfm-reveal">
-    <p class="mfm-eyebrow">The library</p>
     <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
   </header>
 
@@ -56,7 +56,7 @@ css: assets/styles/landing.css
     <div class="mfm-stage__bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="mfm-grain" aria-hidden="true"></div>
 
-    <div class="mfm-ide" data-mfm="notebook">
+    <div class="mfm-ide" data-mfm="notebook" data-ui>
       <div class="mfm-ide__titlebar">
         <span class="mfm-ide__lights" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="mfm-ide__command"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>pymc-mfm</span>
@@ -116,7 +116,7 @@ css: assets/styles/landing.css
 
 <span class="v">df</span> <span class="o">=</span> <span class="m">pd</span>.<span class="f">read_csv</span>(<span class="s">"data/weekly_sales.csv"</span>, <span class="p">parse_dates</span><span class="o">=</span>[<span class="s">"week"</span>])
 <span class="v">df</span>.<span class="f">head</span>()</code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
     <div class="mfm-cell__output">
       <table class="mfm-df">
@@ -145,7 +145,7 @@ css: assets/styles/landing.css
     <span class="p">channel_columns</span><span class="o">=</span>[<span class="s">"tv"</span>, <span class="s">"search"</span>, <span class="s">"social"</span>],
     <span class="p">control_columns</span><span class="o">=</span>[<span class="s">"promo"</span>],
 )</code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
   </div>
 </div>
@@ -157,7 +157,7 @@ css: assets/styles/landing.css
       <span class="mfm-cell__bar" aria-hidden="true"></span>
 <pre class="mfm-cell__code"><code><span class="v">query</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">inference</span>(<span class="v">df</span>[<span class="n">-13</span>:], <span class="p">n_samples</span><span class="o">=</span><span class="n">1_000</span>)
 <span class="v">query</span>.<span class="v">components</span>.<span class="v">shape</span>  <span class="c"># draws, weeks, components</span></code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
     <div class="mfm-cell__output"><pre class="mfm-cell__text">(1000, 13, 18)</pre></div>
   </div>
@@ -170,7 +170,7 @@ css: assets/styles/landing.css
       <span class="mfm-cell__bar" aria-hidden="true"></span>
 <pre class="mfm-cell__code"><code><span class="v">idata</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">build_idata</span>()  <span class="c"># ArviZ DataTree with context and query windows</span>
 <span class="v">idata</span>[<span class="s">"query"</span>][<span class="s">"posterior"</span>]</code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
     <div class="mfm-cell__output">
       <div class="mfm-xr">
@@ -202,7 +202,7 @@ css: assets/styles/landing.css
       <span class="mfm-cell__bar" aria-hidden="true"></span>
 <pre class="mfm-cell__code"><code><span class="v">total</span> <span class="o">=</span> <span class="v">idata</span>[<span class="s">"query"</span>][<span class="s">"posterior"</span>][<span class="s">"channel_contribution"</span>].<span class="f">sum</span>(<span class="s">"date"</span>)
 <span class="m">azs</span>.<span class="f">summary</span>(<span class="v">total</span>, <span class="p">kind</span><span class="o">=</span><span class="s">"stats"</span>)</code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
     <div class="mfm-cell__output">
       <table class="mfm-df">
@@ -229,7 +229,7 @@ css: assets/styles/landing.css
 <span class="v">ax</span>.<span class="f">set_xlabel</span>(<span class="s">"contribution over the 13 weeks"</span>)
 <span class="v">ax</span>.<span class="f">legend</span>()
 <span class="m">plt</span>.<span class="f">show</span>()</code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
     <div class="mfm-cell__output"><img class="mfm-chart" src="assets/img/show/hist.svg" alt="Histograms of the 13-week contribution of tv, search and social: tv is narrow around 30,000, search wide around 130,000, social wide around 60,000."></div>
   </div>
@@ -249,7 +249,7 @@ css: assets/styles/landing.css
     <span class="v">ax</span>.<span class="f">fill_between</span>(<span class="v">query</span>.<span class="v">time</span>, <span class="v">low</span>, <span class="v">high</span>, <span class="p">color</span><span class="o">=</span><span class="v">line</span>.<span class="f">get_color</span>(), <span class="p">alpha</span><span class="o">=</span><span class="n">0.2</span>)
 <span class="v">ax</span>.<span class="f">legend</span>()
 <span class="m">plt</span>.<span class="f">show</span>()</code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
     <div class="mfm-cell__output"><img class="mfm-chart" src="assets/img/show/bands.svg" alt="Weekly median contribution of tv, search and social over 13 weeks, each with a shaded 90% interval."></div>
   </div>
@@ -265,7 +265,7 @@ css: assets/styles/landing.css
     <span class="p">figsize</span><span class="o">=</span>(<span class="n">8</span>, <span class="n">3</span>), <span class="p">color</span><span class="o">=</span>[<span class="s">"#9faae2"</span>, <span class="s">"#b4e7dd"</span>, <span class="s">"#f6ae72"</span>, <span class="s">"#c8b4e7"</span>]
 )
 <span class="m">plt</span>.<span class="f">show</span>()</code></pre>
-      <span class="mfm-cell__status" aria-hidden="true">✓</span>
+      <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
     <div class="mfm-cell__output"><img class="mfm-chart" src="assets/img/show/area.svg" alt="Stacked mean decomposition over 13 weeks: baseline about 34,000 a week, with search, social and tv on top."></div>
   </div>
@@ -276,7 +276,7 @@ css: assets/styles/landing.css
 
       <div class="mfm-ide__statusbar" aria-hidden="true">
         <span>⎇ main</span>
-        <span>⊗ 0 ⚠ 0</span>
+        <span>0 errors, 0 warnings</span>
         <span class="mfm-ide__spacer"></span>
         <span data-mfm="cell-of">Cell 8 of 8</span>
         <span>Python 3.13.9 ('.venv')</span>
@@ -290,7 +290,7 @@ css: assets/styles/landing.css
     <div class="mfm-install">
       <span class="mfm-install__prompt" aria-hidden="true">$</span>
       <code class="mfm-install__cmd">pip install "pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
-      <button class="mfm-install__copy" type="button" data-copy="pip install &quot;pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command">Copy</button>
+      <button class="mfm-copy" type="button" data-copy="pip install &quot;pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command">Copy</button>
     </div>
     <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. <a href="guide/examples/river_1_quickstart.html">See the full quickstart →</a></p>
   </div>
@@ -300,19 +300,16 @@ css: assets/styles/landing.css
 <section class="mfm-chapters" data-mfm="chapters" aria-label="Why amortize">
   <div class="mfm-chapters__track">
     <article class="mfm-chapter" style="--tone: 180, 231, 221">
-      <p class="mfm-chapter__index">01 / 03</p>
       <h2 class="mfm-chapter__word">Amortized.</h2>
       <p class="mfm-chapter__line">Training is paid once, on simulated worlds with known answers. A new dataset is
         context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p>
     </article>
     <article class="mfm-chapter" style="--tone: 246, 174, 114">
-      <p class="mfm-chapter__index">02 / 03</p>
       <h2 class="mfm-chapter__word">Causal.</h2>
       <p class="mfm-chapter__line">Every draw carries the causal graph it was sampled with, over channels, controls and
         latent demand. Average over graphs, take the most frequent one, or fix your own.</p>
     </article>
     <article class="mfm-chapter" style="--tone: 200, 180, 231">
-      <p class="mfm-chapter__index">03 / 03</p>
       <h2 class="mfm-chapter__word">Bayesian.</h2>
       <p class="mfm-chapter__line">Draws, not point estimates: each contribution in outcome units with its uncertainty,
         exported as an ArviZ DataTree for the rest of your PyMC workflow.</p>
@@ -324,15 +321,13 @@ css: assets/styles/landing.css
 <section class="mfm-section mfm-reveal" aria-labelledby="mfm-model-title">
   <div class="mfm-release">
     <div class="mfm-release__name">
-      <p class="mfm-eyebrow">Latest model</p>
       <h2 id="mfm-model-title">River 1.0</h2>
     </div>
     <div class="mfm-release__body">
-      <p>PyMC Labs' first published network: 2.4M parameters, any number of channels, posterior
+      <p>PyMC Labs' first published network: 2.4M parameters, 1 to 10 channels, posterior
         draws in seconds on a CPU.</p>
       <p class="mfm-release__links">
         <a href="models/river-1/index.html">Release notes <span aria-hidden="true">→</span></a>
-        <a href="https://huggingface.co/pymc-labs/mfm">Hugging Face <span aria-hidden="true">↗</span></a>
       </p>
     </div>
   </div>
@@ -340,9 +335,9 @@ css: assets/styles/landing.css
 
 <!-- 6. Explore ----------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
-  <nav class="mfm-explore">
-    <a href="guide/index.html"><span class="mfm-explore__title">Guide <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
-    <a href="reference/index.html"><span class="mfm-explore__title">API <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Every public class and function, from the docstrings.</span></a>
+  <nav class="mfm-explore" aria-label="Explore">
+    <a href="guide/index.html"><span class="mfm-explore__title">Docs <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
+    <a href="api/index.html"><span class="mfm-explore__title">API <span aria-hidden="true">→</span></span><span class="mfm-explore__text">The HTTP routes and the Python reference.</span></a>
     <a href="models/index.html"><span class="mfm-explore__title">Models <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Trained networks and their release notes.</span></a>
     <a href="blog/index.html"><span class="mfm-explore__title">Blog <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Methods and engineering notes from the team.</span></a>
   </nav>
