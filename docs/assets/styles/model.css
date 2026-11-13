@@ -1,30 +1,5 @@
 /* Models page (docs/models/models.ejs) and the River 1.0 page (docs/models/river-1).
-   Colours and corners come from the --mfm-* theme tokens. Each var() has a fallback, so
-   the pages hold until the theme defines the tokens; the fallbacks follow the dark class.
-   Delete the two fallback blocks once the theme tokens are merged. */
-
-body.mfm-models-page,
-body.mfm-river-page {
-  --p-ink: var(--mfm-ink, #0c1f40);
-  --p-ink-2: var(--mfm-ink-2, #4d5b78);
-  --p-accent: var(--mfm-accent, #2650c8);
-  --p-tone-1: var(--mfm-tone-1, #f1f4fa);
-  --p-tone-2: var(--mfm-tone-2, #e3e9f4);
-  --p-r-chip: var(--mfm-r-chip, 6px);
-  --p-r-card: var(--mfm-r-card, 12px);
-  --p-font: var(--mfm-font-sans, "IBM Plex Sans", system-ui, sans-serif);
-  --p-ease: var(--mfm-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
-  --p-dur: var(--mfm-dur, 0.25s);
-}
-
-body.mfm-models-page.quarto-dark,
-body.mfm-river-page.quarto-dark {
-  --p-ink: var(--mfm-ink, #dde3ee);
-  --p-ink-2: var(--mfm-ink-2, #9aa7bd);
-  --p-accent: var(--mfm-accent, #8fa9ff);
-  --p-tone-1: var(--mfm-tone-1, rgba(255, 255, 255, 0.05));
-  --p-tone-2: var(--mfm-tone-2, rgba(255, 255, 255, 0.09));
-}
+   Colours, corners, type and motion come from the --mfm-* theme tokens. */
 
 /* Models: the pictures are the tiles ------------------------------------------------ */
 .mfm-models__grid {
@@ -48,7 +23,7 @@ body.mfm-river-page.quarto-dark {
   position: relative;
   aspect-ratio: 5 / 4;
   overflow: hidden;
-  border-radius: var(--p-r-card);
+  border-radius: var(--mfm-r-card);
   background: #0c1f40;
 }
 
@@ -58,7 +33,7 @@ body.mfm-river-page.quarto-dark {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform calc(var(--p-dur) * 2.4) var(--p-ease), filter calc(var(--p-dur) * 2.4) var(--p-ease);
+  transition: transform calc(var(--mfm-dur) * 2.4) var(--mfm-ease), filter calc(var(--mfm-dur) * 2.4) var(--mfm-ease);
 }
 
 /* A scrim under the name, not a text shadow. */
@@ -79,7 +54,7 @@ body.mfm-river-page.quarto-dark {
   margin: 0;
   padding: 0;
   border: 0;
-  font-family: var(--p-font);
+  font-family: var(--mfm-font-sans);
   font-size: 1.5rem;
   font-stretch: 100%;
   font-weight: 500;
@@ -94,7 +69,7 @@ body.mfm-river-page.quarto-dark {
 }
 
 .mfm-model:has(.stretched-link:focus-visible) .mfm-model__picture {
-  outline: 2px solid var(--p-accent);
+  outline: 2px solid var(--mfm-accent);
   outline-offset: 3px;
 }
 
@@ -113,20 +88,20 @@ body.mfm-river-page.quarto-dark {
   align-items: center;
   gap: 0.6rem;
   font-size: 0.875rem;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-model__badge {
   padding: 0.05rem 0.45rem;
-  border-radius: var(--p-r-chip);
-  background: var(--p-tone-2);
-  color: var(--p-ink);
+  border-radius: var(--mfm-r-chip);
+  background: var(--mfm-tone-2);
+  color: var(--mfm-ink);
   font-size: 0.8125rem;
 }
 
 .mfm-model__summary {
   line-height: 1.55;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-model__specs {
@@ -136,17 +111,17 @@ body.mfm-river-page.quarto-dark {
   padding: 0;
   list-style: none;
   font-size: 0.875rem;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-model__cta a {
   text-decoration: none;
-  color: var(--p-accent);
+  color: var(--mfm-accent);
 }
 
 .mfm-model__cta span {
   display: inline-block;
-  transition: transform var(--p-dur) var(--p-ease);
+  transition: transform var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-model:hover .mfm-model__cta span {
@@ -176,13 +151,13 @@ body.mfm-river-page #title-block-header .quarto-title .quarto-categories .quarto
   padding: 0;
   border: 0;
   background: none;
-  font-family: var(--p-font);
+  font-family: var(--mfm-font-sans);
   font-size: 0.9rem;
   font-weight: 400;
   letter-spacing: normal;
   text-transform: none;
   opacity: 1; /* Quarto dims the category text */
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 body.mfm-river-page #title-block-header.quarto-title-block.default .quarto-title-meta {
@@ -191,7 +166,7 @@ body.mfm-river-page #title-block-header.quarto-title-block.default .quarto-title
   gap: 0.25rem 1.5rem;
   margin-top: 1.25rem;
   font-size: 0.9rem;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 body.mfm-river-page #title-block-header .quarto-title-meta > div {
@@ -232,8 +207,8 @@ body.mfm-river-page main strong {
   gap: 1.25rem 1.5rem;
   margin: 2rem 0;
   padding: 1.25rem 1.5rem;
-  border-radius: var(--p-r-card);
-  background: var(--p-tone-1);
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-tone-1);
 }
 
 .mfm-ratios {
@@ -249,18 +224,18 @@ body.mfm-river-page main strong {
 
 .mfm-stats strong,
 .mfm-ratios strong {
-  font-family: var(--p-font);
+  font-family: var(--mfm-font-sans);
   font-size: clamp(1.35rem, 2.4vw, 1.75rem);
   font-weight: 500;
   line-height: 1.15;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-stats span,
 .mfm-ratios span {
   font-size: 0.875rem;
   line-height: 1.45;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-links {
@@ -276,8 +251,8 @@ body.mfm-river-page main strong {
   gap: 0.75rem;
   margin: 1.75rem 0;
   padding: 1.25rem 1.5rem;
-  border-radius: var(--p-r-card);
-  background: var(--p-tone-1);
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-tone-1);
   font-size: 0.95rem;
 }
 
@@ -289,12 +264,12 @@ body.mfm-river-page main strong {
 
 .mfm-specs dt {
   font-weight: 400;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-specs dd {
   margin: 0;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 /* Charts: horizontal bars that grow in when revealed, in the site colours. */
@@ -304,8 +279,8 @@ body.mfm-river-page main strong {
   max-width: none;
   margin: 2rem 0;
   padding: 1.5rem;
-  border-radius: var(--p-r-card);
-  background: var(--p-tone-1);
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-tone-1);
 }
 
 .mfm-chart figcaption {
@@ -318,14 +293,14 @@ body.mfm-river-page main strong {
 
 .mfm-chart figcaption strong {
   font-size: 1rem;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-chart figcaption span,
 .mfm-chart__note {
   font-size: 0.875rem;
   line-height: 1.5;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-chart__note {
@@ -338,7 +313,7 @@ body.mfm-river-page main strong {
   gap: 0.4rem 1.25rem;
   margin-bottom: 1.2rem;
   font-size: 0.875rem;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-chart__legend span::before {
@@ -348,24 +323,24 @@ body.mfm-river-page main strong {
   height: 10px;
   margin-right: 0.45rem;
   border-radius: 2px;
-  background: var(--series, var(--p-ink-2));
+  background: var(--series, var(--mfm-ink-2));
 }
 
 /* One colour per series: River in the accent, the references in steps of grey-blue. */
 [data-series="river"] {
-  --series: var(--p-accent);
+  --series: var(--mfm-accent);
 }
 
 [data-series="pathmc"] {
-  --series: var(--p-ink-2);
+  --series: var(--mfm-ink-2);
 }
 
 [data-series="mmm"] {
-  --series: color-mix(in srgb, var(--p-ink-2) 62%, transparent);
+  --series: color-mix(in srgb, var(--mfm-ink-2) 62%, transparent);
 }
 
 [data-series="ols"] {
-  --series: color-mix(in srgb, var(--p-ink-2) 38%, transparent);
+  --series: color-mix(in srgb, var(--mfm-ink-2) 38%, transparent);
 }
 
 .mfm-chart__groups {
@@ -377,7 +352,7 @@ body.mfm-river-page main strong {
   margin: 0 0 0.45rem;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-bar {
@@ -392,7 +367,7 @@ body.mfm-river-page main strong {
   flex: none;
   width: 11.5rem;
   font-size: 0.875rem;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-bar i {
@@ -403,14 +378,14 @@ body.mfm-river-page main strong {
   border-radius: 4px;
   background: var(--series);
   transform-origin: left;
-  transition: transform calc(var(--p-dur) * 4.8) var(--p-ease);
+  transition: transform calc(var(--mfm-dur) * 4.8) var(--mfm-ease);
 }
 
 .mfm-bar b {
   font-size: 0.8125rem;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
-  color: var(--p-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-chart__groups--time .mfm-bar i {
@@ -441,15 +416,15 @@ body.mfm-river-page main strong {
   flex-direction: column;
   gap: 0.25rem;
   padding: 1rem 2.6rem 1rem 1.25rem;
-  border-radius: var(--p-r-card);
-  background: var(--p-tone-1);
-  color: var(--p-ink);
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-tone-1);
+  color: var(--mfm-ink);
   text-decoration: none;
-  transition: background-color var(--p-dur) var(--p-ease);
+  transition: background-color var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-resources > a:hover {
-  background: var(--p-tone-2);
+  background: var(--mfm-tone-2);
 }
 
 .mfm-resources strong {
@@ -459,7 +434,7 @@ body.mfm-river-page main strong {
 .mfm-resources span {
   font-size: 0.875rem;
   line-height: 1.45;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-resources i {
@@ -467,8 +442,8 @@ body.mfm-river-page main strong {
   top: 1rem;
   right: 1.25rem;
   font-style: normal;
-  color: var(--p-ink-2);
-  transition: transform var(--p-dur) var(--p-ease);
+  color: var(--mfm-ink-2);
+  transition: transform var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-resources > a:hover i {
@@ -478,7 +453,7 @@ body.mfm-river-page main strong {
 .mfm-authors {
   margin-top: 2.5rem;
   font-size: 0.9375rem;
-  color: var(--p-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-authors span {

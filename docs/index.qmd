@@ -290,7 +290,7 @@ css: assets/styles/landing.css
     <div class="mfm-install">
       <span class="mfm-install__prompt" aria-hidden="true">$</span>
       <code class="mfm-install__cmd">pip install "pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
-      <button class="mfm-copy" type="button" data-copy="pip install &quot;pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command">Copy</button>
+      <button class="mfm-copy" type="button" data-copy="pip install &quot;pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command"></button>
     </div>
     <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. <a href="guide/examples/river_1_quickstart.html">See the full quickstart →</a></p>
   </div>

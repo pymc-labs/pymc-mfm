@@ -28,6 +28,10 @@ $font-weight-medium: 500;
 $font-weight-semibold: 500;
 $font-weight-bold: 500;
 $font-weight-bolder: 500;
+// Only 400 and 500 are self-hosted: Bootstrap's light weights (.lead, .display-*) fall to 400.
+$font-weight-light: 400;
+$font-weight-lighter: 400;
+$lead-font-weight: 400;
 $headings-font-weight: 500;
 $navbar-brand-font-weight: 500;
 
@@ -96,12 +100,4 @@ body.quarto-dark {
   --mfm-console-bg: #f2f5fa;
   --mfm-console-fg: #0c1f40;
   --mfm-console-hover: #ffffff;
-}
-
-:root {
-  --mfm-accent-soft: rgba(143, 169, 255, 0.35);
-  --mfm-muted: #{$ink-2};
-  --mfm-hairline: rgba(255, 255, 255, 0.09);
-  --mfm-surface: rgba(255, 255, 255, 0.05);
-  --mfm-fg: #{$ink};
 }

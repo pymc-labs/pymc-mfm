@@ -439,26 +439,6 @@
     items.forEach((el) => observer.observe(el));
   }
 
-  // Fallback for the install line's "Copy" button, for pages where the shared copy
-  // component (.mfm-copy, wired by site.js) is absent. A button that site.js already
-  // enhanced holds an icon, so it is left alone.
-  function copyButtons() {
-    root.querySelectorAll("[data-copy]").forEach((button) => {
-      if (button.querySelector("svg")) return;
-      button.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(button.dataset.copy);
-          button.textContent = "Copied";
-        } catch {
-          button.textContent = "Select the text";
-        }
-        setTimeout(() => {
-          button.textContent = "Copy";
-        }, 1600);
-      });
-    });
-  }
-
   const hero = root.querySelector(".mfm-hero");
   const fieldCanvas = root.querySelector('[data-mfm="field"]');
   const glitchWord = root.querySelector('[data-mfm="glitch"]');
@@ -470,7 +450,6 @@
   if (glitchWord && hero) titleGlitch(glitchWord, hero);
   if (ide) notebook(ide);
   reveal();
-  window.addEventListener("load", copyButtons, { once: true });
   // Text splits measure glyphs: wait for the web fonts.
   const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
   ready.then(() => {

@@ -44,13 +44,14 @@ body.mfm-landing .navbar {
   --bs-navbar-brand-hover-color: #ffffff;
 }
 
-body.mfm-landing .navbar .nav-link,
+/* The Open Console button keeps the theme's light-on-navy colours. */
+body.mfm-landing .navbar .nav-link:not([data-mfm="console"]),
 body.mfm-landing .navbar .navbar-title,
 body.mfm-landing .navbar .bi {
   color: rgba(247, 247, 247, 0.82) !important;
 }
 
-body.mfm-landing .navbar .nav-link:hover {
+body.mfm-landing .navbar .nav-link:not([data-mfm="console"]):hover {
   color: #ffffff !important;
 }
 
@@ -442,8 +443,9 @@ body.mfm-landing .nav-footer a {
   z-index: 0;
   overflow: hidden;
   background:
-    radial-gradient(120% 80% at 50% 120%, rgba(7, 20, 42, 0.9), transparent 60%),
-    linear-gradient(160deg, #10284f 0%, #0b1b38 55%, #0a1730 100%);
+    /* Carlos's stage wash behind the editor picture; no text sits on it. */
+    radial-gradient(120% 80% at 50% 120%, rgba(7, 20, 42, 0.9), transparent 60%), /* taste-skill-ignore: landing stage wash */
+    linear-gradient(160deg, #10284f 0%, #0b1b38 55%, #0a1730 100%); /* taste-skill-ignore: landing stage wash */
 }
 
 .mfm-stage__bg i {
@@ -511,20 +513,6 @@ body.mfm-landing .nav-footer a {
   padding: 0;
   font-size: inherit;
   scrollbar-width: none;
-}
-
-/* Plain fallback look for the shared .mfm-copy component, which the theme styles and
-   wires. Same specificity as that class (0,1,0), so it must beat Bootstrap's "button"
-   reset only. Drop this rule once the shared component is merged. */
-:where(.mfm-install) .mfm-copy {
-  flex: none;
-  padding: 0.3rem 0.7rem;
-  border: 0;
-  border-radius: var(--lp-r);
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--mfm-fg-2);
-  font: inherit;
-  cursor: pointer;
 }
 
 /* The editor: a VS Code-like window in its Dark Modern colors. */
@@ -1095,7 +1083,7 @@ body.mfm-landing .nav-footer a {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(42% 40% at 50% 52%, rgba(var(--tone), 0.15), transparent 72%);
+  background: radial-gradient(42% 40% at 50% 52%, rgba(var(--tone), 0.15), transparent 72%); /* taste-skill-ignore: Carlos's chapter glow, behind the scene word */
 }
 
 .mfm-chapters__track {

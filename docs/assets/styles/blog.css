@@ -1,26 +1,5 @@
 /* Blog: the index (docs/blog/posts.ejs) and the post pages (docs/blog/posts/*).
-   Colours come from the --mfm-* theme tokens. Each var() has a fallback so the page holds
-   until the theme defines the tokens; the fallbacks follow the dark class. */
-
-body.mfm-blog {
-  --b-ink: var(--mfm-ink, #0c1f40);
-  --b-ink-2: var(--mfm-ink-2, #4d5b78);
-  --b-accent: var(--mfm-accent, #2650c8);
-  --b-tone-1: var(--mfm-tone-1, #f1f4fa);
-  --b-tone-2: var(--mfm-tone-2, #e3e9f4);
-  --b-r-card: var(--mfm-r-card, 12px);
-  --b-font: var(--mfm-font-sans, "IBM Plex Sans", system-ui, sans-serif);
-  --b-ease: var(--mfm-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
-  --b-dur: var(--mfm-dur, 0.25s);
-}
-
-body.mfm-blog.quarto-dark {
-  --b-ink: var(--mfm-ink, #dde3ee);
-  --b-ink-2: var(--mfm-ink-2, #9aa7bd);
-  --b-accent: var(--mfm-accent, #8fa9ff);
-  --b-tone-1: var(--mfm-tone-1, rgba(255, 255, 255, 0.05));
-  --b-tone-2: var(--mfm-tone-2, rgba(255, 255, 255, 0.09));
-}
+   Colours, corners, type and motion come from the --mfm-* theme tokens. */
 
 /* Index: one featured post while there is one ------------------------------------ */
 .mfm-posts {
@@ -47,7 +26,7 @@ body.mfm-blog.quarto-dark {
   margin: 0;
   padding: 0;
   border: 0;
-  font-family: var(--b-font);
+  font-family: var(--mfm-font-sans);
   font-size: clamp(1.5rem, 2.6vw, 2rem);
   font-stretch: 100%;
   font-weight: 500;
@@ -56,30 +35,30 @@ body.mfm-blog.quarto-dark {
 }
 
 .mfm-post__title a {
-  color: var(--b-ink);
+  color: var(--mfm-ink);
   text-decoration: none;
-  transition: color var(--b-dur) var(--b-ease);
+  transition: color var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-post:hover .mfm-post__title a,
 .mfm-post__title a:focus-visible {
-  color: var(--b-accent);
+  color: var(--mfm-accent);
 }
 
 .mfm-post__date {
   margin-top: 0.4rem;
-  font-family: var(--b-font);
+  font-family: var(--mfm-font-sans);
   font-size: 0.875rem;
   letter-spacing: normal;
   text-transform: none;
-  color: var(--b-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-post__subtitle {
   margin-top: 1rem;
   font-size: 1.125rem;
   line-height: 1.5;
-  color: var(--b-ink);
+  color: var(--mfm-ink);
 }
 
 .mfm-post__categories {
@@ -88,7 +67,7 @@ body.mfm-blog.quarto-dark {
   gap: 0.25rem 1.1rem;
   margin-top: 1.25rem;
   font-size: 0.875rem;
-  color: var(--b-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 /* Plain text. Quarto styles `.listing-category` as a bordered chip. */
@@ -96,7 +75,7 @@ body.mfm-blog.quarto-dark {
   padding: 0;
   border: 0;
   background: none;
-  font-family: var(--b-font);
+  font-family: var(--mfm-font-sans);
   font-size: inherit;
   letter-spacing: normal;
   color: inherit;
@@ -105,9 +84,9 @@ body.mfm-blog.quarto-dark {
 
 .mfm-post__picture {
   overflow: hidden;
-  border-radius: var(--b-r-card);
+  border-radius: var(--mfm-r-card);
   background: #f1f4fa; /* the figure is drawn for a light ground in both modes */
-  transition: background-color var(--b-dur) var(--b-ease);
+  transition: background-color var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-post:hover .mfm-post__picture {
@@ -120,7 +99,7 @@ body.mfm-blog.quarto-dark {
   height: clamp(12rem, 24vw, 19rem);
   padding: 1.25rem;
   object-fit: contain;
-  transition: transform calc(var(--b-dur) * 2) var(--b-ease);
+  transition: transform calc(var(--mfm-dur) * 2) var(--mfm-ease);
 }
 
 .mfm-post:hover .mfm-post__picture img {
@@ -140,28 +119,28 @@ body.mfm-blog.quarto-dark {
 /* Categories sidebar: as quiet as "On this page" -------------------------------- */
 body.mfm-blog #quarto-margin-sidebar .quarto-listing-category-title {
   margin: 0 0 0.6rem;
-  font-family: var(--b-font);
+  font-family: var(--mfm-font-sans);
   font-size: 0.875rem;
   font-weight: 500;
   letter-spacing: normal;
   text-transform: none;
-  color: var(--b-ink);
+  color: var(--mfm-ink);
 }
 
 body.mfm-blog #quarto-margin-sidebar .quarto-listing-category .category {
   padding: 0.15rem 0;
-  font-family: var(--b-font);
+  font-family: var(--mfm-font-sans);
   font-size: 0.875rem;
   font-weight: 400;
   line-height: 1.5;
   letter-spacing: normal;
-  color: var(--b-ink-2);
-  transition: color var(--b-dur) var(--b-ease), transform var(--b-dur) var(--b-ease);
+  color: var(--mfm-ink-2);
+  transition: color var(--mfm-dur) var(--mfm-ease), transform var(--mfm-dur) var(--mfm-ease);
 }
 
 body.mfm-blog #quarto-margin-sidebar .quarto-listing-category .category:hover,
 body.mfm-blog #quarto-margin-sidebar .quarto-listing-category .category.active {
-  color: var(--b-accent);
+  color: var(--mfm-accent);
 }
 
 body.mfm-blog #quarto-margin-sidebar .quarto-listing-category .category:hover {
@@ -173,7 +152,7 @@ body.mfm-blog #quarto-margin-sidebar .quarto-listing-category .category.active {
 }
 
 body.mfm-blog #quarto-margin-sidebar .quarto-category-count {
-  color: var(--b-ink-2);
+  color: var(--mfm-ink-2);
   opacity: 0.8;
 }
 
@@ -189,13 +168,13 @@ body.mfm-blog #title-block-header .quarto-title .quarto-categories .quarto-categ
   padding: 0;
   border: 0;
   background: none;
-  font-family: var(--b-font);
+  font-family: var(--mfm-font-sans);
   font-size: 0.9rem;
   font-weight: 400;
   letter-spacing: normal;
   text-transform: none;
   opacity: 1; /* Quarto dims the category text */
-  color: var(--b-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 body.mfm-blog #title-block-header.quarto-title-block.default .quarto-title-meta {
@@ -204,7 +183,7 @@ body.mfm-blog #title-block-header.quarto-title-block.default .quarto-title-meta 
   gap: 0.25rem 1.5rem;
   margin-top: 1.25rem;
   font-size: 0.9rem;
-  color: var(--b-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 body.mfm-blog #title-block-header .quarto-title-meta > div {
@@ -246,7 +225,7 @@ body.mfm-blog main strong {
   margin-top: 0.75rem;
   font-size: 0.875rem;
   line-height: 1.5;
-  color: var(--b-ink-2);
+  color: var(--mfm-ink-2);
 }
 
 body.mfm-blog.quarto-dark .mfm-fig {

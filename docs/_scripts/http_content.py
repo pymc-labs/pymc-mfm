@@ -105,27 +105,50 @@ DATASET_RECORD = """{
   "warning_details": []
 }"""
 
-DATASET_BODY = """{"name": "weekly-history",
- "dates": ["2024-07-01", "2024-07-08", "2024-07-15"],
- "outcome": [1012.5, 1048.0, 1031.2],
- "spend": {"tv": [4000, 4200, 4400], "search": [2500, 2600, 2700]},
- "controls": {"holiday": [0, 0, 0]}}"""
+DATASET_BODY = """{
+  "name": "weekly-history",
+  "dates": ["2024-07-01", "2024-07-08", "2024-07-15"],
+  "outcome": [1012.5, 1048.0, 1031.2],
+  "spend": {"tv": [4000, 4200, 4400], "search": [2500, 2600, 2700]},
+  "controls": {"holiday": [0, 0, 0]}
+}"""
 
-PLAN_BODY = """{"dataset_id": "ds_123",
- "plan": {"dates": ["2026-11-09", "2026-11-16"],
-          "spend": {"tv": [9000, 9000], "search": [6000, 6000]},
-          "controls": {"holiday": [0, 0]}},
- "name": "Spend scenarios", "decision_weeks": [1, 2],
- "scenarios": [{"id": "reduce_20", "multipliers": {"tv": 0.8, "search": 0.8}}],
- "curves": [{"channel": "tv", "levels": [0, 0.5, 1.5, 2]}],
- "draws": 1000, "seed": 7}"""
+PLAN_BODY = """{
+  "dataset_id": "ds_123",
+  "name": "Spend scenarios",
+  "plan": {
+    "dates": ["2026-11-09", "2026-11-16"],
+    "spend": {"tv": [9000, 9000], "search": [6000, 6000]},
+    "controls": {"holiday": [0, 0]}
+  },
+  "decision_weeks": [1, 2],
+  "scenarios": [
+    {"id": "reduce_20", "multipliers": {"tv": 0.8, "search": 0.8}}
+  ],
+  "curves": [{"channel": "tv", "levels": [0, 0.5, 1.5, 2]}],
+  "draws": 1000,
+  "seed": 7
+}"""
 
-BACKTEST_BODY = """{"dataset_id": "ds_123",
- "context": {"start": "2024-11-11", "end": "2026-08-03"},
- "query": {"end": "2026-11-02"}, "channels": ["tv", "search"], "controls": ["holiday"],
- "scenarios": [{"id": "budget_x1.2", "multipliers": {"tv": 1.2, "search": 1.2}}],
- "curves": [{"channel": "tv", "levels": [0, 0.5, 1.5, 2]}],
- "seed": 7, "name": "Q4 backtest"}"""
+BACKTEST_BODY = """{
+  "dataset_id": "ds_123",
+  "name": "Q4 backtest",
+  "context": {"start": "2024-11-11", "end": "2026-08-03"},
+  "query": {"end": "2026-11-02"},
+  "channels": ["tv", "search"],
+  "controls": ["holiday"],
+  "scenarios": [
+    {"id": "budget_x1.2", "multipliers": {"tv": 1.2, "search": 1.2}}
+  ],
+  "curves": [{"channel": "tv", "levels": [0, 0.5, 1.5, 2]}],
+  "seed": 7
+}"""
+
+
+def curl_data(body: str) -> str:
+    """A JSON body as the last line of a curl command, indented under ``--data``."""
+    return "  --data '" + body.replace("\n", "\n  ") + "'"
+
 
 STATUS_RECORD = """{
   "status": "running",
@@ -219,8 +242,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
             'curl -sS -X POST "$MFM_API_URL/v1/datasets" \\\n'
             '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
-            '  -H "Idempotency-Key: $(uuidgen)" \\\n'
-            f"  --data '{DATASET_BODY}'"
+            '  -H "Idempotency-Key: $(uuidgen)" \\\n' + curl_data(DATASET_BODY)
         ),
         python=CLIENT + "\n# history: a pandas DataFrame with one row for each week\n"
         "dataset = client.datasets.create(\n"
@@ -392,8 +414,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
             'curl -sS -X POST "$MFM_API_URL/v1/analyses" \\\n'
             '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
-            '  -H "Idempotency-Key: $(uuidgen)" \\\n'
-            f"  --data '{PLAN_BODY}'"
+            '  -H "Idempotency-Key: $(uuidgen)" \\\n' + curl_data(PLAN_BODY)
         ),
         python=CLIENT + "\nfrom pymc_mfm.client import curve, scenario\n\n"
         "analysis = client.analyze(\n"

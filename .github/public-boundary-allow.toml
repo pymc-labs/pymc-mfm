@@ -95,6 +95,12 @@ reason = "Self-hosted website font: IBM Plex Mono 400, Latin subset (15 kB), fro
 sha256 = "7ced53420784c93cecccb7c27237594f0e41e5a7990581565f0aef8eda9e9d2f"
 
 [[allow]]
+path = "docs/assets/fonts/ibm-plex-mono-latin-500.woff2"
+rules = ["binary"]
+reason = "Self-hosted website font: IBM Plex Mono 500, Latin subset (15 kB), from Google Fonts. Code inside headings, definition terms and the current sidebar page uses weight 500. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."
+sha256 = "6e618344335cc436ffd25deba4f4cb5a60ca6c3a4832e67f236ca43922f74eea"
+
+[[allow]]
 path = "docs/assets/fonts/archivo-latin-wdth125-400.woff2"
 rules = ["binary"]
 reason = "Self-hosted website font: Archivo at width 125 (Expanded), weight 400, Latin subset (15 kB), from Google Fonts. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."

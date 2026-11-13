@@ -29,6 +29,10 @@ $font-weight-medium: 500;
 $font-weight-semibold: 500;
 $font-weight-bold: 500;
 $font-weight-bolder: 500;
+// Only 400 and 500 are self-hosted: Bootstrap's light weights (.lead, .display-*) fall to 400.
+$font-weight-light: 400;
+$font-weight-lighter: 400;
+$lead-font-weight: 400;
 $headings-font-weight: 500;
 $navbar-brand-font-weight: 500;
 
@@ -111,16 +115,4 @@ body.quarto-light {
   --mfm-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --mfm-dur: 0.18s;
   --mfm-nav-h: 64px;
-  // Names the landing and model pages still use. Remove once they move to the tokens above.
-  --mfm-navy-deep: #07142a;
-  --mfm-aqua: #b4e7dd;
-  --mfm-periwinkle: #9faae2;
-  --mfm-peach: #f6ae72;
-  --mfm-violet: #c8b4e7;
-  --mfm-accent-soft: rgba(38, 80, 200, 0.35);
-  --mfm-muted: #{$ink-2};
-  --mfm-hairline: #{$tone-2};
-  --mfm-surface: #{$tone-1};
-  --mfm-fg: #{$ink};
-  --mfm-display: #{$font-display};
 }

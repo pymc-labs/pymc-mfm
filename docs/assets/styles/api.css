@@ -2,46 +2,11 @@
    Loaded per folder by api/_metadata.yml and reference/_metadata.yml (written by prepare.py).
    Colours, corners and fonts come from the --mfm-* tokens of the theme. */
 
-/* Fallback tokens: remove this block when the theme defines them (body.quarto-light/-dark
-   declarations beat these, because a custom property set on body wins over one inherited). */
-:root {
-  --mfm-bg: #fff;
-  --mfm-ink: #0c1f40;
-  --mfm-ink-2: #4d5b78;
-  --mfm-navy: #0c1f40;
-  --mfm-heading: #0c1f40;
-  --mfm-accent: #2650c8;
-  --mfm-tone-1: #f1f4fa;
-  --mfm-tone-2: #e3e9f4;
-  --mfm-danger: #b3261e;
-  --mfm-r-chip: 6px;
-  --mfm-r: 8px;
-  --mfm-r-card: 12px;
-  --mfm-font-sans: "IBM Plex Sans", system-ui, sans-serif;
-  --mfm-font-mono: "IBM Plex Mono", ui-monospace, monospace; /* taste-skill-ignore: token fallback for code */
-  --mfm-measure: 72ch;
-  --mfm-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --mfm-dur: 0.18s;
-  --mfm-nav-h: 64px;
-}
-
-:root:has(body.quarto-dark) {
-  --mfm-bg: #0b1424;
-  --mfm-ink: #dde3ee;
-  --mfm-ink-2: #9aa7bd;
-  --mfm-navy: #0c1f40;
-  --mfm-heading: #eef2fa;
-  --mfm-accent: #8fa9ff;
-  --mfm-tone-1: rgba(255, 255, 255, 0.05);
-  --mfm-tone-2: rgba(255, 255, 255, 0.09);
-  --mfm-danger: #ff8f86;
-}
-
 /* Method labels: coloured text, no chips. Used on pages, in the sidebar and on the overview. */
 .mfm-verb {
   font-family: var(--mfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
   font-size: 0.85em;
-  font-weight: 500;
+  font-weight: 400; /* colour marks the method, not weight */
   letter-spacing: 0.02em;
 }
 
@@ -60,18 +25,21 @@
 /* Sidebar rows: the method in a fixed column, the path beside it; a long path wraps under itself. */
 .sidebar-item .menu-text:has(.mfm-verb) {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
+/* Method and path share one mono size, so the longest path ("/analyses/{id}/result")
+   fits one line at desktop widths. */
 .sidebar-item .mfm-verb {
   flex: none;
-  min-width: 3.6em;
+  min-width: 3.7em;
+  font-size: 0.78em;
 }
 
 .sidebar-item .mfm-side-path {
   min-width: 0;
   font-family: var(--mfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
-  font-size: 0.82em;
+  font-size: 0.78em;
   overflow-wrap: break-word;
 }
 
@@ -198,6 +166,40 @@
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* In the API panel, samples wrap instead of scrolling: the panel is narrow, and a cut line
+   hides the part a reader copies (site.css scrolls code everywhere else, so this needs its
+   specificity). No scroll fade is needed when nothing scrolls. */
+.mfm-api-code div.sourceCode pre.sourceCode,
+.mfm-api-code div.sourceCode pre code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mfm-api-code div.sourceCode pre.sourceCode {
+  overflow-x: visible;
+  padding-inline: 0.9rem;
+}
+
+/* Each code line is its own span (Quarto): a hanging indent sets wrapped continuations in by
+   four characters, so they never read as new lines. */
+.mfm-api-code div.sourceCode pre code > span {
+  display: inline-block; /* full width, so the newline after each span ends its line without adding one */
+  width: 100%;
+  padding-left: 4ch;
+  text-indent: -4ch;
+}
+
+.mfm-api-code div.sourceCode.mfm-code::before,
+.mfm-api-code div.sourceCode.mfm-code::after {
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  .mfm-api-code {
+    padding: 1rem 0.75rem 0.25rem;
+  }
 }
 
 /* Definition lists: parameters, errors and routes share one look ----------------------------- */
