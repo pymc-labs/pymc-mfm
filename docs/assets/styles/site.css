@@ -1188,6 +1188,12 @@ body.mfm-landing footer.footer {
 }
 
 @media (max-width: 991.98px) {
+  :root {
+    /* One gutter for the bar and the page, so the mark and the icons line up with the text:
+       Quarto's page grid puts text 1.5em (3em from 768px) in from the edge, at the 17px body size. */
+    --mfm-phone-gutter: 25.5px;
+  }
+
   .quarto-secondary-nav {
     display: none;
   }
@@ -1197,18 +1203,31 @@ body.mfm-landing footer.footer {
     display: none;
   }
 
+  #quarto-header > nav.navbar {
+    padding-inline: 0;
+  }
+
+  #quarto-header .navbar .navbar-container {
+    flex-wrap: nowrap;
+    padding-inline: var(--mfm-phone-gutter);
+  }
+
+  /* The bar keeps one height: each item fills it, and the menu opens as a sheet below it. */
+  .navbar .navbar-brand-container,
+  .navbar #quarto-search {
+    display: flex;
+    align-items: center;
+    height: var(--mfm-nav-h);
+  }
+
   .navbar .navbar-brand-container {
     order: 1;
     margin: 0;
   }
 
   .navbar #quarto-search {
-    margin-left: auto;
-  }
-
-  .navbar #quarto-search {
     order: 2;
-    margin-right: 0.25rem;
+    margin-left: auto;
   }
 
   .navbar .navbar-toggler {
@@ -1219,11 +1238,26 @@ body.mfm-landing footer.footer {
     order: 4;
   }
 
+  /* Search and menu: two 40px targets with 20px line icons of one weight; the menu icon's
+     right edge sits on the gutter. */
   #quarto-search .aa-DetachedSearchButton {
     width: 40px;
+    height: 40px;
     padding: 0;
     justify-content: center;
+    border: 0;
     background: none;
+    color: var(--mfm-heading);
+  }
+
+  #quarto-search .aa-DetachedSearchButtonIcon {
+    width: 20px;
+    color: inherit;
+  }
+
+  #quarto-search .aa-DetachedSearchButtonIcon svg {
+    width: 20px;
+    height: 20px;
   }
 
   #quarto-search .aa-DetachedSearchButton::after,
@@ -1231,38 +1265,63 @@ body.mfm-landing footer.footer {
     display: none;
   }
 
-  .navbar-toggler {
+  #quarto-header .navbar-toggler {
+    display: grid;
+    flex: none; /* Quarto's flex-basis: content would ignore the width */
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    margin-right: -10px;
+    padding: 0;
     border: 0;
-    padding: 0.4rem;
+    border-radius: var(--mfm-r);
     color: var(--mfm-heading);
   }
 
-  .navbar-toggler:focus {
+  #quarto-header .navbar-toggler:focus {
     box-shadow: none; /* taste-skill-ignore: removes Bootstrap's shadow */
   }
 
+  #quarto-header .navbar-toggler:focus-visible {
+    outline: 2px solid var(--mfm-accent);
+    outline-offset: 0;
+  }
+
   .navbar-toggler-icon {
-    width: 1.4rem;
-    height: 1.4rem;
+    width: 20px;
+    height: 20px;
     background: currentColor;
-    mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M2.5 4.5h11M2.5 8h11M2.5 11.5h11'/%3E%3C/svg%3E");
-    -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M2.5 4.5h11M2.5 8h11M2.5 11.5h11'/%3E%3C/svg%3E");
+    mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3 7h14M3 13h14'/%3E%3C/svg%3E");
+    -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3 7h14M3 13h14'/%3E%3C/svg%3E");
   }
 
   .navbar-toggler[aria-expanded="true"] .navbar-toggler-icon {
-    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M3.5 3.5l9 9M12.5 3.5l-9 9'/%3E%3C/svg%3E");
-    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M3.5 3.5l9 9M12.5 3.5l-9 9'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M5 5l10 10M15 5L5 15'/%3E%3C/svg%3E");
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M5 5l10 10M15 5L5 15'/%3E%3C/svg%3E");
   }
 
-  #navbarCollapse.show,
-  #navbarCollapse.collapsing {
-    max-height: calc(100dvh - var(--mfm-nav-h));
+  /* The menu: a sheet from the bar to the bottom of the screen, over the page (site.js locks
+     the page scroll while it is open). Height, not bottom: the header's headroom transform
+     makes it the containing block. */
+  #navbarCollapse {
+    position: fixed;
+    top: var(--mfm-nav-h);
+    left: 0;
+    right: 0;
+    height: calc(100dvh - var(--mfm-nav-h));
+    padding: 0.5rem var(--mfm-phone-gutter) 2.5rem;
     overflow-y: auto;
     overscroll-behavior: contain;
+    background: var(--mfm-bg);
   }
 
-  #navbarCollapse {
-    padding-bottom: 1.25rem;
+  #navbarCollapse.collapsing {
+    height: calc(100dvh - var(--mfm-nav-h));
+    transition: none;
+  }
+
+  #navbarCollapse.show {
+    animation: mfm-sheet-in calc(var(--mfm-dur) * 1.5) var(--mfm-ease);
   }
 
   #navbarCollapse .navbar-nav {
@@ -1270,34 +1329,45 @@ body.mfm-landing footer.footer {
   }
 
   #navbarCollapse .navbar-nav .nav-link {
-    padding: 0.55rem 0;
-    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0;
+    font-size: 1.125rem;
   }
 
-  #navbarCollapse .navbar-nav .nav-link .menu-text::after {
+  /* The Open Console button keeps its own colours. */
+  #navbarCollapse .navbar-nav .nav-link:not([data-mfm]) {
+    color: var(--mfm-ink);
+  }
+
+  #navbarCollapse .navbar-nav .nav-link.active:not([data-mfm]) {
+    color: var(--mfm-accent);
+  }
+
+  #navbarCollapse .navbar-nav .nav-link .menu-text::after,
+  #navbarCollapse .dropdown-toggle::after {
+    display: none;
+  }
+
+  /* On a phone "Models" goes straight to the Models page (site.js); no menu inside the menu. */
+  #navbarCollapse .dropdown-menu.mfm-models-menu {
     display: none;
   }
 
   #navbarCollapse .navbar-nav .nav-link[data-mfm="console"] {
-    margin-top: 0.75rem;
+    justify-content: center;
+    width: 100%;
+    min-height: 3rem;
+    margin-top: 1rem;
     padding: 0 1.1rem;
+    font-size: 1rem;
   }
 
-  #navbarCollapse .mfm-models-menu .dropdown-divider {
-    display: none;
-  }
-
-  #navbarCollapse .dropdown-menu.mfm-models-menu {
-    margin: 0 0 0.5rem;
-    padding: 0.25rem 0;
-    background: none;
-  }
-
+  /* The current section's pages, after the main links. */
   .mfm-phone-pages {
     display: block;
-    margin-top: 1.5rem;
-    padding-top: 0.5rem;
-    background: none;
+    margin-top: 2rem;
   }
 
   .mfm-phone-pages .sidebar-menu-container {
@@ -1311,7 +1381,7 @@ body.mfm-landing footer.footer {
   }
 
   .mfm-phone-pages .sidebar-item-section {
-    margin-bottom: 1rem;
+    margin-bottom: 1.25rem;
   }
 
   .mfm-phone-pages .sidebar-section {
@@ -1322,19 +1392,44 @@ body.mfm-landing footer.footer {
 
   .mfm-phone-pages .sidebar-item-section > .sidebar-item-container .sidebar-item-text {
     display: block;
-    padding: 0.35rem 0;
-    font-size: 0.95rem;
+    padding: 0 0 0.25rem;
+    font-size: 0.875rem;
     font-weight: 500;
-    color: var(--mfm-heading);
+    color: var(--mfm-ink-2);
   }
 
   .mfm-phone-pages a.sidebar-link:not(.text-start) {
+    display: flex;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: 0;
     font-size: 1rem;
-    padding: 0.35rem 0;
+  }
+
+  .mfm-phone-pages a.sidebar-link:not(.text-start, .active) {
+    color: var(--mfm-ink);
   }
 
   #quarto-content {
     padding-top: 0.5rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 991.98px) {
+  :root {
+    --mfm-phone-gutter: 51px;
+  }
+}
+
+html.mfm-menu-open,
+html.mfm-menu-open body {
+  overflow: hidden;
+}
+
+@keyframes mfm-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
   }
 }
 

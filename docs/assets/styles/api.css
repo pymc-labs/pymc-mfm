@@ -197,9 +197,16 @@
   display: none;
 }
 
+/* Phones: the panel runs to the screen edges, so the samples get the full width. */
 @media (max-width: 767.98px) {
   .mfm-api-code {
-    padding: 1rem 0.75rem 0.25rem;
+    margin-inline: calc(-1 * var(--mfm-phone-gutter, 25.5px));
+    padding: 1.25rem var(--mfm-phone-gutter, 25.5px) 0.5rem;
+    border-radius: 0;
+  }
+
+  .mfm-api-code div.sourceCode pre.sourceCode {
+    padding-inline: 0;
   }
 }
 
