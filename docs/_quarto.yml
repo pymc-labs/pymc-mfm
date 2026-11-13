@@ -63,9 +63,10 @@ website:
       - text: Blog
         href: blog/index.qmd
     right:
-      # The hosted Console. The link target stays as it is until a maintainer changes it.
+      # The hosted Console, at /console/ on the same host as the site (the host root is the
+      # landing page; docs/_scripts/mount.py lays the site out that way).
       - text: "Open Console"
-        href: https://mfm-staging.pymc-labs.com/
+        href: https://mfm-staging.pymc-labs.com/console/
   sidebar:
     - id: guide
       title: Guide

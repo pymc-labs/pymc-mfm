@@ -28,7 +28,7 @@ css: assets/styles/landing.css
     <p class="mfm-hero__line">Marketing foundation models by PyMC Labs. Train once, decompose many.</p>
     <div class="mfm-hero__actions">
       <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <span aria-hidden="true">→</span></a>
-      <a class="mfm-btn mfm-btn--ghost" href="https://mfm-staging.pymc-labs.com/">
+      <a class="mfm-btn mfm-btn--ghost" href="https://mfm-staging.pymc-labs.com/console/">
         <svg class="mfm-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.4l2 1.8-2 1.8M8.6 10h2.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Open Console
       </a>
@@ -38,7 +38,7 @@ css: assets/styles/landing.css
 </section>
 
 <!-- 2. What it does, in one statement -------------------------------------------- -->
-<section class="mfm-statement" id="mfm-statement">
+<section class="mfm-statement" id="mfm-statement" tabindex="-1">
   <p class="mfm-statement__text" data-mfm="statement">
     PyMC MFM trains neural networks on simulated marketing worlds. Hand one your weekly
     spend, controls and sales, and it returns posterior draws of every contribution, with the
