@@ -8,6 +8,7 @@
      initCodeScroll    marks blocks that scroll sideways, so site.css can fade the edge with more code
      initTabs          a sliding marker and logos on every Quarto .panel-tabset; clears "Copied" on switch
      initPhoneMenu     below 992px, the navbar panel also lists the current section's sidebar pages
+     initMenuSheet     below 992px the menu covers the page: scroll lock while open, Escape closes
      initSearchLabel   names Quarto's search button ("Search"), which renders without one
    Colours, icons and motion are in site.css; this file only adds classes, attributes and labels. */
 (() => {
@@ -19,7 +20,7 @@
      On wide screens with a pointer, hovering "Models" opens its menu and clicking the label
      goes to the Models page; the menu items go straight to each model. Keyboard users open
      the menu with ArrowDown (Bootstrap's own handling). On the collapsed mobile navbar the
-     label keeps Bootstrap's tap-to-open, and "All models" is in the menu.
+     label goes to the Models page as well.
      A menu item whose text ends in " NEW" shows a "New" badge instead. A text-only item
      (which Quarto renders as a header) ending in " SOON" becomes a greyed, disabled entry
      with a "Coming soon" badge: an announced model, with nowhere to go yet. */
@@ -67,11 +68,11 @@
     const wide = window.matchMedia("(min-width: 992px) and (hover: hover)");
     toggle.setAttribute("href", all.getAttribute("href"));
 
-    // Capture phase, so Bootstrap's delegated click handler never sees it.
+    // Capture phase, so Bootstrap's delegated click handler never sees it. A click or tap
+    // always goes to the Models page (on a phone too: one model needs no menu inside the menu).
     toggle.addEventListener(
       "click",
       (event) => {
-        if (!wide.matches) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         window.location.href = all.href;
@@ -253,6 +254,25 @@
       }
     });
     panel.append(nav);
+
+  }
+
+  /* Below 992px the menu is a sheet over the page (site.css): lock the page scroll while it
+     is open, and close it on Escape. */
+  function initMenuSheet() {
+    const panel = document.getElementById("navbarCollapse");
+    if (!panel) return;
+    const root = document.documentElement;
+    panel.addEventListener("show.bs.collapse", () => root.classList.add("mfm-menu-open"));
+    panel.addEventListener("hidden.bs.collapse", () => root.classList.remove("mfm-menu-open"));
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !panel.classList.contains("show") || !window.bootstrap) return;
+      window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
+      document.querySelector(".navbar-toggler")?.focus();
+    });
+    window.matchMedia("(min-width: 992px)").addEventListener("change", (event) => {
+      if (event.matches) root.classList.remove("mfm-menu-open");
+    });
   }
 
   /* Quarto's search box (Algolia autocomplete) draws its button after load, with only a
@@ -276,6 +296,7 @@
     initCodeScroll,
     initTabs,
     initPhoneMenu,
+    initMenuSheet,
     initSearchLabel,
   ].forEach((init) => init());
 })();

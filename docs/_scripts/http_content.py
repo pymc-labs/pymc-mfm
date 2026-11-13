@@ -239,7 +239,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
         response_text="The dataset record, with " + DATASET_FIELDS,
         errors=("401", "409_conflict", "413", "422", "429"),
         curl=(
-            "KEY=$(uuidgen)  # keep this key for every retry of this upload\n"
+            "KEY=$(uuidgen)  # reuse on retries\n"
             'curl -sS -X POST "$MFM_API_URL/v1/datasets" \\\n'
             '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
@@ -412,7 +412,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
         "with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`.",
         errors=("401", "409_conflict", "413", "422", "429"),
         curl=(
-            "KEY=$(uuidgen)  # keep this key for every retry of this analysis\n"
+            "KEY=$(uuidgen)  # reuse on retries\n"
             'curl -sS -X POST "$MFM_API_URL/v1/analyses" \\\n'
             '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
