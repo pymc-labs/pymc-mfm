@@ -18,9 +18,11 @@ project:
     - assets/img/logo/*.svg
     - assets/favicon/*
 
-# Written by quartodoc during pre-render.
+# Both written during pre-render: the Python reference sidebar (quartodoc) and the
+# HTTP API sidebar (_scripts/http_pages.py). Quarto picks the sidebar that lists a page.
 metadata-files:
   - reference/_sidebar.yml
+  - api/_sidebar.yml
 
 website:
   title: "PyMC MFM"

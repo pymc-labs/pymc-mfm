@@ -1,0 +1,11 @@
+# Shared by every page in api/ (the pages themselves are written by _scripts/http_pages.py).
+# Quarto resolves the paths below relative to this folder.
+page-layout: full
+toc: false
+sidebar: api
+body-classes: mfm-api
+format:
+  html:
+    css: ../assets/styles/api.css
+    include-after-body:
+      - text: '<script src="../assets/js/api.js" defer></script>'
