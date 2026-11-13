@@ -36,5 +36,7 @@ CLAUDE.local.md
 /docs/.quarto/
 /docs/guide/examples/
 /docs/reference/
+/docs/api/*.qmd
+/docs/api/_sidebar.yml
 /docs/objects.json
 /docs/**/*.quarto_ipynb

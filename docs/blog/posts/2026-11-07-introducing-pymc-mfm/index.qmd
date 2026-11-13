@@ -1,7 +1,11 @@
 ---
 title: "Introducing PyMC MFM"
 subtitle: "Bayesian marketing-mix decomposition, amortized: train a network once, then read any weekly series."
-description: "Why we built a library of amortized neural networks for marketing-mix decomposition, what it returns, and how it works."
+# The title block shows the subtitle only; link previews and the feed use this text.
+open-graph:
+  description: "Why we built a library of amortized neural networks for marketing-mix decomposition, what it returns, and how it works."
+twitter-card:
+  description: "Why we built a library of amortized neural networks for marketing-mix decomposition, what it returns, and how it works."
 date: 2026-11-07
 author: "PyMC Labs"
 categories: [Announcement, Amortized inference, Causal inference]
@@ -18,7 +22,12 @@ marketing worlds whose true decompositions are known, to map an observed weekly 
 to posterior draws. For a new dataset there is nothing to fit: `add_context` loads the
 history and the column roles, `inference` samples, and the weights never change.
 
-![Where the fitting happens: a model per dataset, or one network trained on simulated worlds and reused.](amortization.svg){fig-alt="Two workflows side by side. Left: datasets A, B and C each go through their own fit to produce draws. Right: simulated worlds train one network once, and the trained network infers new datasets A, B and C."}
+```{=html}
+<figure class="mfm-figure">
+{{< include amortization.svg >}}
+<figcaption>Where the fitting happens: a model per dataset, or one network trained on simulated worlds and reused.</figcaption>
+</figure>
+```
 
 ## What you get back
 
@@ -32,7 +41,12 @@ For one weekly series of media spend, controls and the outcome, a trained networ
 - **An ArviZ `DataTree`** (with the `arviz` extra) that holds the context and query
   windows as separate subtrees, ready for the rest of a PyMC workflow.
 
-![The shape of a result: stacked components, the band of their sum, and the observed sales on the context weeks.](decomposition.svg){fig-alt="Illustrative stacked weekly decomposition over 65 weeks: baseline, tv, search, price, latent and indirect contributions, a band around their sum that widens after week 52, and observed sales dots on the first 52 weeks."}
+```{=html}
+<figure class="mfm-figure">
+{{< include decomposition.svg >}}
+<figcaption>The shape of a result, on illustrative data: stacked components, the 90% band of their sum, and the observed sales (dots) on the context weeks.</figcaption>
+</figure>
+```
 
 Three rules for reading the draws. Context and query are separate marginals: equal draw
 indices do not pair them into one trajectory. Components exclude observation noise.

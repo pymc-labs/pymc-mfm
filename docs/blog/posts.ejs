@@ -1,0 +1,18 @@
+<%
+// The Blog listing, one entry per post, newest first. Title, subtitle, categories as plain
+// text, then the date; the picture sits on the right. The whole entry links to the post.
+// Pandoc reads this output as Markdown: keep HTML lines unindented, without blank lines.
+%>
+<div class="mfm-posts list">
+<% for (const item of items) { %>
+<article class="mfm-post quarto-post" <%= metadataAttrs(item) %>>
+<div class="mfm-post__text">
+<h2 class="mfm-post__title no-anchor"><a class="stretched-link no-external" href="<%- item.path %>"><%= item.title %></a></h2>
+<p class="mfm-post__date listing-date"><%= item.date %></p>
+<% if (item.subtitle) { %><p class="mfm-post__subtitle"><%= item.subtitle %></p><% } %>
+<% if (item.categories && item.categories.length) { %><p class="mfm-post__categories"><% for (const category of item.categories) { %><span class="listing-category" data-category="<%- category %>"><%= category %></span><% } %></p><% } %>
+</div>
+<% if (item.image) { %><div class="mfm-post__picture"><img src="<%- item.image %>" alt="" loading="lazy"></div><% } %>
+</article>
+<% } %>
+</div>

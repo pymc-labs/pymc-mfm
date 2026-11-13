@@ -7,18 +7,22 @@ project:
   render:
     - "*.qmd"
     - "guide/**"
+    - "api/**"
     - "reference/**"
     - "models/**"
     - "blog/**"
   resources:
     - assets/js/*.js
+    - assets/fonts/*
     - assets/img/show/*.svg
     - assets/img/logo/*.svg
     - assets/favicon/*
 
-# Written by quartodoc during pre-render.
+# Both written during pre-render: the Python reference sidebar (quartodoc) and the
+# HTTP API sidebar (_scripts/http_pages.py). Quarto picks the sidebar that lists a page.
 metadata-files:
   - reference/_sidebar.yml
+  - api/_sidebar.yml
 
 website:
   title: "PyMC MFM"
@@ -39,41 +43,28 @@ website:
     logo-alt: "PyMC MFM home"
     title: false
     collapse-below: lg
-    right:
-      - text: Guide
+    left:
+      - text: Docs
         href: guide/index.qmd
       - text: API
-        href: reference/index.qmd
+        href: api/index.qmd
       # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
       # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge.
-      # Items with only `text` are column headers; "---" starts the second column. A
-      # text-only item ending in " SOON" becomes a greyed "Coming soon" entry, not a link.
+      # Items with only `text` are column headers; "---" starts the second column.
       - text: Models
         menu:
           - text: "Models"
           - text: "River NEW"
             href: models/river-1/index.qmd
-          - text: "Sea SOON"
-          - text: "Ocean SOON"
           - text: "---"
           - text: "Resources"
           - text: "All models"
             href: models/index.qmd
-          - text: "Hugging Face"
-            href: https://huggingface.co/pymc-labs/mfm
       - text: Blog
         href: blog/index.qmd
-      - icon: github
-        href: https://github.com/pymc-labs/pymc-mfm
-        aria-label: GitHub
-      - text: "PyMC Labs"
-        href: https://www.pymc-labs.com
-        target: _blank
-        rel: noopener
-      # The hosted console: sign in with a PyMC Labs Google account and compare scenarios
-      # from your agent. Only the River model page shows it, as a button: site.css hides
-      # it elsewhere and model.css draws it, both by this URL.
-      - text: "Try it out"
+    right:
+      # The hosted Console. The link target stays as it is until a maintainer changes it.
+      - text: "Open Console"
         href: https://mfm-staging.pymc-labs.com/
   sidebar:
     - id: guide
@@ -93,22 +84,25 @@ website:
         - section: Train
           contents:
             - guide/training.qmd
+        # River's page is a docs page too, so it carries this sidebar.
+        - section: Models
+          contents:
+            - text: River 1.0
+              href: models/river-1/index.qmd
         - section: Examples
           # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
           contents: "guide/examples/*.ipynb"
   page-footer:
+    # One quiet line and the dark-mode button. Quarto's own toggle (the class and the
+    # onclick below) switches the stylesheets and flips the "alternate" class on this button.
     left: |
       Built by [PyMC Labs](https://www.pymc-labs.com), the creators of PyMC.
-    right:
-      - icon: github
-        href: https://github.com/pymc-labs/pymc-mfm
-        aria-label: GitHub
-      - text: "pymc-labs.com"
-        href: https://www.pymc-labs.com
+    right: |
+      <button type="button" class="quarto-color-scheme-toggle mfm-theme-toggle" onclick="window.quartoToggleColorScheme(); return false;"><span class="mfm-theme-toggle-dark">Dark mode</span><span class="mfm-theme-toggle-light">Light mode</span></button>
 
 quartodoc:
   package: pymc_mfm
-  title: API reference
+  title: Python reference
   dir: reference
   sidebar: reference/_sidebar.yml
   # Docstrings are reStructuredText prose (``literals``, :mod: roles).
@@ -200,19 +194,23 @@ format:
     theme:
       light: [cosmo, assets/styles/light.scss]
       dark: [cosmo, assets/styles/dark.scss]
-    css: assets/styles/site.css
+    css:
+      - assets/fonts/fonts.css
+      - assets/styles/site.css
     filters:
       - _scripts/site-head.lua
     toc: true
     toc-depth: 3
     toc-title: On this page
     code-copy: true
-    code-overflow: wrap
-    # Adaptive: Quarto ships light and dark variants and switches them with the theme.
-    highlight-style: github
+    code-overflow: scroll
+    # Code colours in the site palette (derived from the GitHub themes; see the files).
+    highlight-style:
+      light: assets/styles/mfm-light.theme
+      dark: assets/styles/mfm-dark.theme
     link-external-icon: false
     link-external-newwindow: true
-    smooth-scroll: true
+    smooth-scroll: false
     anchor-sections: true
     fig-responsive: true
 

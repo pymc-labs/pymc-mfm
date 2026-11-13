@@ -1,63 +1,103 @@
 /*-- scss:defaults --*/
-// Dark mode on the pymc-labs.com navy, with the labs docs skin's dark link blue.
-@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,300..700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+// MFM docs theme, dark: the Cobalt tokens turned over. Page background is the PyMC Labs
+// navy-deep. Tones are white at 5% and 9% (solid mixes here, for Bootstrap's colour functions).
+// Mirrors light.scss; Quarto layers this file over it, so only differences are repeated.
 
-$navy: #0c1f40;
 $navy-deep: #07142a;
-$labs-blue-dark: #4A9EDE;
-$labs-green: #81C240;
-$aqua: #b4e7dd;
-$periwinkle: #9faae2;
-$peach: #f6ae72;
-$violet: #c8b4e7;
+$ink: #dde3ee;
+$ink-2: #9aa7bd;
+$accent: #8fa9ff;
+$accent-strong: #b9c9ff;
+$tone-1: mix(#ffffff, $navy-deep, 5%);
+$tone-2: mix(#ffffff, $navy-deep, 9%);
+$danger: #ff9b8f;
+$heading: #f2f5fa;
 
-$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-$font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-$headings-font-family: "Archivo", "Inter", system-ui, sans-serif;
-$headings-font-weight: 500;
+$font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; // taste-skill-ignore: code font
+$font-display: "Archivo", "IBM Plex Sans", system-ui, sans-serif;
+
+$font-family-sans-serif: $font-sans;
+$font-family-monospace: $font-mono; // taste-skill-ignore: code font
+$headings-font-family: $font-sans;
 $line-height-base: 1.65;
 
+$font-weight-base: 400;
+$font-weight-normal: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 500;
+$font-weight-bold: 500;
+$font-weight-bolder: 500;
+// Only 400 and 500 are self-hosted: Bootstrap's light weights (.lead, .display-*) fall to 400.
+$font-weight-light: 400;
+$font-weight-lighter: 400;
+$lead-font-weight: 400;
+$headings-font-weight: 500;
+$navbar-brand-font-weight: 500;
+
+$border-radius: 8px;
+$border-radius-sm: 6px;
+$border-radius-lg: 12px;
+$border-radius-xl: 12px;
+$border-radius-xxl: 12px;
+$border-radius-pill: 8px;
+
 $body-bg: $navy-deep;
-$body-color: #d5dcea;
-$headings-color: #f7f7f7;
-$primary: $labs-blue-dark;
-$secondary: #93a0b8;
-$success: $labs-green;
-$info: $periwinkle;
-$warning: $peach;
-$link-color: #7cb8e8;
-$link-hover-color: $aqua;
-$border-color: rgba(255, 255, 255, 0.1);
+$body-color: $ink;
+$body-secondary-color: $ink-2;
+$headings-color: $heading;
+$primary: $accent;
+$secondary: $ink-2;
+$success: $accent;
+$info: $accent;
+$warning: $ink-2;
+$link-color: $accent;
+$link-hover-color: $accent-strong;
+$link-decoration: none;
+$border-color: $tone-2;
+$focus-ring-color: rgba($accent, 0.55);
 
 $navbar-bg: $navy-deep;
-$navbar-fg: #c3cde0;
-$navbar-hl: $aqua;
-$sidebar-fg: #a9b5cc;
-$sidebar-hl: $aqua;
+$navbar-fg: $ink-2;
+$navbar-hl: $heading;
+$sidebar-fg: $ink-2;
+$sidebar-hl: $accent;
+$toc-color: $accent;
 $footer-bg: $navy-deep;
-$footer-fg: #93a0b8;
+$footer-fg: $ink-2;
+$footer-border-color: transparent;
 
-$code-color: $aqua;
-$code-bg: rgba(180, 231, 221, 0.08);
-$code-block-bg: #0c1f40;
-$code-block-border-color: rgba(255, 255, 255, 0.08);
+$code-color: $heading;
+$code-bg: transparent;
+$code-block-bg: $tone-1;
+$code-block-color: $ink;
+$code-block-border-color: transparent;
 $code-block-border-left: false;
+$input-bg: $tone-1;
+$input-border-color: transparent;
 
-$callout-color-note: $labs-blue-dark;
-$callout-color-tip: $labs-green;
-$callout-color-warning: $peach;
+$table-border-color: $tone-2;
+$table-striped-bg: $tone-1;
+
+$callout-color-note: $accent;
+$callout-color-tip: $accent;
+$callout-color-important: $danger;
+$callout-color-caution: $ink-2;
+$callout-color-warning: $ink-2;
 
 /*-- scss:rules --*/
-:root {
-  --mfm-navy: #{$navy};
-  --mfm-navy-deep: #{$navy-deep};
-  --mfm-aqua: #{$aqua};
-  --mfm-periwinkle: #{$periwinkle};
-  --mfm-peach: #{$peach};
-  --mfm-violet: #{$violet};
-  --mfm-accent: #{$aqua};
-  --mfm-accent-soft: rgba(180, 231, 221, 0.35);
-  --mfm-muted: #93a0b8;
-  --mfm-hairline: rgba(255, 255, 255, 0.1);
-  --mfm-surface: #0c1f40;
+body.quarto-dark {
+  --mfm-bg: #{$body-bg};
+  --mfm-ink: #{$ink};
+  --mfm-ink-2: #{$ink-2};
+  --mfm-navy: #0c1f40;
+  --mfm-heading: #{$heading};
+  --mfm-accent: #{$accent};
+  --mfm-tone-1: rgba(255, 255, 255, 0.05);
+  --mfm-tone-2: rgba(255, 255, 255, 0.09);
+  --mfm-danger: #{$danger};
+  --mfm-on-navy: #{$navy-deep};
+  --mfm-console-bg: #f2f5fa;
+  --mfm-console-fg: #0c1f40;
+  --mfm-console-hover: #ffffff;
 }

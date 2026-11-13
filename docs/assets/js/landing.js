@@ -1,9 +1,9 @@
 /* Landing page motion, one scene per section:
    1. Hero: a WebGL ridgeline of drifting distributions behind the name; the name rises
-      in, now and then glitches "PyMC" into "Bayesian", and dissolves as you scroll away.
+      in, glitches "PyMC" into "Bayesian" once (desktop only), and dissolves as you scroll away.
    2. Statement: its words light up as they pass.
    3. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
-   4. Chapters: the section pins and three words cross-fade in one place.
+   4. Chapters: the section pins at half height and three words cross-fade in one place.
    Everything is decoration over static HTML. Without GSAP the page keeps its plain
    layout; with reduced motion nothing moves and the notebook shows finished. */
 (() => {
@@ -221,10 +221,17 @@
     document.addEventListener("visibilitychange", sync);
   }
 
-  // The title glitches: "PyMC" scrambles into "Bayesian", holds a second, and returns.
-  // The field behind tears and splits its colours for the same moments.
+  // The title glitches once: "PyMC" scrambles into "Bayesian", holds, and returns. The
+  // field behind tears and splits its colours for the same moments. It never runs on
+  // phones or touch screens (narrow or coarse pointer), under reduced motion, or after
+  // the reader has scrolled away from the hero, so screenshots and link previews do not
+  // catch a half-changed name.
+  const GLITCH_DELAY_MS = 4500;
+  const GLITCH_HOLD_MS = 900;
+  const noGlitch = window.matchMedia("(max-width: 767px), (pointer: coarse)");
+
   function titleGlitch(word, hero) {
-    if (reduceMotion) return;
+    if (reduceMotion || noGlitch.matches) return;
     const FROM = word.textContent;
     const TO = "Bayesian";
     const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#%&$@";
@@ -258,21 +265,14 @@
       await wait(110);
       glitch.level = 0;
     };
-    let onScreen = true;
-    whenVisible(hero, (visible) => {
-      onScreen = visible;
-    });
-    const flip = async () => {
+    setTimeout(async () => {
+      const inView = window.scrollY < hero.offsetHeight * 0.4 && !document.hidden;
+      if (!inView || noGlitch.matches) return;
       await burst(FROM, TO, 380);
-      await wait(1100);
+      await wait(GLITCH_HOLD_MS);
       await burst(TO, FROM, 320);
-    };
-    const schedule = (delay) =>
-      setTimeout(async () => {
-        if (onScreen && !document.hidden && window.scrollY < hero.offsetHeight * 0.4) await flip();
-        schedule(7000 + Math.random() * 3000);
-      }, delay);
-    schedule(3800);
+      word.dataset.glitchRuns = "1"; // read by the page checks
+    }, GLITCH_DELAY_MS);
   }
 
   // Hero copy: the words rise out of a blur, then dissolve as you scroll away ----------
@@ -287,12 +287,11 @@
     done();
     gsap
       .timeline({ defaults: { ease: "power3.out" } })
-      .from(".mfm-hero__mark", { autoAlpha: 0, y: 14, scale: 0.92, filter: "blur(12px)", duration: 1.3, clearProps: "filter" }, 0.2)
-      .from(".mfm-hero__kicker", { autoAlpha: 0, y: 8, duration: 1.1 }, 0.5)
-      .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 1.5, stagger: 0.16 }, 0.55)
-      .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 1.2 }, 1.25)
-      .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.9, stagger: 0.1 }, 1.6)
-      .from(".mfm-hero__scroll", { autoAlpha: 0, duration: 1.2 }, 2.1);
+      .from(".mfm-hero__mark", { autoAlpha: 0, y: 14, scale: 0.92, filter: "blur(12px)", duration: 0.8, clearProps: "filter" }, 0)
+      .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 0.8, stagger: 0.1 }, 0.1)
+      .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 0.9 }, 0.55)
+      .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8)
+      .from(".mfm-hero__scroll", { autoAlpha: 0, duration: 1 }, 1.4);
     gsap.to(".mfm-hero__copy", {
       yPercent: -14,
       autoAlpha: 0,
@@ -392,15 +391,15 @@
         defaults: { ease: "power2.out" },
         scrollTrigger: {
           trigger: section,
-          start: "top top",
-          end: () => `+=${Math.round(window.innerHeight * 2.4)}`,
+          start: "center center",
+          end: () => `+=${Math.round(window.innerHeight * 1.5)}`,
           pin: true,
           scrub: 0.8,
           invalidateOnRefresh: true,
         },
       });
       items.forEach((item, i) => {
-        const parts = item.querySelectorAll(".mfm-chapter__index, .mfm-chapter__word, .mfm-chapter__line");
+        const parts = item.querySelectorAll(".mfm-chapter__word, .mfm-chapter__line");
         if (i > 0) {
           timeline.fromTo(item, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.25 }, i);
           timeline.fromTo(
@@ -440,24 +439,6 @@
     items.forEach((el) => observer.observe(el));
   }
 
-  function copyButtons() {
-    root.querySelectorAll("[data-copy]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(button.dataset.copy);
-          button.textContent = "Copied";
-          button.setAttribute("data-copied", "");
-        } catch {
-          button.textContent = "Select ↑";
-        }
-        setTimeout(() => {
-          button.textContent = "Copy";
-          button.removeAttribute("data-copied");
-        }, 1600);
-      });
-    });
-  }
-
   const hero = root.querySelector(".mfm-hero");
   const fieldCanvas = root.querySelector('[data-mfm="field"]');
   const glitchWord = root.querySelector('[data-mfm="glitch"]');
@@ -469,7 +450,6 @@
   if (glitchWord && hero) titleGlitch(glitchWord, hero);
   if (ide) notebook(ide);
   reveal();
-  copyButtons();
   // Text splits measure glyphs: wait for the web fonts.
   const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
   ready.then(() => {

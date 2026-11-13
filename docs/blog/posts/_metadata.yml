@@ -1,4 +1,7 @@
 toc: true
+toc-title: "On this page"
 title-block-banner: false
 citation: false
 comments: false
+css: ../../assets/styles/blog.css
+body-classes: mfm-blog
