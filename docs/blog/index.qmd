@@ -7,14 +7,15 @@ listing:
     - "posts/**/index.qmd"
     - "posts/**/index.ipynb"
   sort: "date desc"
-  type: default
+  template: posts.ejs
   categories: true
   sort-ui: false
   filter-ui: false
   feed: true
   date-format: "MMM D, YYYY"
-  fields: [image, date, title, subtitle, description, categories]
-  image-height: 9rem
+  fields: [image, date, title, subtitle, categories]
 page-layout: article
 toc: false
+body-classes: mfm-blog
+css: ../assets/styles/blog.css
 ---

@@ -1,7 +1,12 @@
 ---
 title: "River 1.0"
 subtitle: "PyMC Labs' first Marketing Foundation Model"
-description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
+# The Models page shows `summary`; link previews use the open-graph text.
+summary: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
+open-graph:
+  description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
+twitter-card:
+  description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 date: 2026-11-07
 author: "PyMC Labs"
 categories: [Release, River]
@@ -14,15 +19,12 @@ specs:
   - "2.4M parameters"
   - "200,000 training worlds"
   - "1–10 channels"
-pagetitle: "Introducing River 1.0 · PyMC MFM"
-page-layout: custom
-title-block-style: none
-toc: false
-anchor-sections: false
-body-classes: mfm-landing mfm-river-page
-css:
-  - ../../assets/styles/landing.css
-  - ../../assets/styles/model.css
+page-layout: article
+toc: true
+toc-title: "On this page"
+toc-depth: 2
+body-classes: mfm-river-page
+css: ../../assets/styles/model.css
 ---
 
 <!--
@@ -33,39 +35,7 @@ pymc-labs.com/marketing-foundation-models, and this repository's README and RELE
 notes. Keep every number traceable to one of them.
 -->
 
-:::::: {.mfm-river}
-
-```{=html}
-<section class="mfm-river__hero" aria-labelledby="mfm-river-title">
-  <canvas class="mfm-river__canvas" data-mfm="river" aria-hidden="true"></canvas>
-  <div class="mfm-river__numbers" aria-hidden="true"></div>
-  <div class="mfm-grain" aria-hidden="true"></div>
-  <h1 id="mfm-river-title" class="mfm-river__title">River <span class="mfm-river__version">v1.0.0</span></h1>
-  <canvas class="mfm-river__veil" data-mfm="veil" aria-hidden="true"></canvas>
-  <a class="mfm-hero__scroll" href="#introducing">Scroll to read<span aria-hidden="true"></span></a>
-</section>
-```
-
-::::: {.mfm-river__layout}
-
-```{=html}
-<nav class="mfm-river__toc" aria-label="On this page">
-  <a href="#introducing">Introducing River 1.0</a>
-  <a href="#what">What River does</a>
-  <a href="#training">How River was trained</a>
-  <a href="#benchmarks">Benchmarks</a>
-  <a href="#speed">Speed</a>
-  <a href="#structure">Causal structure</a>
-  <a href="#limits">Limits</a>
-  <a href="#get">Get River</a>
-</nav>
-```
-
-:::: {.mfm-river__article}
-
-## Introducing River 1.0 {#introducing .mfm-visually-hidden}
-
-::: {.mfm-lede}
+::: {.lead}
 We're introducing **River 1.0**, the first Marketing Foundation Model from PyMC Labs and
 the first network for the PyMC MFM library. River reads one weekly marketing table
 (spend per channel, controls and sales) and returns draws of every contribution, with
@@ -85,7 +55,6 @@ validation against real-world incrementality tests remains open.
   <div><strong>11 of 15</strong><span>comparisons with a majority of paired wins</span></div>
 </div>
 <div class="mfm-links mfm-reveal">
-  <a href="https://huggingface.co/pymc-labs/mfm">Hugging Face <span aria-hidden="true">↗</span></a>
   <a href="https://www.pymc-labs.com/marketing-foundation-models">White paper <span aria-hidden="true">↗</span></a>
   <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o">Watch the explainer <span aria-hidden="true">↗</span></a>
   <a href="../../guide/examples/river_1_quickstart.html">Quickstart <span aria-hidden="true">→</span></a>
@@ -160,32 +129,32 @@ the whole distribution, and lower is better.
     <span>Query channel CRPS, mean over 100 held-out worlds. Lower is better.</span>
   </figcaption>
   <div class="mfm-chart__legend" aria-hidden="true">
-    <span style="--c: #b4e7dd">River 1.0</span>
-    <span style="--c: #9faae2">PathMC</span>
-    <span style="--c: #c8b4e7">PyMC-Marketing MMM</span>
-    <span style="--c: #5d6d8a">OLS</span>
+    <span data-series="river">River 1.0</span>
+    <span data-series="pathmc">PathMC</span>
+    <span data-series="mmm">PyMC-Marketing MMM</span>
+    <span data-series="ols">OLS</span>
   </div>
   <div class="mfm-chart__groups" aria-hidden="true" style="--max: 0.22">
     <div class="mfm-chart__group">
       <p>109 query weeks</p>
-      <div class="mfm-bar" style="--v: 0.0295; --c: #b4e7dd"><i></i><b>0.030</b></div>
-      <div class="mfm-bar" style="--v: 0.0370; --c: #9faae2"><i></i><b>0.037</b></div>
-      <div class="mfm-bar" style="--v: 0.0659; --c: #c8b4e7"><i></i><b>0.066</b></div>
-      <div class="mfm-bar" style="--v: 0.2136; --c: #5d6d8a"><i></i><b>0.214</b></div>
+      <div class="mfm-bar" style="--v: 0.0295" data-series="river"><i></i><b>0.030</b></div>
+      <div class="mfm-bar" style="--v: 0.0370" data-series="pathmc"><i></i><b>0.037</b></div>
+      <div class="mfm-bar" style="--v: 0.0659" data-series="mmm"><i></i><b>0.066</b></div>
+      <div class="mfm-bar" style="--v: 0.2136" data-series="ols"><i></i><b>0.214</b></div>
     </div>
     <div class="mfm-chart__group">
       <p>23 query weeks</p>
-      <div class="mfm-bar" style="--v: 0.0241; --c: #b4e7dd"><i></i><b>0.024</b></div>
-      <div class="mfm-bar" style="--v: 0.0365; --c: #9faae2"><i></i><b>0.037</b></div>
-      <div class="mfm-bar" style="--v: 0.0580; --c: #c8b4e7"><i></i><b>0.058</b></div>
-      <div class="mfm-bar" style="--v: 0.1322; --c: #5d6d8a"><i></i><b>0.132</b></div>
+      <div class="mfm-bar" style="--v: 0.0241" data-series="river"><i></i><b>0.024</b></div>
+      <div class="mfm-bar" style="--v: 0.0365" data-series="pathmc"><i></i><b>0.037</b></div>
+      <div class="mfm-bar" style="--v: 0.0580" data-series="mmm"><i></i><b>0.058</b></div>
+      <div class="mfm-bar" style="--v: 0.1322" data-series="ols"><i></i><b>0.132</b></div>
     </div>
     <div class="mfm-chart__group">
       <p>One query week</p>
-      <div class="mfm-bar" style="--v: 0.0263; --c: #b4e7dd"><i></i><b>0.026</b></div>
-      <div class="mfm-bar" style="--v: 0.0396; --c: #9faae2"><i></i><b>0.040</b></div>
-      <div class="mfm-bar" style="--v: 0.0596; --c: #c8b4e7"><i></i><b>0.060</b></div>
-      <div class="mfm-bar" style="--v: 0.1175; --c: #5d6d8a"><i></i><b>0.118</b></div>
+      <div class="mfm-bar" style="--v: 0.0263" data-series="river"><i></i><b>0.026</b></div>
+      <div class="mfm-bar" style="--v: 0.0396" data-series="pathmc"><i></i><b>0.040</b></div>
+      <div class="mfm-bar" style="--v: 0.0596" data-series="mmm"><i></i><b>0.060</b></div>
+      <div class="mfm-bar" style="--v: 0.1175" data-series="ols"><i></i><b>0.118</b></div>
     </div>
   </div>
   <p class="mfm-chart__note">Scores use each world's sales scale. The oracle, a fit given the true structure, scores lower than River.</p>
@@ -226,13 +195,13 @@ MMM on eight CPU cores:
   <div class="mfm-chart__groups mfm-chart__groups--time" aria-hidden="true">
     <div class="mfm-chart__group">
       <p>One query week</p>
-      <div class="mfm-bar" style="--w: 3.2%; --c: #b4e7dd"><span>River 1.0</span><i></i><b>1.25 s</b></div>
-      <div class="mfm-bar" style="--w: 86.3%; --c: #c8b4e7"><span>PyMC-Marketing MMM</span><i></i><b>387.30 s</b></div>
+      <div class="mfm-bar" style="--w: 3.2%" data-series="river"><span>River 1.0</span><i></i><b>1.25 s</b></div>
+      <div class="mfm-bar" style="--w: 86.3%" data-series="mmm"><span>PyMC-Marketing MMM</span><i></i><b>387.30 s</b></div>
     </div>
     <div class="mfm-chart__group">
       <p>109 query weeks</p>
-      <div class="mfm-bar" style="--w: 68.6%; --c: #b4e7dd"><span>River 1.0</span><i></i><b>113.78 s</b></div>
-      <div class="mfm-bar" style="--w: 79.3%; --c: #c8b4e7"><span>PyMC-Marketing MMM</span><i></i><b>238.66 s</b></div>
+      <div class="mfm-bar" style="--w: 68.6%" data-series="river"><span>River 1.0</span><i></i><b>113.78 s</b></div>
+      <div class="mfm-bar" style="--w: 79.3%" data-series="mmm"><span>PyMC-Marketing MMM</span><i></i><b>238.66 s</b></div>
     </div>
   </div>
   <p class="mfm-chart__note">Latency grows with query length. Once fitted, the MMM answers a warm 109-week query in about 4 s, faster than River's 114 s. Times exclude River's one-off training.</p>
@@ -295,9 +264,9 @@ model = from_pretrained(
 
 ```{=html}
 <div class="mfm-resources mfm-reveal">
-  <a href="https://huggingface.co/pymc-labs/mfm"><strong>Hugging Face</strong><span>pymc-labs/mfm · profile river-1</span><i aria-hidden="true">↗</i></a>
+  <div><strong>Hugging Face</strong><span>Repository pymc-labs/mfm, profile river-1. Private to the PyMC Labs organisation.</span></div>
   <a href="https://www.pymc-labs.com/marketing-foundation-models"><strong>White paper</strong><span>For practitioners and decision makers</span><i aria-hidden="true">↗</i></a>
-  <div class="is-pending"><strong>Academic paper</strong><span>Amortized Bayesian Inference over Mixtures of Marketing Mix Models · arXiv preprint coming soon</span></div>
+  <div><strong>Academic paper</strong><span>Amortized Bayesian Inference over Mixtures of Marketing Mix Models. arXiv preprint coming soon.</span></div>
   <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o"><strong>Explainer video</strong><span>What Are Marketing Foundation Models?</span><i aria-hidden="true">↗</i></a>
   <a href="../../guide/examples/river_1_quickstart.html"><strong>Quickstart notebook</strong><span>Decompose a simulated dataset with River 1.0</span><i aria-hidden="true">→</i></a>
   <a href="../../guide/index.html"><strong>Guide</strong><span>Install, concepts and the library API</span><i aria-hidden="true">→</i></a>
@@ -313,9 +282,6 @@ model = from_pretrained(
 </p>
 ```
 
-::::
-:::::
-::::::
 
 ```{=html}
 <script src="../../assets/js/river.js" defer></script>

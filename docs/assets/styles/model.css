@@ -1,495 +1,371 @@
-/* Model pages: the River 1.0 introduction (dark, with landing.css for the chrome) and
-   the model cards on the Models page (theme-aware). */
+/* Models page (docs/models/models.ejs) and the River 1.0 page (docs/models/river-1).
+   Colours and corners come from the --mfm-* theme tokens. Each var() has a fallback, so
+   the pages hold until the theme defines the tokens; the fallbacks follow the dark class.
+   Delete the two fallback blocks once the theme tokens are merged. */
 
-/* River 1.0 ----------------------------------------------------------------- */
-.mfm-river {
-  --mfm-max-article: 44rem;
-  position: relative;
-  font-feature-settings: "cv11", "ss01", "ss03";
-  color: rgba(247, 247, 247, 0.82);
-}
-
-/* Quarto pads every child of #quarto-content; the hero starts at the very top. */
-#quarto-content > .mfm-river {
-  padding-top: 0;
-}
-
-.mfm-river a {
-  color: inherit;
-  text-decoration: none;
-}
-
-/* The hero runs under the navbar: drop the offset Quarto adds for the fixed header. */
+body.mfm-models-page,
 body.mfm-river-page {
-  padding-top: 0 !important;
+  --p-ink: var(--mfm-ink, #0c1f40);
+  --p-ink-2: var(--mfm-ink-2, #4d5b78);
+  --p-accent: var(--mfm-accent, #2650c8);
+  --p-tone-1: var(--mfm-tone-1, #f1f4fa);
+  --p-tone-2: var(--mfm-tone-2, #e3e9f4);
+  --p-r-chip: var(--mfm-r-chip, 6px);
+  --p-r-card: var(--mfm-r-card, 12px);
+  --p-font: var(--mfm-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  --p-ease: var(--mfm-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
+  --p-dur: var(--mfm-dur, 0.25s);
 }
 
-/* Transparent over the hero; river.js raises --mfm-nav-alpha from 0 to 1 on scroll. */
-body.mfm-river-page .navbar {
-  border-bottom-color: rgba(255, 255, 255, calc(var(--mfm-nav-alpha, 0) * 0.08));
-  background: rgba(7, 20, 42, calc(var(--mfm-nav-alpha, 0) * 0.92)) !important;
-  backdrop-filter: blur(calc(var(--mfm-nav-alpha, 0) * 14px));
-  transition: background-color 0.2s linear;
+body.mfm-models-page.quarto-dark,
+body.mfm-river-page.quarto-dark {
+  --p-ink: var(--mfm-ink, #dde3ee);
+  --p-ink-2: var(--mfm-ink-2, #9aa7bd);
+  --p-accent: var(--mfm-accent, #8fa9ff);
+  --p-tone-1: var(--mfm-tone-1, rgba(255, 255, 255, 0.05));
+  --p-tone-2: var(--mfm-tone-2, rgba(255, 255, 255, 0.09));
 }
 
-/* An open mobile menu needs its own background at any scroll position. */
-body.mfm-river-page .navbar:has(.navbar-collapse.show, .navbar-collapse.collapsing) {
-  background: rgba(7, 20, 42, 0.96) !important;
-}
-
-/* "Try it out", to the hosted console: the navbar's one button, on this page only
-   (site.css hides it elsewhere). Solid soft white with navy text, its corners squared off
-   rather than a pill. */
-body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
-  display: inline-flex;
-  align-items: center;
-  margin: 0.2rem 0.35rem 0 0.5rem;
-  padding: 0.35rem 0.9rem;
-  border-radius: 0.5rem;
-  background: var(--mfm-fg);
-  color: var(--mfm-bg) !important;
-  font-weight: 500;
-  line-height: 1.25;
-  transition: background-color 0.2s ease;
-}
-
-body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:hover,
-body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
-  background: rgba(247, 247, 247, 0.84);
-}
-
-body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"]:focus-visible {
-  outline: 2px solid var(--mfm-fg);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-/* In the collapsed navbar it ends the list, on its own line, inset so the scrolling list
-   does not clip its focus ring. */
-@media (max-width: 991.98px) {
-  body.mfm-river-page .navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
-    margin: 0.4rem 0 0.6rem 0.25rem;
-  }
-}
-
-.mfm-river__hero {
-  position: relative;
+/* Models: the pictures are the tiles ------------------------------------------------ */
+.mfm-models__grid {
   display: grid;
-  place-items: center;
-  min-height: 100vh;
-  min-height: 100svh;
-  overflow: hidden;
-  isolation: isolate;
-  background: #050d1d;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 24rem));
+  gap: 2.5rem 1.75rem;
+  justify-content: start;
+  margin: 2rem 0 3rem;
 }
 
-/* Hero layers, back to front: the scene, numbers in the fog, the title, the fog veil,
-   the scroll hint. */
-.mfm-river__canvas,
-.mfm-river__veil {
+.mfm-model {
+  position: relative; /* the link in the body stretches over the whole tile */
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.mfm-model__picture {
+  position: relative;
+  aspect-ratio: 5 / 4;
+  overflow: hidden;
+  border-radius: var(--p-r-card);
+  background: #0c1f40;
+}
+
+.mfm-model__picture img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 2.2s ease;
+  object-fit: cover;
+  transition: transform calc(var(--p-dur) * 2.4) var(--p-ease), filter calc(var(--p-dur) * 2.4) var(--p-ease);
 }
 
-.mfm-river__canvas {
-  z-index: 0;
-}
-
-.mfm-river__veil {
-  z-index: 3;
-}
-
-.mfm-river__canvas.is-ready,
-.mfm-river__veil.is-ready {
-  opacity: 1;
-}
-
-.mfm-river__hero::after {
+/* A scrim under the name, not a text shadow. */
+.mfm-model__picture::after {
   content: "";
   position: absolute;
   inset: auto 0 0;
-  z-index: 1;
-  height: 26%;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(7, 20, 42, 0), #07142a);
-}
-
-.mfm-river__hero .mfm-hero__scroll {
-  z-index: 4;
-}
-
-.mfm-river__numbers {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  overflow: hidden;
+  height: 45%;
+  background: linear-gradient(180deg, rgba(5, 13, 29, 0), rgba(5, 13, 29, 0.72)); /* taste-skill-ignore: scrim over a photo */
   pointer-events: none;
 }
 
-.mfm-river__number {
+.mfm-models .mfm-model__name {
   position: absolute;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  white-space: nowrap;
-  color: rgba(214, 226, 255, 0);
-  filter: blur(0.3px);
-  transition: color 0.7s ease;
-}
-
-.mfm-river__number.is-on {
-  color: rgba(214, 226, 255, 0.3);
-}
-
-.mfm-river__number.is-glitch {
-  animation: mfm-number-glitch 0.32s steps(3) 1;
-}
-
-@keyframes mfm-number-glitch {
-  0% {
-    transform: translateX(-3px);
-    clip-path: inset(0 0 55% 0);
-    text-shadow: 2px 0 rgba(180, 231, 221, 0.45), -2px 0 rgba(200, 180, 231, 0.45);
-  }
-  50% {
-    transform: translateX(2px);
-    clip-path: inset(45% 0 0 0);
-  }
-  100% {
-    transform: none;
-    clip-path: none;
-    text-shadow: none;
-  }
-}
-
-/* Soft white letters with a moonlit glow; the veil drifts over them. */
-.mfm-river .mfm-river__title {
-  position: relative;
-  z-index: 2;
+  z-index: 1;
+  left: 1.25rem;
+  bottom: 1rem;
   margin: 0;
-  padding: 0 1.25rem 0.1em;
+  padding: 0;
   border: 0;
-  font-size: clamp(3rem, 8vw, 7.5rem);
+  font-family: var(--p-font);
+  font-size: 1.5rem;
+  font-stretch: 100%;
   font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.03em;
-  text-align: center;
-  background: linear-gradient(180deg, #ffffff 30%, rgba(206, 218, 240, 0.78) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 28px rgba(160, 185, 235, 0.22));
-  pointer-events: none;
-  will-change: transform, opacity, filter;
+  line-height: 1.1;
+  letter-spacing: normal;
+  color: #ffffff;
 }
 
-/* The version under the name: same face, lighter weight and colour, opened up. */
-.mfm-river__version {
-  display: block;
-  margin-top: 0.9rem;
-  font-size: clamp(1rem, 1.9vw, 1.65rem);
-  font-weight: 300;
-  letter-spacing: 0.08em;
-  color: rgba(214, 226, 248, 0.72);
+.mfm-model:not(.is-soon):hover .mfm-model__picture img {
+  transform: scale(1.04);
+  filter: brightness(1.08);
 }
 
-.mfm-river__layout {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, var(--mfm-max-article)) minmax(0, 1fr);
-  gap: 3rem;
-  padding: clamp(4rem, 10vh, 7rem) clamp(1.25rem, 4vw, 3rem) clamp(5rem, 12vh, 8rem);
+.mfm-model:has(.stretched-link:focus-visible) .mfm-model__picture {
+  outline: 2px solid var(--p-accent);
+  outline-offset: 3px;
 }
 
-.mfm-river__toc {
-  position: sticky;
-  top: 6rem;
-  align-self: start;
+.mfm-model__body {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  max-width: 13rem;
-  font-size: 0.84rem;
+  gap: 0.6rem;
 }
 
-.mfm-river__toc a {
-  padding: 0.25rem 0;
-  color: rgba(247, 247, 247, 0.42) !important;
-  transition: color 0.2s ease;
-}
-
-.mfm-river__toc a:hover,
-.mfm-river__toc a.is-active {
-  color: #ffffff !important;
-}
-
-.mfm-river__article {
-  grid-column: 2;
-  min-width: 0;
-  font-size: 1.06rem;
-  line-height: 1.72;
-}
-
-.mfm-river__article > section,
-.mfm-river__article > p,
-.mfm-river__article > ul {
-  margin-bottom: 1.4rem;
-}
-
-.mfm-river__article h2 {
-  margin: 4.5rem 0 1.25rem;
-  padding: 0;
-  border: 0;
-  font-size: clamp(1.5rem, 2.4vw, 1.95rem);
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  color: #ffffff;
-}
-
-.mfm-river__article strong {
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.mfm-river__article em {
-  color: #ffffff;
-}
-
-.mfm-river__article ul {
-  padding-left: 1.1rem;
-}
-
-.mfm-river__article li {
-  margin-bottom: 0.7rem;
-}
-
-.mfm-river__article li::marker {
-  color: rgba(180, 231, 221, 0.7);
-}
-
-.mfm-river__article p a,
-.mfm-river__article li a {
-  border-bottom: 1px solid rgba(180, 231, 221, 0.4);
-}
-
-.mfm-river__article code {
-  padding: 0.08rem 0.32rem;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.07);
-  color: #b4e7dd;
-  font-size: 0.86em;
-}
-
-.mfm-river__article div.sourceCode {
-  margin: 1.4rem 0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: #0c1f40 !important;
-}
-
-.mfm-river__article div.sourceCode pre.sourceCode {
+.mfm-model__body > * {
   margin: 0;
-  border: 0;
-  background: none !important;
 }
 
-.mfm-river__article pre code {
+.mfm-model__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.875rem;
+  color: var(--p-ink-2);
+}
+
+.mfm-model__badge {
+  padding: 0.05rem 0.45rem;
+  border-radius: var(--p-r-chip);
+  background: var(--p-tone-2);
+  color: var(--p-ink);
+  font-size: 0.8125rem;
+}
+
+.mfm-model__summary {
+  line-height: 1.55;
+  color: var(--p-ink);
+}
+
+.mfm-model__specs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1.1rem;
   padding: 0;
+  list-style: none;
+  font-size: 0.875rem;
+  color: var(--p-ink-2);
+}
+
+.mfm-model__cta a {
+  text-decoration: none;
+  color: var(--p-accent);
+}
+
+.mfm-model__cta span {
+  display: inline-block;
+  transition: transform var(--p-dur) var(--p-ease);
+}
+
+.mfm-model:hover .mfm-model__cta span {
+  transform: translateX(3px);
+}
+
+.mfm-model.is-soon {
+  cursor: default;
+}
+
+.mfm-model.is-soon .mfm-model__picture {
+  filter: saturate(0.8);
+}
+
+/* River 1.0: a docs page --------------------------------------------------------------
+   The title block, text and code come from the theme. Only the page's own parts are here. */
+
+/* One meta line under the title, categories in plain text (as on the blog posts). */
+body.mfm-river-page #title-block-header .quarto-title .quarto-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.1rem;
+  margin-top: 1rem;
+}
+
+body.mfm-river-page #title-block-header .quarto-title .quarto-categories .quarto-category {
+  padding: 0;
+  border: 0;
   background: none;
-  color: #dfe6f2;
+  font-family: var(--p-font);
+  font-size: 0.9rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  opacity: 1; /* Quarto dims the category text */
+  color: var(--p-ink-2);
 }
 
-/* The site theme highlights for light pages; recolour tokens for this dark page. */
-.mfm-river__article pre code span {
-  color: inherit !important;
-  font-style: normal !important;
+body.mfm-river-page #title-block-header.quarto-title-block.default .quarto-title-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  margin-top: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--p-ink-2);
 }
 
-.mfm-river__article pre code span:is(.kw, .im, .cf) {
-  color: #c8b4e7 !important;
+body.mfm-river-page #title-block-header .quarto-title-meta > div {
+  display: block;
 }
 
-.mfm-river__article pre code span:is(.st, .dv, .fl) {
-  color: #b4e7dd !important;
-}
-
-.mfm-river__article pre code span:is(.fu, .bu) {
-  color: #f6ae72 !important;
-}
-
-.mfm-river__article pre code span.co {
-  color: rgba(223, 230, 242, 0.45) !important;
-}
-
-.mfm-river__article .code-copy-button {
-  color: rgba(247, 247, 247, 0.5);
-}
-
-.mfm-visually-hidden h2,
-h2.mfm-visually-hidden {
-  position: absolute !important;
-  width: 1px;
-  height: 1px;
+/* The headings ("Author", "Published") stay for screen readers. */
+body.mfm-river-page #title-block-header .quarto-title-meta-heading {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
 
-.mfm-lede p {
-  margin-bottom: 1.6rem;
-  font-size: clamp(1.25rem, 2vw, 1.5rem);
-  line-height: 1.55;
-  letter-spacing: -0.015em;
-  color: rgba(247, 247, 247, 0.92);
+body.mfm-river-page #title-block-header .quarto-title-meta-contents,
+body.mfm-river-page #title-block-header .quarto-title-meta-contents p {
+  margin: 0;
+  color: inherit;
 }
 
-/* Numbers at a glance. */
+body.mfm-river-page .lead {
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+body.mfm-river-page main strong {
+  font-weight: 500;
+}
+
+/* Numbers at a glance: one tone surface, flat text. */
 .mfm-stats,
 .mfm-ratios {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 2.5rem 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 1.25rem 1.5rem;
+  margin: 2rem 0;
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--p-r-card);
+  background: var(--p-tone-1);
 }
 
 .mfm-ratios {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 1.8rem 0 2rem;
 }
 
 .mfm-stats > div,
 .mfm-ratios > div {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 1.1rem 1rem 0 0;
+  gap: 0.3rem;
 }
 
 .mfm-stats strong,
 .mfm-ratios strong {
-  font-family: var(--mfm-display);
-  font-stretch: 125%;
-  font-size: clamp(1.35rem, 2.3vw, 1.85rem);
+  font-family: var(--p-font);
+  font-size: clamp(1.35rem, 2.4vw, 1.75rem);
   font-weight: 500;
-  letter-spacing: -0.02em;
-  line-height: 1.1;
-  background: linear-gradient(92deg, #ffffff, #b4e7dd);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent !important;
+  line-height: 1.15;
+  color: var(--p-ink);
 }
 
 .mfm-stats span,
 .mfm-ratios span {
-  font-size: 0.84rem;
+  font-size: 0.875rem;
   line-height: 1.45;
-  color: rgba(247, 247, 247, 0.55);
+  color: var(--p-ink-2);
 }
 
 .mfm-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: 0.4rem 1.5rem;
   margin: 0 0 1rem;
 }
 
-.mfm-links a {
-  padding: 0.5rem 0.95rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 999px;
-  font-size: 0.9rem;
-  color: rgba(247, 247, 247, 0.85) !important;
-  transition: border-color 0.2s ease, color 0.2s ease;
-}
-
-.mfm-links a:hover {
-  border-color: rgba(180, 231, 221, 0.6);
-  color: #ffffff !important;
-}
-
-/* Specification list. */
+/* Specification list: rows on a tone surface, no rules. */
 .mfm-specs {
-  margin: 2rem 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.75rem 0;
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--p-r-card);
+  background: var(--p-tone-1);
+  font-size: 0.95rem;
 }
 
 .mfm-specs > div {
   display: grid;
   grid-template-columns: 11rem minmax(0, 1fr);
   gap: 1rem;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 0.95rem;
 }
 
 .mfm-specs dt {
-  font-weight: 500;
-  color: rgba(247, 247, 247, 0.55);
+  font-weight: 400;
+  color: var(--p-ink-2);
 }
 
 .mfm-specs dd {
   margin: 0;
-  color: #ffffff;
+  color: var(--p-ink);
 }
 
-/* Charts: horizontal bars that grow in when revealed. */
+/* Charts: horizontal bars that grow in when revealed, in the site colours. */
 .mfm-chart {
   display: block;
   width: 100%;
   max-width: none;
-  margin: 2.5rem 0;
-  padding: 1.5rem 1.5rem 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(12, 31, 64, 0.65), rgba(7, 20, 42, 0.4));
+  margin: 2rem 0;
+  padding: 1.5rem;
+  border-radius: var(--p-r-card);
+  background: var(--p-tone-1);
 }
 
 .mfm-chart figcaption {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  margin-bottom: 1.1rem;
+  margin: 0 0 1.1rem;
+  padding: 0;
 }
 
 .mfm-chart figcaption strong {
   font-size: 1rem;
-  font-weight: 600;
-  color: #ffffff;
+  color: var(--p-ink);
 }
 
 .mfm-chart figcaption span,
 .mfm-chart__note {
-  font-size: 0.82rem;
-  color: rgba(247, 247, 247, 0.5);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--p-ink-2);
 }
 
 .mfm-chart__note {
-  margin: 1rem 0 0 !important;
+  margin: 1rem 0 0;
 }
 
 .mfm-chart__legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 1.1rem;
+  gap: 0.4rem 1.25rem;
   margin-bottom: 1.2rem;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.74rem;
-  color: rgba(247, 247, 247, 0.72);
+  font-size: 0.875rem;
+  color: var(--p-ink);
 }
 
 .mfm-chart__legend span::before {
   content: "";
   display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 0.4rem;
+  width: 10px;
+  height: 10px;
+  margin-right: 0.45rem;
   border-radius: 2px;
-  background: var(--c);
+  background: var(--series, var(--p-ink-2));
+}
+
+/* One colour per series: River in the accent, the references in steps of grey-blue. */
+[data-series="river"] {
+  --series: var(--p-accent);
+}
+
+[data-series="pathmc"] {
+  --series: var(--p-ink-2);
+}
+
+[data-series="mmm"] {
+  --series: color-mix(in srgb, var(--p-ink-2) 62%, transparent);
+}
+
+[data-series="ols"] {
+  --series: color-mix(in srgb, var(--p-ink-2) 38%, transparent);
 }
 
 .mfm-chart__groups {
@@ -499,11 +375,9 @@ h2.mfm-visually-hidden {
 
 .mfm-chart__group p {
   margin: 0 0 0.45rem;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(247, 247, 247, 0.45);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--p-ink);
 }
 
 .mfm-bar {
@@ -517,8 +391,8 @@ h2.mfm-visually-hidden {
 .mfm-bar span {
   flex: none;
   width: 11.5rem;
-  font-size: 0.8rem;
-  color: rgba(247, 247, 247, 0.7);
+  font-size: 0.875rem;
+  color: var(--p-ink);
 }
 
 .mfm-bar i {
@@ -526,23 +400,24 @@ h2.mfm-visually-hidden {
   height: 100%;
   width: var(--w, calc(var(--v) / var(--max, 1) * 78%));
   min-width: 3px;
-  border-radius: 3px;
-  background: var(--c);
+  border-radius: 4px;
+  background: var(--series);
   transform-origin: left;
-  transition: transform 1.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition: transform calc(var(--p-dur) * 4.8) var(--p-ease);
 }
 
 .mfm-bar b {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.76rem;
-  font-weight: 500;
-  color: rgba(247, 247, 247, 0.85);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--p-ink);
 }
 
 .mfm-chart__groups--time .mfm-bar i {
   width: calc(var(--w) * 0.6);
 }
 
+/* river.js adds .mfm-js, so the bars show in full when scripts do not run. */
 .mfm-js .mfm-chart.mfm-reveal:not(.is-visible) .mfm-bar i {
   transform: scaleX(0);
 }
@@ -564,76 +439,53 @@ h2.mfm-visually-hidden {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  padding: 1rem 2.6rem 1rem 1.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  transition: border-color 0.2s ease, background-color 0.2s ease;
+  gap: 0.25rem;
+  padding: 1rem 2.6rem 1rem 1.25rem;
+  border-radius: var(--p-r-card);
+  background: var(--p-tone-1);
+  color: var(--p-ink);
+  text-decoration: none;
+  transition: background-color var(--p-dur) var(--p-ease);
 }
 
 .mfm-resources > a:hover {
-  border-color: rgba(180, 231, 221, 0.5);
-  background: rgba(180, 231, 221, 0.04);
+  background: var(--p-tone-2);
 }
 
 .mfm-resources strong {
-  font-weight: 600;
-  color: #ffffff;
+  font-weight: 500;
 }
 
 .mfm-resources span {
-  font-size: 0.85rem;
+  font-size: 0.875rem;
   line-height: 1.45;
-  color: rgba(247, 247, 247, 0.55);
+  color: var(--p-ink-2);
 }
 
 .mfm-resources i {
   position: absolute;
   top: 1rem;
-  right: 1.1rem;
+  right: 1.25rem;
   font-style: normal;
-  color: rgba(247, 247, 247, 0.5);
+  color: var(--p-ink-2);
+  transition: transform var(--p-dur) var(--p-ease);
 }
 
-.mfm-resources .is-pending {
-  border-style: dashed;
+.mfm-resources > a:hover i {
+  transform: translateX(3px);
 }
 
 .mfm-authors {
-  margin-top: 2.5rem !important;
-  font-size: 0.92rem;
-  color: rgba(247, 247, 247, 0.6);
+  margin-top: 2.5rem;
+  font-size: 0.9375rem;
+  color: var(--p-ink-2);
 }
 
 .mfm-authors span {
   display: block;
-  margin-bottom: 0.3rem;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(247, 247, 247, 0.4);
-}
-
-.mfm-authors a {
-  color: rgba(247, 247, 247, 0.85) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-@media (max-width: 1100px) {
-  .mfm-river__layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .mfm-river__toc {
-    display: none;
-  }
-
-  .mfm-river__article {
-    grid-column: 1;
-    max-width: var(--mfm-max-article);
-    margin: 0 auto;
-  }
+  margin-bottom: 0.2rem;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 @media (max-width: 640px) {
@@ -648,160 +500,35 @@ h2.mfm-visually-hidden {
 
   .mfm-specs > div {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.2rem;
+    gap: 0.15rem;
   }
 
   .mfm-bar span {
     width: 7.5rem;
   }
+
+  /* Leave room for the value after the longest bar. */
+  .mfm-bar i {
+    width: var(--w, calc(var(--v) / var(--max, 1) * 64%));
+  }
+
+  .mfm-chart__groups--time .mfm-bar i {
+    width: calc(var(--w) * 0.4);
+  }
 }
 
-/* Models page: one card per model, released first (models/models.ejs) --------- */
-.mfm-models__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-  gap: 1rem;
-  margin: 2rem 0 1rem;
-}
+@media (prefers-reduced-motion: reduce) {
+  .mfm-model__picture img,
+  .mfm-model__cta span,
+  .mfm-bar i,
+  .mfm-resources > a,
+  .mfm-resources i {
+    transition: none;
+  }
 
-.mfm-model-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--mfm-hairline);
-  border-radius: 16px;
-  transition: border-color 0.2s ease, transform 0.25s ease, box-shadow 0.25s ease;
-}
-
-.mfm-model-card:not(.is-soon):hover {
-  border-color: rgba(129, 194, 64, 0.6);
-  transform: translateY(-2px);
-  box-shadow: 0 20px 40px -24px rgba(12, 31, 64, 0.45);
-}
-
-.mfm-model-card__media {
-  position: relative;
-  aspect-ratio: 16 / 7;
-  overflow: hidden;
-  background: linear-gradient(160deg, #10284f, #07142a);
-}
-
-.mfm-model-card.is-soon {
-  cursor: default;
-}
-
-/* The art fills an announced card, a little dimmed; "Coming soon" sits under it. */
-.mfm-model-card.is-soon .mfm-model-card__media {
-  flex: 1;
-  aspect-ratio: auto;
-  min-height: 9rem;
-  filter: saturate(0.85) brightness(0.9);
-}
-
-.mfm-model-card.is-soon .mfm-model-card__body {
-  flex: none;
-}
-
-/* Rendered night scenes (assets/img/models/), darkened at the bottom under the name. */
-.mfm-model-card__media img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.6s ease;
-}
-
-/* The tall announced cards crop the wide renders: keep Sea's cliffs and lighthouse,
-   and Ocean's whale with the moon. */
-.mfm-model-card--sea .mfm-model-card__media img {
-  object-position: 20% 50%;
-}
-
-.mfm-model-card--ocean .mfm-model-card__media img {
-  object-position: 35% 50%;
-}
-
-.mfm-model-card__media::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(5, 13, 29, 0) 45%, rgba(5, 13, 29, 0.7));
-}
-
-.mfm-model-card:not(.is-soon):hover .mfm-model-card__media img {
-  transform: scale(1.04);
-}
-
-.mfm-models .mfm-model-card__name {
-  position: absolute;
-  z-index: 1;
-  left: 1.1rem;
-  bottom: 0.9rem;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  font-family: var(--mfm-display);
-  font-stretch: 125%;
-  font-size: 1.5rem;
-  font-weight: 500;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-  color: #ffffff;
-  text-shadow: 0 2px 18px rgba(7, 20, 42, 0.8);
-}
-
-.mfm-model-card__body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.55rem;
-  padding: 1rem 1.1rem 1.15rem;
-}
-
-.mfm-model-card__meta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.74rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--mfm-muted);
-}
-
-.mfm-model-card__description {
-  margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-
-.mfm-model-card__specs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: auto 0 0;
-  padding: 0.35rem 0 0;
-  list-style: none;
-}
-
-.mfm-model-card__specs li {
-  padding: 0.12rem 0.5rem;
-  border: 1px solid var(--mfm-hairline);
-  border-radius: 999px;
-  font-size: 0.74rem;
-  color: var(--mfm-muted);
-}
-
-.mfm-model-card__cta {
-  margin: 0.4rem 0 0;
-  font-size: 0.88rem;
-  font-weight: 500;
-}
-
-.mfm-model-card__cta a {
-  color: var(--mfm-accent);
-  text-decoration: none;
+  .mfm-model:not(.is-soon):hover .mfm-model__picture img,
+  .mfm-model:hover .mfm-model__cta span,
+  .mfm-resources > a:hover i {
+    transform: none;
+  }
 }
