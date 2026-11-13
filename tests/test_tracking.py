@@ -127,6 +127,9 @@ def assert_scalar_histories(client, run_id, records):
     assert set(client.get_run(run_id).data.metrics) == set(expected)
 
 
+# Trains, logs to a real MLflow client and renders every report with matplotlib: over the
+# 120 s CI hang guard on a 2-core runner (CI 2026-11-13: still rendering at 120 s).
+@pytest.mark.timeout(480)
 def test_actual_client_histories_reports_and_checkpoint_versions(tmp_path, monkeypatch):
     mlflow = pytest.importorskip("mlflow")
     pytest.importorskip("matplotlib")
