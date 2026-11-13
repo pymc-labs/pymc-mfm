@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR cancels the older run. Every push to main keeps its own result.
+concurrency:
+  group: tests-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contracts:
     runs-on: ubuntu-latest
@@ -43,7 +48,7 @@ jobs:
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
       - name: Exercise local contracts without publication credentials
-        run: uv run --no-sync pytest -q
+        run: uv run --no-sync pytest -q --durations=25 --junitxml=junit/contracts-${{ matrix.installation }}.xml --timeout=120
       - name: Plant ignored local files the build must leave out
         if: matrix.installation == 'full'
         # The installed-distribution check rejects any of these in the sdist or wheels.
@@ -53,6 +58,13 @@ jobs:
       - name: Verify installed sdist, base wheel, diagnostics-only wheel and arviz-only wheel
         if: matrix.installation == 'full'
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-contracts-${{ matrix.installation }}
+          path: junit/
+          retention-days: 30
 
   light:
     # The default install is a light client with no PyTorch. Run its tests in two
@@ -76,4 +88,36 @@ jobs:
         run: uv run --no-sync python .github/scripts/light_install_check.py
       - name: Test the client
         # --confcutdir keeps the model fixtures in tests/conftest.py, which import torch, out.
-        run: uv run --no-sync pytest -q tests/client --confcutdir=tests/client
+        run: uv run --no-sync pytest -q tests/client --confcutdir=tests/client --durations=25 --junitxml=junit/light-${{ matrix.extras == '' && 'bare' || 'client' }}.xml --timeout=120
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-light-${{ matrix.extras == '' && 'bare' || 'client' }}
+          path: junit/
+          retention-days: 30
+
+  # The single required check. It runs even when a job fails or is cancelled. A skipped job
+  # counts as passed. A failed or cancelled job fails it.
+  ci-ok:
+    if: always()
+    needs: [contracts, light]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          bad=0
+          table="| job | result |"$'\n'"|---|---|"
+          while IFS=$'\t' read -r job result; do
+            table+=$'\n'"| $job | $result |"
+            case "$result" in
+              success|skipped) ;;
+              *) bad=1 ;;
+            esac
+          done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.result)"' <<< "$NEEDS_JSON")
+          echo "$table"
+          [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "$table" >> "$GITHUB_STEP_SUMMARY"
+          exit "$bad"
