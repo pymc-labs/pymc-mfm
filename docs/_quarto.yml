@@ -7,6 +7,7 @@ project:
   render:
     - "*.qmd"
     - "guide/**"
+    - "api/**"
     - "reference/**"
     - "models/**"
     - "blog/**"
@@ -39,41 +40,28 @@ website:
     logo-alt: "PyMC MFM home"
     title: false
     collapse-below: lg
-    right:
-      - text: Guide
+    left:
+      - text: Docs
         href: guide/index.qmd
       - text: API
-        href: reference/index.qmd
+        href: api/index.qmd
       # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
       # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge.
-      # Items with only `text` are column headers; "---" starts the second column. A
-      # text-only item ending in " SOON" becomes a greyed "Coming soon" entry, not a link.
+      # Items with only `text` are column headers; "---" starts the second column.
       - text: Models
         menu:
           - text: "Models"
           - text: "River NEW"
             href: models/river-1/index.qmd
-          - text: "Sea SOON"
-          - text: "Ocean SOON"
           - text: "---"
           - text: "Resources"
           - text: "All models"
             href: models/index.qmd
-          - text: "Hugging Face"
-            href: https://huggingface.co/pymc-labs/mfm
       - text: Blog
         href: blog/index.qmd
-      - icon: github
-        href: https://github.com/pymc-labs/pymc-mfm
-        aria-label: GitHub
-      - text: "PyMC Labs"
-        href: https://www.pymc-labs.com
-        target: _blank
-        rel: noopener
-      # The hosted console: sign in with a PyMC Labs Google account and compare scenarios
-      # from your agent. Only the River model page shows it, as a button: site.css hides
-      # it elsewhere and model.css draws it, both by this URL.
-      - text: "Try it out"
+    right:
+      # The hosted Console. The link target stays as it is until a maintainer changes it.
+      - text: "Open Console"
         href: https://mfm-staging.pymc-labs.com/
   sidebar:
     - id: guide
@@ -100,15 +88,12 @@ website:
     left: |
       Built by [PyMC Labs](https://www.pymc-labs.com), the creators of PyMC.
     right:
-      - icon: github
-        href: https://github.com/pymc-labs/pymc-mfm
-        aria-label: GitHub
       - text: "pymc-labs.com"
         href: https://www.pymc-labs.com
 
 quartodoc:
   package: pymc_mfm
-  title: API reference
+  title: Python reference
   dir: reference
   sidebar: reference/_sidebar.yml
   # Docstrings are reStructuredText prose (``literals``, :mod: roles).
