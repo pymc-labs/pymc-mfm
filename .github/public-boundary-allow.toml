@@ -75,3 +75,27 @@ path = "docs/assets/img/models/ocean.jpg"
 rules = ["binary"]
 reason = "Models page card for Ocean: open swells under a cloudy moon, with a humpback breaching far out on the horizon, rendered from a WebGL shader written for the site (1200x630 JPEG, 113 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
 sha256 = "058e53dcbec1de3ad66d6c41e92efebbaa98cdce45728a2e5504f260044c5c0e"
+
+[[allow]]
+path = "docs/assets/fonts/ibm-plex-sans-latin-400-500.woff2"
+rules = ["binary"]
+reason = "Self-hosted website font: IBM Plex Sans, Latin subset, variable font limited to weights 400 to 500 (34 kB), made with fontTools from the Google Fonts file. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."
+sha256 = "b453cef5c0c9ae8b2048c35d211ed66729c6186d9725d6eebcbe8880c8f233cb"
+
+[[allow]]
+path = "docs/assets/fonts/ibm-plex-sans-latin-400-italic.woff2"
+rules = ["binary"]
+reason = "Self-hosted website font: IBM Plex Sans Italic 400, Latin subset (24 kB), from Google Fonts. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."
+sha256 = "6de912e531b6c98084f1b2d5e5a91bad77be4e68bc4e396e43c46fc435e5f3d9"
+
+[[allow]]
+path = "docs/assets/fonts/ibm-plex-mono-latin-400.woff2"
+rules = ["binary"]
+reason = "Self-hosted website font: IBM Plex Mono 400, Latin subset (15 kB), from Google Fonts. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."
+sha256 = "7ced53420784c93cecccb7c27237594f0e41e5a7990581565f0aef8eda9e9d2f"
+
+[[allow]]
+path = "docs/assets/fonts/archivo-latin-wdth125-400.woff2"
+rules = ["binary"]
+reason = "Self-hosted website font: Archivo at width 125 (Expanded), weight 400, Latin subset (15 kB), from Google Fonts. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."
+sha256 = "3ad898de6410336c5bb36ee4afeb9a95250aa5aa342ff3c7766c48a482a67264"

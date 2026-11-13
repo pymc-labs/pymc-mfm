@@ -13,6 +13,7 @@ project:
     - "blog/**"
   resources:
     - assets/js/*.js
+    - assets/fonts/*
     - assets/img/show/*.svg
     - assets/img/logo/*.svg
     - assets/favicon/*
@@ -85,11 +86,12 @@ website:
           # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
           contents: "guide/examples/*.ipynb"
   page-footer:
+    # One quiet line and the dark-mode button. Quarto's own toggle (the class and the
+    # onclick below) switches the stylesheets and flips the "alternate" class on this button.
     left: |
       Built by [PyMC Labs](https://www.pymc-labs.com), the creators of PyMC.
-    right:
-      - text: "pymc-labs.com"
-        href: https://www.pymc-labs.com
+    right: |
+      <button type="button" class="quarto-color-scheme-toggle mfm-theme-toggle" onclick="window.quartoToggleColorScheme(); return false;"><span class="mfm-theme-toggle-dark">Dark mode</span><span class="mfm-theme-toggle-light">Light mode</span></button>
 
 quartodoc:
   package: pymc_mfm
@@ -185,19 +187,23 @@ format:
     theme:
       light: [cosmo, assets/styles/light.scss]
       dark: [cosmo, assets/styles/dark.scss]
-    css: assets/styles/site.css
+    css:
+      - assets/fonts/fonts.css
+      - assets/styles/site.css
     filters:
       - _scripts/site-head.lua
     toc: true
     toc-depth: 3
     toc-title: On this page
     code-copy: true
-    code-overflow: wrap
-    # Adaptive: Quarto ships light and dark variants and switches them with the theme.
-    highlight-style: github
+    code-overflow: scroll
+    # Code colours in the site palette (derived from the GitHub themes; see the files).
+    highlight-style:
+      light: assets/styles/mfm-light.theme
+      dark: assets/styles/mfm-dark.theme
     link-external-icon: false
     link-external-newwindow: true
-    smooth-scroll: true
+    smooth-scroll: false
     anchor-sections: true
     fig-responsive: true
 

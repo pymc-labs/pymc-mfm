@@ -1,158 +1,185 @@
-/* Shared chrome for every page. Colors come from the --mfm-* tokens that the light
-   and dark themes define, so these rules hold in both modes. Landing-only rules live
-   in landing.css. */
+/* Shared chrome and type for every page. Colours, radii, fonts and motion come from the
+   --mfm-* tokens that light.scss and dark.scss define; Quarto's own components follow the
+   theme through Bootstrap's variables, so most rules here only add layout and detail.
+   Landing-only and page-specific rules live in landing.css, model.css and the other page sheets.
+
+   House rules: Plex Sans 400 for text; 500 only for section headings, the current page, sidebar
+   group titles, the Console button and strong; Archivo for h1 page titles only. Corners 6, 8 and
+   12 px, no pills. No thin rules except real tables. A surface is a tone step, never a line or a
+   shadow. No dot separators in titles or labels. */
+
+html {
+  scroll-padding-top: calc(var(--mfm-nav-h) + 1rem);
+}
 
 body {
-  font-feature-settings: "cv11", "ss01";
+  font-family: var(--mfm-font-sans);
+  font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* Type, from the PyMC Labs brand guidelines: Archivo Expanded for headlines, large text
-   and expressive subheadings; Inter for body text and captions. The themes load Archivo
-   at width 125 only and set it as the headings font; display text elsewhere uses
-   --mfm-display. */
-:root {
-  --mfm-display: "Archivo", "Inter", system-ui, sans-serif;
-}
-
-h1, h2, h3, h4, h5, h6,
-.h1, .h2, .h3, .h4, .h5, .h6,
-.listing-title,
-.card-title {
-  font-family: var(--mfm-display);
-  font-stretch: 125%;
-  letter-spacing: -0.015em;
-}
-
-/* Small interface labels stay in Inter. */
-#toc-title,
-.sidebar h2,
-.quarto-alternate-formats h2 {
-  font-family: var(--bs-body-font-family);
-  font-stretch: 100%;
-  letter-spacing: normal;
-}
-
-/* Navbar ------------------------------------------------------------------- */
-/* A thin bar (about 48px): less padding around the links, brand and logo. */
-:root {
-  --mfm-nav-h: 48px;
-}
-
-.navbar {
-  padding-top: 0.15rem;
-  padding-bottom: 0.15rem;
-  border-bottom: 1px solid var(--mfm-hairline);
-  box-shadow: none;
-  backdrop-filter: saturate(140%) blur(10px);
-}
-
-.navbar .navbar-brand-container {
-  height: auto;
-}
-
-.navbar .navbar-brand {
-  padding-top: 0;
-  padding-bottom: 0;
-  font-size: 1.1rem;
-}
-
-.navbar .navbar-nav .nav-link {
-  padding-top: 0.35rem;
-  padding-bottom: 0.35rem;
-}
-
-.navbar .navbar-brand .navbar-title {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-/* The MFM mark. The file is navy (#0C1F40, for light backgrounds); on dark backgrounds
-   it turns soft white (#F7F7F7), the logo package's light version. */
-.navbar-logo {
-  height: 20px;
-  max-height: 20px;
-  margin-right: 0.35rem;
-}
-
-body.quarto-dark .navbar-logo {
-  filter: brightness(0) invert(0.97);
-}
-
-.navbar .nav-link {
-  font-size: 0.925rem;
-  font-weight: 450;
-}
-
-.navbar .nav-link.active {
+strong,
+b {
   font-weight: 500;
 }
 
-/* The PyMC Labs link leaves the site. */
-.navbar .nav-link[href^="https://www.pymc-labs.com"] .menu-text::after {
-  content: " \2197";
-  opacity: 0.6;
+:focus-visible {
+  outline: 2px solid var(--mfm-accent);
+  outline-offset: 2px;
+  border-radius: var(--mfm-r-chip);
 }
 
-/* "Try it out" (_quarto.yml), to the hosted console: only the River model page shows
-   it, as a button (model.css). */
-.navbar .navbar-nav .nav-link[href^="https://mfm-staging.pymc-labs.com"] {
-  display: none;
+::selection {
+  background: var(--mfm-tone-2);
 }
 
-/* Typography --------------------------------------------------------------- */
-h1,
-h2,
-h3,
-.title {
-  letter-spacing: -0.015em;
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
-#title-block-header .title {
-  font-weight: 650;
+/* Title block and headings --------------------------------------------------- */
+/* One title block on every docs page: Archivo title, a plain lead, the same spacing. */
+main h1,
+.quarto-title h1.title {
+  font-family: var(--mfm-font-display);
+  font-weight: 400;
+  font-stretch: 125%;
+  font-size: clamp(2.2rem, 3.4vw, 3.1rem);
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  color: var(--mfm-heading);
 }
 
-#title-block-header .description,
-#title-block-header .subtitle {
-  color: var(--mfm-muted);
+/* Bootstrap hides the page title below 992px, where Quarto's second bar showed it. That bar
+   is gone (see "Phone"), so the title must show. Bootstrap's d-none is !important. */
+.quarto-title h1.title.d-none {
+  display: block !important;
 }
 
-main a:not(.nav-link):not(.btn) {
-  text-underline-offset: 0.18em;
+#title-block-header.quarto-title-block.default {
+  margin-bottom: 2.75rem;
+}
+
+#title-block-header .quarto-title {
+  margin-bottom: 0;
+}
+
+#title-block-header.quarto-title-block.default .description,
+#title-block-header.quarto-title-block.default .subtitle {
+  max-width: 62ch;
+  margin-top: 1.35rem;
+  font-size: 1.15rem;
+  line-height: 1.55;
+  color: var(--mfm-ink);
+}
+
+#title-block-header .quarto-title-meta {
+  margin-top: 0;
+}
+
+main h2,
+main h3,
+main h4,
+main h5,
+main h6 {
+  font-family: var(--mfm-font-sans);
+  font-weight: 500;
+  font-stretch: 100%;
+  letter-spacing: -0.01em;
+  color: var(--mfm-heading);
+  border: 0;
+}
+
+main h2 {
+  margin-top: 3.25rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0;
+  font-size: 1.4rem;
+}
+
+main h3 {
+  margin-top: 2rem;
+  font-size: 1.1rem;
+}
+
+main h4,
+main h5,
+main h6 {
+  font-size: 1rem;
+}
+
+/* The first heading after the title block needs no extra gap. */
+#title-block-header + section > h2:first-child,
+#title-block-header + section.level2 {
+  margin-top: 0;
+}
+
+/* Running text: 72ch on article pages. Tables, figures and code use the full column. */
+.page-layout-article main :is(p, ul, ol, dl, blockquote) {
+  max-width: var(--mfm-measure);
+}
+
+main p,
+main li,
+main dd {
+  color: var(--mfm-ink);
+}
+
+main :is(p, li, dd, td, blockquote) a:not(.btn, .nav-link, .anchorjs-link) {
+  text-decoration: underline;
   text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, var(--mfm-accent) 45%, transparent);
+  transition: text-decoration-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
 }
 
+main :is(p, li, dd, td, blockquote) a:not(.btn, .nav-link, .anchorjs-link):hover {
+  text-decoration-color: currentColor;
+}
+
+/* Inline code changes the face and nothing else: no chip behind every word. */
 code,
-pre {
-  font-size: 0.86rem;
+pre,
+kbd,
+samp {
+  font-family: var(--mfm-font-mono); /* taste-skill-ignore: code font for code and kbd */
+  font-weight: 400;
 }
 
-div.sourceCode,
-pre.sourceCode {
-  border-radius: 10px;
+:not(pre) > code {
+  padding: 0;
+  font-size: 0.88em;
+  color: var(--mfm-heading);
+  background: none;
 }
 
 .figure img,
 .quarto-figure img {
-  border-radius: 8px;
+  border-radius: var(--mfm-r);
 }
 
-/* Sidebar and table of contents --------------------------------------------- */
-.sidebar-navigation .sidebar-section-item > .sidebar-item-container .sidebar-item-text,
-.sidebar .sidebar-item-section > .sidebar-item-container .text-start {
-  font-weight: 600;
-  font-size: 0.78rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--mfm-muted);
+/* Phones: a wide table scrolls inside itself; the page never scrolls sideways. */
+@media (max-width: 767.98px) {
+  main table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
 }
 
-#quarto-sidebar a.sidebar-item-text.sidebar-link.active {
-  text-decoration: underline;
-  text-decoration-color: var(--mfm-accent-soft);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 0.3em;
+/* Real tables keep their quiet row rules. */
+main table {
+  --bs-table-bg: transparent;
+  --bs-table-border-color: var(--mfm-tone-2);
+}
+
+main table thead th {
+  font-weight: 500;
+  color: var(--mfm-heading);
+  border-bottom-width: 1px;
 }
 
 /* API reference tables: object names stay on one line. */
@@ -161,91 +188,272 @@ main table td:first-child > p > a {
   white-space: nowrap;
 }
 
-/* Listings (Blog, Models): a quiet list, no cards ------------------------------- */
-.quarto-listing-default .quarto-post {
-  border-bottom: 1px solid var(--mfm-hairline);
-  padding: 1.6rem 0;
-  margin-bottom: 0;
+/* Navbar ---------------------------------------------------------------------- */
+#quarto-header .navbar {
+  --bs-navbar-color: var(--mfm-ink-2);
+  --bs-navbar-hover-color: var(--mfm-heading);
+  --bs-navbar-active-color: var(--mfm-heading);
+  --bs-navbar-brand-color: var(--mfm-heading);
+  --bs-navbar-brand-hover-color: var(--mfm-heading);
+  --bs-navbar-toggler-icon-bg: none;
+  min-height: var(--mfm-nav-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  border: 0;
+  box-shadow: none; /* taste-skill-ignore: removes Bootstrap's shadow */
+  background: var(--mfm-bg);
 }
 
-.quarto-listing-default .quarto-post .listing-title {
-  font-size: 1.45rem;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  margin-bottom: 0.35rem;
+.navbar .navbar-brand-container {
+  height: auto;
+  margin-right: 1.5rem;
 }
 
-.quarto-listing-default .quarto-post .listing-subtitle {
-  color: var(--mfm-muted);
-  font-size: 1rem;
+.navbar .navbar-brand {
+  padding: 0;
 }
 
-.quarto-listing-default .quarto-post .listing-date,
-.quarto-listing-default .quarto-post .listing-author {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.78rem;
-  color: var(--mfm-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+/* The MFM mark: navy file; soft white on dark pages. */
+.navbar-logo {
+  height: 26px;
+  max-height: 26px;
+  margin-right: 0;
+  transition: transform calc(var(--mfm-dur) * 2) var(--mfm-ease);
 }
 
-.quarto-listing-default .quarto-post .thumbnail img,
-.quarto-listing-default .quarto-post .thumbnail-image {
-  border-radius: 10px;
-  object-fit: contain; /* figures, not photos: show them whole */
+.navbar-brand:hover .navbar-logo {
+  transform: rotate(-8deg) scale(1.06);
 }
 
-.quarto-listing-category .category,
-.quarto-category {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  border-radius: 999px;
-  border-color: var(--mfm-hairline);
+body.quarto-dark .navbar-logo {
+  filter: brightness(0) invert(0.97);
 }
 
-/* Footer ------------------------------------------------------------------- */
-.nav-footer {
-  border-top: 1px solid var(--mfm-hairline);
-  font-size: 0.85rem;
+.navbar .navbar-nav .nav-link {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--mfm-ink-2);
+  transition: color var(--mfm-dur) var(--mfm-ease);
 }
 
-/* Section intros used on index pages (Guide, Blog, Models) -------------------- */
-.mfm-eyebrow {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--mfm-muted);
+.navbar .navbar-nav .nav-link:hover,
+.navbar .navbar-nav .nav-link:focus-visible,
+.navbar .navbar-nav .nav-link.show {
+  color: var(--mfm-heading);
 }
 
-.mfm-lede {
-  font-size: 1.15rem;
-  color: var(--mfm-muted);
-  max-width: 42rem;
+.navbar .navbar-nav .nav-link.active {
+  font-weight: 500;
+  color: var(--mfm-heading);
 }
 
-/* Cross-document page transitions where the browser supports them ---------------- */
-@view-transition {
-  navigation: auto;
+/* A short underline under the current section; it also slides in on hover. */
+.navbar .navbar-nav .nav-link:not([data-mfm]) .menu-text {
+  position: relative;
 }
 
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 0.28s;
+.navbar .navbar-nav .nav-link:not([data-mfm]) .menu-text::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--mfm-accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform calc(var(--mfm-dur) * 1.5) var(--mfm-ease);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  @view-transition {
-    navigation: none;
+.navbar .navbar-nav .nav-link:not([data-mfm]):hover .menu-text::after,
+.navbar .navbar-nav .nav-link.active:not([data-mfm]) .menu-text::after {
+  transform: scaleX(1);
+}
+
+.navbar .dropdown-toggle::after {
+  margin-left: 0.4em;
+  vertical-align: 0.12em;
+}
+
+/* Quarto's own dark-mode toggle moved to the footer. */
+.quarto-navbar-tools {
+  display: none;
+}
+
+/* The navbar row, wide screens: mark, links on the left; search and Console on the right.
+   Bootstrap keeps the collapse as a flex box with !important; display: contents lets the two
+   link lists and the search box sit in one row, ordered below. */
+@media (min-width: 992px) {
+  .navbar-expand-lg .navbar-collapse {
+    display: contents !important; /* Bootstrap sets display: flex !important here */
+  }
+
+  .navbar .navbar-nav:first-of-type {
+    order: 2;
+    margin-right: auto;
+  }
+
+  .navbar .navbar-brand-container {
+    order: 1;
+  }
+
+  .navbar #quarto-search {
+    order: 3;
+    margin-left: auto;
+  }
+
+  .navbar .navbar-nav.ms-auto {
+    order: 4;
+    margin-left: 0.5rem;
   }
 }
 
-/* Navbar "Models" menu (assets/js/site.js adds .mfm-models-menu) ---------------- */
+/* Search: a quiet field with the "/" key hint. */
+#quarto-search {
+  display: flex;
+  align-items: center;
+}
+
+#quarto-search .aa-DetachedSearchButton {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 13rem;
+  height: 40px;
+  padding: 0 0.7rem;
+  border: 0;
+  border-radius: var(--mfm-r);
+  background: var(--mfm-tone-1);
+  color: var(--mfm-ink-2);
+  font-family: var(--mfm-font-sans);
+  font-size: 0.9rem;
+  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+}
+
+#quarto-search .aa-DetachedSearchButton:hover {
+  background: var(--mfm-tone-2);
+  color: var(--mfm-heading);
+}
+
+#quarto-search .aa-DetachedSearchButtonIcon {
+  display: flex;
+  color: currentColor;
+}
+
+#quarto-search .aa-DetachedSearchButtonIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+#quarto-search .aa-DetachedSearchButtonPlaceholder {
+  display: block;
+  flex: 1;
+  text-align: left;
+}
+
+#quarto-search .aa-DetachedSearchButtonPlaceholder::before {
+  content: "Search";
+}
+
+#quarto-search .aa-DetachedSearchButtonQuery {
+  display: none;
+}
+
+#quarto-search .aa-DetachedSearchButton::after {
+  content: "/";
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: var(--mfm-r-chip);
+  background: var(--mfm-tone-2);
+  font-family: var(--mfm-font-mono); /* taste-skill-ignore: the / key cap is literal keyboard text */
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+/* Open Console: the one action. Navy with white text on light pages (light on navy on dark
+   ones): console icon, label, an arrow that moves 3px on hover. site.js sets data-mfm. */
+.navbar .navbar-nav .nav-link[data-mfm="console"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 40px;
+  padding: 0 1rem;
+  border-radius: var(--mfm-r);
+  background: var(--mfm-console-bg);
+  color: var(--mfm-console-fg);
+  font-weight: 500;
+  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease), scale var(--mfm-dur);
+}
+
+.navbar .navbar-nav .nav-link[data-mfm="console"]:hover,
+.navbar .navbar-nav .nav-link[data-mfm="console"]:focus-visible {
+  background: var(--mfm-console-hover);
+  color: var(--mfm-console-fg);
+}
+
+.navbar .navbar-nav .nav-link[data-mfm="console"]:hover {
+  color: var(--mfm-on-navy);
+}
+
+.navbar .navbar-nav .nav-link[data-mfm="console"]:active {
+  scale: 0.97;
+}
+
+.navbar .navbar-nav .nav-link[data-mfm="console"]::before,
+.navbar .navbar-nav .nav-link[data-mfm="console"]::after {
+  content: "";
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask: center / contain no-repeat;
+  -webkit-mask: center / contain no-repeat;
+}
+
+.navbar .navbar-nav .nav-link[data-mfm="console"]::before {
+  /* a terminal window with a prompt */
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='2.5' width='13' height='11' rx='2.5'/%3E%3Cpath d='M4.5 6.5 6.5 8l-2 1.5M8.5 10h3'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='2.5' width='13' height='11' rx='2.5'/%3E%3Cpath d='M4.5 6.5 6.5 8l-2 1.5M8.5 10h3'/%3E%3C/svg%3E");
+}
+
+.navbar .navbar-nav .nav-link[data-mfm="console"]::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h10M9 4l4 4-4 4'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h10M9 4l4 4-4 4'/%3E%3C/svg%3E");
+  transition: transform var(--mfm-dur) var(--mfm-ease);
+}
+
+.navbar .navbar-nav .nav-link[data-mfm="console"]:hover::after {
+  transform: translateX(3px);
+}
+
+/* Dark chrome pages (the landing page): the same tokens as dark mode, whichever mode is stored,
+   and the light Console button on the navy bar. */
+body.mfm-landing:is(.quarto-light, .quarto-dark) {
+  --mfm-bg: #07142a;
+  --mfm-ink: #dde3ee;
+  --mfm-ink-2: #9aa7bd;
+  --mfm-heading: #f2f5fa;
+  --mfm-accent: #8fa9ff;
+  --mfm-tone-1: rgba(255, 255, 255, 0.05);
+  --mfm-tone-2: rgba(255, 255, 255, 0.09);
+  --mfm-console-bg: #f2f5fa;
+  --mfm-console-fg: #0c1f40;
+  --mfm-console-hover: #ffffff;
+  --mfm-on-navy: #0c1f40;
+}
+
+/* Models menu (site.js adds .mfm-models-menu): a tone surface, no line ------- */
 .mfm-models-menu .dropdown-header {
   padding: 0.25rem 0.75rem 0.55rem;
-  font-size: 0.78rem;
-  color: var(--mfm-muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--mfm-ink-2);
 }
 
 .mfm-models-menu .dropdown-item {
@@ -253,9 +461,16 @@ main table td:first-child > p > a {
   align-items: center;
   gap: 0.5rem;
   padding: 0.55rem 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--mfm-r);
   font-size: 0.95rem;
-  font-weight: 500;
+  font-weight: 400;
+  color: var(--mfm-ink);
+}
+
+.mfm-models-menu .dropdown-item:hover,
+.mfm-models-menu .dropdown-item:focus {
+  background: var(--mfm-tone-2);
+  color: var(--mfm-heading);
 }
 
 .mfm-models-menu .dropdown-item::after {
@@ -264,7 +479,7 @@ main table td:first-child > p > a {
   padding-left: 1.25rem;
   font-size: 0.85rem;
   opacity: 0.55;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition: transform var(--mfm-dur) var(--mfm-ease), opacity var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-models-menu .dropdown-item.is-external::after {
@@ -273,13 +488,13 @@ main table td:first-child > p > a {
 
 .mfm-models-menu .dropdown-item:hover::after {
   opacity: 1;
-  transform: translateX(2px);
+  transform: translateX(3px);
 }
 
 /* Announced models: listed, greyed, not links (site.js builds them from " SOON" items). */
 .mfm-models-menu .dropdown-item.is-soon {
   cursor: default;
-  color: var(--mfm-muted);
+  color: var(--mfm-ink-2);
 }
 
 .mfm-models-menu .dropdown-item.is-soon::after {
@@ -287,30 +502,23 @@ main table td:first-child > p > a {
 }
 
 .mfm-badge {
-  padding: 0.1rem 0.38rem;
-  border-radius: 5px;
-  background: rgba(246, 174, 114, 0.22);
-  color: #b4611b;
-  font-size: 0.64rem;
-  font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--mfm-r-chip);
+  background: var(--mfm-tone-2);
+  color: var(--mfm-accent);
+  font-size: 0.72rem;
+  font-weight: 500;
 }
 
-body.quarto-dark .mfm-badge,
-body.mfm-landing .mfm-badge {
-  background: rgba(246, 174, 114, 0.16);
-  color: #f6ae72;
+.mfm-badge--soon {
+  color: var(--mfm-ink-2);
 }
 
-.mfm-badge--soon,
-body.quarto-dark .mfm-badge--soon,
-body.mfm-landing .mfm-badge--soon {
-  padding: 0.05rem 0.34rem;
-  border: 1px solid currentColor;
-  background: transparent;
-  color: var(--mfm-muted);
-  opacity: 0.85;
+.navbar .dropdown-menu.mfm-models-menu {
+  border: 0;
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-tone-1);
+  box-shadow: none; /* taste-skill-ignore: removes Bootstrap's shadow */
 }
 
 @media (min-width: 992px) {
@@ -319,12 +527,8 @@ body.mfm-landing .mfm-badge--soon {
     min-width: 34rem;
     margin-top: 0.4rem;
     padding: 1rem 0.5rem;
-    border: 1px solid var(--mfm-hairline);
-    border-radius: 16px;
-    box-shadow: 0 28px 60px -28px rgba(12, 31, 64, 0.45);
     column-count: 2;
     column-gap: 0;
-    column-rule: 1px solid var(--mfm-hairline);
   }
 
   .mfm-models-menu > li {
@@ -340,12 +544,13 @@ body.mfm-landing .mfm-badge--soon {
     break-after: column;
   }
 
+  /* A tone step on a white page is faint; the open menu sits on the page tone-2 edge instead. */
+  body.quarto-light .navbar .dropdown-menu.mfm-models-menu {
+    background: var(--mfm-tone-1);
+  }
+
   body.mfm-landing .navbar .dropdown-menu.mfm-models-menu {
-    border-color: rgba(255, 255, 255, 0.1);
-    background: rgba(12, 31, 64, 0.96);
-    backdrop-filter: blur(14px);
-    box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.8);
-    column-rule-color: rgba(255, 255, 255, 0.1);
+    background: #0c1f40;
   }
 }
 
@@ -367,15 +572,787 @@ body.mfm-landing .mfm-badge--soon {
   color: rgba(247, 247, 247, 0.45);
 }
 
-/* In the collapsed navbar the menu sits on the navy bar itself. */
-@media (max-width: 991.98px) {
-  body.mfm-landing .navbar .dropdown-menu.mfm-models-menu {
-    border: 0;
-    background: transparent;
-    box-shadow: none;
+/* Sidebar and table of contents ------------------------------------------------ */
+/* No highlight fill. Group titles are Plex 500, links 400, the current page cobalt 500. */
+#quarto-sidebar.sidebar-navigation {
+  padding-top: 1.5rem;
+}
+
+#quarto-sidebar .sidebar-item-toggle {
+  display: none;
+}
+
+#quarto-sidebar .sidebar-item-section > .sidebar-item-container .sidebar-item-text {
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--mfm-heading);
+}
+
+#quarto-sidebar .sidebar-item {
+  margin-top: 0.1rem;
+}
+
+#quarto-sidebar .sidebar-item-section {
+  margin-bottom: 1.1rem;
+}
+
+#quarto-sidebar .sidebar-section > .sidebar-item {
+  padding-left: 0;
+}
+
+#quarto-sidebar a.sidebar-link:not(.text-start),
+.mfm-phone-pages a.sidebar-link:not(.text-start) {
+  display: block;
+  padding: 0.3rem 0;
+  font-weight: 400;
+  color: var(--mfm-ink-2);
+  background: none;
+  text-decoration: none;
+  transition: color var(--mfm-dur) var(--mfm-ease), transform var(--mfm-dur) var(--mfm-ease);
+}
+
+#quarto-sidebar a.sidebar-link:not(.text-start):hover {
+  color: var(--mfm-heading);
+  transform: translateX(3px);
+}
+
+#quarto-sidebar a.sidebar-link.active,
+#quarto-sidebar a.sidebar-link[aria-current="page"],
+.mfm-phone-pages a.sidebar-link.active {
+  font-weight: 500;
+  color: var(--mfm-accent);
+  background: none;
+  text-decoration: none;
+}
+
+/* Contents: the current section in cobalt, with a small dot; no rule down the side. */
+#TOC {
+  --mfm-toc-pad: 1.1rem;
+}
+
+#TOC #toc-title {
+  margin-bottom: 0.6rem;
+  font-family: var(--mfm-font-sans);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--mfm-heading);
+}
+
+.quarto-secondary-nav-title,
+#quarto-margin-sidebar .quarto-listing-category-title {
+  font-weight: 500;
+}
+
+/* Previous and next page links: long names wrap instead of widening the page. */
+.page-navigation {
+  gap: 1rem;
+}
+
+.page-navigation .nav-page {
+  min-width: 0;
+}
+
+.page-navigation .nav-page-text {
+  overflow-wrap: anywhere;
+}
+
+#TOC ul {
+  border: 0;
+}
+
+#TOC .nav-link,
+#TOC ul > li > a {
+  position: relative;
+  padding: 0.22rem 0 0.22rem var(--mfm-toc-pad);
+  border: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--mfm-ink-2);
+  transition: color var(--mfm-dur) var(--mfm-ease);
+}
+
+#TOC .nav-link:hover {
+  color: var(--mfm-heading);
+}
+
+#TOC .nav-link::before {
+  content: "";
+  position: absolute;
+  left: 0.15rem;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--mfm-accent);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: transform var(--mfm-dur) var(--mfm-ease), opacity var(--mfm-dur) var(--mfm-ease);
+}
+
+#TOC .nav-link.active {
+  font-weight: 400;
+  color: var(--mfm-accent);
+  border: 0;
+}
+
+#TOC .nav-link.active::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Code blocks: one component ------------------------------------------------------ */
+/* A block is a tone surface with a head row (language label left, Copy right) and a body that
+   scrolls sideways. The scroll cue is an edge fade that shows only where more code lies. */
+:root {
+  --mfm-code-bg: #f1f4fa;
+}
+
+body.quarto-dark {
+  --mfm-code-bg: #121f35;
+}
+
+div.sourceCode {
+  position: relative;
+  margin: 1.4rem 0;
+  border: 0;
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-code-bg);
+}
+
+div.sourceCode.mfm-code {
+  padding-top: 2.6rem;
+}
+
+div.sourceCode pre,
+pre.sourceCode,
+main pre {
+  margin: 0;
+  border: 0;
+  border-radius: var(--mfm-r-card);
+  color: var(--mfm-ink);
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+div.sourceCode pre.sourceCode {
+  position: static;
+  padding: 0.25rem 1.1rem 1.1rem;
+  overflow-x: auto;
+  white-space: pre;
+  background: none;
+}
+
+/* The scroll cue: an edge fade over the code, only on the side that has more (site.js sets the
+   can-scroll classes). It starts below the head row, so it never covers the label or Copy. */
+div.sourceCode.mfm-code::before,
+div.sourceCode.mfm-code::after {
+  content: "";
+  position: absolute;
+  top: 2.6rem;
+  bottom: 0;
+  width: 3.5rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--mfm-dur) var(--mfm-ease);
+}
+
+div.sourceCode.mfm-code::before {
+  left: 0;
+  border-radius: 0 0 0 var(--mfm-r-card);
+  background: linear-gradient(to right, var(--mfm-code-bg) 20%, transparent); /* taste-skill-ignore: edge fade over code that scrolls, not a fill */
+}
+
+div.sourceCode.mfm-code::after {
+  right: 0;
+  border-radius: 0 0 var(--mfm-r-card) 0;
+  background: linear-gradient(to left, var(--mfm-code-bg) 20%, transparent); /* taste-skill-ignore: edge fade over code that scrolls, not a fill */
+}
+
+div.sourceCode.mfm-code.can-scroll-left::before,
+div.sourceCode.mfm-code.can-scroll-right::after {
+  opacity: 1;
+}
+
+/* A block with no language is a bare pre: same surface. */
+main pre:not(.sourceCode) {
+  position: relative;
+  margin: 1.4rem 0;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  background: var(--mfm-code-bg);
+}
+
+div.sourceCode pre code {
+  padding: 0;
+  font-size: inherit;
+  white-space: pre;
+  color: inherit;
+  background: none;
+}
+
+.mfm-code-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.6rem;
+  padding: 0 1.1rem;
+  font-size: 0.85rem;
+  color: var(--mfm-ink-2);
+}
+
+.mfm-lang-mark {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background: center / contain no-repeat;
+}
+
+.mfm-code-label[data-lang="python"] .mfm-lang-mark {
+  background-image: url("../img/logo/python.svg");
+}
+
+.mfm-code-label[data-lang="curl"] .mfm-lang-mark,
+.panel-tabset .nav-link[data-lang="curl"]::before {
+  background: currentColor;
+  mask: url("../img/logo/curl.svg") center / contain no-repeat;
+  -webkit-mask: url("../img/logo/curl.svg") center / contain no-repeat;
+}
+
+.mfm-code-label[data-lang="shell"] .mfm-lang-mark,
+.mfm-code-label[data-lang="json"] .mfm-lang-mark,
+.panel-tabset .nav-link[data-lang="shell"]::before,
+.panel-tabset .nav-link[data-lang="json"]::before {
+  width: auto;
+  font-family: var(--mfm-font-mono); /* taste-skill-ignore: code font for the language mark { } */
+  font-size: 0.85rem;
+  line-height: 16px;
+  text-align: center;
+}
+
+.mfm-code-label[data-lang="shell"] .mfm-lang-mark::before,
+.panel-tabset .nav-link[data-lang="shell"]::before {
+  content: "$";
+}
+
+.mfm-code-label[data-lang="json"] .mfm-lang-mark::before,
+.panel-tabset .nav-link[data-lang="json"]::before {
+  content: "{ }";
+}
+
+.mfm-code-label[data-lang="none"] .mfm-lang-mark {
+  display: none;
+}
+
+/* Copy: icon and "Copy", then a check and "Copied". One look for Quarto's own code button and
+   for <button class="mfm-copy" data-copy="..." aria-label="...">, which the page sheets use for
+   text that is not a code block (the landing install line). */
+.code-copy-button,
+.mfm-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.6rem;
+  border: 0;
+  border-radius: var(--mfm-r);
+  background: none;
+  color: var(--mfm-ink-2);
+  font-family: var(--mfm-font-sans);
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+}
+
+.code-copy-button {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.55rem;
+  z-index: 2;
+}
+
+.code-copy-button:hover,
+.mfm-copy:hover {
+  background: var(--mfm-tone-2);
+  color: var(--mfm-heading);
+}
+
+.code-copy-button::before,
+.mfm-copy::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='5' width='8.5' height='8.5' rx='2'/%3E%3Cpath d='M10.5 3.2V3A1.5 1.5 0 0 0 9 1.5H3.5A1.5 1.5 0 0 0 2 3v5.5A1.5 1.5 0 0 0 3.5 10h.3'/%3E%3C/svg%3E");
+  -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='5' width='8.5' height='8.5' rx='2'/%3E%3Cpath d='M10.5 3.2V3A1.5 1.5 0 0 0 9 1.5H3.5A1.5 1.5 0 0 0 2 3v5.5A1.5 1.5 0 0 0 3.5 10h.3'/%3E%3C/svg%3E");
+}
+
+.code-copy-button::after,
+.mfm-copy::after {
+  content: "Copy";
+}
+
+/* Quarto's icon font glyph is replaced by the mask above. */
+.code-copy-button > i.bi {
+  display: none;
+}
+
+.code-copy-button.code-copy-button-checked,
+.mfm-copy.is-copied {
+  color: var(--mfm-accent);
+}
+
+.code-copy-button.code-copy-button-checked::before,
+.mfm-copy.is-copied::before {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E");
+  animation: mfm-pop calc(var(--mfm-dur) * 1.6) var(--mfm-ease);
+}
+
+.code-copy-button.code-copy-button-checked::after,
+.mfm-copy.is-copied::after {
+  content: "Copied";
+}
+
+/* Quarto's "Copied!" tooltip repeats the button's own label. */
+.code-copy-button-tooltip {
+  display: none;
+}
+
+@keyframes mfm-pop {
+  from {
+    transform: scale(0.6);
   }
 
-  body.mfm-landing .mfm-models-menu .dropdown-divider {
-    border-color: rgba(255, 255, 255, 0.1);
+  to {
+    transform: scale(1);
+  }
+}
+
+/* Tabs: Quarto .panel-tabset as a segmented control with a sliding marker ------------- */
+.panel-tabset > ul.nav-tabs {
+  position: relative;
+  display: flex;
+  flex-wrap: nowrap;
+  width: fit-content;
+  max-width: 100%;
+  gap: 0;
+  margin: 1.2rem 0 0.4rem;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--mfm-r);
+  background: var(--mfm-tone-1);
+}
+
+.panel-tabset > ul.nav-tabs .nav-link {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.85rem;
+  border: 0;
+  border-radius: var(--mfm-r-chip);
+  background: none;
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--mfm-ink-2);
+  transition: color var(--mfm-dur) var(--mfm-ease);
+}
+
+.panel-tabset > ul.nav-tabs .nav-link:hover {
+  color: var(--mfm-heading);
+}
+
+.panel-tabset > ul.nav-tabs .nav-link.active {
+  color: var(--mfm-heading);
+  background: var(--mfm-bg);
+}
+
+.panel-tabset > ul.nav-tabs .nav-link[data-lang="python"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: url("../img/logo/python.svg") center / contain no-repeat;
+}
+
+.panel-tabset > ul.nav-tabs .nav-link[data-lang="curl"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+}
+
+.panel-tabset > ul.nav-tabs .nav-link[data-lang="shell"]::before,
+.panel-tabset > ul.nav-tabs .nav-link[data-lang="json"]::before {
+  font-family: var(--mfm-font-mono); /* taste-skill-ignore: code font for the language mark { } */
+}
+
+/* With the marker in place the active tab needs no fill of its own. */
+.panel-tabset > ul.nav-tabs.is-ready .nav-link.active {
+  background: none;
+}
+
+.mfm-tab-mark {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  border-radius: var(--mfm-r-chip);
+  background: var(--mfm-bg);
+  pointer-events: none;
+}
+
+.panel-tabset > ul.nav-tabs.is-ready .mfm-tab-mark {
+  transition: transform calc(var(--mfm-dur) * 1.6) var(--mfm-ease), width calc(var(--mfm-dur) * 1.6) var(--mfm-ease);
+}
+
+.panel-tabset > .tab-content {
+  padding: 0;
+  border: 0;
+}
+
+.panel-tabset > .tab-content div.sourceCode {
+  margin-top: 0.4rem;
+}
+
+/* Callouts: a tone surface, no frame, no side bar. The icon keeps the accent. */
+.callout.callout-style-default {
+  border: 0;
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-tone-1);
+}
+
+/* Bootstrap colours each callout type's header with a rule of this weight. */
+div.callout[class*="callout-"].callout-style-default > .callout-header {
+  background: none;
+}
+
+.callout.callout-style-default .callout-title-container {
+  font-weight: 500;
+  color: var(--mfm-heading);
+}
+
+.callout.callout-style-default .callout-body-container {
+  padding-top: 0;
+}
+
+/* Footer: one quiet line and the dark-mode button -------------------------------------- */
+footer.footer {
+  margin-top: 4rem;
+  padding: 0 0 2rem;
+  border: 0;
+  background: none;
+}
+
+footer.footer .nav-footer {
+  align-items: center;
+  padding: 0 30px;
+  border: 0;
+  font-size: 0.875rem;
+  color: var(--mfm-ink-2);
+}
+
+footer.footer .nav-footer-center {
+  display: none;
+}
+
+footer.footer .nav-footer-left,
+footer.footer .nav-footer-right {
+  font-size: 0.875rem;
+}
+
+footer.footer .nav-footer p {
+  margin: 0;
+  font-size: inherit;
+}
+
+footer.footer .nav-footer a {
+  color: inherit;
+  text-decoration: none;
+  transition: color var(--mfm-dur) var(--mfm-ease);
+}
+
+footer.footer .nav-footer a:hover {
+  color: var(--mfm-heading);
+}
+
+.mfm-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 2rem;
+  padding: 0 0.6rem;
+  border: 0;
+  border-radius: var(--mfm-r);
+  background: none;
+  color: var(--mfm-ink-2);
+  font-family: var(--mfm-font-sans);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+}
+
+.mfm-theme-toggle:hover {
+  background: var(--mfm-tone-1);
+  color: var(--mfm-heading);
+}
+
+.mfm-theme-toggle::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  /* a half-filled disc: the mode to switch to */
+  mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5a6.5 6.5 0 1 0 0 13z' fill='black'/%3E%3Ccircle cx='8' cy='8' r='6.1' fill='none' stroke='black' stroke-width='1.4'/%3E%3C/svg%3E");
+  -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5a6.5 6.5 0 1 0 0 13z' fill='black'/%3E%3Ccircle cx='8' cy='8' r='6.1' fill='none' stroke='black' stroke-width='1.4'/%3E%3C/svg%3E");
+}
+
+/* Quarto adds "alternate" to the toggle while dark mode is on. */
+.mfm-theme-toggle .mfm-theme-toggle-light,
+.mfm-theme-toggle.alternate .mfm-theme-toggle-dark {
+  display: none;
+}
+
+.mfm-theme-toggle.alternate .mfm-theme-toggle-light {
+  display: inline;
+}
+
+/* The landing page is dark already and carries no footer. */
+body.mfm-landing footer.footer {
+  display: none;
+}
+
+/* Listings (Blog, Models): a quiet list, no rules ------------------------------------- */
+.quarto-listing-default .quarto-post {
+  padding: 1.6rem 0;
+  margin-bottom: 0;
+  border: 0;
+}
+
+.quarto-listing-default .quarto-post .listing-title {
+  margin-bottom: 0.35rem;
+  font-family: var(--mfm-font-sans);
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.quarto-listing-default .quarto-post .listing-subtitle,
+.quarto-listing-default .quarto-post .listing-date,
+.quarto-listing-default .quarto-post .listing-author {
+  font-size: 1rem;
+  color: var(--mfm-ink-2);
+}
+
+.quarto-listing-default .quarto-post .thumbnail img,
+.quarto-listing-default .quarto-post .thumbnail-image {
+  border-radius: var(--mfm-r-card);
+  object-fit: contain; /* figures, not photos: show them whole */
+}
+
+.quarto-listing-category .category,
+.quarto-category {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 0.9rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--mfm-ink-2);
+}
+
+/* Cross-document page transitions where the browser supports them ---------------------- */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.28s;
+}
+
+/* Phone: one menu ------------------------------------------------------------------------ */
+/* Below 992px Quarto's second bar (page title and sidebar toggle) is gone. The navbar panel
+   lists the main links, Open Console, then the pages of the current section (site.js clones
+   them into .mfm-phone-pages). */
+.mfm-phone-pages {
+  display: none;
+}
+
+@media (max-width: 991.98px) {
+  .quarto-secondary-nav {
+    display: none;
+  }
+
+  #quarto-sidebar,
+  #quarto-sidebar-glass {
+    display: none;
+  }
+
+  .navbar .navbar-brand-container {
+    order: 1;
+    margin: 0;
+  }
+
+  .navbar #quarto-search {
+    margin-left: auto;
+  }
+
+  .navbar #quarto-search {
+    order: 2;
+    margin-right: 0.25rem;
+  }
+
+  .navbar .navbar-toggler {
+    order: 3;
+  }
+
+  .navbar #navbarCollapse {
+    order: 4;
+  }
+
+  #quarto-search .aa-DetachedSearchButton {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+    background: none;
+  }
+
+  #quarto-search .aa-DetachedSearchButton::after,
+  #quarto-search .aa-DetachedSearchButtonPlaceholder {
+    display: none;
+  }
+
+  .navbar-toggler {
+    border: 0;
+    padding: 0.4rem;
+    color: var(--mfm-heading);
+  }
+
+  .navbar-toggler:focus {
+    box-shadow: none; /* taste-skill-ignore: removes Bootstrap's shadow */
+  }
+
+  .navbar-toggler-icon {
+    width: 1.4rem;
+    height: 1.4rem;
+    background: currentColor;
+    mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M2.5 4.5h11M2.5 8h11M2.5 11.5h11'/%3E%3C/svg%3E");
+    -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M2.5 4.5h11M2.5 8h11M2.5 11.5h11'/%3E%3C/svg%3E");
+  }
+
+  .navbar-toggler[aria-expanded="true"] .navbar-toggler-icon {
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M3.5 3.5l9 9M12.5 3.5l-9 9'/%3E%3C/svg%3E");
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M3.5 3.5l9 9M12.5 3.5l-9 9'/%3E%3C/svg%3E");
+  }
+
+  #navbarCollapse.show,
+  #navbarCollapse.collapsing {
+    max-height: calc(100dvh - var(--mfm-nav-h));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  #navbarCollapse {
+    padding-bottom: 1.25rem;
+  }
+
+  #navbarCollapse .navbar-nav {
+    padding: 0;
+  }
+
+  #navbarCollapse .navbar-nav .nav-link {
+    padding: 0.55rem 0;
+    font-size: 1.05rem;
+  }
+
+  #navbarCollapse .navbar-nav .nav-link .menu-text::after {
+    display: none;
+  }
+
+  #navbarCollapse .navbar-nav .nav-link[data-mfm="console"] {
+    margin-top: 0.75rem;
+    padding: 0 1.1rem;
+  }
+
+  #navbarCollapse .mfm-models-menu .dropdown-divider {
+    display: none;
+  }
+
+  #navbarCollapse .dropdown-menu.mfm-models-menu {
+    margin: 0 0 0.5rem;
+    padding: 0.25rem 0;
+    background: none;
+  }
+
+  .mfm-phone-pages {
+    display: block;
+    margin-top: 1.5rem;
+    padding-top: 0.5rem;
+    background: none;
+  }
+
+  .mfm-phone-pages .sidebar-menu-container {
+    padding: 0;
+  }
+
+  .mfm-phone-pages ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .mfm-phone-pages .sidebar-item-section {
+    margin-bottom: 1rem;
+  }
+
+  .mfm-phone-pages .sidebar-section {
+    display: block;
+    height: auto;
+    padding: 0;
+  }
+
+  .mfm-phone-pages .sidebar-item-section > .sidebar-item-container .sidebar-item-text {
+    display: block;
+    padding: 0.35rem 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--mfm-heading);
+  }
+
+  .mfm-phone-pages a.sidebar-link:not(.text-start) {
+    font-size: 1rem;
+    padding: 0.35rem 0;
+  }
+
+  #quarto-content {
+    padding-top: 0.5rem;
+  }
+}
+
+/* Reduced motion: every transition and animation above runs on --mfm-dur, which drops to
+   nothing here; the nudges and the arrow stay still. -------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --mfm-dur: 0.01ms;
+  }
+
+  #quarto-sidebar a.sidebar-link:not(.text-start):hover,
+  .mfm-models-menu .dropdown-item:hover::after,
+  .navbar .navbar-nav .nav-link[data-mfm="console"]:hover::after,
+  .navbar-brand:hover .navbar-logo {
+    transform: none;
+  }
+
+  @view-transition {
+    navigation: none;
   }
 }
