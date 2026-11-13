@@ -1,67 +1,126 @@
 /*-- scss:defaults --*/
-// PyMC Labs tokens: pymc-labs.com (navy, aqua, periwinkle, peach, violet) and the
-// brand type: Archivo Expanded (Archivo at width 125) for headlines and large text,
-// Inter for body text and captions, JetBrains Mono for code. The docs skin is the one
-// pymc-marketing, CausalPy and pathmc share (labs blue #154A72, labs green #81C240).
-@import url("https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,300..700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+// MFM docs theme, light: Cobalt. White pages, navy text, one cobalt accent, blue-grey tone steps.
+// Each token is set once here as a Sass variable. Bootstrap and Quarto read the variables, so their
+// own components follow the theme without overrides. The same values leave as --mfm-* custom
+// properties (rules section) for site.css and the page stylesheets. dark.scss mirrors this file.
 
 $navy: #0c1f40;
-$navy-deep: #07142a;
-$labs-blue: #154A72;
-$labs-blue-highlight: #151B72;
-$labs-green: #81C240;
-$aqua: #b4e7dd;
-$periwinkle: #9faae2;
-$peach: #f6ae72;
-$violet: #c8b4e7;
+$ink: #0c1f40;
+$ink-2: #4d5b78;
+$accent: #2650c8;
+$accent-strong: #1b3f9f;
+$tone-1: #f1f4fa;
+$tone-2: #e3e9f4;
+$danger: #b3261e;
 
-$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-$font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-$headings-font-family: "Archivo", "Inter", system-ui, sans-serif;
-$headings-font-weight: 500;
+$font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; // taste-skill-ignore: code font
+$font-display: "Archivo", "IBM Plex Sans", system-ui, sans-serif;
+
+$font-family-sans-serif: $font-sans;
+$font-family-monospace: $font-mono; // taste-skill-ignore: code font
+$headings-font-family: $font-sans;
 $line-height-base: 1.65;
 
+// Weights: nothing above 500 outside the Archivo page titles.
+$font-weight-base: 400;
+$font-weight-normal: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 500;
+$font-weight-bold: 500;
+$font-weight-bolder: 500;
+$headings-font-weight: 500;
+$navbar-brand-font-weight: 500;
+
+// Corners: chips 6, controls 8, cards 12. No pills.
+$border-radius: 8px;
+$border-radius-sm: 6px;
+$border-radius-lg: 12px;
+$border-radius-xl: 12px;
+$border-radius-xxl: 12px;
+$border-radius-pill: 8px;
+
 $body-bg: #ffffff;
-$body-color: #1d2b45;
+$body-color: $ink;
+$body-secondary-color: $ink-2;
 $headings-color: $navy;
-$primary: $labs-blue;
-$secondary: #5b6b85;
-$success: $labs-green;
-$info: $periwinkle;
-$warning: $peach;
-$link-color: $labs-blue;
-$link-hover-color: $labs-blue-highlight;
-$border-color: rgba(12, 31, 64, 0.1);
+$primary: $accent;
+$secondary: $ink-2;
+$success: $accent;
+$info: $accent;
+$warning: $ink-2;
+$link-color: $accent;
+$link-hover-color: $accent-strong;
+$link-decoration: none;
+$border-color: $tone-2;
+$focus-ring-color: rgba($accent, 0.45);
 
-$navbar-bg: #fcfeff;
-$navbar-fg: $labs-blue;
+$navbar-bg: #ffffff;
+$navbar-fg: $ink-2;
 $navbar-hl: $navy;
-$sidebar-fg: #3e4d66;
-$sidebar-hl: $labs-blue;
-$footer-bg: #fcfeff;
-$footer-fg: #5b6b85;
+$sidebar-fg: $ink-2;
+$sidebar-hl: $accent;
+$toc-color: $accent;
+$footer-bg: #ffffff;
+$footer-fg: $ink-2;
+$footer-border-color: transparent;
 
-$code-color: $labs-blue;
-$code-bg: rgba(21, 74, 114, 0.06);
-$code-block-bg: #f5f7fb;
-$code-block-border-color: rgba(12, 31, 64, 0.08);
+$code-color: $navy;
+$code-bg: transparent;
+$code-block-bg: $tone-1;
+$code-block-color: $ink;
+$code-block-border-color: transparent;
 $code-block-border-left: false;
+$input-bg: $tone-1;
+$input-border-color: transparent;
 
-$callout-color-note: $labs-blue;
-$callout-color-tip: $labs-green;
-$callout-color-warning: $peach;
+$table-border-color: $tone-2;
+$table-striped-bg: $tone-1;
+
+$callout-color-note: $accent;
+$callout-color-tip: $accent;
+$callout-color-important: $danger;
+$callout-color-caution: $ink-2;
+$callout-color-warning: $ink-2;
 
 /*-- scss:rules --*/
-:root {
+body.quarto-light {
+  --mfm-bg: #{$body-bg};
+  --mfm-ink: #{$ink};
+  --mfm-ink-2: #{$ink-2};
   --mfm-navy: #{$navy};
-  --mfm-navy-deep: #{$navy-deep};
-  --mfm-aqua: #{$aqua};
-  --mfm-periwinkle: #{$periwinkle};
-  --mfm-peach: #{$peach};
-  --mfm-violet: #{$violet};
-  --mfm-accent: #{$labs-blue};
-  --mfm-accent-soft: rgba(129, 194, 64, 0.35);
-  --mfm-muted: #5b6b85;
-  --mfm-hairline: rgba(12, 31, 64, 0.1);
-  --mfm-surface: #f5f7fb;
+  --mfm-heading: #{$navy};
+  --mfm-accent: #{$accent};
+  --mfm-tone-1: #{$tone-1};
+  --mfm-tone-2: #{$tone-2};
+  --mfm-danger: #{$danger};
+  --mfm-on-navy: #ffffff;
+  --mfm-console-bg: #{$navy};
+  --mfm-console-fg: #ffffff;
+  --mfm-console-hover: #{$accent};
+}
+
+:root {
+  --mfm-r-chip: 6px;
+  --mfm-r: 8px;
+  --mfm-r-card: 12px;
+  --mfm-font-sans: #{$font-sans};
+  --mfm-font-mono: #{$font-mono}; /* taste-skill-ignore: code font */
+  --mfm-font-display: #{$font-display};
+  --mfm-measure: 72ch;
+  --mfm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mfm-dur: 0.18s;
+  --mfm-nav-h: 64px;
+  // Names the landing and model pages still use. Remove once they move to the tokens above.
+  --mfm-navy-deep: #07142a;
+  --mfm-aqua: #b4e7dd;
+  --mfm-periwinkle: #9faae2;
+  --mfm-peach: #f6ae72;
+  --mfm-violet: #c8b4e7;
+  --mfm-accent-soft: rgba(38, 80, 200, 0.35);
+  --mfm-muted: #{$ink-2};
+  --mfm-hairline: #{$tone-2};
+  --mfm-surface: #{$tone-1};
+  --mfm-fg: #{$ink};
+  --mfm-display: #{$font-display};
 }
