@@ -428,12 +428,16 @@
         W.flip(q, lit[q], delay + d * 85, 480, true);
       }
     }
-    box.addEventListener('click', async () => {
+    // Replays the causal change: a click or tap on the wall, or the keyboard button in the Causal text.
+    async function replay() {
       if (cur !== 1 || RM) return;
       const [calm, lit] = await Promise.all([F.calm, F.lit]);
       calm.forEach((f, q) => lit[q] !== f && W.flip(q, f, 0, 300));
       propagate(calm, lit, 250);
-    });
+    }
+    box.addEventListener('click', replay);
+    const replayBtn = sec.querySelector('[data-replay]');
+    if (replayBtn) { if (RM) replayBtn.hidden = true; else replayBtn.addEventListener('click', replay); }
     function onScroll() {
       const b = sec.getBoundingClientRect();
       const t = Math.min(0.999, Math.max(0, -b.top / (b.height - innerHeight)));

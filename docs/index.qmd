@@ -286,7 +286,7 @@ css:
         <div class="v2-cartouche" style="--c0:0;--c1:6;--r0:4;--r1:6">
           <ol class="v2-steps" aria-hidden="true"><li class="on">1</li><li>2</li><li>3</li></ol>
           <div class="v2-say on"><h2>Amortized</h2><p>It learned from 200,000 simulated marketing worlds before you arrive. Your data is read, not refitted: a small dataset gets its answer in seconds, even on a CPU.</p></div>
-          <div class="v2-say"><h2>Causal</h2><p>Every draw carries the causal graph it was sampled with. Change TV, and only what depends on TV moves.</p></div>
+          <div class="v2-say"><h2>Causal</h2><p>Every draw carries the causal graph it was sampled with. Change TV, and only what depends on TV moves.</p><button type="button" class="v2-replay" data-replay>Replay the change</button></div>
           <div class="v2-say"><h2>Bayesian</h2><p>Every result is a set of posterior draws: the likely value, and how far it could reasonably be.</p></div>
         </div>
       </div>
