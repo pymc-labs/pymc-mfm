@@ -375,22 +375,5 @@ window.Painter = (() => {
     },
   };
 
-  // Paint one face. spec: { bg, motif, fg, seed, ... }
-  function paintFace(px, spec) {
-    const S = px;
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = S;
-    const ctx = cv.getContext('2d');
-    const r = rng(spec.seed);
-    const shape = tileShape(S, r);
-    ctx.save();
-    ctx.clip(shape.path);
-    glaze(ctx, r, S, spec.bg, spec.bg === C.glaze ? { alpha: 0.42, shade: 0.32 } : { alpha: 0.6, shade: 0.4, dry: 0.4, pool: 0.3, dark: mix(spec.bg, C.ground, 0.6) });
-    MOTIF[spec.motif || 'blank'](ctx, r, S, spec.fg, spec);
-    poolEdges(ctx, r, shape.edges, spec.bg, S, spec.bg === C.glaze ? 1.1 : 1.35);
-    speckle(ctx, r, S, spec.bg);
-    ctx.restore();
-    return cv;
-  }
-  return { DPR, C, rng, mix, clamp, ease, easeBack, poolOf, brush, linePts, quadPts, arcPts, tileShape, glaze, poolEdges, speckle, paintRegion, MOTIF, paintFace };
+  return { DPR, C, rng, mix, clamp, ease, easeBack, poolOf, brush, linePts, quadPts, arcPts, tileShape, glaze, poolEdges, speckle, paintRegion, MOTIF };
 })();

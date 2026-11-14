@@ -51,8 +51,8 @@ body.mfm-landing {
 .v2-pin { position: sticky; top: var(--v2-nav); height: calc(100svh - var(--v2-nav)); display: flex; align-items: center; }
 .v2-steps { list-style: none; display: flex; gap: 14px; margin: 0 0 14px; padding: 0; font-size: 12px; color: var(--v2-muted); }
 .v2-steps li.on { color: var(--v2-ink); }
-.v2-say { display: none; }
-.v2-say.on { display: block; }
+/* Inactive promise text is hidden on screen but stays in the accessibility tree, so screen readers reach all three. */
+.v2-say:not(.on) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .v2 .v2-say h2 { font-size: 26px; margin-bottom: 10px; }
 .v2 .v2-say p { font-size: 15px; line-height: 1.5; color: var(--v2-ink-2); max-width: 30em; }
 .v2-wall--promise.is-causal { cursor: pointer; }

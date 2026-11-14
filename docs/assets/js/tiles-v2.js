@@ -96,8 +96,11 @@
       this.cur = new Array(cols * rows).fill(null);
       this.anim = new Map();
       this.fc = new Map();
+      this.dead = false;
       walls.add(this);
     }
+    // a resize rebuilds the wall: the old one stops drawing and its pending paint work is skipped
+    dispose() { this.dead = true; this.anim.clear(); walls.delete(this); }
     idx(i, j) { return j * this.cols + i; }
     // paint every face of a spec; resolves with the face array
     paint(spec) {
@@ -105,6 +108,7 @@
       const S = this.S, faces = new Array(this.cols * this.rows).fill(null);
       return new Promise((done) => {
         for (let j = 0; j < this.rows; j++) for (let i = 0; i < this.cols; i++) later(() => {
+          if (this.dead) return;
           const t = spec(i, j, S);
           if (!t) return;
           const k = this.idx(i, j);
@@ -118,6 +122,7 @@
       });
     }
     drawCell(k, face, sx, over) {
+      if (this.dead) return;
       const S = this.S, x = (k % this.cols) * S, y = Math.floor(k / this.cols) * S, g = this.ctx;
       g.save();
       g.beginPath(); g.rect(x, y, S, S); g.clip();
@@ -138,6 +143,7 @@
     // a tile turns over (flip) or a new layer settles into it (fade).
     // then = true queues after the cell's current motion; otherwise it replaces any queued motion.
     move(k, face, delay, dur, kind, then) {
+      if (this.dead) return;
       const now = performance.now();
       let q = this.anim.get(k) || [];
       if (!then) {
@@ -215,23 +221,32 @@
     };
   }
 
-  function hero() {
+  function heroGrid() {
     const sec = document.querySelector('.v2-hero');
     const vw = document.documentElement.clientWidth, vh = sec.clientHeight || innerHeight;
     const Sc = PHONE() ? 56 : Math.max(64, Math.min(112, Math.round(vw / 15)));
-    const cols = Math.ceil(vw / Sc), rows = Math.ceil(vh / Sc);
-    // the panel sits above the band the editor covers
-    const cart = PHONE() ? [0, rows - 8, cols, rows - 4] : [1, rows - 7, Math.min(9, cols - 1), rows - 4];
+    return { sec, Sc, cols: Math.ceil(vw / Sc), rows: Math.ceil(vh / Sc), key: [PHONE(), Sc, Math.ceil(vw / Sc), Math.ceil(vh / Sc)].join() };
+  }
+  let heroWall = null, heroKey = '';
+  // first = true plays the one turn-over; a rebuild after a resize shows the finished wall
+  function hero(first) {
+    const { sec, Sc, cols, rows, key } = heroGrid();
+    if (heroWall) heroWall.dispose();
+    heroKey = key;
+    // the panel sits above the band the editor covers, and never above the wall's first row
+    const span = PHONE() ? 4 : Math.max(3, Math.ceil(220 / Sc)), // rows the name, line and buttons need
+      r0 = Math.max(0, (PHONE() ? rows - 8 : rows - 7)), r1 = Math.max(r0 + span, rows - 4);
+    const cart = PHONE() ? [0, r0, cols, r1] : [1, r0, Math.min(9, cols - 1), r1];
     const panel = sec.querySelector('.v2-cartouche--hero');
     panel.style.cssText = `--c0:${cart[0]};--c1:${cart[2]};--r0:${cart[1]};--r1:${cart[3]}`;
-    const W = new Wall(sec.querySelector('canvas'), cols, rows, Sc);
+    const W = heroWall = new Wall(sec.querySelector('canvas'), cols, rows, Sc);
     Object.assign(sec.querySelector('.v2-wall').style, { width: cols * Sc + 'px', height: rows * Sc + 'px' });
     const pal = [C.peri, C.aqua, C.peach];
     const layer = ridgeLayer(cols, rows, { n: 15, top: 0.08, span: 0.88, w: 0.075, colour: (d) => (d > 0.86 ? C.ink : pal[Math.floor(d * 15) % 3]) });
     // the wall is laid plain first; the painted faces turn over together, once
     W.quietAll();
     W.paint((i, j) => (inRect(i, j, cart) ? quiet() : { layer })).then((faces) => {
-      if (RM) return W.set(faces);
+      if (RM || !first) return W.set(faces);
       faces.forEach((f, k) => W.flip(k, f, jitter(k, 160), 640));
     });
   }
@@ -381,38 +396,46 @@
   function promises() {
     const sec = document.querySelector('[data-pin]');
     const box = sec.querySelector('.v2-wall--promise');
-    const L = layout();
-    const W = new Wall(box.querySelector('canvas'), L.cols, L.rows);
-    W.quietAll();
-    const cells = causalGraph(L), dabs = bayesDabs(L);
-    // paint in the order they are needed; each promise resolves to its faces
-    const F = {};
-    F.amort = W.paint(amortizedSpec(L));
-    F.calm = W.paint(causalSpec(L, cells, false));
-    F.lit = W.paint(causalSpec(L, cells, true));
-    F.b1 = W.paint(bayesSpec(L, dabs, 250));
-    F.b2 = W.paint(bayesSpec(L, dabs, 600));
-    F.b3 = W.paint(bayesSpec(L, dabs, 1000));
+    let L, W, cells, F, phone;
+    // (re)builds the wall for the current layout; each promise in F resolves to its faces, painted in the order needed
+    function build() {
+      if (W) W.dispose();
+      phone = PHONE(); L = layout();
+      W = new Wall(box.querySelector('canvas'), L.cols, L.rows);
+      W.quietAll();
+      cells = causalGraph(L); const dabs = bayesDabs(L);
+      F = {};
+      F.amort = W.paint(amortizedSpec(L));
+      F.calm = W.paint(causalSpec(L, cells, false));
+      F.lit = W.paint(causalSpec(L, cells, true));
+      F.b1 = W.paint(bayesSpec(L, dabs, 250));
+      F.b2 = W.paint(bayesSpec(L, dabs, 600));
+      F.b3 = W.paint(bayesSpec(L, dabs, 1000));
+    }
+    build();
 
     const says = [...sec.querySelectorAll('.v2-say')], marks = [...sec.querySelectorAll('.v2-steps li')];
     let cur = -1, run = 0;
     const all = (faces, span, delay = 0, dur) => faces.forEach((f, k) => W.flip(k, f, delay + jitter(k, span), dur));
-    async function show(k) {
+    const replayBtn = sec.querySelector('[data-replay]');
+    // still = true shows the state's finished picture (after a rebuild)
+    async function show(k, still) {
       const me = ++run;
       says.forEach((s, q) => s.classList.toggle('on', q === k));
+      if (replayBtn) replayBtn.hidden = RM || k !== 1;
       marks.forEach((s, q) => s.classList.toggle('on', q === k));
       box.classList.toggle('is-causal', k === 1);
       if (k === 0) {
         const f = await F.amort; if (me !== run) return;
-        RM ? W.set(f) : all(f, 90); // the whole answer turns over at once
+        RM || still ? W.set(f) : all(f, 90); // the whole answer turns over at once
       } else if (k === 1) {
         const [calm, lit] = await Promise.all([F.calm, F.lit]); if (me !== run) return;
-        if (RM) return W.set(lit);
+        if (RM || still) return W.set(lit);
         all(calm, 90);
         propagate(calm, lit, 900);
       } else {
         const [b1, b2, b3] = await Promise.all([F.b1, F.b2, F.b3]); if (me !== run) return;
-        if (RM) return W.set(b3);
+        if (RM || still) return W.set(b3);
         all(b1, 120);
         b2.forEach((f, q) => W.fade(q, f, 1000 + jitter(q, 300), 500, true));
         b3.forEach((f, q) => W.fade(q, f, 1800 + jitter(q, 300), 500, true));
@@ -436,8 +459,9 @@
       propagate(calm, lit, 250);
     }
     box.addEventListener('click', replay);
-    const replayBtn = sec.querySelector('[data-replay]');
-    if (replayBtn) { if (RM) replayBtn.hidden = true; else replayBtn.addEventListener('click', replay); }
+    if (replayBtn) replayBtn.addEventListener('click', (e) => { e.stopPropagation(); replay(); });
+    // phone and desktop use different grids: rebuild when the layout changes
+    onLayout(() => { if (PHONE() === phone) return; build(); if (cur >= 0) show(cur, true); });
     function onScroll() {
       const b = sec.getBoundingClientRect();
       const t = Math.min(0.999, Math.max(0, -b.top / (b.height - innerHeight)));
@@ -467,19 +491,34 @@
     const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); fn(); } }, { rootMargin: '600px 0px' });
     io.observe(el);
   }
+  // a wall built when near the viewport, and rebuilt when the phone/desktop layout changes
+  function lazyWall(el, make) {
+    let W = null, phone;
+    const build = () => { if (W) W.dispose(); phone = PHONE(); W = make(phone); };
+    whenNear(el, build);
+    onLayout(() => { if (W && PHONE() !== phone) build(); });
+  }
   function quietWalls() {
     const win = document.querySelector('[data-wall="windows"]');
-    whenNear(win, () => {
-      const ph = PHONE(), cols = ph ? 8 : 16, rows = ph ? 6 : 7, cart = ph ? null : [1, 4, 7, 7];
+    lazyWall(win, (ph) => {
+      const cols = ph ? 8 : 16, rows = ph ? 6 : 7, cart = ph ? null : [1, 4, 7, 7];
       const W = new Wall(win.querySelector('canvas'), cols, rows);
       W.paint(waveSpec(cart)).then((f) => W.set(f));
+      return W;
     });
     const sk = document.querySelector('[data-wall="skirt"]');
-    whenNear(sk, () => { const W = new Wall(sk.querySelector('canvas'), PHONE() ? 12 : 32, 1); W.paint(skirtSpec()).then((f) => W.set(f)); });
+    lazyWall(sk, (ph) => { const W = new Wall(sk.querySelector('canvas'), ph ? 12 : 32, 1); W.paint(skirtSpec()).then((f) => W.set(f)); return W; });
   }
 
+  // resize and rotation: debounced; each wall decides whether its grid changed
+  const layoutFns = [];
+  function onLayout(fn) { layoutFns.push(fn); }
+  let layoutTimer = 0;
+  addEventListener('resize', () => { clearTimeout(layoutTimer); layoutTimer = setTimeout(() => layoutFns.forEach((fn) => fn()), 200); });
+  onLayout(() => { if (heroGrid().key !== heroKey) hero(false); });
+
   function boot() {
-    hero();
+    hero(true);
     promises();
     quietWalls();
   }
