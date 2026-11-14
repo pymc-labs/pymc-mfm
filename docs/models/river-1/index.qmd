@@ -1,11 +1,14 @@
 ---
 title: "River 1.0"
 subtitle: "PyMC Labs' first Marketing Foundation Model"
-# The Models page shows `summary`; link previews use the open-graph text.
+# The Models page shows `summary`; link previews use the open-graph text and the site's
+# share image (`image` below is the Models tile, not a share image).
 summary: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 open-graph:
+  image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 twitter-card:
+  image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 date: 2026-11-07
 author: "PyMC Labs"

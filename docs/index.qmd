@@ -315,7 +315,7 @@ css:
       <li><a href="guide/index.html">Docs</a><p>Install, concepts and worked notebooks.</p></li>
       <li><a href="api/index.html">API</a><p>The HTTP routes and the Python reference.</p></li>
       <li><a href="models/index.html">Models</a><p>Trained networks and their release notes.</p></li>
-      <li><a href="blog/index.html">Blog</a><p>Methods and engineering notes from the team.</p></li>
+      <li><a href="https://www.pymc-labs.com/blog-posts">Blog</a><p>Posts from the PyMC Labs team.</p></li>
     </ul>
     <p class="v2-team">From the team behind <a href="https://www.pymc-labs.com/open-source">PyMC, PyMC-Marketing and CausalPy</a>.</p>
   </div>
