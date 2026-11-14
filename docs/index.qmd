@@ -7,7 +7,9 @@ toc: false
 section-divs: false
 anchor-sections: false
 body-classes: mfm-landing
-css: assets/styles/landing.css
+css:
+  - assets/styles/landing.css
+  - assets/styles/tiles-scene.css
 ---
 
 ```{=html}
@@ -17,7 +19,7 @@ css: assets/styles/landing.css
 </script>
 <div class="mfm">
 
-<!-- 1. Hero: one name, one line ------------------------------------------------ -->
+<!-- 1. Hero: one name, one line. Button icons: Phosphor Regular (assets/icons/phosphor). -->
 <section class="mfm-hero" aria-labelledby="mfm-hero-title">
   <canvas class="mfm-hero__field" data-mfm="field" aria-hidden="true"></canvas>
   <div class="mfm-grain" aria-hidden="true"></div>
@@ -27,18 +29,17 @@ css: assets/styles/landing.css
     <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>
     <p class="mfm-hero__line">Marketing foundation models by PyMC Labs. Train once, decompose many.</p>
     <div class="mfm-hero__actions">
-      <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <span aria-hidden="true">→</span></a>
+      <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
       <a class="mfm-btn mfm-btn--ghost no-external" href="https://mfm-staging.pymc-labs.com/console/">
-        <svg class="mfm-btn__icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.4l2 1.8-2 1.8M8.6 10h2.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Open Console
+        <svg class="mfm-btn__icon" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M128,128a8,8,0,0,1-3,6.25l-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32A8,8,0,0,1,128,128Zm48,24H136a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm56-96V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Z"/></svg>
+        Open Console <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
       </a>
     </div>
   </div>
-  <a class="mfm-hero__scroll" href="#mfm-statement">Scroll to explore<span aria-hidden="true"></span></a>
 </section>
 
 <!-- 2. What it does, in one statement -------------------------------------------- -->
-<section class="mfm-statement" id="mfm-statement" tabindex="-1">
+<section class="mfm-statement">
   <p class="mfm-statement__text" data-mfm="statement">
     PyMC MFM trains neural networks on simulated marketing worlds. Hand one your weekly
     spend, controls and sales, and it returns posterior draws of every contribution, with the
@@ -53,7 +54,6 @@ css: assets/styles/landing.css
   </header>
 
   <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, decomposes the last 13 weeks into 1,000 posterior draws, exports an ArviZ DataTree, summarises each channel's total contribution, and plots its distribution, the weekly contributions with 90% intervals and the stacked mean decomposition. Synthetic data; the outputs come from River 1.0.">
-    <div class="mfm-stage__bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="mfm-grain" aria-hidden="true"></div>
 
     <div class="mfm-ide" data-mfm="notebook" data-ui>
@@ -292,28 +292,24 @@ css: assets/styles/landing.css
       <code class="mfm-install__cmd">pip install "pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
       <button class="mfm-copy" type="button" data-copy="pip install &quot;pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command"></button>
     </div>
-    <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. <a href="guide/examples/river_1_quickstart.html">See the full quickstart →</a></p>
+    <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. <a href="guide/examples/river_1_quickstart.html">See the full quickstart <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a></p>
   </div>
 </section>
 
-<!-- 4. Why amortize: one word per screen --------------------------------------------- -->
-<section class="mfm-chapters" data-mfm="chapters" aria-label="Why amortize">
-  <div class="mfm-chapters__track">
-    <article class="mfm-chapter" style="--tone: 180, 231, 221">
-      <h2 class="mfm-chapter__word">Amortized.</h2>
-      <p class="mfm-chapter__line">Training is paid once, on simulated worlds with known answers. A new dataset is
-        context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p>
-    </article>
-    <article class="mfm-chapter" style="--tone: 246, 174, 114">
-      <h2 class="mfm-chapter__word">Causal.</h2>
-      <p class="mfm-chapter__line">Every draw carries the causal graph it was sampled with, over channels, controls and
-        latent demand. Average over graphs, take the most frequent one, or fix your own.</p>
-    </article>
-    <article class="mfm-chapter" style="--tone: 200, 180, 231">
-      <h2 class="mfm-chapter__word">Bayesian.</h2>
-      <p class="mfm-chapter__line">Draws, not point estimates: each contribution in outcome units with its uncertainty,
-        exported as an ArviZ DataTree for the rest of your PyMC workflow.</p>
-    </article>
+<!-- 4. Why amortize: painted tiles. One wall pins while you scroll and changes in place,
+     Amortized, Causal, Bayesian (tiles-scene.css, tiles-scene.js). Full width; sticky needs
+     no ancestor that scrolls (.mfm clips, which is fine). -------------------------------- -->
+<section class="tiles-scene" aria-label="Amortized, causal, Bayesian">
+  <div class="ts-pin">
+    <div class="ts-text">
+      <ol class="ts-steps" aria-hidden="true"><li class="is-on">1</li><li>2</li><li>3</li></ol>
+      <div class="ts-copies">
+        <div class="ts-copy is-on"><h2 class="ts-title">Amortized.</h2><p class="ts-line">Training is paid once, on simulated worlds with known answers. A new dataset is context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p></div>
+        <div class="ts-copy"><h2 class="ts-title">Causal.</h2><p class="ts-line">Every draw carries the causal graph it was sampled with, over channels, controls and latent demand. Average over graphs, take the most frequent one, or fix your own.</p></div>
+        <div class="ts-copy"><h2 class="ts-title">Bayesian.</h2><p class="ts-line">Draws, not point estimates: each contribution in outcome units with its uncertainty, exported as an ArviZ DataTree for the rest of your PyMC workflow.</p></div>
+      </div>
+    </div>
+    <div class="ts-wall"><canvas class="ts-canvas" aria-hidden="true"></canvas></div>
   </div>
 </section>
 
@@ -327,7 +323,7 @@ css: assets/styles/landing.css
       <p>PyMC Labs' first published network: 2.4M parameters, 1 to 10 channels, posterior
         draws in seconds on a CPU.</p>
       <p class="mfm-release__links">
-        <a href="models/river-1/index.html">Release notes <span aria-hidden="true">→</span></a>
+        <a href="models/river-1/index.html">Release notes <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
       </p>
     </div>
   </div>
@@ -336,16 +332,16 @@ css: assets/styles/landing.css
 <!-- 6. Explore ----------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
   <nav class="mfm-explore" aria-label="Explore">
-    <a href="guide/index.html"><span class="mfm-explore__title">Docs <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
-    <a href="api/index.html"><span class="mfm-explore__title">API <span aria-hidden="true">→</span></span><span class="mfm-explore__text">The HTTP routes and the Python reference.</span></a>
-    <a href="models/index.html"><span class="mfm-explore__title">Models <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Trained networks and their release notes.</span></a>
-    <a href="blog/index.html"><span class="mfm-explore__title">Blog <span aria-hidden="true">→</span></span><span class="mfm-explore__text">Methods and engineering notes from the team.</span></a>
+    <a href="guide/index.html"><span class="mfm-explore__title">Docs <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
+    <a href="api/index.html"><span class="mfm-explore__title">API <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">The HTTP routes and the Python reference.</span></a>
+    <a href="models/index.html"><span class="mfm-explore__title">Models <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Trained networks and their release notes.</span></a>
+    <a href="blog/index.html"><span class="mfm-explore__title">Blog <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Methods and engineering notes from the team.</span></a>
   </nav>
 </section>
 
 <section class="mfm-outro mfm-reveal">
   <p>From the team behind <a href="https://www.pymc-labs.com/open-source">PyMC, PyMC-Marketing and CausalPy</a>.</p>
-  <a class="mfm-btn mfm-btn--ghost" href="https://www.pymc-labs.com">Visit pymc-labs.com <span aria-hidden="true">↗</span></a>
+  <a class="mfm-btn mfm-btn--ghost" href="https://www.pymc-labs.com">Visit pymc-labs.com <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
 </section>
 
 </div>
@@ -355,4 +351,5 @@ css: assets/styles/landing.css
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/ScrollTrigger.min.js" integrity="sha384-H2WL1iy/jKQQ7MTHU2hskZKNHTYWWD/KgKE1vCNnaWY8An2ESTh23KN/fTp8XS3j" crossorigin="anonymous" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/SplitText.min.js" integrity="sha384-e98MX/fxZrUXA/6T+aCptryLfHgR2FpEmWxDbbPloHT0Qg79dEXKdLJ/iwD2lzxs" crossorigin="anonymous" defer></script>
 <script src="assets/js/landing.js" defer></script>
+<script src="assets/js/tiles-scene.js" defer></script>
 ```

@@ -272,9 +272,16 @@ body.quarto-dark .navbar-logo {
   transform: scaleX(1);
 }
 
+/* The menu caret: Phosphor CaretDown instead of Bootstrap's border triangle. */
 .navbar .dropdown-toggle::after {
+  width: 12px;
+  height: 12px;
   margin-left: 0.4em;
-  vertical-align: 0.12em;
+  border: 0;
+  vertical-align: -0.05em;
+  background: currentColor;
+  mask: url("../icons/phosphor/caret-down.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/caret-down.svg") center / contain no-repeat;
 }
 
 /* Quarto's own dark-mode toggle moved to the footer. */
@@ -310,72 +317,468 @@ body.quarto-dark .navbar-logo {
   }
 }
 
-/* Search: a quiet field with the "/" key hint. */
+/* Search ------------------------------------------------------------------------- */
+/* Quarto's textbox search: a field in the navbar with a "/" key hint; below 992px Quarto opens
+   it as a full-screen sheet. The results panel and the sheet are always a light surface on the
+   landing page and on light pages, a navy one in dark mode. search.js adds the path line under
+   each title, the empty-results message and the panel position. Several selectors carry
+   #quarto-search-results or html body: they must outrank Quarto's own id-level search rules.
+   The theme tokens live on body (light.scss, dark.scss), so these do too. */
+body {
+  --mfm-search-field: var(--mfm-tone-1);
+  --mfm-search-field-focus: #ffffff;
+  --mfm-search-surface: #ffffff;
+  --mfm-search-ink: #0c1f40;
+  --mfm-search-ink-2: #4d5b78;
+  --mfm-search-accent: #2650c8;
+  --mfm-search-tone-1: #f1f4fa;
+  --mfm-search-tone-2: #e3e9f4;
+  --mfm-search-shadow: 0 12px 32px rgba(12, 31, 64, 0.16), 0 2px 6px rgba(12, 31, 64, 0.08);
+}
+
+body.quarto-dark:not(.mfm-landing) {
+  --mfm-search-field-focus: rgba(255, 255, 255, 0.12);
+  --mfm-search-surface: #0c1f40;
+  --mfm-search-ink: #f2f5fa;
+  --mfm-search-ink-2: #9aa7bd;
+  --mfm-search-accent: #8fa9ff;
+  --mfm-search-tone-1: rgba(255, 255, 255, 0.06);
+  --mfm-search-tone-2: rgba(255, 255, 255, 0.1);
+  --mfm-search-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
 #quarto-search {
+  position: relative;
   display: flex;
   align-items: center;
 }
 
-#quarto-search .aa-DetachedSearchButton {
-  display: flex;
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form {
+  position: relative;
   align-items: center;
-  gap: 0.55rem;
-  width: 13rem;
-  height: 40px;
-  padding: 0 0.7rem;
+  height: 36px;
   border: 0;
   border-radius: var(--mfm-r);
-  background: var(--mfm-tone-1);
-  color: var(--mfm-ink-2);
-  font-family: var(--mfm-font-sans);
-  font-size: 0.9rem;
-  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+  background: var(--mfm-search-field);
+  box-shadow: none; /* taste-skill-ignore: removes Quarto's field ring */
+  transition: background-color var(--mfm-dur) var(--mfm-ease);
 }
 
-#quarto-search .aa-DetachedSearchButton:hover {
-  background: var(--mfm-tone-2);
-  color: var(--mfm-heading);
+html body #quarto-search .aa-Form {
+  width: 280px;
 }
 
-#quarto-search .aa-DetachedSearchButtonIcon {
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form:focus-within {
+  background: var(--mfm-search-field-focus);
+  box-shadow: none; /* taste-skill-ignore: the outline below replaces Quarto's ring */
+  outline: 2px solid var(--mfm-accent);
+  outline-offset: 0;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperPrefix {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 36px;
+  justify-content: center;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-Label,
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-SubmitButton {
   display: flex;
-  color: currentColor;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mfm-ink-2);
 }
 
-#quarto-search .aa-DetachedSearchButtonIcon svg {
-  width: 16px;
-  height: 16px;
-}
-
-#quarto-search .aa-DetachedSearchButtonPlaceholder {
-  display: block;
-  flex: 1;
-  text-align: left;
-}
-
-#quarto-search .aa-DetachedSearchButtonPlaceholder::before {
-  content: "Search";
-}
-
-#quarto-search .aa-DetachedSearchButtonQuery {
+/* Quarto's magnifier and clear icons give way to Phosphor masks. */
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-SubmitIcon,
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-ClearIcon,
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-LoadingIndicator {
   display: none;
 }
 
-#quarto-search .aa-DetachedSearchButton::after {
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-SubmitButton::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper .aa-Input,
+#quarto-search .aa-Form .aa-InputWrapper .aa-Input {
+  width: 100%;
+  height: 36px;
+  padding: 0 34px 0 36px;
+  border: 0;
+  background: transparent;
+  color: var(--mfm-heading);
+  font: 400 14px/1.4 var(--mfm-font-sans);
+  outline: none;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper .aa-Input::placeholder {
+  color: var(--mfm-ink-2);
+  opacity: 1;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper .aa-Input::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* The plain "/" hint, hidden while the field has text. */
+html body #quarto-search .aa-Autocomplete .aa-Form::after {
   content: "/";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--mfm-ink-2);
+  font: 400 14px/1 var(--mfm-font-sans);
+  pointer-events: none;
+}
+
+html body #quarto-search .aa-Form:has(.aa-Input:not(:placeholder-shown))::after {
+  display: none;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperSuffix {
+  position: absolute;
+  inset: 0 0 0 auto;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperSuffix .aa-ClearButton {
   display: grid;
   place-items: center;
-  width: 1.35rem;
-  height: 1.35rem;
+  width: 32px;
+  height: 32px;
+  margin-right: 2px;
+  padding: 0;
+  border: 0;
   border-radius: var(--mfm-r-chip);
+  background: none;
+  color: var(--mfm-ink-2);
+  opacity: 1;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperSuffix .aa-ClearButton[hidden] {
+  display: none;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperSuffix .aa-ClearButton:hover {
   background: var(--mfm-tone-2);
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: the / key cap is literal keyboard text */
-  font-size: 0.78rem;
-  line-height: 1;
+}
+
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperSuffix .aa-ClearButton::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  mask: url("../icons/phosphor/x.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/x.svg") center / contain no-repeat;
+}
+
+/* The sheet's field sits on white even in dark mode, so it keeps the panel's colours. */
+.aa-DetachedFormContainer .aa-Form {
+  --mfm-heading: var(--mfm-search-ink);
+  --mfm-ink-2: var(--mfm-search-ink-2);
+  --mfm-tone-2: var(--mfm-search-tone-2);
+  --mfm-search-field: var(--mfm-search-tone-1);
+  --mfm-search-field-focus: var(--mfm-search-surface);
+}
+
+/* Results panel. */
+html body .aa-Panel {
+  border: 0;
+  border-radius: var(--mfm-r-card);
+  background: var(--mfm-search-surface);
+  box-shadow: var(--mfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
+  color: var(--mfm-search-ink);
+  overflow: auto;
+}
+
+/* Under the field, 560px wide; search.js sets the position from the field's box. */
+@media (min-width: 992px) {
+  html body #quarto-search-results .aa-Panel {
+    position: fixed;
+    top: var(--mfm-search-panel-top, 52px) !important; /* Quarto positions the panel inline */
+    left: var(--mfm-search-panel-left, 600px) !important; /* Quarto positions the panel inline */
+    right: auto !important; /* Quarto positions the panel inline */
+    width: 560px;
+    max-width: calc(100vw - 16px);
+    max-height: 70vh;
+    z-index: 1200;
+  }
+}
+
+/* With an empty field Quarto opens a panel whose only line it hides: no empty panel either. */
+html body .aa-Panel:has(.no-query) {
+  display: none;
+}
+
+html body .aa-PanelLayout {
+  max-height: none;
+  padding: 6px;
+  overflow: visible;
+  background: none;
+}
+
+html body .aa-Source {
+  margin: 0;
+}
+
+html body .aa-List {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) .aa-SourceHeader .search-result-header {
+  padding: 8px 10px 6px;
+  background: none;
+  color: var(--mfm-search-ink-2);
+  font: 500 13px/1.4 var(--mfm-font-sans);
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) .aa-Item .search-result-doc-section,
+:is(#quarto-search-results, .aa-DetachedOverlay) .aa-Item .search-result-more,
+:is(#quarto-search-results, .aa-DetachedOverlay) .aa-Item .search-result-doc {
+  padding: 0;
+  border: 0;
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) .aa-SourceNoResults {
+  height: auto;
+  padding: 8px 10px;
+  justify-content: flex-start;
+  color: var(--mfm-search-ink-2);
+  font: 400 14px/1.5 var(--mfm-font-sans);
+}
+
+/* A row: title, path line, snippet. The selected row is a tone fill with a cobalt title;
+   no bar down its side. */
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mfm-r-chip);
+  background: transparent;
+  box-shadow: none; /* taste-skill-ignore: removes any side bar */
+  color: var(--mfm-search-ink);
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected="true"] .search-item {
+  background: var(--mfm-search-tone-1);
+}
+
+/* Quarto paints the selected row's parts cobalt with white text; they stay plain here, and only
+   the title turns cobalt. */
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item.search-result-more,
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-text,
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-text-container {
+  background: transparent;
+  color: var(--mfm-search-ink-2);
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-section,
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-title-container {
+  background: transparent;
+  color: var(--mfm-search-ink);
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected="true"] .search-item :is(.search-result-title, .search-result-section) {
+  color: var(--mfm-search-accent);
+}
+
+.search-result-link,
+.search-result-link:hover {
+  display: flex;
+  flex-direction: column;
+  padding: 9px 12px 9px 14px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.search-result-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-result-icon {
+  display: none;
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-title-container {
+  display: flex;
+  order: 1;
+  padding: 0;
+  color: var(--mfm-search-ink);
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) .search-item :is(.search-result-title, .search-result-section) {
+  order: 1;
+  margin: 0;
+  padding: 0;
+  color: var(--mfm-search-ink);
+  font: 500 15px/1.35 var(--mfm-font-sans);
+}
+
+.mfm-search-path {
+  order: 2;
+  margin: 1px 0 0;
+  color: var(--mfm-search-ink-2);
+  font: 400 13px/1.4 var(--mfm-font-sans);
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-text-container {
+  order: 3;
+  margin: 0;
+  padding: 0;
+  color: var(--mfm-search-ink-2);
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-text,
+.mfm-search-snippet {
+  order: 3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 3px 0 0;
+  max-height: none;
+  color: var(--mfm-search-ink-2);
+  font: 400 14px/1.45 var(--mfm-font-sans);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* On API and reference rows search.js shows the first sentence of the description instead. */
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-text:has(+ .mfm-search-snippet) {
+  display: none;
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item :is(mark.search-match, .search-match.mark),
+.mfm-search-snippet mark {
+  padding: 0;
+  background: none;
+  color: var(--mfm-search-ink);
+  font-weight: 500;
+}
+
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item.search-result-more,
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-more {
+  padding: 4px 12px 8px 14px;
+  color: var(--mfm-search-ink-2);
+  font: 400 13px/1.4 var(--mfm-font-sans);
+}
+
+/* No results: the query and two places to start (search.js), in place of Quarto's line. */
+:is(#quarto-search-results, .aa-DetachedOverlay) .aa-SourceNoResults:has(+ .mfm-search-empty) {
+  display: none;
+}
+
+.mfm-search-empty {
+  padding: 4px 10px 10px;
+  color: var(--mfm-search-ink-2);
+  font: 400 14px/1.5 var(--mfm-font-sans);
+}
+
+.mfm-search-empty p {
+  margin: 0 0 6px;
+}
+
+.mfm-search-empty a {
+  margin-right: 14px;
+  color: var(--mfm-search-accent);
+  font-weight: 500;
+}
+
+/* Phone: the full-screen sheet. */
+html body .aa-DetachedOverlay {
+  background: var(--mfm-search-surface);
+}
+
+html body .aa-DetachedContainer {
+  border-radius: 0;
+  background: var(--mfm-search-surface);
+  box-shadow: none; /* taste-skill-ignore: removes Quarto's sheet outline */
+}
+
+html body .aa-DetachedFormContainer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 0;
+  background: var(--mfm-search-surface);
+}
+
+html body .aa-DetachedFormContainer .aa-Form {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+html body .aa-DetachedCancelButton {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mfm-r);
+  background: none;
+  color: transparent;
+  font-size: 0;
+}
+
+html body .aa-DetachedCancelButton::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 20px;
+  height: 20px;
+  background: var(--mfm-search-ink);
+  mask: url("../icons/phosphor/x.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/x.svg") center / contain no-repeat;
+}
+
+html body .aa-DetachedCancelButton:hover,
+html body .aa-DetachedCancelButton:focus-visible {
+  background: var(--mfm-search-tone-1);
+  box-shadow: none; /* taste-skill-ignore: removes Quarto's button ring */
+}
+
+html body .aa-DetachedCancelButton:focus-visible {
+  outline: 2px solid var(--mfm-accent);
+}
+
+html body .aa-DetachedContainer .aa-Panel {
+  position: static;
+  width: auto;
+  max-height: none;
+  border-radius: 0;
+  background: var(--mfm-search-surface);
+  box-shadow: none; /* taste-skill-ignore: the sheet is the surface */
 }
 
 /* Open Console: the one action. Navy with white text on light pages (light on navy on dark
-   ones): console icon, label, an arrow that moves 3px on hover. site.js sets data-mfm. */
+   ones): Phosphor TerminalWindow, label, an ArrowRight that moves 3px on hover. site.js sets
+   data-mfm. */
 .navbar .navbar-nav .nav-link[data-mfm="console"] {
   display: inline-flex;
   align-items: center;
@@ -407,22 +810,21 @@ body.quarto-dark .navbar-logo {
 .navbar .navbar-nav .nav-link[data-mfm="console"]::after {
   content: "";
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   background: currentColor;
   mask: center / contain no-repeat;
   -webkit-mask: center / contain no-repeat;
 }
 
 .navbar .navbar-nav .nav-link[data-mfm="console"]::before {
-  /* a terminal window with a prompt */
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='2.5' width='13' height='11' rx='2.5'/%3E%3Cpath d='M4.5 6.5 6.5 8l-2 1.5M8.5 10h3'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='2.5' width='13' height='11' rx='2.5'/%3E%3Cpath d='M4.5 6.5 6.5 8l-2 1.5M8.5 10h3'/%3E%3C/svg%3E");
+  mask-image: url("../icons/phosphor/terminal-window.svg");
+  -webkit-mask-image: url("../icons/phosphor/terminal-window.svg");
 }
 
 .navbar .navbar-nav .nav-link[data-mfm="console"]::after {
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h10M9 4l4 4-4 4'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h10M9 4l4 4-4 4'/%3E%3C/svg%3E");
+  mask-image: url("../icons/phosphor/arrow-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-right.svg");
   transition: transform var(--mfm-dur) var(--mfm-ease);
 }
 
@@ -473,17 +875,23 @@ body.mfm-landing:is(.quarto-light, .quarto-dark) {
   color: var(--mfm-heading);
 }
 
+/* Phosphor ArrowRight, or ArrowUpRight for a link that leaves the site. */
 .mfm-models-menu .dropdown-item::after {
-  content: "\2192";
+  content: "";
+  flex: none;
+  width: 16px;
+  height: 16px;
   margin-left: auto;
-  padding-left: 1.25rem;
-  font-size: 0.85rem;
+  background: currentColor;
+  mask: url("../icons/phosphor/arrow-right.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/arrow-right.svg") center / contain no-repeat;
   opacity: 0.55;
   transition: transform var(--mfm-dur) var(--mfm-ease), opacity var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-models-menu .dropdown-item.is-external::after {
-  content: "\2197";
+  mask-image: url("../icons/phosphor/arrow-up-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-up-right.svg");
 }
 
 .mfm-models-menu .dropdown-item:hover::after {
@@ -648,6 +1056,51 @@ body.mfm-landing .mfm-badge--soon {
 /* Previous and next page links: long names wrap instead of widening the page. */
 .page-navigation {
   gap: 1rem;
+}
+
+/* Bootstrap icon glyphs that Quarto writes into its templates, drawn as Phosphor masks instead:
+   the pager arrows, the sidebar section caret and the sidebar toggle. */
+.page-navigation .bi-arrow-left-short::before,
+.page-navigation .bi-arrow-right-short::before,
+.sidebar-item-toggle .bi-chevron-right::before,
+.bi-layout-text-sidebar-reverse::before {
+  content: "";
+  width: 20px;
+  height: 20px;
+  vertical-align: -0.25em;
+  background: currentColor;
+  mask: center / contain no-repeat;
+  -webkit-mask: center / contain no-repeat;
+}
+
+/* Quarto sets the pager glyph at 1.8em with a tall line box; the 20px mask needs neither. */
+.page-navigation .nav-page .bi {
+  display: flex;
+  font-size: inherit;
+  line-height: 1;
+}
+
+.page-navigation .bi-arrow-left-short::before {
+  mask-image: url("../icons/phosphor/arrow-left.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-left.svg");
+}
+
+.page-navigation .bi-arrow-right-short::before {
+  mask-image: url("../icons/phosphor/arrow-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-right.svg");
+}
+
+.bi-layout-text-sidebar-reverse::before {
+  mask-image: url("../icons/phosphor/sidebar-simple.svg");
+  -webkit-mask-image: url("../icons/phosphor/sidebar-simple.svg");
+}
+
+.sidebar-item-toggle .bi-chevron-right::before {
+  width: 14px;
+  height: 14px;
+  vertical-align: -0.125em;
+  mask-image: url("../icons/phosphor/caret-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/caret-right.svg");
 }
 
 .page-navigation .nav-page {
@@ -1238,30 +1691,61 @@ body.mfm-landing footer.footer {
     order: 4;
   }
 
-  /* Search and menu: two 40px targets with 20px line icons of one weight; the menu icon's
-     right edge sits on the gutter. */
+  /* Search: a field-shaped button between the mark and the menu; it opens the sheet. The menu
+     is a 40px target with a 20px line icon; its right edge sits on the gutter. */
+  .navbar #quarto-search.type-textbox {
+    flex: 1;
+    min-width: 0;
+    margin: 0 12px;
+  }
+
+  #quarto-search .aa-Autocomplete {
+    width: 100%;
+  }
+
   #quarto-search .aa-DetachedSearchButton {
-    width: 40px;
-    height: 40px;
-    padding: 0;
-    justify-content: center;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+    height: 36px;
+    padding: 0 12px;
     border: 0;
-    background: none;
-    color: var(--mfm-heading);
+    border-radius: var(--mfm-r);
+    background: var(--mfm-search-field);
+    color: var(--mfm-ink-2);
+    font: 400 14px/1 var(--mfm-font-sans);
   }
 
   #quarto-search .aa-DetachedSearchButtonIcon {
-    width: 20px;
+    display: flex;
+    width: 16px;
     color: inherit;
   }
 
   #quarto-search .aa-DetachedSearchButtonIcon svg {
-    width: 20px;
-    height: 20px;
+    display: none;
   }
 
-  #quarto-search .aa-DetachedSearchButton::after,
-  #quarto-search .aa-DetachedSearchButtonPlaceholder {
+  #quarto-search .aa-DetachedSearchButtonIcon::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    background: currentColor;
+    mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
+    -webkit-mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
+  }
+
+  /* The placeholder stays, even after a search: the button always reads "Search". */
+  #quarto-search .aa-DetachedSearchButton .aa-DetachedSearchButtonPlaceholder,
+  #quarto-search .aa-DetachedSearchButton .aa-DetachedSearchButtonPlaceholder[hidden] {
+    display: block;
+    flex: 1;
+    text-align: left;
+  }
+
+  #quarto-search .aa-DetachedSearchButtonQuery {
     display: none;
   }
 

@@ -25,6 +25,8 @@ toc-title: "On this page"
 toc-depth: 2
 body-classes: mfm-river-page
 css: ../../assets/styles/model.css
+# The night-river hero (river.js, model.css) sits above the page, under the navbar.
+include-before-body: _hero.html
 ---
 
 <!--

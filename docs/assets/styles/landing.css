@@ -67,11 +67,21 @@ body.mfm-landing .quarto-color-scheme-toggle {
   display: none !important;
 }
 
-body.mfm-landing #quarto-search .aa-DetachedSearchButton,
-body.mfm-landing #quarto-search .aa-DetachedSearchButtonIcon,
-body.mfm-landing #quarto-search .aa-SubmitIcon {
-  color: rgba(247, 247, 247, 0.82) !important;
-  fill: currentColor !important;
+/* Search: the same field on the navy bar. Focused it turns white, so its text turns navy.
+   The results panel stays light (site.css). */
+body.mfm-landing #quarto-search .aa-Form,
+body.mfm-landing #quarto-search .aa-DetachedSearchButton {
+  --mfm-search-field: rgba(255, 255, 255, 0.09);
+  --mfm-heading: #c9d3e6;
+  --mfm-ink-2: #c9d3e6;
+}
+
+body.mfm-landing #quarto-search .aa-Form:focus-within {
+  --mfm-search-field-focus: #ffffff;
+  --mfm-heading: #0c1f40;
+  --mfm-ink-2: #4d5b78;
+  --mfm-tone-2: #e3e9f4;
+  --mfm-accent: #2650c8;
 }
 
 body.mfm-landing #quarto-content,
@@ -145,18 +155,30 @@ body.mfm-landing .nav-footer a {
   transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
 }
 
-.mfm-btn span {
-  transition: transform 0.25s ease;
-}
-
-.mfm-btn:hover span {
-  transform: translateX(3px);
-}
-
+/* Phosphor icons: the Console window and the arrow, which moves 3px on hover. */
 .mfm-btn__icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.mfm-btn__arrow {
   width: 16px;
   height: 16px;
   flex: none;
+  transition: transform 0.25s ease;
+}
+
+.mfm-btn:hover .mfm-btn__arrow {
+  transform: translateX(3px);
+}
+
+/* Phosphor ArrowRight after a text link, at the text's size. */
+.mfm-arrow {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.125em;
 }
 
 /* ".mfm .mfm-btn--x" outranks the ".mfm a { color: inherit }" reset without !important. */
@@ -248,7 +270,8 @@ body.mfm-landing .nav-footer a {
 .mfm-hero__title {
   font-family: var(--lp-display);
   font-stretch: 125%;
-  font-size: clamp(2.4rem, 8.2vw, 7rem);
+  /* 76px at most. In px: the page root is 17px, so rem would overshoot. */
+  font-size: clamp(48px, 5.25vw, 76px);
   line-height: 0.95;
   font-weight: 400;
   letter-spacing: -0.035em;
@@ -328,7 +351,7 @@ body.mfm-landing .nav-footer a {
 .mfm-hero__line {
   margin-top: 1.4rem !important;
   font-family: var(--lp-sans);
-  font-size: clamp(1.1rem, 1.6vw, 1.35rem);
+  font-size: 20px;
   font-weight: 400;
   line-height: 1.4;
   color: var(--mfm-fg-2);
@@ -343,39 +366,9 @@ body.mfm-landing .nav-footer a {
   margin-top: 2.4rem;
 }
 
-.mfm-hero__scroll {
-  position: absolute;
-  bottom: 2rem;
-  left: 50%;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.6rem;
-  transform: translateX(-50%);
-  font-family: var(--lp-sans);
-  font-size: 0.85rem;
-  color: var(--mfm-fg-3) !important;
-}
-
-.mfm-hero__scroll span {
-  width: 1px;
-  height: 36px;
-  background: linear-gradient(180deg, rgba(247, 247, 247, 0.5), transparent); /* taste-skill-ignore: fading line of the scroll cue */
-  animation: mfm-drip 2.4s ease-in-out infinite;
-  transform-origin: top;
-}
-
-@keyframes mfm-drip {
-  0% { transform: scaleY(0); opacity: 0; }
-  40% { transform: scaleY(1); opacity: 1; }
-  100% { transform: scaleY(1) translateY(14px); opacity: 0; }
-}
-
 /* Set by an inline script before first paint; landing.js removes it when the intro
    starts. If the script never runs, the copy fades in on its own. */
-.mfm-intro .mfm-hero__copy,
-.mfm-intro .mfm-hero__scroll {
+.mfm-intro .mfm-hero__copy {
   opacity: 0;
   animation: mfm-failsafe 0.6s ease 1.6s forwards;
 }
@@ -393,7 +386,7 @@ body.mfm-landing .nav-footer a {
 
 .mfm-statement__text {
   font-family: var(--lp-sans);
-  font-size: clamp(1.4rem, 2.5vw, 2.25rem);
+  font-size: clamp(22px, 2.2vw, 32px);
   line-height: 1.3;
   font-weight: 400;
   letter-spacing: -0.015em;
@@ -420,53 +413,18 @@ body.mfm-landing .nav-footer a {
 .mfm-show__head h2,
 .mfm-section h2 {
   font-family: var(--lp-sans);
-  font-size: clamp(2rem, 4.2vw, 3.4rem);
+  font-size: clamp(28px, 3vw, 44px);
   line-height: 1.1;
   font-weight: 500;
   letter-spacing: -0.02em;
   text-wrap: balance;
 }
 
+/* The editor window sits on the page itself: no backdrop panel, no glow behind it. */
 .mfm-stage {
   position: relative;
   margin: 0;
-  padding: clamp(1rem, 5vw, 4.5rem) clamp(1rem, 5vw, 4.5rem) 0;
-  border-radius: var(--lp-r-card);
-  overflow: hidden;
   isolation: isolate;
-  background: #0b1b38;
-}
-
-.mfm-stage__bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  background:
-    /* Carlos's stage wash behind the editor picture; no text sits on it. */
-    radial-gradient(120% 80% at 50% 120%, rgba(7, 20, 42, 0.9), transparent 60%), /* taste-skill-ignore: landing stage wash */
-    linear-gradient(160deg, #10284f 0%, #0b1b38 55%, #0a1730 100%); /* taste-skill-ignore: landing stage wash */
-}
-
-.mfm-stage__bg i {
-  position: absolute;
-  width: 60%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  filter: blur(70px);
-  opacity: 0.55;
-  animation: mfm-drift 22s ease-in-out infinite alternate;
-}
-
-.mfm-stage__bg i:nth-child(1) { top: -30%; left: -15%; background: rgba(180, 231, 221, 0.55); }
-.mfm-stage__bg i:nth-child(2) { top: -25%; right: -20%; background: rgba(159, 170, 226, 0.6); animation-duration: 26s; animation-delay: -6s; }
-.mfm-stage__bg i:nth-child(3) { bottom: -45%; left: 20%; background: rgba(246, 174, 114, 0.4); animation-duration: 30s; animation-delay: -12s; }
-.mfm-stage__bg i:nth-child(4) { bottom: -40%; right: -10%; background: rgba(200, 180, 231, 0.45); animation-duration: 24s; animation-delay: -3s; }
-
-@keyframes mfm-drift {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(6%, 4%, 0) scale(1.08); }
-  100% { transform: translate3d(-5%, -3%, 0) scale(0.96); }
 }
 
 .mfm-show__install {
@@ -1066,75 +1024,6 @@ body.mfm-landing .nav-footer a {
   to { transform: rotate(360deg); }
 }
 
-/* 4. Chapters ----------------------------------------------------------------- */
-.mfm-chapters {
-  position: relative;
-  isolation: isolate;
-}
-
-/* Each chapter carries its own glow, so they cross-fade with the words. */
-.mfm-chapter {
-  position: relative;
-}
-
-.mfm-chapter::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(42% 40% at 50% 52%, rgba(var(--tone), 0.15), transparent 72%); /* taste-skill-ignore: Carlos's chapter glow, behind the scene word */
-}
-
-.mfm-chapters__track {
-  max-width: 62rem;
-  margin: 0 auto;
-  padding: 0 var(--mfm-gutter);
-}
-
-.mfm-chapter {
-  padding: clamp(4rem, 12vh, 8rem) 0;
-  text-align: center;
-}
-
-.mfm .mfm-chapter__word {
-  font-family: var(--lp-display);
-  font-stretch: 125%;
-  font-size: clamp(3rem, 9vw, 7.5rem);
-  line-height: 0.95;
-  font-weight: 400;
-  letter-spacing: -0.035em;
-  /* Flat text, tinted by the scene's tone. */
-  color: color-mix(in srgb, #ffffff 72%, rgb(var(--tone)));
-  padding-bottom: 0.08em;
-}
-
-.mfm-chapter__line {
-  max-width: 38rem;
-  margin: 1.6rem auto 0 !important;
-  font-size: clamp(1.02rem, 1.5vw, 1.2rem);
-  line-height: 1.6;
-  color: var(--mfm-fg-2);
-  text-wrap: balance;
-}
-
-/* Cinematic mode (landing.js with GSAP): the section pins and the chapters cross-fade
-   in one place. */
-.mfm-chapters.is-cinematic .mfm-chapters__track {
-  position: relative;
-  height: var(--mfm-scene-h, clamp(380px, 56vh, 560px));
-}
-
-.mfm-chapters.is-cinematic .mfm-chapter {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 0 var(--mfm-gutter);
-}
-
 /* 5–6. Release, explore, outro ------------------------------------------------- */
 .mfm-section {
   max-width: var(--mfm-max);
@@ -1151,15 +1040,16 @@ body.mfm-landing .nav-footer a {
 
 .mfm .mfm-release__name h2 {
   font-family: var(--lp-sans);
-  font-size: clamp(2.4rem, 5vw, 4rem);
+  font-size: clamp(28px, 3vw, 44px);
   font-weight: 500;
   letter-spacing: -0.025em;
   line-height: 1;
 }
 
+/* Pale text on navy: the full on-navy ink. */
 .mfm-release__body p {
-  color: var(--mfm-fg-2);
-  font-size: 1.05rem;
+  color: #dde3ee;
+  font-size: 17px;
   line-height: 1.6;
 }
 
@@ -1207,13 +1097,13 @@ body.mfm-landing .nav-footer a {
   color: var(--mfm-fg);
 }
 
-.mfm-explore__title span {
+.mfm-explore__title .mfm-arrow {
   display: inline-block;
   color: var(--mfm-fg-3);
   transition: transform 0.2s ease, color 0.2s ease;
 }
 
-.mfm-explore a:hover .mfm-explore__title span {
+.mfm-explore a:hover .mfm-explore__title .mfm-arrow {
   transform: translateX(4px);
   color: var(--mfm-accent-on-dark);
 }
@@ -1261,20 +1151,15 @@ body.mfm-landing .nav-footer a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mfm-hero__scroll span,
-  .mfm-stage__bg i {
-    animation: none;
-  }
-
   .mfm-btn,
-  .mfm-btn span,
-  .mfm-explore__title span,
+  .mfm-btn__arrow,
+  .mfm-explore__title .mfm-arrow,
   .mfm-hero__field {
     transition: none;
   }
 
-  .mfm-btn:hover span,
-  .mfm-explore a:hover .mfm-explore__title span {
+  .mfm-btn:hover .mfm-btn__arrow,
+  .mfm-explore a:hover .mfm-explore__title .mfm-arrow {
     transform: none;
   }
 }

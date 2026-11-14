@@ -17,6 +17,8 @@ project:
     - assets/img/show/*.svg
     - assets/img/logo/*.svg
     - assets/favicon/*
+    # Phosphor Regular icons (MIT, @phosphor-icons/core 2.1.1), drawn as CSS masks.
+    - assets/icons/phosphor/*
 
 # Both written during pre-render: the Python reference sidebar (quartodoc) and the
 # HTTP API sidebar (_scripts/http_pages.py). Quarto picks the sidebar that lists a page.
@@ -33,9 +35,12 @@ website:
   bread-crumbs: false
   page-navigation: true
   back-to-top-navigation: false
+  # A field in the navbar ("/" focuses it); below 992px Quarto opens it as a full-screen
+  # sheet. assets/js/search.js adds the result path lines and the empty-results message.
   search:
     location: navbar
-    type: overlay
+    type: textbox
+    keyboard-shortcut: ["/"]
   open-graph: true
   navbar:
     # The MFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
@@ -100,6 +105,9 @@ website:
       Built by [PyMC Labs](https://www.pymc-labs.com), the creators of PyMC.
     right: |
       <button type="button" class="quarto-color-scheme-toggle mfm-theme-toggle" onclick="window.quartoToggleColorScheme(); return false;"><span class="mfm-theme-toggle-dark">Dark mode</span><span class="mfm-theme-toggle-light">Light mode</span></button>
+
+language:
+  search-text-placeholder: "Search"
 
 quartodoc:
   package: pymc_mfm

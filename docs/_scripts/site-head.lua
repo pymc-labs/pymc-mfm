@@ -3,6 +3,7 @@
 --   * the favicons (the MFM mark on a navy circle): Quarto's `website.favicon` links the
 --     SVG; this adds the .ico for browsers without SVG favicons and the Apple touch icon;
 --   * assets/js/site.js, the navbar, footer, code block and tab behaviour shared by every page;
+--   * assets/js/search.js, the additions to Quarto's search (path lines, empty message, panel);
 --   * preloads for the two fonts every page needs (text and page titles), so titles do not jump.
 function Meta(meta)
   local root = quarto.project.offset
@@ -21,7 +22,12 @@ function Meta(meta)
   )
   quarto.doc.include_text(
     "after-body",
-    string.format('<script src="%s/assets/js/site.js" defer></script>', root)
+    string.format(
+      '<script src="%s/assets/js/site.js" defer></script>\n'
+        .. '<script src="%s/assets/js/search.js" defer></script>',
+      root,
+      root
+    )
   )
   return meta
 end

@@ -1,0 +1,123 @@
+/* Painted tiles scene. Everything is scoped to .tiles-scene.
+   Sizes follow the section's own width (container units), not the window,
+   so it works inside a page column. Fonts: the site's "Archivo" (wdth 125) and "IBM Plex Sans".
+   Sticky needs no ancestor with overflow: hidden/auto. */
+.tiles-scene {
+  --ts-ground: #07142a;
+  --ts-ink: #f2f5fa;
+  --ts-ink-2: #c3cde0;
+  --ts-muted: #8593ab;
+  --ts-wall-w: min(60cqw, calc((100vh - 150px) * 1.2));
+  container: tiles / inline-size;
+  position: relative;
+  height: 390vh;
+  background: var(--ts-ground);
+  color: var(--ts-ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.tiles-scene *, .tiles-scene *::before, .tiles-scene *::after { box-sizing: border-box; }
+
+.tiles-scene .ts-pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) var(--ts-wall-w);
+  justify-content: center;
+  align-items: center;
+  column-gap: clamp(40px, 5.5vw, 88px);
+  overflow: hidden;
+}
+
+.tiles-scene .ts-wall {
+  width: var(--ts-wall-w);
+  aspect-ratio: 1.2;
+  position: relative;
+}
+.tiles-scene .ts-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.tiles-scene .ts-steps {
+  list-style: none;
+  margin: 0 0 26px;
+  padding: 0;
+  display: flex;
+  gap: 18px;
+  font: 400 13px/1 "IBM Plex Sans", sans-serif;
+  letter-spacing: .04em;
+  color: var(--ts-muted);
+}
+.tiles-scene .ts-steps li {
+  position: relative;
+  padding-bottom: 8px;
+  transition: color .35s ease;
+}
+.tiles-scene .ts-steps li::after {
+  content: "";
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 14px; height: 1px;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity .35s ease;
+}
+.tiles-scene .ts-steps li.is-on { color: var(--ts-ink); }
+.tiles-scene .ts-steps li.is-on::after { opacity: 1; }
+
+.tiles-scene .ts-copies { display: grid; }
+.tiles-scene .ts-copy {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transition: opacity .32s ease;
+  pointer-events: none;
+}
+.tiles-scene .ts-copy.is-on { opacity: 1; transition-delay: .12s; pointer-events: auto; }
+
+.tiles-scene .ts-title {
+  margin: 0 0 18px;
+  padding: 0; /* the page's h2 rules add a bottom padding */
+  font-family: "Archivo", sans-serif;
+  font-stretch: 125%;
+  font-weight: 400;
+  font-size: clamp(34px, 3.1vw, 44px);
+  line-height: 1.04;
+  letter-spacing: -.025em;
+  color: var(--ts-ink);
+}
+.tiles-scene .ts-line {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--ts-ink-2);
+  max-width: 24em;
+}
+
+@container tiles (max-width: 1023px) {
+  .tiles-scene .ts-pin { --ts-wall-w: calc(100cqw - 32px); }
+  .tiles-scene .ts-pin {
+    height: 100svh;
+    grid-template-columns: var(--ts-wall-w);
+    grid-template-rows: auto auto;
+    align-content: center;
+    row-gap: 22px;
+  }
+  .tiles-scene .ts-wall {
+    grid-row: 1;
+    aspect-ratio: auto;
+    height: clamp(220px, calc(100svh - 330px), calc((100cqw - 32px) * 1.2));
+  }
+  .tiles-scene .ts-text { grid-row: 2; }
+  .tiles-scene .ts-steps { margin-bottom: 14px; gap: 14px; font-size: 12px; }
+  .tiles-scene .ts-title { font-size: 28px; margin-bottom: 10px; }
+  .tiles-scene .ts-line { font-size: 15.5px; line-height: 1.55; max-width: none; }
+}
+
+/* phones and tablets: a little less scroll per chapter */
+@media (max-width: 1023px) {
+  .tiles-scene { height: 360vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tiles-scene .ts-copy, .tiles-scene .ts-copy.is-on,
+  .tiles-scene .ts-steps li, .tiles-scene .ts-steps li::after { transition: none; }
+}

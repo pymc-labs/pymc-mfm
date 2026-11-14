@@ -1,9 +1,10 @@
 /* Landing page motion, one scene per section:
    1. Hero: a WebGL ridgeline of drifting distributions behind the name; the name rises
-      in, glitches "PyMC" into "Bayesian" once (desktop only), and dissolves as you scroll away.
+      in on load and glitches "PyMC" into "Bayesian" once (desktop only). Nothing in the hero
+      is tied to scrolling: the copy and the field stay put while the page scrolls.
    2. Statement: its words light up as they pass.
    3. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
-   4. Chapters: the section pins at half height and three words cross-fade in one place.
+   The chapters after the editor (painted tiles) are tiles-scene.js.
    Everything is decoration over static HTML. Without GSAP the page keeps its plain
    layout; with reduced motion nothing moves and the notebook shows finished. */
 (() => {
@@ -42,7 +43,6 @@
       uniform float uTime;
       uniform vec2 uMouse;
       uniform float uFade;
-      uniform float uScroll;
       uniform float uGlitch;
       uniform vec4 uCopy; // centre and half-size of the hero copy, in 0-1 canvas units
       const int ROWS = 42;
@@ -95,9 +95,6 @@
         vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
         // Portrait screens see a wider slice, so the rows still read as distributions.
         p.x *= max(1.0, 0.85 * uRes.y / uRes.x);
-        // Scrolling away pushes the camera in and lets the field sink behind the page.
-        p *= 1.0 - 0.16 * uScroll;
-        p.y += 0.14 * uScroll;
         float t = uTime;
         vec3 col;
         if (uGlitch > 0.001) {
@@ -112,8 +109,8 @@
         } else {
           col = scene(p, t);
         }
-        // Rows dissolve as they reach the bottom; the fade climbs the screen as you scroll.
-        float bottom = smoothstep(0.4 * uScroll, 0.3 + 0.45 * uScroll, uv.y);
+        // Rows dissolve as they reach the bottom.
+        float bottom = smoothstep(0.0, 0.3, uv.y);
         float sides = smoothstep(0.0, 0.1, uv.x) * smoothstep(1.0, 0.9, uv.x);
         // Quiet behind the copy so it stays legible.
         float behindCopy = length((uv - uCopy.xy) / max(uCopy.zw * 1.2, vec2(0.01)));
@@ -148,7 +145,6 @@
     const uTime = u("uTime");
     const uMouse = u("uMouse");
     const uFade = u("uFade");
-    const uScroll = u("uScroll");
     const uGlitch = u("uGlitch");
     const uCopy = u("uCopy");
     const copy = hero.querySelector(".mfm-hero__copy");
@@ -183,7 +179,6 @@
       gl.uniform1f(uTime, 20 + ms / 1000);
       gl.uniform2f(uMouse, mouse.x, 0.5);
       gl.uniform1f(uFade, still ? 1 : clamp01((ms - start) / 2400));
-      gl.uniform1f(uScroll, clamp01(window.scrollY / Math.max(1, hero.offsetHeight)));
       gl.uniform1f(uGlitch, glitch.level);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
@@ -275,7 +270,7 @@
     }, GLITCH_DELAY_MS);
   }
 
-  // Hero copy: the words rise out of a blur, then dissolve as you scroll away ----------
+  // Hero copy: the words rise out of a blur on load ------------------------------------
   function heroCopy(hero) {
     const html = document.documentElement;
     const done = () => html.classList.remove("mfm-intro");
@@ -290,20 +285,7 @@
       .from(".mfm-hero__mark", { autoAlpha: 0, y: 14, scale: 0.92, filter: "blur(12px)", duration: 0.8, clearProps: "filter" }, 0)
       .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 0.8, stagger: 0.1 }, 0.1)
       .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 0.9 }, 0.55)
-      .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8)
-      .from(".mfm-hero__scroll", { autoAlpha: 0, duration: 1 }, 1.4);
-    gsap.to(".mfm-hero__copy", {
-      yPercent: -14,
-      autoAlpha: 0,
-      filter: "blur(10px)",
-      ease: "none",
-      scrollTrigger: { trigger: hero, start: "top top", end: "bottom 25%", scrub: true },
-    });
-    gsap.to(".mfm-hero__scroll", {
-      autoAlpha: 0,
-      ease: "none",
-      scrollTrigger: { trigger: hero, start: "top top", end: "15% top", scrub: true },
-    });
+      .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8);
   }
 
   // 2. Statement: words light up as they pass -------------------------------------------
@@ -379,46 +361,6 @@
     );
   }
 
-  // 4. Chapters: pin, then cross-fade three words in one place ---------------------------
-  function chapters(section) {
-    if (reduceMotion || !hasGsap()) return;
-    gsap.registerPlugin(ScrollTrigger);
-    const items = [...section.querySelectorAll(".mfm-chapter")];
-    gsap.matchMedia().add("(min-height: 520px)", () => {
-      section.classList.add("is-cinematic");
-      gsap.set(items.slice(1), { autoAlpha: 0 });
-      const timeline = gsap.timeline({
-        defaults: { ease: "power2.out" },
-        scrollTrigger: {
-          trigger: section,
-          start: "center center",
-          end: () => `+=${Math.round(window.innerHeight * 1.5)}`,
-          pin: true,
-          scrub: 0.8,
-          invalidateOnRefresh: true,
-        },
-      });
-      items.forEach((item, i) => {
-        const parts = item.querySelectorAll(".mfm-chapter__word, .mfm-chapter__line");
-        if (i > 0) {
-          timeline.fromTo(item, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.25 }, i);
-          timeline.fromTo(
-            parts,
-            { y: 50, filter: "blur(12px)" },
-            { y: 0, filter: "blur(0px)", duration: 0.45, stagger: 0.06 },
-            i,
-          );
-        }
-        if (i < items.length - 1) {
-          timeline.to(parts, { y: -50, filter: "blur(12px)", duration: 0.35, stagger: 0.04, ease: "power2.in" }, i + 0.62);
-          timeline.to(item, { autoAlpha: 0, duration: 0.3, ease: "power2.in" }, i + 0.7);
-        }
-      });
-      timeline.to({}, { duration: 0.35 }, items.length - 0.35);
-      return () => section.classList.remove("is-cinematic");
-    });
-  }
-
   // Reveal sections, copy button -------------------------------------------------------
   function reveal() {
     const items = root.querySelectorAll(".mfm-reveal");
@@ -439,7 +381,7 @@
     items.forEach((el) => observer.observe(el));
   }
 
-  // Links to a section of this page ("Scroll to explore") scroll here instead of following
+  // Links to a section of this page (#id) scroll here instead of following
   // the URL: at the host root the page carries a <base> that points its links at the site
   // folder, so "#id" resolves to the site's copy of this page. Quarto also rewrites such
   // links to absolute URLs, so match the resolved address: this page or the base folder.
@@ -463,7 +405,6 @@
   const glitchWord = root.querySelector('[data-mfm="glitch"]');
   const statementText = root.querySelector('[data-mfm="statement"]');
   const ide = root.querySelector('[data-mfm="notebook"]');
-  const chapterSection = root.querySelector('[data-mfm="chapters"]');
 
   if (fieldCanvas && hero) field(fieldCanvas, hero);
   if (glitchWord && hero) titleGlitch(glitchWord, hero);
@@ -475,7 +416,6 @@
   ready.then(() => {
     if (hero) heroCopy(hero);
     if (statementText) statement(statementText);
-    if (chapterSection) chapters(chapterSection);
     if (hasGsap()) ScrollTrigger.refresh();
   });
 })();
