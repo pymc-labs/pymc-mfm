@@ -1,5 +1,6 @@
 /* Shared behaviour for every page. Each init* function below sets up one piece of site chrome
    and does nothing when its markup is missing:
+     initCurrentSection  River page marks Models, Python reference marks API
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
      initConsoleButton marks the "Open Console" navbar link with data-mfm="console" (site.css draws it)
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
@@ -275,7 +276,23 @@
     });
   }
 
+  /* Quarto marks the navbar section by the page's sidebar. The River page sits in the Guide
+     sidebar and the Python reference has its own, so each would mark the wrong section.
+     Move the mark to Models and API. */
+  function initCurrentSection() {
+    const cl = document.body.classList;
+    const current = cl.contains("mfm-river-page") ? "Models" : cl.contains("mfm-ref") ? "API" : null;
+    if (!current) return;
+    document.querySelectorAll(".navbar .navbar-nav > .nav-item > .nav-link").forEach((link) => {
+      const mine = link.textContent.trim() === current;
+      link.classList.toggle("active", mine);
+      if (mine) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+  }
+
   [
+    initCurrentSection,
     initModelsMenu,
     initConsoleButton,
     initCopyButtons,

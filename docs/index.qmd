@@ -9,45 +9,25 @@ anchor-sections: false
 body-classes: mfm-landing
 css:
   - assets/styles/landing.css
-  - assets/styles/tiles-scene.css
+  - assets/styles/tiles-v2.css
 ---
 
 ```{=html}
-<script>
-  // Hides the hero until landing.js plays the intro; a CSS fallback reveals it anyway.
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("mfm-intro");
-</script>
-<div class="mfm">
+<div class="v2">
 
-<!-- 1. Hero: one name, one line. Button icons: Phosphor Regular (assets/icons/phosphor). -->
-<section class="mfm-hero" aria-labelledby="mfm-hero-title">
-  <canvas class="mfm-hero__field" data-mfm="field" aria-hidden="true"></canvas>
-  <div class="mfm-grain" aria-hidden="true"></div>
-  <div class="mfm-hero__copy">
-    <img class="mfm-hero__mark" data-mfm="mark" src="assets/img/logo/mfm-logo-light.svg" alt="" width="1107" height="1040">
-    <!-- Once, on a desktop, the first word glitches into "Bayesian" for a second (landing.js). -->
-    <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>
-    <p class="mfm-hero__line">Marketing foundation models by PyMC Labs. Train once, decompose many.</p>
-    <div class="mfm-hero__actions">
-      <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
-      <a class="mfm-btn mfm-btn--ghost no-external" href="https://mfm-staging.pymc-labs.com/console/">
-        <svg class="mfm-btn__icon" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M128,128a8,8,0,0,1-3,6.25l-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32A8,8,0,0,1,128,128Zm48,24H136a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm56-96V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Z"/></svg>
-        Open Console <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
-      </a>
+<!-- 1. Hero: a full-bleed tile wall (tiles-v2.js paints the ridgeline across it); the name, one line and two buttons sit in a plain tile panel. -->
+<section class="v2-hero" aria-label="PyMC MFM">
+  <div class="v2-wall v2-wall--bleed"><canvas aria-hidden="true"></canvas>
+    <div class="v2-cartouche v2-cartouche--hero">
+      <h1 class="v2-wordmark"><img src="assets/img/logo/mfm-logo-light.svg" alt="" width="56" height="52"><span>PyMC MFM</span></h1>
+      <p>Marketing mix answers with honest ranges. Trained once, no refit.</p>
+      <div class="v2-actions"><a class="v2-btn v2-btn--light" href="guide/index.html">Get started</a><a class="v2-btn v2-btn--quiet no-external" href="https://mfm-staging.pymc-labs.com/console/">Open Console</a></div>
     </div>
   </div>
 </section>
 
-<!-- 2. What it does, in one statement -------------------------------------------- -->
-<section class="mfm-statement">
-  <p class="mfm-statement__text" data-mfm="statement">
-    PyMC MFM trains neural networks on simulated marketing worlds. Hand one your weekly
-    spend, controls and sales, and it returns posterior draws of every contribution, with the
-    causal graph behind each draw. No MCMC. No refit.
-  </p>
-</section>
-
-<!-- 3. The library at work: a notebook in an editor --------------------------------- -->
+<!-- 2. The library: the live notebook (landing.js), over the hero's bottom edge. -->
+<div class="mfm v2-lib">
 <section class="mfm-show" aria-labelledby="mfm-show-title">
   <header class="mfm-show__head mfm-reveal">
     <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
@@ -295,61 +275,54 @@ css:
     <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. <a href="guide/examples/river_1_quickstart.html">See the full quickstart <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a></p>
   </div>
 </section>
+</div>
 
-<!-- 4. Why amortize: painted tiles. One wall pins while you scroll and changes in place,
-     Amortized, Causal, Bayesian (tiles-scene.css, tiles-scene.js). Full width; sticky needs
-     no ancestor that scrolls (.mfm clips, which is fine). -------------------------------- -->
-<section class="tiles-scene" aria-label="Amortized, causal, Bayesian">
-  <div class="ts-pin">
-    <div class="ts-text">
-      <ol class="ts-steps" aria-hidden="true"><li class="is-on">1</li><li>2</li><li>3</li></ol>
-      <div class="ts-copies">
-        <div class="ts-copy is-on"><h2 class="ts-title">Amortized.</h2><p class="ts-line">Training is paid once, on simulated worlds with known answers. A new dataset is context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p></div>
-        <div class="ts-copy"><h2 class="ts-title">Causal.</h2><p class="ts-line">Every draw carries the causal graph it was sampled with, over channels, controls and latent demand. Average over graphs, take the most frequent one, or fix your own.</p></div>
-        <div class="ts-copy"><h2 class="ts-title">Bayesian.</h2><p class="ts-line">Draws, not point estimates: each contribution in outcome units with its uncertainty, exported as an ArviZ DataTree for the rest of your PyMC workflow.</p></div>
+<!-- 3. The three promises: one pinned wall that changes in place; the copy is set into the wall. -->
+<section class="v2-promises" data-pin aria-label="Amortized, causal, Bayesian">
+  <div class="v2-pin">
+    <div class="v2-row">
+      <div class="v2-wall v2-wall--promise" data-cols="16" data-rows="6">
+        <canvas aria-hidden="true"></canvas>
+        <div class="v2-cartouche" style="--c0:0;--c1:6;--r0:4;--r1:6">
+          <ol class="v2-steps" aria-hidden="true"><li class="on">1</li><li>2</li><li>3</li></ol>
+          <div class="v2-say on"><h2>Amortized</h2><p>It learned from 200,000 simulated marketing worlds before you arrive. Your data is read, not refitted: a small dataset gets its answer in seconds, even on a CPU.</p></div>
+          <div class="v2-say"><h2>Causal</h2><p>Every draw carries the causal graph it was sampled with. Change TV, and only what depends on TV moves.</p></div>
+          <div class="v2-say"><h2>Bayesian</h2><p>Every result is a set of posterior draws: the likely value, and how far it could reasonably be.</p></div>
+        </div>
       </div>
     </div>
-    <div class="ts-wall"><canvas class="ts-canvas" aria-hidden="true"></canvas></div>
   </div>
 </section>
 
-<!-- 5. Latest model -------------------------------------------------------------- -->
-<section class="mfm-section mfm-reveal" aria-labelledby="mfm-model-title">
-  <div class="mfm-release">
-    <div class="mfm-release__name">
-      <h2 id="mfm-model-title">River 1.0</h2>
-    </div>
-    <div class="mfm-release__body">
-      <p>PyMC Labs' first published network: 2.4M parameters, 1 to 10 channels, posterior
-        draws in seconds on a CPU.</p>
-      <p class="mfm-release__links">
-        <a href="models/river-1/index.html">Release notes <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
-      </p>
+<!-- 4. River 1.0: a wave of woven tiles, the release set into it. -->
+<section class="v2-models" id="models">
+  <div class="v2-row">
+    <div class="v2-wall" data-wall="windows" data-cols="16" data-rows="7"><canvas aria-hidden="true"></canvas>
+      <div class="v2-cartouche v2-cartouche--models" style="--c0:1;--c1:7;--r0:4;--r1:7">
+        <h2>River 1.0</h2>
+        <p>PyMC Labs' first published network: 2.4M parameters, trained on 200,000 simulated marketing worlds, for 1 to 10 channels.</p>
+        <a class="v2-link" href="models/river-1/index.html">Read the release <svg viewBox="0 0 256 256" aria-hidden="true"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- 6. Explore ----------------------------------------------------------------- -->
-<section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
-  <nav class="mfm-explore" aria-label="Explore">
-    <a href="guide/index.html"><span class="mfm-explore__title">Docs <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
-    <a href="api/index.html"><span class="mfm-explore__title">API <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">The HTTP routes and the Python reference.</span></a>
-    <a href="models/index.html"><span class="mfm-explore__title">Models <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Trained networks and their release notes.</span></a>
-    <a href="blog/index.html"><span class="mfm-explore__title">Blog <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Methods and engineering notes from the team.</span></a>
-  </nav>
-</section>
-
-<section class="mfm-outro mfm-reveal">
-  <p>From the team behind <a href="https://www.pymc-labs.com/open-source">PyMC, PyMC-Marketing and CausalPy</a>.</p>
-  <a class="mfm-btn mfm-btn--ghost" href="https://www.pymc-labs.com">Visit pymc-labs.com <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg></a>
+<!-- 5. Explore, on a skirting row. -->
+<section class="v2-explore" aria-label="Explore the documentation">
+  <div class="v2-row">
+    <div class="v2-wall v2-wall--skirt" data-wall="skirt" data-cols="32" data-rows="1"><canvas aria-hidden="true"></canvas></div>
+    <ul class="v2-cells">
+      <li><a href="guide/index.html">Docs</a><p>Install, concepts and worked notebooks.</p></li>
+      <li><a href="api/index.html">API</a><p>The HTTP routes and the Python reference.</p></li>
+      <li><a href="models/index.html">Models</a><p>Trained networks and their release notes.</p></li>
+      <li><a href="blog/index.html">Blog</a><p>Methods and engineering notes from the team.</p></li>
+    </ul>
+    <p class="v2-team">From the team behind <a href="https://www.pymc-labs.com/open-source">PyMC, PyMC-Marketing and CausalPy</a>.</p>
+  </div>
 </section>
 
 </div>
-<!-- GSAP 3.15.1 (free standard license) for the intro and scroll scenes. Without it the page
-     still works: landing.js falls back to static layouts and CSS reveals. -->
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/gsap.min.js" integrity="sha384-3vCAhD+a3BOliP3QqjQINn6ZWiZxoqu0WFxX5ZQZgqekDZuSb1mJBrrLMmu94H8f" crossorigin="anonymous" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/ScrollTrigger.min.js" integrity="sha384-H2WL1iy/jKQQ7MTHU2hskZKNHTYWWD/KgKE1vCNnaWY8An2ESTh23KN/fTp8XS3j" crossorigin="anonymous" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/SplitText.min.js" integrity="sha384-e98MX/fxZrUXA/6T+aCptryLfHgR2FpEmWxDbbPloHT0Qg79dEXKdLJ/iwD2lzxs" crossorigin="anonymous" defer></script>
+<script src="assets/js/tiles-painter.js"></script>
+<script src="assets/js/tiles-v2.js"></script>
 <script src="assets/js/landing.js" defer></script>
-<script src="assets/js/tiles-scene.js" defer></script>
 ```

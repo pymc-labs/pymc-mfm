@@ -59,24 +59,6 @@ reason = "Website Apple touch icon: the MFM mark on a navy circle over white (18
 sha256 = "8356b1c339df64db11c8472a8ccfcc2da2b0eeffa2d3e898f4ada0a30f37b3bf"
 
 [[allow]]
-path = "docs/assets/img/models/river.jpg"
-rules = ["binary"]
-reason = "Models page card and social preview for River: a night river scene rendered from the site's own WebGL shader (1200x630 JPEG, 75 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
-sha256 = "d8745cac20b9038443a19ff99b5818c21cd07543c2d890225fff0ce11be84ca3"
-
-[[allow]]
-path = "docs/assets/img/models/sea.jpg"
-rules = ["binary"]
-reason = "Models page card for Sea: a night coast with a lighthouse, rendered from a WebGL shader written for the site (1200x630 JPEG, 94 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
-sha256 = "6e51cc7f7f9bcee107731ece342654bf1ffed5c00cedeece51a2d34e36c9a5b6"
-
-[[allow]]
-path = "docs/assets/img/models/ocean.jpg"
-rules = ["binary"]
-reason = "Models page card for Ocean: open swells under a cloudy moon, with a humpback breaching far out on the horizon, rendered from a WebGL shader written for the site (1200x630 JPEG, 113 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
-sha256 = "058e53dcbec1de3ad66d6c41e92efebbaa98cdce45728a2e5504f260044c5c0e"
-
-[[allow]]
 path = "docs/assets/fonts/ibm-plex-sans-latin-400-500.woff2"
 rules = ["binary"]
 reason = "Self-hosted website font: IBM Plex Sans, Latin subset, variable font limited to weights 400 to 500 (34 kB), made with fontTools from the Google Fonts file. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."

@@ -1,21 +1,28 @@
 /*-- scss:defaults --*/
-// MFM docs theme, dark: the Cobalt tokens turned over. Page background is the PyMC Labs
-// navy-deep. Tones are white at 5% and 9% (solid mixes here, for Bootstrap's colour functions).
-// Mirrors light.scss; Quarto layers this file over it, so only differences are repeated.
+// MFM docs theme: dark only. Ground, glaze and ink follow the V2 glazed-tile tokens.
+// Each token is set once here as a Sass variable. Bootstrap and Quarto read the variables, so their
+// own components follow the theme without overrides. The same values leave as --mfm-* custom
+// properties (rules section) for site.css and the page stylesheets.
 
 $navy-deep: #07142a;
-$ink: #dde3ee;
-$ink-2: #9aa7bd;
+$ink: #c3cde0; // running text
+$ink-2: #8593ab; // muted
 $accent: #8fa9ff;
-$accent-strong: #b9c9ff;
-$tone-1: mix(#ffffff, $navy-deep, 5%);
-$tone-2: mix(#ffffff, $navy-deep, 9%);
+$accent-strong: #b4e7dd; // aqua, the hover colour
+$tone-1: #0e2040; // callouts, fields
+$tone-2: #1c3157; // lines
 $danger: #ff9b8f;
 $heading: #f2f5fa;
 
 $font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 $font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; // taste-skill-ignore: code font
 $font-display: "Archivo", "IBM Plex Sans", system-ui, sans-serif;
+
+// Quarto's page grid, sized to the V2 frame: sidebar | text | contents in a 1280px wrap.
+$grid-sidebar-width: 232px;
+$grid-body-width: 852px;
+$grid-margin-width: 196px;
+$grid-column-gutter-width: 56px;
 
 $font-family-sans-serif: $font-sans;
 $font-family-monospace: $font-mono; // taste-skill-ignore: code font
@@ -86,18 +93,35 @@ $callout-color-caution: $ink-2;
 $callout-color-warning: $ink-2;
 
 /*-- scss:rules --*/
-body.quarto-dark {
+body {
   --mfm-bg: #{$body-bg};
   --mfm-ink: #{$ink};
   --mfm-ink-2: #{$ink-2};
   --mfm-navy: #0c1f40;
   --mfm-heading: #{$heading};
   --mfm-accent: #{$accent};
-  --mfm-tone-1: rgba(255, 255, 255, 0.05);
-  --mfm-tone-2: rgba(255, 255, 255, 0.09);
+  --mfm-aqua: #b4e7dd;
+  --mfm-peach: #f6ae72;
+  --mfm-glaze: #132849;
+  --mfm-tone-1: #{$tone-1};
+  --mfm-tone-2: #{$tone-2};
   --mfm-danger: #{$danger};
   --mfm-on-navy: #{$navy-deep};
   --mfm-console-bg: #f2f5fa;
-  --mfm-console-fg: #0c1f40;
+  --mfm-console-fg: #0b1a33;
   --mfm-console-hover: #ffffff;
+}
+
+:root {
+  --mfm-r-chip: 6px;
+  --mfm-r: 6px;
+  --mfm-r-card: 6px;
+  --mfm-font-sans: #{$font-sans};
+  --mfm-font-mono: #{$font-mono}; /* taste-skill-ignore: code font */
+  --mfm-font-display: #{$font-display};
+  --mfm-measure: 72ch;
+  --mfm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mfm-dur: 0.18s;
+  --mfm-nav-h: 64px;
+  color-scheme: dark;
 }

@@ -225,7 +225,7 @@ main table td:first-child > p > a {
   transform: rotate(-8deg) scale(1.06);
 }
 
-body.quarto-dark .navbar-logo {
+.navbar-logo {
   filter: brightness(0) invert(0.97);
 }
 
@@ -326,21 +326,10 @@ body.quarto-dark .navbar-logo {
    The theme tokens live on body (light.scss, dark.scss), so these do too. */
 body {
   --mfm-search-field: var(--mfm-tone-1);
-  --mfm-search-field-focus: #ffffff;
-  --mfm-search-surface: #ffffff;
-  --mfm-search-ink: #0c1f40;
-  --mfm-search-ink-2: #4d5b78;
-  --mfm-search-accent: #2650c8;
-  --mfm-search-tone-1: #f1f4fa;
-  --mfm-search-tone-2: #e3e9f4;
-  --mfm-search-shadow: 0 12px 32px rgba(12, 31, 64, 0.16), 0 2px 6px rgba(12, 31, 64, 0.08);
-}
-
-body.quarto-dark:not(.mfm-landing) {
   --mfm-search-field-focus: rgba(255, 255, 255, 0.12);
   --mfm-search-surface: #0c1f40;
   --mfm-search-ink: #f2f5fa;
-  --mfm-search-ink-2: #9aa7bd;
+  --mfm-search-ink-2: #8593ab;
   --mfm-search-accent: #8fa9ff;
   --mfm-search-tone-1: rgba(255, 255, 255, 0.06);
   --mfm-search-tone-2: rgba(255, 255, 255, 0.1);
@@ -832,22 +821,6 @@ html body .aa-DetachedContainer .aa-Panel {
   transform: translateX(3px);
 }
 
-/* Dark chrome pages (the landing page): the same tokens as dark mode, whichever mode is stored,
-   and the light Console button on the navy bar. */
-body.mfm-landing:is(.quarto-light, .quarto-dark) {
-  --mfm-bg: #07142a;
-  --mfm-ink: #dde3ee;
-  --mfm-ink-2: #9aa7bd;
-  --mfm-heading: #f2f5fa;
-  --mfm-accent: #8fa9ff;
-  --mfm-tone-1: rgba(255, 255, 255, 0.05);
-  --mfm-tone-2: rgba(255, 255, 255, 0.09);
-  --mfm-console-bg: #f2f5fa;
-  --mfm-console-fg: #0c1f40;
-  --mfm-console-hover: #ffffff;
-  --mfm-on-navy: #0c1f40;
-}
-
 /* Models menu (site.js adds .mfm-models-menu): a tone surface, no line ------- */
 .mfm-models-menu .dropdown-header {
   padding: 0.25rem 0.75rem 0.55rem;
@@ -952,12 +925,7 @@ body.mfm-landing:is(.quarto-light, .quarto-dark) {
     break-after: column;
   }
 
-  /* A tone step on a white page is faint; the open menu sits on the page tone-2 edge instead. */
-  body.quarto-light .navbar .dropdown-menu.mfm-models-menu {
-    background: var(--mfm-tone-1);
-  }
-
-  body.mfm-landing .navbar .dropdown-menu.mfm-models-menu {
+  .navbar .dropdown-menu.mfm-models-menu {
     background: #0c1f40;
   }
 }
@@ -1160,11 +1128,7 @@ body.mfm-landing .mfm-badge--soon {
 /* A block is a tone surface with a head row (language label left, Copy right) and a body that
    scrolls sideways. The scroll cue is an edge fade that shows only where more code lies. */
 :root {
-  --mfm-code-bg: #f1f4fa;
-}
-
-body.quarto-dark {
-  --mfm-code-bg: #121f35;
+  --mfm-code-bg: #0b1b36;
 }
 
 div.sourceCode {
@@ -1536,47 +1500,6 @@ footer.footer .nav-footer a:hover {
   color: var(--mfm-heading);
 }
 
-.mfm-theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  height: 2rem;
-  padding: 0 0.6rem;
-  border: 0;
-  border-radius: var(--mfm-r);
-  background: none;
-  color: var(--mfm-ink-2);
-  font-family: var(--mfm-font-sans);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
-}
-
-.mfm-theme-toggle:hover {
-  background: var(--mfm-tone-1);
-  color: var(--mfm-heading);
-}
-
-.mfm-theme-toggle::before {
-  content: "";
-  width: 14px;
-  height: 14px;
-  background: currentColor;
-  /* a half-filled disc: the mode to switch to */
-  mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5a6.5 6.5 0 1 0 0 13z' fill='black'/%3E%3Ccircle cx='8' cy='8' r='6.1' fill='none' stroke='black' stroke-width='1.4'/%3E%3C/svg%3E");
-  -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5a6.5 6.5 0 1 0 0 13z' fill='black'/%3E%3Ccircle cx='8' cy='8' r='6.1' fill='none' stroke='black' stroke-width='1.4'/%3E%3C/svg%3E");
-}
-
-/* Quarto adds "alternate" to the toggle while dark mode is on. */
-.mfm-theme-toggle .mfm-theme-toggle-light,
-.mfm-theme-toggle.alternate .mfm-theme-toggle-dark {
-  display: none;
-}
-
-.mfm-theme-toggle.alternate .mfm-theme-toggle-light {
-  display: inline;
-}
-
 /* The landing page is dark already and carries no footer. */
 body.mfm-landing footer.footer {
   display: none;
@@ -1644,7 +1567,7 @@ body.mfm-landing footer.footer {
   :root {
     /* One gutter for the bar and the page, so the mark and the icons line up with the text:
        Quarto's page grid puts text 1.5em (3em from 768px) in from the edge, at the 17px body size. */
-    --mfm-phone-gutter: 25.5px;
+    --mfm-phone-gutter: 20px;
   }
 
   .quarto-secondary-nav {
@@ -1901,7 +1824,7 @@ body.mfm-landing footer.footer {
 
 @media (min-width: 768px) and (max-width: 991.98px) {
   :root {
-    --mfm-phone-gutter: 51px;
+    --mfm-phone-gutter: 20px;
   }
 }
 
@@ -1934,4 +1857,116 @@ html.mfm-menu-open body {
   @view-transition {
     navigation: none;
   }
+}
+
+/* V2 frame: the sidebar, contents, links, code and callouts in the glazed-tile palette --------- */
+/* The navbar row lines up with the 1280px wrap that the band, page grid and skirting row use. */
+#quarto-header .navbar > .container-fluid {
+  box-sizing: border-box;
+  max-width: none;
+  padding-inline: max(4px, calc((100vw - 1280px) / 2 - 16px));
+}
+
+#quarto-sidebar .sidebar-item-section > .sidebar-item-container .sidebar-item-text,
+#TOC #toc-title,
+#quarto-margin-sidebar h2 {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mfm-ink-2);
+}
+
+#quarto-sidebar a.sidebar-link:not(.text-start),
+.mfm-phone-pages a.sidebar-link:not(.text-start) {
+  padding: 5px 10px;
+  margin: 0 -10px;
+  border-radius: 5px;
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: var(--mfm-ink);
+}
+
+#quarto-sidebar a.sidebar-link:not(.text-start):hover {
+  color: var(--mfm-heading);
+  transform: none;
+}
+
+#quarto-sidebar a.sidebar-link.active,
+#quarto-sidebar a.sidebar-link[aria-current="page"],
+.mfm-phone-pages a.sidebar-link.active {
+  background: #112445;
+  color: var(--mfm-heading);
+}
+
+#TOC .nav-link,
+#TOC ul > li > a {
+  padding: 4px 0;
+  color: var(--mfm-ink-2);
+}
+
+#TOC .nav-link::before {
+  display: none;
+}
+
+#TOC .nav-link.active {
+  color: var(--mfm-heading);
+}
+
+/* Links in running text: ink with a quiet rule, aqua when hovered. */
+main :is(p, li, dd, td, blockquote) a:not(.btn, .nav-link, .anchorjs-link) {
+  color: var(--mfm-heading);
+  text-decoration-color: #3a4d72;
+}
+
+main :is(p, li, dd, td, blockquote) a:not(.btn, .nav-link, .anchorjs-link):hover {
+  color: var(--mfm-heading);
+  text-decoration-color: var(--mfm-aqua);
+}
+
+div.sourceCode {
+  border: 1px solid var(--mfm-tone-2);
+  border-radius: var(--mfm-r-card);
+}
+
+footer.footer .nav-footer {
+  padding: 0;
+  max-width: var(--mfm-wrap, 1280px);
+  margin: 0 auto;
+  color: var(--mfm-ink-2);
+}
+
+/* !important: Quarto colours the active contents link from a more specific selector. */
+#TOC ul > li > a.active,
+#TOC .nav-link.active {
+  color: var(--mfm-heading) !important;
+}
+
+#TOC .nav-link {
+  overflow-wrap: anywhere;
+}
+
+/* Tables: quiet rules, small muted column heads. */
+main table {
+  --bs-table-color: var(--mfm-ink);
+  --bs-table-border-color: #14264a;
+}
+
+main table thead,
+main table thead th {
+  border-bottom-color: var(--mfm-tone-2);
+}
+
+main table thead th {
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mfm-ink-2);
+}
+
+:not(pre) > code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #0f2243;
 }

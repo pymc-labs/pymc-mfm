@@ -1,0 +1,42 @@
+<header id="title-block-header" class="quarto-title-block default">
+$if(title)$
+<div class="mfm-band-wrap">
+<div class="mfm-band" data-motif="auto"><canvas aria-hidden="true"></canvas><div class="mfm-cartouche"><p class="mfm-eyebrow"></p><h1 class="title">$title$</h1></div></div>
+</div>
+<script>
+  // Lift the band out of the article column so it spans the page above the sidebars.
+  // Without scripts it stays here as a plain title panel.
+  (function () {
+    var band = document.currentScript.previousElementSibling;
+    var page = document.getElementById("quarto-content");
+    if (band && page) { page.before(band); document.body.classList.add("mfm-band-on"); }
+  })();
+</script>
+$endif$
+<div class="quarto-title">
+$if(subtitle)$
+<p class="subtitle lead">$subtitle$</p>
+$endif$
+$if(categories)$
+  $if(quarto-template-params.title-block-categories)$
+<div class="quarto-categories">
+  $for(categories)$
+  <div class="quarto-category">$categories$</div>
+  $endfor$
+</div>
+  $endif$
+$endif$
+</div>
+
+$if(hide-description)$
+$elseif(description)$
+<div>
+  <div class="description">
+    $description$
+  </div>
+</div>
+$endif$
+
+$title-metadata.html()$
+
+</header>

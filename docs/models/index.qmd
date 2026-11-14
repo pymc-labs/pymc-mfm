@@ -10,7 +10,7 @@ listing:
   template: models.ejs
   date-format: "MMM D, YYYY"
   feed: true
-  fields: [title, name, date, summary, image, badge, specs, status, order]
+  fields: [title, date, summary, badge, specs, status, order]
 page-layout: article
 toc: false
 body-classes: mfm-models-page

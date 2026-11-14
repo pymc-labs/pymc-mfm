@@ -430,3 +430,9 @@
     transform: none;
   }
 }
+
+/* Reference sidebar: long dotted names fit on one line. */
+body.mfm-ref #quarto-sidebar a.sidebar-link:not(.text-start) {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

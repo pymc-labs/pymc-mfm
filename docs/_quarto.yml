@@ -99,12 +99,9 @@ website:
           # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
           contents: "guide/examples/*.ipynb"
   page-footer:
-    # One quiet line and the dark-mode button. Quarto's own toggle (the class and the
-    # onclick below) switches the stylesheets and flips the "alternate" class on this button.
+    # One quiet line. The site is dark only, so there is no colour-scheme toggle.
     left: |
       Built by [PyMC Labs](https://www.pymc-labs.com), the creators of PyMC.
-    right: |
-      <button type="button" class="quarto-color-scheme-toggle mfm-theme-toggle" onclick="window.quartoToggleColorScheme(); return false;"><span class="mfm-theme-toggle-dark">Dark mode</span><span class="mfm-theme-toggle-light">Light mode</span></button>
 
 language:
   search-text-placeholder: "Search"
@@ -200,9 +197,13 @@ quartodoc:
 
 format:
   html:
-    theme:
-      light: [cosmo, assets/styles/light.scss]
-      dark: [cosmo, assets/styles/dark.scss]
+    # Dark is the only theme (no light variant, no toggle).
+    theme: [cosmo, assets/styles/dark.scss]
+    # Band header on every inner page; see the partial for why it lifts itself.
+    template-partials:
+      - assets/partials/title-block.html
+      - assets/partials/title-metadata.html
+      - assets/partials/_title-meta-author.html
     css:
       - assets/fonts/fonts.css
       - assets/styles/site.css
@@ -214,9 +215,7 @@ format:
     code-copy: true
     code-overflow: scroll
     # Code colours in the site palette (derived from the GitHub themes; see the files).
-    highlight-style:
-      light: assets/styles/mfm-light.theme
-      dark: assets/styles/mfm-dark.theme
+    highlight-style: assets/styles/mfm-dark.theme
     link-external-icon: false
     link-external-newwindow: true
     smooth-scroll: false

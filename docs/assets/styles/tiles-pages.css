@@ -1,0 +1,163 @@
+/* Inner pages (every page but the home page): the header band, the skirting row and wave panels.
+   Each is one canvas painted once by tiles-pages.js; the CSS only sizes and places it.
+   Tokens: ground #07142a, glaze #132849, ink #f2f5fa, ink-2 #c3cde0, muted #8593ab. */
+:root {
+  --mfm-wrap: min(1280px, calc(100vw - 96px));
+}
+
+/* Band: one painted canvas, the title set in a cartouche of quiet tiles. */
+.mfm-band-wrap {
+  width: var(--mfm-wrap);
+  margin: 24px auto 0;
+}
+
+.mfm-band,
+.mfm-skirt,
+.mfm-panel {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--cols, 24) / var(--rows, 2);
+  background: #0c1b36;
+}
+
+.mfm-skirt {
+  --cols: 32;
+  --rows: 1;
+}
+
+.mfm-panel {
+  --cols: 10;
+  --rows: 5;
+}
+
+.mfm-band canvas,
+.mfm-skirt canvas,
+.mfm-panel canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.mfm-cartouche {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--cc, 12) / var(--cols, 24) * 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 36px;
+}
+
+.mfm-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--mfm-ink);
+}
+
+.mfm-eyebrow svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
+.mfm-cartouche h1.title {
+  margin: 0;
+  font: 400 34px/1.12 var(--mfm-font-display);
+  font-stretch: 125%;
+  letter-spacing: -0.01em;
+  color: var(--mfm-heading);
+  overflow-wrap: anywhere;
+}
+
+.mfm-band.is-long .mfm-cartouche h1.title {
+  font-size: 26px;
+}
+
+/* Generated pages get their band from script: keep the space so the text does not jump. */
+body.mfm-ref:not(.mfm-band-on) #quarto-content {
+  margin-top: 131px;
+}
+
+/* Skirting row above the footer. */
+.mfm-skirt-wrap {
+  width: var(--mfm-wrap);
+  margin: 96px auto 0;
+}
+
+/* Wave panel (Models): stands in for a model image. */
+.mfm-panel {
+  background: transparent;
+}
+
+@media (max-width: 800px) {
+  :root {
+    --mfm-wrap: calc(100vw - 40px);
+  }
+
+  .mfm-band-wrap {
+    margin-top: 12px;
+  }
+
+  /* Phone: a 12 x 1 strip of tiles, the title below it on the page ground. */
+  .mfm-band {
+    aspect-ratio: auto;
+    background: none;
+  }
+
+  .mfm-band canvas {
+    position: static;
+    height: auto;
+  }
+
+  .mfm-cartouche {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 24px 0 0;
+  }
+
+  .mfm-cartouche h1.title {
+    font-size: 30px;
+  }
+
+  .mfm-band.is-long .mfm-cartouche h1.title {
+    font-size: 24px;
+  }
+
+  .mfm-skirt-wrap {
+    margin-top: 64px;
+  }
+}
+
+/* Bootstrap hides the page title below 992px (Quarto shows it in a second bar, which this site
+   removed); here it is the band's title. */
+.mfm-cartouche h1.title,
+.mfm-cartouche h1.title.d-none {
+  display: block !important;
+}
+
+/* Below 992px the sidebar is a toggle and the page is one column, 20px in from the band's edge. */
+@media (max-width: 991.98px) {
+  #quarto-content.page-columns {
+    grid-template-columns:
+      [screen-start] 20px
+      [screen-start-inset page-start page-start-inset body-start-outset body-start body-content-start]
+      minmax(0, 1fr)
+      [body-content-end body-end body-end-outset page-end-inset page-end screen-end-inset] 20px
+      [screen-end];
+  }
+
+  /* Contents and categories drop out here, as in the design; the sidebar toggle stays. */
+  #quarto-margin-sidebar {
+    display: none;
+  }
+}

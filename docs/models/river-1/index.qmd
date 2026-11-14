@@ -10,7 +10,6 @@ twitter-card:
 date: 2026-11-07
 author: "PyMC Labs"
 categories: [Release, River]
-image: ../../assets/img/models/river.jpg
 # Read by the Models page (models/models.ejs); announced models are in models/upcoming.yml.
 name: River
 order: 1
@@ -25,8 +24,6 @@ toc-title: "On this page"
 toc-depth: 2
 body-classes: mfm-river-page
 css: ../../assets/styles/model.css
-# The night-river hero (river.js, model.css) sits above the page, under the navbar.
-include-before-body: _hero.html
 ---
 
 <!--
@@ -46,21 +43,25 @@ the causal graph behind each draw. It needs no new parameter fit: it learned fro
 every new dataset.
 :::
 
-River is a research preview. All of its tests use simulated data with known truth, and
-validation against real-world incrementality tests remains open.
+::: {.mfm-note}
+**Research preview**
+
+All of River's tests use simulated data with known truth, and validation against real-world incrementality tests remains open.
+:::
+
+| At a glance | |
+|:--|:--|
+| Parameters | 2.4M |
+| Simulated training worlds | 200,000 |
+| Median first answer for one query week | 1.25 s |
+| Comparisons with a majority of paired wins | 11 of 15 |
 
 ```{=html}
-<div class="mfm-stats mfm-reveal">
-  <div><strong>2.4M</strong><span>parameters</span></div>
-  <div><strong>200,000</strong><span>simulated training worlds</span></div>
-  <div><strong>1.25 s</strong><span>median first answer for one query week</span></div>
-  <div><strong>11 of 15</strong><span>comparisons with a majority of paired wins</span></div>
-</div>
-<div class="mfm-links mfm-reveal">
-  <a href="https://www.pymc-labs.com/marketing-foundation-models">White paper <span aria-hidden="true">↗</span></a>
-  <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o">Watch the explainer <span aria-hidden="true">↗</span></a>
-  <a href="../../guide/examples/river_1_quickstart.html">Quickstart <span aria-hidden="true">→</span></a>
-</div>
+<p class="mfm-links">
+  <a class="mfm-go" href="https://www.pymc-labs.com/marketing-foundation-models">White paper <span aria-hidden="true">↗</span></a>
+  <a class="mfm-go" href="https://www.youtube.com/watch?v=UsMRBp6Dq2o">Watch the explainer <span aria-hidden="true">↗</span></a>
+  <a class="mfm-go" href="../../guide/examples/river_1_quickstart.html">Quickstart <span aria-hidden="true">→</span></a>
+</p>
 ```
 
 ## What River does {#what}
@@ -98,18 +99,16 @@ representations to that graph, and a conditional decoder turns fresh noise into
 contribution draws. Conditional flow matching trains the network to carry noise to
 samples; at inference, sixteen fixed Euler steps do the carrying.
 
-```{=html}
-<dl class="mfm-specs mfm-reveal">
-  <div><dt>Parameters</dt><dd>2,443,583</dd></div>
-  <div><dt>Encoder</dt><dd>4 blocks, width 128, 8 attention heads, feed-forward 512</dd></div>
-  <div><dt>Flow networks</dt><dd>two hidden layers of 256 (SiLU)</dd></div>
-  <div><dt>Training worlds</dt><dd>200,000 × 208 weeks (196,000 train, 4,000 held out)</dd></div>
-  <div><dt>Context lengths</dt><dd>75 to 207 weeks</dd></div>
-  <div><dt>Optimisation</dt><dd>62,500 AdamW updates of 64 views (3.4 epochs)</dd></div>
-  <div><dt>Hardware</dt><dd>one NVIDIA H100</dd></div>
-  <div><dt>Bundle</dt><dd>about 10 MB, 10 control slots</dd></div>
-</dl>
-```
+| Spec | |
+|:--|:--|
+| Parameters | 2,443,583 |
+| Encoder | 4 blocks, width 128, 8 attention heads, feed-forward 512 |
+| Flow networks | two hidden layers of 256 (SiLU) |
+| Training worlds | 200,000 × 208 weeks (196,000 train, 4,000 held out) |
+| Context lengths | 75 to 207 weeks |
+| Optimisation | 62,500 AdamW updates of 64 views (3.4 epochs) |
+| Hardware | one NVIDIA H100 |
+| Bundle | about 10 MB, 10 control slots |
 
 ## Benchmarks {#benchmarks}
 
@@ -125,41 +124,10 @@ probability score (CRPS) of each input's contribution over the query weeks; it j
 the whole distribution, and lower is better.
 
 ```{=html}
-<figure class="mfm-chart mfm-reveal" aria-label="Query channel CRPS with full inputs, mean over 100 held-out worlds. 109 query weeks: River 0.030, PathMC 0.037, PyMC-Marketing MMM 0.066, OLS 0.214. 23 weeks: River 0.024, PathMC 0.037, MMM 0.058, OLS 0.132. One week: River 0.026, PathMC 0.040, MMM 0.060, OLS 0.118.">
-  <figcaption>
-    <strong>Channel contribution error, all inputs available</strong>
-    <span>Query channel CRPS, mean over 100 held-out worlds. Lower is better.</span>
-  </figcaption>
-  <div class="mfm-chart__legend" aria-hidden="true">
-    <span data-series="river">River 1.0</span>
-    <span data-series="pathmc">PathMC</span>
-    <span data-series="mmm">PyMC-Marketing MMM</span>
-    <span data-series="ols">OLS</span>
-  </div>
-  <div class="mfm-chart__groups" aria-hidden="true" style="--max: 0.22">
-    <div class="mfm-chart__group">
-      <p>109 query weeks</p>
-      <div class="mfm-bar" style="--v: 0.0295" data-series="river"><i></i><b>0.030</b></div>
-      <div class="mfm-bar" style="--v: 0.0370" data-series="pathmc"><i></i><b>0.037</b></div>
-      <div class="mfm-bar" style="--v: 0.0659" data-series="mmm"><i></i><b>0.066</b></div>
-      <div class="mfm-bar" style="--v: 0.2136" data-series="ols"><i></i><b>0.214</b></div>
-    </div>
-    <div class="mfm-chart__group">
-      <p>23 query weeks</p>
-      <div class="mfm-bar" style="--v: 0.0241" data-series="river"><i></i><b>0.024</b></div>
-      <div class="mfm-bar" style="--v: 0.0365" data-series="pathmc"><i></i><b>0.037</b></div>
-      <div class="mfm-bar" style="--v: 0.0580" data-series="mmm"><i></i><b>0.058</b></div>
-      <div class="mfm-bar" style="--v: 0.1322" data-series="ols"><i></i><b>0.132</b></div>
-    </div>
-    <div class="mfm-chart__group">
-      <p>One query week</p>
-      <div class="mfm-bar" style="--v: 0.0263" data-series="river"><i></i><b>0.026</b></div>
-      <div class="mfm-bar" style="--v: 0.0396" data-series="pathmc"><i></i><b>0.040</b></div>
-      <div class="mfm-bar" style="--v: 0.0596" data-series="mmm"><i></i><b>0.060</b></div>
-      <div class="mfm-bar" style="--v: 0.1175" data-series="ols"><i></i><b>0.118</b></div>
-    </div>
-  </div>
-  <p class="mfm-chart__note">Scores use each world's sales scale. The oracle, a fit given the true structure, scores lower than River.</p>
+<figure class="mfm-chart">
+<figcaption><strong>Channel contribution error, all inputs available</strong><span>Query channel CRPS, mean over 100 held-out worlds. Lower is better. MMM is the PyMC-Marketing MMM.</span></figcaption>
+<svg viewBox="0 0 400 406" role="img" aria-label="Query channel CRPS with full inputs, mean over 100 held-out worlds. 109 query weeks: River 0.030, PathMC 0.037, MMM 0.066, OLS 0.214. 23 weeks: River 0.024, PathMC 0.037, MMM 0.058, OLS 0.132. One week: River 0.026, PathMC 0.040, MMM 0.060, OLS 0.118."><text class="gl" x="0" y="12">109 query weeks</text><text class="lb" x="0" y="43">River 1.0</text><rect x="82" y="32" width="31.6" height="14" rx="2" fill="#b4e7dd"/><text class="vl" x="121.6" y="43">0.030</text><text class="lb" x="0" y="67">PathMC</text><rect x="82" y="56" width="39.7" height="14" rx="2" fill="#8fa9ff"/><text class="vl" x="129.7" y="67">0.037</text><text class="lb" x="0" y="91">MMM</text><rect x="82" y="80" width="70.7" height="14" rx="2" fill="#8593ab"/><text class="vl" x="160.7" y="91">0.066</text><text class="lb" x="0" y="115">OLS</text><rect x="82" y="104" width="229.1" height="14" rx="2" fill="#5d6b84"/><text class="vl" x="319.1" y="115">0.214</text><text class="gl" x="0" y="152">23 query weeks</text><text class="lb" x="0" y="183">River 1.0</text><rect x="82" y="172" width="25.9" height="14" rx="2" fill="#b4e7dd"/><text class="vl" x="115.9" y="183">0.024</text><text class="lb" x="0" y="207">PathMC</text><rect x="82" y="196" width="39.2" height="14" rx="2" fill="#8fa9ff"/><text class="vl" x="129.2" y="207">0.037</text><text class="lb" x="0" y="231">MMM</text><rect x="82" y="220" width="62.2" height="14" rx="2" fill="#8593ab"/><text class="vl" x="152.2" y="231">0.058</text><text class="lb" x="0" y="255">OLS</text><rect x="82" y="244" width="141.8" height="14" rx="2" fill="#5d6b84"/><text class="vl" x="231.8" y="255">0.132</text><text class="gl" x="0" y="292">One query week</text><text class="lb" x="0" y="323">River 1.0</text><rect x="82" y="312" width="28.2" height="14" rx="2" fill="#b4e7dd"/><text class="vl" x="118.2" y="323">0.026</text><text class="lb" x="0" y="347">PathMC</text><rect x="82" y="336" width="42.5" height="14" rx="2" fill="#8fa9ff"/><text class="vl" x="132.5" y="347">0.040</text><text class="lb" x="0" y="371">MMM</text><rect x="82" y="360" width="63.9" height="14" rx="2" fill="#8593ab"/><text class="vl" x="153.9" y="371">0.060</text><text class="lb" x="0" y="395">OLS</text><rect x="82" y="384" width="126.0" height="14" rx="2" fill="#5d6b84"/><text class="vl" x="216.0" y="395">0.118</text></svg>
+<p class="mfm-chart__note">Scores use each world's sales scale. The oracle, a fit given the true structure, scores lower than River.</p>
 </figure>
 ```
 
@@ -170,13 +138,11 @@ majority of worlds in 11 of the 15 condition-and-horizon comparisons for channel
 A separate test compares River with the configured PyMC-Marketing MMM on 100 full-input
 worlds at the three horizons. The MMM's mean error is a multiple of River's:
 
-```{=html}
-<div class="mfm-ratios mfm-reveal">
-  <div><strong>2.1–2.4×</strong><span>channel contributions</span></div>
-  <div><strong>5.4–5.7×</strong><span>control contributions</span></div>
-  <div><strong>4.0–5.1×</strong><span>baseline</span></div>
-</div>
-```
+| Contribution | MMM error vs River |
+|:--|:--|
+| Channel contributions | 2.1–2.4× |
+| Control contributions | 5.4–5.7× |
+| Baseline | 4.0–5.1× |
 
 These are ratios of cohort means, not typical world-level ratios, and the MMM fits
 include runs that failed sampler diagnostics. They do not establish an advantage over
@@ -189,24 +155,10 @@ read it. In the timing test (100 twelve-channel worlds), River ran on a GPU and 
 MMM on eight CPU cores:
 
 ```{=html}
-<figure class="mfm-chart mfm-reveal" aria-label="Median time to the first answer, log scale. One query week: River 1.25 seconds, MMM fit plus first prediction 387.30 seconds. 109 query weeks: River 113.78 seconds, MMM 238.66 seconds.">
-  <figcaption>
-    <strong>Time to the first answer</strong>
-    <span>Median seconds, log scale. MMM time is a fresh fit plus its first prediction.</span>
-  </figcaption>
-  <div class="mfm-chart__groups mfm-chart__groups--time" aria-hidden="true">
-    <div class="mfm-chart__group">
-      <p>One query week</p>
-      <div class="mfm-bar" style="--w: 3.2%" data-series="river"><span>River 1.0</span><i></i><b>1.25 s</b></div>
-      <div class="mfm-bar" style="--w: 86.3%" data-series="mmm"><span>PyMC-Marketing MMM</span><i></i><b>387.30 s</b></div>
-    </div>
-    <div class="mfm-chart__group">
-      <p>109 query weeks</p>
-      <div class="mfm-bar" style="--w: 68.6%" data-series="river"><span>River 1.0</span><i></i><b>113.78 s</b></div>
-      <div class="mfm-bar" style="--w: 79.3%" data-series="mmm"><span>PyMC-Marketing MMM</span><i></i><b>238.66 s</b></div>
-    </div>
-  </div>
-  <p class="mfm-chart__note">Latency grows with query length. Once fitted, the MMM answers a warm 109-week query in about 4 s, faster than River's 114 s. Times exclude River's one-off training.</p>
+<figure class="mfm-chart">
+<figcaption><strong>Time to the first answer</strong><span>Median seconds, log scale. MMM time is a fresh fit plus its first prediction.</span></figcaption>
+<svg viewBox="0 0 400 170" role="img" aria-label="Median time to the first answer, log scale. One query week: River 1.25 seconds, MMM fit plus first prediction 387.30 seconds. 109 query weeks: River 113.78 seconds, MMM 238.66 seconds."><text class="gl" x="0" y="12">One query week</text><text class="lb" x="0" y="43">River 1.0</text><rect x="82" y="32" width="7.6" height="14" rx="2" fill="#b4e7dd"/><text class="vl" x="97.6" y="43">1.25 s</text><text class="lb" x="0" y="67">MMM</text><rect x="82" y="56" width="203.7" height="14" rx="2" fill="#8593ab"/><text class="vl" x="293.7" y="67">387.30 s</text><text class="gl" x="0" y="104">109 query weeks</text><text class="lb" x="0" y="135">River 1.0</text><rect x="82" y="124" width="161.9" height="14" rx="2" fill="#b4e7dd"/><text class="vl" x="251.9" y="135">113.78 s</text><text class="lb" x="0" y="159">MMM</text><rect x="82" y="148" width="187.1" height="14" rx="2" fill="#8593ab"/><text class="vl" x="277.1" y="159">238.66 s</text></svg>
+<p class="mfm-chart__note">Latency grows with query length. Once fitted, the MMM answers a warm 109-week query in about 4 s, faster than River's 114 s. Times exclude River's one-off training.</p>
 </figure>
 ```
 
@@ -218,13 +170,11 @@ Smaller problems are quicker. With the library's quickstart world (two channels,
 River samples which inputs have a direct effect. Within its training prior, on 100
 full-input worlds:
 
-```{=html}
-<div class="mfm-ratios mfm-reveal">
-  <div><strong>≈ 90%</strong><span>precision and recall for active channels</span></div>
-  <div><strong>45–51%</strong><span>of worlds with the complete active-channel set recovered</span></div>
-  <div><strong>82–86</strong><span>of 100 worlds with the true graph among 2,048 drawn graphs</span></div>
-</div>
-```
+| Measure | Result |
+|:--|:--|
+| Precision and recall for active channels | ≈ 90% |
+| Worlds with the complete active-channel set recovered | 45–51% |
+| Worlds with the true graph among 2,048 drawn graphs | 82–86 of 100 |
 
 This is partial recovery inside the permitted family of direct effects, not
 unrestricted causal discovery. Selecting the one correct graph remains harder than
@@ -265,7 +215,7 @@ model = from_pretrained(
 ```
 
 ```{=html}
-<div class="mfm-resources mfm-reveal">
+<div class="mfm-resources">
   <div><strong>Hugging Face</strong><span>Repository pymc-labs/mfm, profile river-1. Private to the PyMC Labs organisation.</span></div>
   <a href="https://www.pymc-labs.com/marketing-foundation-models"><strong>White paper</strong><span>For practitioners and decision makers</span><i aria-hidden="true">↗</i></a>
   <div><strong>Academic paper</strong><span>Amortized Bayesian Inference over Mixtures of Marketing Mix Models. arXiv preprint coming soon.</span></div>
@@ -273,7 +223,7 @@ model = from_pretrained(
   <a href="../../guide/examples/river_1_quickstart.html"><strong>Quickstart notebook</strong><span>Decompose a simulated dataset with River 1.0</span><i aria-hidden="true">→</i></a>
   <a href="../../guide/index.html"><strong>Guide</strong><span>Install, concepts and the library API</span><i aria-hidden="true">→</i></a>
 </div>
-<p class="mfm-authors mfm-reveal">
+<p class="mfm-authors">
   <span>Authors</span>
   <a href="https://www.pymc-labs.com/team/carlos-trujillo">Carlos Trujillo</a>,
   <a href="https://www.pymc-labs.com/team/teemu-saeilynoja">Teemu Säilynoja</a>,
@@ -284,7 +234,3 @@ model = from_pretrained(
 </p>
 ```
 
-
-```{=html}
-<script src="../../assets/js/river.js" defer></script>
-```
