@@ -67,11 +67,21 @@ body.mfm-landing .quarto-color-scheme-toggle {
   display: none !important;
 }
 
-body.mfm-landing #quarto-search .aa-DetachedSearchButton,
-body.mfm-landing #quarto-search .aa-DetachedSearchButtonIcon,
-body.mfm-landing #quarto-search .aa-SubmitIcon {
-  color: rgba(247, 247, 247, 0.82) !important;
-  fill: currentColor !important;
+/* Search: the same field on the navy bar. Focused it turns white, so its text turns navy.
+   The results panel stays light (site.css). */
+body.mfm-landing #quarto-search .aa-Form,
+body.mfm-landing #quarto-search .aa-DetachedSearchButton {
+  --mfm-search-field: rgba(255, 255, 255, 0.09);
+  --mfm-heading: #c9d3e6;
+  --mfm-ink-2: #c9d3e6;
+}
+
+body.mfm-landing #quarto-search .aa-Form:focus-within {
+  --mfm-search-field-focus: #ffffff;
+  --mfm-heading: #0c1f40;
+  --mfm-ink-2: #4d5b78;
+  --mfm-tone-2: #e3e9f4;
+  --mfm-accent: #2650c8;
 }
 
 body.mfm-landing #quarto-content,

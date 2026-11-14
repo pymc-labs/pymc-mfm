@@ -9,7 +9,7 @@
      initTabs          a sliding marker and logos on every Quarto .panel-tabset; clears "Copied" on switch
      initPhoneMenu     below 992px, the navbar panel also lists the current section's sidebar pages
      initMenuSheet     below 992px the menu covers the page: scroll lock while open, Escape closes
-     initSearchLabel   names Quarto's search button ("Search"), which renders without one
+   Search additions (labels, result paths, the empty message) are in search.js.
    Colours, icons and motion are in site.css; this file only adds classes, attributes and labels. */
 (() => {
   "use strict";
@@ -275,19 +275,6 @@
     });
   }
 
-  /* Quarto's search box (Algolia autocomplete) draws its button after load, with only a
-     placeholder inside, so screen readers announce an unnamed button. */
-  function initSearchLabel() {
-    const search = document.getElementById("quarto-search");
-    if (!search) return;
-    const label = () => {
-      const button = search.querySelector(".aa-DetachedSearchButton:not([aria-label])");
-      if (button) button.setAttribute("aria-label", "Search");
-    };
-    label();
-    new MutationObserver(label).observe(search, { childList: true, subtree: true });
-  }
-
   [
     initModelsMenu,
     initConsoleButton,
@@ -297,6 +284,5 @@
     initTabs,
     initPhoneMenu,
     initMenuSheet,
-    initSearchLabel,
   ].forEach((init) => init());
 })();
