@@ -163,10 +163,22 @@ body.mfm-landing .nav-footer a {
   transform: translateX(3px);
 }
 
+/* Phosphor icons: the Console window and the arrow, which moves 3px on hover. */
 .mfm-btn__icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.mfm-btn__arrow {
   width: 16px;
   height: 16px;
   flex: none;
+  transition: transform 0.25s ease;
+}
+
+.mfm-btn:hover .mfm-btn__arrow {
+  transform: translateX(3px);
 }
 
 /* ".mfm .mfm-btn--x" outranks the ".mfm a { color: inherit }" reset without !important. */
@@ -1278,12 +1290,14 @@ body.mfm-landing .nav-footer a {
 
   .mfm-btn,
   .mfm-btn span,
+  .mfm-btn__arrow,
   .mfm-explore__title span,
   .mfm-hero__field {
     transition: none;
   }
 
   .mfm-btn:hover span,
+  .mfm-btn:hover .mfm-btn__arrow,
   .mfm-explore a:hover .mfm-explore__title span {
     transform: none;
   }

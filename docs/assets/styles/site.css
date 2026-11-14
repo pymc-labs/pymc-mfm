@@ -272,9 +272,16 @@ body.quarto-dark .navbar-logo {
   transform: scaleX(1);
 }
 
+/* The menu caret: Phosphor CaretDown instead of Bootstrap's border triangle. */
 .navbar .dropdown-toggle::after {
+  width: 12px;
+  height: 12px;
   margin-left: 0.4em;
-  vertical-align: 0.12em;
+  border: 0;
+  vertical-align: -0.05em;
+  background: currentColor;
+  mask: url("../icons/phosphor/caret-down.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/caret-down.svg") center / contain no-repeat;
 }
 
 /* Quarto's own dark-mode toggle moved to the footer. */
@@ -770,7 +777,8 @@ html body .aa-DetachedContainer .aa-Panel {
 }
 
 /* Open Console: the one action. Navy with white text on light pages (light on navy on dark
-   ones): console icon, label, an arrow that moves 3px on hover. site.js sets data-mfm. */
+   ones): Phosphor TerminalWindow, label, an ArrowRight that moves 3px on hover. site.js sets
+   data-mfm. */
 .navbar .navbar-nav .nav-link[data-mfm="console"] {
   display: inline-flex;
   align-items: center;
@@ -802,22 +810,21 @@ html body .aa-DetachedContainer .aa-Panel {
 .navbar .navbar-nav .nav-link[data-mfm="console"]::after {
   content: "";
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   background: currentColor;
   mask: center / contain no-repeat;
   -webkit-mask: center / contain no-repeat;
 }
 
 .navbar .navbar-nav .nav-link[data-mfm="console"]::before {
-  /* a terminal window with a prompt */
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='2.5' width='13' height='11' rx='2.5'/%3E%3Cpath d='M4.5 6.5 6.5 8l-2 1.5M8.5 10h3'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.5' y='2.5' width='13' height='11' rx='2.5'/%3E%3Cpath d='M4.5 6.5 6.5 8l-2 1.5M8.5 10h3'/%3E%3C/svg%3E");
+  mask-image: url("../icons/phosphor/terminal-window.svg");
+  -webkit-mask-image: url("../icons/phosphor/terminal-window.svg");
 }
 
 .navbar .navbar-nav .nav-link[data-mfm="console"]::after {
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h10M9 4l4 4-4 4'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h10M9 4l4 4-4 4'/%3E%3C/svg%3E");
+  mask-image: url("../icons/phosphor/arrow-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-right.svg");
   transition: transform var(--mfm-dur) var(--mfm-ease);
 }
 
@@ -868,17 +875,23 @@ body.mfm-landing:is(.quarto-light, .quarto-dark) {
   color: var(--mfm-heading);
 }
 
+/* Phosphor ArrowRight, or ArrowUpRight for a link that leaves the site. */
 .mfm-models-menu .dropdown-item::after {
-  content: "\2192";
+  content: "";
+  flex: none;
+  width: 16px;
+  height: 16px;
   margin-left: auto;
-  padding-left: 1.25rem;
-  font-size: 0.85rem;
+  background: currentColor;
+  mask: url("../icons/phosphor/arrow-right.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/arrow-right.svg") center / contain no-repeat;
   opacity: 0.55;
   transition: transform var(--mfm-dur) var(--mfm-ease), opacity var(--mfm-dur) var(--mfm-ease);
 }
 
 .mfm-models-menu .dropdown-item.is-external::after {
-  content: "\2197";
+  mask-image: url("../icons/phosphor/arrow-up-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-up-right.svg");
 }
 
 .mfm-models-menu .dropdown-item:hover::after {
@@ -1043,6 +1056,51 @@ body.mfm-landing .mfm-badge--soon {
 /* Previous and next page links: long names wrap instead of widening the page. */
 .page-navigation {
   gap: 1rem;
+}
+
+/* Bootstrap icon glyphs that Quarto writes into its templates, drawn as Phosphor masks instead:
+   the pager arrows, the sidebar section caret and the sidebar toggle. */
+.page-navigation .bi-arrow-left-short::before,
+.page-navigation .bi-arrow-right-short::before,
+.sidebar-item-toggle .bi-chevron-right::before,
+.bi-layout-text-sidebar-reverse::before {
+  content: "";
+  width: 20px;
+  height: 20px;
+  vertical-align: -0.25em;
+  background: currentColor;
+  mask: center / contain no-repeat;
+  -webkit-mask: center / contain no-repeat;
+}
+
+/* Quarto sets the pager glyph at 1.8em with a tall line box; the 20px mask needs neither. */
+.page-navigation .nav-page .bi {
+  display: flex;
+  font-size: inherit;
+  line-height: 1;
+}
+
+.page-navigation .bi-arrow-left-short::before {
+  mask-image: url("../icons/phosphor/arrow-left.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-left.svg");
+}
+
+.page-navigation .bi-arrow-right-short::before {
+  mask-image: url("../icons/phosphor/arrow-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/arrow-right.svg");
+}
+
+.bi-layout-text-sidebar-reverse::before {
+  mask-image: url("../icons/phosphor/sidebar-simple.svg");
+  -webkit-mask-image: url("../icons/phosphor/sidebar-simple.svg");
+}
+
+.sidebar-item-toggle .bi-chevron-right::before {
+  width: 14px;
+  height: 14px;
+  vertical-align: -0.125em;
+  mask-image: url("../icons/phosphor/caret-right.svg");
+  -webkit-mask-image: url("../icons/phosphor/caret-right.svg");
 }
 
 .page-navigation .nav-page {
