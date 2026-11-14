@@ -1,11 +1,11 @@
-# Announced models without a release page yet. The Models page lists none for now: Sea
-# and Ocean are not shown until they ship. To list one again, add an entry here, for
-# example:
-#
-# - title: "Sea"
-#   image: ../assets/img/models/sea.jpg
-#   status: soon
-#   order: 2
-#
-# The pictures stay in assets/img/models/. When a model ships, add docs/models/<name>/.
-[]
+# Announced models without a release page yet. The Models page shows each one as a
+# tile that says "Coming soon" and does not link anywhere; `order` places it after the
+# released models. When a model ships, delete it here and add docs/models/<name>/.
+- title: "Sea"
+  image: ../assets/img/models/sea.jpg
+  status: soon
+  order: 2
+- title: "Ocean"
+  image: ../assets/img/models/ocean.jpg
+  status: soon
+  order: 3

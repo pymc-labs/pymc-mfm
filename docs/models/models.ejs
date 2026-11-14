@@ -3,7 +3,7 @@
 // (title, date, summary, image, and optional `name`, `badge` and `specs`; the tile
 // shows `name`, the model without its version, or else the title); the whole tile links
 // to the release page. Announced models come from upcoming.yml with `status: soon`; their
-// tile says "Coming soon" and links nowhere. upcoming.yml is empty for now.
+// tile says "Coming soon" and links nowhere.
 // Pandoc reads this output as Markdown: keep HTML lines unindented, without blank lines.
 const slug = (title) => String(title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 %>
