@@ -30,7 +30,7 @@ css:
     <p class="mfm-hero__line">Marketing foundation models by PyMC Labs. Train once, decompose many.</p>
     <div class="mfm-hero__actions">
       <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
-      <a class="mfm-btn mfm-btn--ghost no-external" href="https://mfm-staging.pymc-labs.com/console/">
+      <a class="mfm-btn mfm-btn--ghost no-external" href="https://mfm-staging.pymc-labs.com/sign-in/">
         <svg class="mfm-btn__icon" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M128,128a8,8,0,0,1-3,6.25l-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32A8,8,0,0,1,128,128Zm48,24H136a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm56-96V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Z"/></svg>
         Open Console <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
       </a>
