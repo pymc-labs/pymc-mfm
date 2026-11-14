@@ -34,11 +34,10 @@ css: assets/styles/landing.css
       </a>
     </div>
   </div>
-  <a class="mfm-hero__scroll" href="#mfm-statement">Scroll to explore<span aria-hidden="true"></span></a>
 </section>
 
 <!-- 2. What it does, in one statement -------------------------------------------- -->
-<section class="mfm-statement" id="mfm-statement" tabindex="-1">
+<section class="mfm-statement">
   <p class="mfm-statement__text" data-mfm="statement">
     PyMC MFM trains neural networks on simulated marketing worlds. Hand one your weekly
     spend, controls and sales, and it returns posterior draws of every contribution, with the
@@ -53,7 +52,6 @@ css: assets/styles/landing.css
   </header>
 
   <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, decomposes the last 13 weeks into 1,000 posterior draws, exports an ArviZ DataTree, summarises each channel's total contribution, and plots its distribution, the weekly contributions with 90% intervals and the stacked mean decomposition. Synthetic data; the outputs come from River 1.0.">
-    <div class="mfm-stage__bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="mfm-grain" aria-hidden="true"></div>
 
     <div class="mfm-ide" data-mfm="notebook" data-ui>

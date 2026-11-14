@@ -1,6 +1,7 @@
 /* Landing page motion, one scene per section:
    1. Hero: a WebGL ridgeline of drifting distributions behind the name; the name rises
       in, glitches "PyMC" into "Bayesian" once (desktop only), and dissolves as you scroll away.
+      The field itself stays put while the page scrolls.
    2. Statement: its words light up as they pass.
    3. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
    4. Chapters: the section pins at half height and three words cross-fade in one place.
@@ -42,7 +43,6 @@
       uniform float uTime;
       uniform vec2 uMouse;
       uniform float uFade;
-      uniform float uScroll;
       uniform float uGlitch;
       uniform vec4 uCopy; // centre and half-size of the hero copy, in 0-1 canvas units
       const int ROWS = 42;
@@ -95,9 +95,6 @@
         vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / uRes.y;
         // Portrait screens see a wider slice, so the rows still read as distributions.
         p.x *= max(1.0, 0.85 * uRes.y / uRes.x);
-        // Scrolling away pushes the camera in and lets the field sink behind the page.
-        p *= 1.0 - 0.16 * uScroll;
-        p.y += 0.14 * uScroll;
         float t = uTime;
         vec3 col;
         if (uGlitch > 0.001) {
@@ -112,8 +109,8 @@
         } else {
           col = scene(p, t);
         }
-        // Rows dissolve as they reach the bottom; the fade climbs the screen as you scroll.
-        float bottom = smoothstep(0.4 * uScroll, 0.3 + 0.45 * uScroll, uv.y);
+        // Rows dissolve as they reach the bottom.
+        float bottom = smoothstep(0.0, 0.3, uv.y);
         float sides = smoothstep(0.0, 0.1, uv.x) * smoothstep(1.0, 0.9, uv.x);
         // Quiet behind the copy so it stays legible.
         float behindCopy = length((uv - uCopy.xy) / max(uCopy.zw * 1.2, vec2(0.01)));
@@ -148,7 +145,6 @@
     const uTime = u("uTime");
     const uMouse = u("uMouse");
     const uFade = u("uFade");
-    const uScroll = u("uScroll");
     const uGlitch = u("uGlitch");
     const uCopy = u("uCopy");
     const copy = hero.querySelector(".mfm-hero__copy");
@@ -183,7 +179,6 @@
       gl.uniform1f(uTime, 20 + ms / 1000);
       gl.uniform2f(uMouse, mouse.x, 0.5);
       gl.uniform1f(uFade, still ? 1 : clamp01((ms - start) / 2400));
-      gl.uniform1f(uScroll, clamp01(window.scrollY / Math.max(1, hero.offsetHeight)));
       gl.uniform1f(uGlitch, glitch.level);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
@@ -290,19 +285,13 @@
       .from(".mfm-hero__mark", { autoAlpha: 0, y: 14, scale: 0.92, filter: "blur(12px)", duration: 0.8, clearProps: "filter" }, 0)
       .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 0.8, stagger: 0.1 }, 0.1)
       .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 0.9 }, 0.55)
-      .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8)
-      .from(".mfm-hero__scroll", { autoAlpha: 0, duration: 1 }, 1.4);
+      .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8);
     gsap.to(".mfm-hero__copy", {
       yPercent: -14,
       autoAlpha: 0,
       filter: "blur(10px)",
       ease: "none",
       scrollTrigger: { trigger: hero, start: "top top", end: "bottom 25%", scrub: true },
-    });
-    gsap.to(".mfm-hero__scroll", {
-      autoAlpha: 0,
-      ease: "none",
-      scrollTrigger: { trigger: hero, start: "top top", end: "15% top", scrub: true },
     });
   }
 
@@ -439,7 +428,7 @@
     items.forEach((el) => observer.observe(el));
   }
 
-  // Links to a section of this page ("Scroll to explore") scroll here instead of following
+  // Links to a section of this page (#id) scroll here instead of following
   // the URL: at the host root the page carries a <base> that points its links at the site
   // folder, so "#id" resolves to the site's copy of this page. Quarto also rewrites such
   // links to absolute URLs, so match the resolved address: this page or the base folder.

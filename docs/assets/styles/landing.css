@@ -270,7 +270,8 @@ body.mfm-landing .nav-footer a {
 .mfm-hero__title {
   font-family: var(--lp-display);
   font-stretch: 125%;
-  font-size: clamp(2.4rem, 8.2vw, 7rem);
+  /* 76px at most. In px: the page root is 17px, so rem would overshoot. */
+  font-size: clamp(48px, 5.25vw, 76px);
   line-height: 0.95;
   font-weight: 400;
   letter-spacing: -0.035em;
@@ -365,39 +366,9 @@ body.mfm-landing .nav-footer a {
   margin-top: 2.4rem;
 }
 
-.mfm-hero__scroll {
-  position: absolute;
-  bottom: 2rem;
-  left: 50%;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.6rem;
-  transform: translateX(-50%);
-  font-family: var(--lp-sans);
-  font-size: 0.85rem;
-  color: var(--mfm-fg-3) !important;
-}
-
-.mfm-hero__scroll span {
-  width: 1px;
-  height: 36px;
-  background: linear-gradient(180deg, rgba(247, 247, 247, 0.5), transparent); /* taste-skill-ignore: fading line of the scroll cue */
-  animation: mfm-drip 2.4s ease-in-out infinite;
-  transform-origin: top;
-}
-
-@keyframes mfm-drip {
-  0% { transform: scaleY(0); opacity: 0; }
-  40% { transform: scaleY(1); opacity: 1; }
-  100% { transform: scaleY(1) translateY(14px); opacity: 0; }
-}
-
 /* Set by an inline script before first paint; landing.js removes it when the intro
    starts. If the script never runs, the copy fades in on its own. */
-.mfm-intro .mfm-hero__copy,
-.mfm-intro .mfm-hero__scroll {
+.mfm-intro .mfm-hero__copy {
   opacity: 0;
   animation: mfm-failsafe 0.6s ease 1.6s forwards;
 }
@@ -449,46 +420,11 @@ body.mfm-landing .nav-footer a {
   text-wrap: balance;
 }
 
+/* The editor window sits on the page itself: no backdrop panel, no glow behind it. */
 .mfm-stage {
   position: relative;
   margin: 0;
-  padding: clamp(1rem, 5vw, 4.5rem) clamp(1rem, 5vw, 4.5rem) 0;
-  border-radius: var(--lp-r-card);
-  overflow: hidden;
   isolation: isolate;
-  background: #0b1b38;
-}
-
-.mfm-stage__bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  background:
-    /* Carlos's stage wash behind the editor picture; no text sits on it. */
-    radial-gradient(120% 80% at 50% 120%, rgba(7, 20, 42, 0.9), transparent 60%), /* taste-skill-ignore: landing stage wash */
-    linear-gradient(160deg, #10284f 0%, #0b1b38 55%, #0a1730 100%); /* taste-skill-ignore: landing stage wash */
-}
-
-.mfm-stage__bg i {
-  position: absolute;
-  width: 60%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  filter: blur(70px);
-  opacity: 0.55;
-  animation: mfm-drift 22s ease-in-out infinite alternate;
-}
-
-.mfm-stage__bg i:nth-child(1) { top: -30%; left: -15%; background: rgba(180, 231, 221, 0.55); }
-.mfm-stage__bg i:nth-child(2) { top: -25%; right: -20%; background: rgba(159, 170, 226, 0.6); animation-duration: 26s; animation-delay: -6s; }
-.mfm-stage__bg i:nth-child(3) { bottom: -45%; left: 20%; background: rgba(246, 174, 114, 0.4); animation-duration: 30s; animation-delay: -12s; }
-.mfm-stage__bg i:nth-child(4) { bottom: -40%; right: -10%; background: rgba(200, 180, 231, 0.45); animation-duration: 24s; animation-delay: -3s; }
-
-@keyframes mfm-drift {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(6%, 4%, 0) scale(1.08); }
-  100% { transform: translate3d(-5%, -3%, 0) scale(0.96); }
 }
 
 .mfm-show__install {
@@ -1283,11 +1219,6 @@ body.mfm-landing .nav-footer a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mfm-hero__scroll span,
-  .mfm-stage__bg i {
-    animation: none;
-  }
-
   .mfm-btn,
   .mfm-btn span,
   .mfm-btn__arrow,
