@@ -18,7 +18,7 @@ from pymc_mfm.inference.result import (
     result_from_batch,
 )
 from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.flow import DEFAULT_N_SAMPLES
+from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, warns_on_few_draws
 from pymc_mfm.model.model import MFM
 
 
@@ -113,6 +113,7 @@ def _model_batch(
     return batch
 
 
+@warns_on_few_draws
 def decompose(
     model: MFM,
     observations: Mapping[str, object],
@@ -136,7 +137,10 @@ def decompose(
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
     context/query posterior. The caller controls the PyTorch random seed;
-    ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` conditional draws.
+    ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` conditional draws. Fewer than
+    1000 draws emit a ``UserWarning``: summaries then vary between runs. For stable,
+    reproducible numbers pass ``n_samples=1000`` or more and call ``torch.manual_seed``
+    before each call.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
     if not isinstance(observations, Mapping):

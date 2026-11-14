@@ -120,3 +120,8 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Many tests sample a few draws on tiny models on purpose; tests of the warning itself
+# still see it because pytest.warns resets the filters.
+filterwarnings = [
+    "ignore:Sampling with n_samples=:UserWarning",
+]

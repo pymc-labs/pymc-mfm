@@ -349,6 +349,7 @@ def test_a_results_own_read_only_graph_is_a_valid_fixed_hypothesis(model, synthe
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
+            warnings.filterwarnings("ignore", message="Sampling with n_samples=")
             fixed = decompose(model, inputs, n_samples=3, mode="fixed", graph=drawn.graphs[0])
     finally:
         torch.set_warn_always(previous)

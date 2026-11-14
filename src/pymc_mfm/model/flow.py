@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+import functools
+import inspect
 import itertools
 import math
 import platform
 import sys
 import threading
+import warnings
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -76,6 +81,9 @@ FLOW_STEPS_SAMPLE = 16
 FLOW_TRAJECTORY_CORRELATION = 0.98
 #: Draws per sampling call when ``n_samples`` is omitted.
 DEFAULT_N_SAMPLES = 32
+#: Draw count from which summaries are stable enough to compare across runs; a sampling call
+#: with fewer draws emits a ``UserWarning``. The default draw count is unchanged.
+STABLE_N_SAMPLES = 1_000
 
 
 @dataclass(frozen=True)
@@ -122,6 +130,57 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
         raise ValueError(f"{name} must be a positive integer")
     return int(value)
+
+
+_IN_SAMPLING_CALL: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "pymc_mfm_in_sampling_call", default=False
+)
+
+
+@contextlib.contextmanager
+def _no_few_draws_warning() -> Iterator[None]:
+    """Silence the few-draws warning for calls the library makes on purpose."""
+    token = _IN_SAMPLING_CALL.set(True)
+    try:
+        yield
+    finally:
+        _IN_SAMPLING_CALL.reset(token)
+
+
+def warns_on_few_draws(function: Callable) -> Callable:
+    """Warn once per call site when a public sampling call uses few draws.
+
+    The warning is raised by the outermost public call only, so ``MFM.inference`` calling
+    ``decompose`` calling ``sample_disentangled`` warns once. It never changes the draws.
+    """
+    signature = inspect.signature(function)
+
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        if _IN_SAMPLING_CALL.get():
+            return function(*args, **kwargs)
+        with _no_few_draws_warning():
+            try:
+                bound = signature.bind_partial(*args, **kwargs)
+                n_samples = bound.arguments.get("n_samples", DEFAULT_N_SAMPLES)
+            except TypeError:
+                n_samples = DEFAULT_N_SAMPLES
+            if (
+                isinstance(n_samples, Integral)
+                and not isinstance(n_samples, bool)
+                and 1 <= n_samples < STABLE_N_SAMPLES
+            ):
+                warnings.warn(
+                    f"Sampling with n_samples={int(n_samples)}: summaries from few draws "
+                    "vary between runs. For stable, reproducible numbers, pass "
+                    f"n_samples={STABLE_N_SAMPLES} or more and call torch.manual_seed(...) "
+                    "before each call.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            return function(*args, **kwargs)
+
+    return wrapper
 
 
 def _sample_rows(kernels: bool) -> int:

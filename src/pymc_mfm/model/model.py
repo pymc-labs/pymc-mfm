@@ -28,6 +28,7 @@ from .flow import (
     _sample_count,
     _sample_rows,
     _to_device,
+    warns_on_few_draws,
 )
 from .graph import (
     STRUCT_EDGE_KEYS,
@@ -569,6 +570,7 @@ class MFM(nn.Module):
             represented_controls=int(batch["active_m_mask"][0].count_nonzero()),
         )
 
+    @warns_on_few_draws
     def inference(
         self,
         data: DataFrame,
@@ -725,6 +727,7 @@ class MFM(nn.Module):
         compiled = self.head._compiled_velocity
         return SamplingStatus(compiled=False) if compiled is None else compiled.status()
 
+    @warns_on_few_draws
     @torch.no_grad()
     def predict_batch(
         self,
@@ -749,6 +752,7 @@ class MFM(nn.Module):
             control_repr=controls,
         )
 
+    @warns_on_few_draws
     @torch.no_grad()
     def sample_disentangled(
         self,
@@ -1037,6 +1041,7 @@ class MFM(nn.Module):
             sampled[..., contribution_slice].masked_fill_(~live.unsqueeze(-2), 0.0)
         return sampled, graphs
 
+    @warns_on_few_draws
     @torch.no_grad()
     def sample_context(
         self,

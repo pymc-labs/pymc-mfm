@@ -30,6 +30,7 @@ import torch
 from torch import Tensor
 
 from pymc_mfm.data.observations import observation_identity
+from pymc_mfm.model.flow import _no_few_draws_warning
 from pymc_mfm.model.graph import (
     SQUARE_EDGE_TYPES,
     STRUCT_EDGE_KEYS,
@@ -981,26 +982,30 @@ def _score_batch(
 
     # The joint query pass also feeds the router, so it always runs; the call
     # order below is the draw order of the seeded stream.
-    joint_query, g_flow = model.predict_batch(batch, n_samples, return_structure=True)
-    draws: dict[tuple[str, str], np.ndarray] = {}
-    draw_graphs: dict[tuple[str, str], np.ndarray] = {}
-    conditional_graphs = None
-    if "joint" in heads:
-        joint_context, context_flow = model.sample_context(batch, n_samples, return_structure=True)
-        draws[("joint", "query")] = _numpy(joint_query)
-        draws[("joint", "context")] = _numpy(joint_context)
-    if "conditional" in heads:
-        conditional_query, query_graphs = model.sample_disentangled(
-            batch, n_samples, mode="model_average", window="query"
-        )
-        conditional_context, context_graphs = model.sample_disentangled(
-            batch, n_samples, mode="model_average", window="context"
-        )
-        draws[("conditional", "query")] = _numpy(conditional_query)
-        draws[("conditional", "context")] = _numpy(conditional_context)
-        conditional_graphs = {"query": _numpy(query_graphs), "context": _numpy(context_graphs)}
-        for window in WINDOWS:
-            draw_graphs[("conditional", window)] = conditional_graphs[window]
+    # Training evaluation chooses its own draw count on purpose; skip the few-draws warning.
+    with _no_few_draws_warning():
+        joint_query, g_flow = model.predict_batch(batch, n_samples, return_structure=True)
+        draws: dict[tuple[str, str], np.ndarray] = {}
+        draw_graphs: dict[tuple[str, str], np.ndarray] = {}
+        conditional_graphs = None
+        if "joint" in heads:
+            joint_context, context_flow = model.sample_context(
+                batch, n_samples, return_structure=True
+            )
+            draws[("joint", "query")] = _numpy(joint_query)
+            draws[("joint", "context")] = _numpy(joint_context)
+        if "conditional" in heads:
+            conditional_query, query_graphs = model.sample_disentangled(
+                batch, n_samples, mode="model_average", window="query"
+            )
+            conditional_context, context_graphs = model.sample_disentangled(
+                batch, n_samples, mode="model_average", window="context"
+            )
+            draws[("conditional", "query")] = _numpy(conditional_query)
+            draws[("conditional", "context")] = _numpy(conditional_context)
+            conditional_graphs = {"query": _numpy(query_graphs), "context": _numpy(context_graphs)}
+            for window in WINDOWS:
+                draw_graphs[("conditional", window)] = conditional_graphs[window]
 
     graphs = _numpy(binary_graphs_from_flow(g_flow))  # [S, B, L]
     # Thresholding NaN/Inf flow values would silently turn them into binary edges.

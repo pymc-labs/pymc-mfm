@@ -287,6 +287,23 @@ Characters that cannot appear in valid XML 1.0 SVG labels raise `ValueError`
 when exporting DOT, creating a diagram or building the inspector, rather than
 silently replacing the labels.
 
+### Stable, reproducible summaries
+
+`decompose` and `model.inference` default to 32 draws, which is fast but noisy: a summary
+such as a channel's posterior-mean contribution can move noticeably between runs. Calls
+with fewer than 1,000 draws emit a `UserWarning` saying so (the default is unchanged).
+For stable numbers, use at least 1,000 draws and seed PyTorch before each call:
+
+```python
+torch.manual_seed(0)
+result = decompose(model, observations, n_samples=1000)
+```
+
+The same seed gives the same draws on one machine, and on CPU, Apple and NVIDIA GPUs up to
+float32 round-off. Use more draws for tighter summaries. To silence the warning on
+purpose, for example in a quick smoke test, filter it:
+`warnings.filterwarnings("ignore", message="Sampling with n_samples=")`.
+
 ### Sampling on a GPU (Apple or NVIDIA)
 
 Load the model on the GPU. The same calls then sample with fused kernels and need no
