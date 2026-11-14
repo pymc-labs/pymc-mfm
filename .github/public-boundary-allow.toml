@@ -105,3 +105,9 @@ path = "docs/assets/fonts/archivo-latin-wdth125-400.woff2"
 rules = ["binary"]
 reason = "Self-hosted website font: Archivo at width 125 (Expanded), weight 400, Latin subset (15 kB), from Google Fonts. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."
 sha256 = "3ad898de6410336c5bb36ee4afeb9a95250aa5aa342ff3c7766c48a482a67264"
+
+[[allow]]
+path = "docs/assets/img/social/mfm-social.jpg"
+rules = ["binary"]
+reason = "Website share image (Open Graph and X card) for every page: the MFM mark, 'PyMC MFM', 'Train once, decompose many.' and painted tiles with bell curves, rendered from the site's own V2 hero canvas (1200x630 JPEG, 99 kB). No photograph or third-party asset. These exact bytes are pinned; a new image needs a new review."
+sha256 = "98da23e175d74f987284841ef5ddd045ad44cbc0406ce606b747a2f41f86485a"

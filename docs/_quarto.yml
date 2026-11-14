@@ -10,13 +10,17 @@ project:
     - "api/**"
     - "reference/**"
     - "models/**"
-    - "blog/**"
   resources:
     - assets/js/*.js
     - assets/fonts/*
     - assets/img/show/*.svg
     - assets/img/logo/*.svg
     - assets/favicon/*
+    # The share image (Open Graph and X cards) and the old blog addresses, which now redirect
+    # to the PyMC Labs blog.
+    - assets/img/social/*
+    - blog/index.html
+    - blog/posts/*/index.html
     # Phosphor Regular icons (MIT, @phosphor-icons/core 2.1.1), drawn as CSS masks.
     - assets/icons/phosphor/*
 
@@ -41,7 +45,19 @@ website:
     location: navbar
     type: textbox
     keyboard-shortcut: ["/"]
-  open-graph: true
+  # Share image for every page. Link previews need a full URL; it points at the staging
+  # host until there is a production address (site-url is not served yet).
+  open-graph:
+    image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+    image-width: 1200
+    image-height: 630
+    image-alt: "PyMC MFM: Train once, decompose many."
+  twitter-card:
+    card-style: summary_large_image
+    image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+    image-width: 1200
+    image-height: 630
+    image-alt: "PyMC MFM: Train once, decompose many."
   navbar:
     # The MFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
     logo: assets/img/logo/mfm-logo-navy.svg
@@ -65,8 +81,9 @@ website:
           - text: "Resources"
           - text: "All models"
             href: models/index.qmd
+      # The PyMC Labs blog; MFM has no blog of its own.
       - text: Blog
-        href: blog/index.qmd
+        href: https://www.pymc-labs.com/blog-posts
     right:
       # The hosted Console's sign-in page, at /sign-in/ on the same host as the site (the host root is the
       # landing page; docs/_scripts/mount.py lays the site out that way).
