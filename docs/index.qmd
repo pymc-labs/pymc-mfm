@@ -21,7 +21,7 @@ css:
     <div class="v2-cartouche v2-cartouche--hero">
       <h1 class="v2-wordmark"><img src="assets/img/logo/mfm-logo-light.svg" alt="" width="56" height="52"><span>PyMC MFM</span></h1>
       <p>Marketing mix answers with honest ranges. Trained once, no refit.</p>
-      <div class="v2-actions"><a class="v2-btn v2-btn--light" href="guide/index.html">Get started</a><a class="v2-btn v2-btn--quiet no-external" href="https://mfm-staging.pymc-labs.com/console/">Open Console</a></div>
+      <div class="v2-actions"><a class="v2-btn v2-btn--light" href="guide/index.html">Get started</a><a class="v2-btn v2-btn--quiet no-external" href="https://mfm-staging.pymc-labs.com/sign-in/">Open Console</a></div>
     </div>
   </div>
 </section>
