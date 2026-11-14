@@ -1,7 +1,7 @@
 /* Landing page motion, one scene per section:
    1. Hero: a WebGL ridgeline of drifting distributions behind the name; the name rises
-      in, glitches "PyMC" into "Bayesian" once (desktop only), and dissolves as you scroll away.
-      The field itself stays put while the page scrolls.
+      in on load and glitches "PyMC" into "Bayesian" once (desktop only). Nothing in the hero
+      is tied to scrolling: the copy and the field stay put while the page scrolls.
    2. Statement: its words light up as they pass.
    3. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
    4. Chapters: the section pins at half height and three words cross-fade in one place.
@@ -270,7 +270,7 @@
     }, GLITCH_DELAY_MS);
   }
 
-  // Hero copy: the words rise out of a blur, then dissolve as you scroll away ----------
+  // Hero copy: the words rise out of a blur on load ------------------------------------
   function heroCopy(hero) {
     const html = document.documentElement;
     const done = () => html.classList.remove("mfm-intro");
@@ -286,13 +286,6 @@
       .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 0.8, stagger: 0.1 }, 0.1)
       .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 0.9 }, 0.55)
       .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8);
-    gsap.to(".mfm-hero__copy", {
-      yPercent: -14,
-      autoAlpha: 0,
-      filter: "blur(10px)",
-      ease: "none",
-      scrollTrigger: { trigger: hero, start: "top top", end: "bottom 25%", scrub: true },
-    });
   }
 
   // 2. Statement: words light up as they pass -------------------------------------------
