@@ -4,7 +4,7 @@
       is tied to scrolling: the copy and the field stay put while the page scrolls.
    2. Statement: its words light up as they pass.
    3. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
-   4. Chapters: the section pins at half height and three words cross-fade in one place.
+   The chapters after the editor (painted tiles) are tiles-scene.js.
    Everything is decoration over static HTML. Without GSAP the page keeps its plain
    layout; with reduced motion nothing moves and the notebook shows finished. */
 (() => {
@@ -361,46 +361,6 @@
     );
   }
 
-  // 4. Chapters: pin, then cross-fade three words in one place ---------------------------
-  function chapters(section) {
-    if (reduceMotion || !hasGsap()) return;
-    gsap.registerPlugin(ScrollTrigger);
-    const items = [...section.querySelectorAll(".mfm-chapter")];
-    gsap.matchMedia().add("(min-height: 520px)", () => {
-      section.classList.add("is-cinematic");
-      gsap.set(items.slice(1), { autoAlpha: 0 });
-      const timeline = gsap.timeline({
-        defaults: { ease: "power2.out" },
-        scrollTrigger: {
-          trigger: section,
-          start: "center center",
-          end: () => `+=${Math.round(window.innerHeight * 1.5)}`,
-          pin: true,
-          scrub: 0.8,
-          invalidateOnRefresh: true,
-        },
-      });
-      items.forEach((item, i) => {
-        const parts = item.querySelectorAll(".mfm-chapter__word, .mfm-chapter__line");
-        if (i > 0) {
-          timeline.fromTo(item, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.25 }, i);
-          timeline.fromTo(
-            parts,
-            { y: 50, filter: "blur(12px)" },
-            { y: 0, filter: "blur(0px)", duration: 0.45, stagger: 0.06 },
-            i,
-          );
-        }
-        if (i < items.length - 1) {
-          timeline.to(parts, { y: -50, filter: "blur(12px)", duration: 0.35, stagger: 0.04, ease: "power2.in" }, i + 0.62);
-          timeline.to(item, { autoAlpha: 0, duration: 0.3, ease: "power2.in" }, i + 0.7);
-        }
-      });
-      timeline.to({}, { duration: 0.35 }, items.length - 0.35);
-      return () => section.classList.remove("is-cinematic");
-    });
-  }
-
   // Reveal sections, copy button -------------------------------------------------------
   function reveal() {
     const items = root.querySelectorAll(".mfm-reveal");
@@ -445,7 +405,6 @@
   const glitchWord = root.querySelector('[data-mfm="glitch"]');
   const statementText = root.querySelector('[data-mfm="statement"]');
   const ide = root.querySelector('[data-mfm="notebook"]');
-  const chapterSection = root.querySelector('[data-mfm="chapters"]');
 
   if (fieldCanvas && hero) field(fieldCanvas, hero);
   if (glitchWord && hero) titleGlitch(glitchWord, hero);
@@ -457,7 +416,6 @@
   ready.then(() => {
     if (hero) heroCopy(hero);
     if (statementText) statement(statementText);
-    if (chapterSection) chapters(chapterSection);
     if (hasGsap()) ScrollTrigger.refresh();
   });
 })();
