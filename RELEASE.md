@@ -145,7 +145,9 @@ distribution prerequisites, not an approved or published release.
   on dark ones) and stays pinned as a translucent bar, clear over the River hero. It links
   GitHub and pymc-labs.com (home of the PyMC Labs blog), lists Sea and Ocean as coming soon
   and Hugging Face in the Models menu, shows search on Guide and API pages only, and has a
-  dark-mode button; light or dark follows the system setting until the reader picks one.
+  dark-mode button; the site opens dark until the reader picks light. River 1.0's page opens
+  on a still picture of the Orinoco at night that moves: running water, the moon's glow,
+  drifting cloud and mist around the name, and a glitch now and then.
   Text is Inter and headlines Archivo Expanded, self-hosted. The favicons are the mark
   on a navy circle; the ICO, the Apple touch icon and the three card JPEGs are pinned in
   the public-boundary allowlist.

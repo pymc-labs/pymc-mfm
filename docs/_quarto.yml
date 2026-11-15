@@ -23,6 +23,8 @@ project:
     - blog/posts/*/index.html
     # Phosphor Regular icons (MIT, @phosphor-icons/core 2.1.1), drawn as CSS masks.
     - assets/icons/phosphor/*
+    # The River 1.0 hero's picture and the map of its water (models/river-1/_hero.html).
+    - assets/img/river/*
 
 # Both written during pre-render: the Python reference sidebar (quartodoc) and the
 # HTTP API sidebar (_scripts/http_pages.py). Quarto picks the sidebar that lists a page.
@@ -227,12 +229,11 @@ quartodoc:
 
 format:
   html:
+    # Dark is the default (it is listed first); the navbar button switches to light and
+    # remembers the choice.
     theme:
-      light: [cosmo, assets/styles/light.scss]
       dark: [cosmo, assets/styles/dark.scss]
-    # Light or dark follows the visitor's system setting until they press the navbar button;
-    # pressing it back to the system's mode follows the system again (site.js).
-    respect-user-color-scheme: true
+      light: [cosmo, assets/styles/light.scss]
     css:
       - assets/fonts/fonts.css
       - assets/styles/site.css
