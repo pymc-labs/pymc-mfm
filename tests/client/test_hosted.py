@@ -295,7 +295,7 @@ def test_signatures_match_the_local_model():
             assert parameter.default == remote.parameters[key].default, (name, key)
 
 
-def test_hosted_and_local_results_have_the_same_variables_coordinates_and_dims(fake, history, plan):
+def test_hosted_and_local_results_match_when_supplied_controls_fill_the_model(fake, history, plan):
     torch = pytest.importorskip("torch")
     pytest.importorskip("matplotlib")
     from pymc_mfm.model import MFM, ModelConfig
@@ -436,25 +436,98 @@ def test_graph_diagnostics_of_a_hosted_result_are_unavailable_not_zero(fake, his
     pytest.importorskip("matplotlib")
     result = load().add_context(history, **ROLES).inference(plan, n_samples=N_DRAWS)
     diagnostics = result.diagnostics()
+    summary = diagnostics.summary
     graph_metrics = [
         name
         for name in diagnostics.metrics
-        if name.startswith(("uncertainty/", "graph/", "graph_support/", "edge/"))
+        if name.startswith(("graph/", "graph_support/", "edge/"))
         or name in ("support/active_edges", "support/padded_edges", "support/edge_padding_mass")
+        or name.startswith("uncertainty/")
+        and not name.startswith("uncertainty/time_mean/")
+        and "total_variance_mean" not in name
     ]
     assert "uncertainty/n_unique_graphs" in graph_metrics
+    assert "uncertainty/between_graph_variance_mean" in graph_metrics
     for name in graph_metrics:
         assert diagnostics.metrics[name] is None, name
-        assert diagnostics.statuses[f"metric/{name}"]["status"] == "unavailable", name
-    for panel in ("graph_cardinality", "graph_uncertainty", "structure_heatmap", "support"):
-        assert diagnostics.summary["panels"][panel]["status"] == "unavailable"
-    with pytest.raises(ValueError, match="graph_cardinality is unavailable"):
-        diagnostics.plot.cardinality()
-    with pytest.raises(ValueError, match="graph_uncertainty is unavailable"):
-        diagnostics.plot.uncertainty()
-    # What does not need graphs still works, and still counts the latent total.
+        assert summary["statuses"][f"metric/{name}"]["status"] == "unavailable", name
+    graph_arrays = (
+        "graphs",
+        "graph_support",
+        "reliability",
+        "set_posterior",
+        "uncertainty",
+        "total_uncertainty",
+        "aggregate_uncertainty",
+    )
+    for name in graph_arrays:
+        assert not summary["arrays"][name], name
+        assert summary["statuses"][f"array/{name}"]["status"] == "unavailable", name
+    graph_panels = (
+        "structure_heatmap",
+        "dag_recovery",
+        "dag_posterior",
+        "graph_cardinality",
+        "graph_statistics",
+        "cycles",
+        "reliability",
+        "support",
+        "zero_atoms",
+        "graph_uncertainty",
+        "set_posterior",
+    )
+    for panel in graph_panels:
+        assert summary["panels"][panel]["status"] == "unavailable", panel
+    # Nothing graph-derived reports ok.
+    ok = [key for key, record in summary["statuses"].items() if record["status"] == "ok"]
+    assert not [key for key in ok if key.startswith(("array/graph", "panel/graph"))]
+    assert not [key for key in ok if key.removeprefix("metric/") in graph_metrics]
+    # What needs no graphs stays computed.
+    assert diagnostics.metrics["uncertainty/total_variance_mean"] is not None
+    assert diagnostics.metrics["uncertainty/latent_total/total_variance_mean"] is not None
+    assert any(
+        value is not None
+        for name, value in diagnostics.metrics.items()
+        if name.startswith("uncertainty/time_mean/")
+    )
     assert diagnostics.metrics["support/active_components"] == 8
+    for method in ("cardinality", "uncertainty", "graph_statistics", "dag", "dot"):
+        with pytest.raises(hosted.HostedUnsupported, match=f"diagnostics\\(\\).plot.{method}"):
+            getattr(diagnostics.plot, method)()
     assert result.plot.reconstruction(observed=[1000.0, 1100.0]).axes
+
+
+def test_a_local_result_with_the_provenance_key_keeps_its_graph_diagnostics():
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("matplotlib")
+    import pandas as pd
+
+    from pymc_mfm.model import MFM, ModelConfig
+
+    torch.manual_seed(10)
+    config = ModelConfig(
+        d_model=8, n_layers=1, n_heads=2, d_ff=16, flow_hidden=16, n_controls=1, n_demand=2
+    )
+    model = MFM(config).eval()
+    weeks = pd.date_range("2024-07-01", periods=6, freq="W-MON")
+    frame = pd.DataFrame(
+        {
+            "week": weeks,
+            "sales": [1000.0, 1100.0, 1050.0, 1200.0, 1150.0, 1250.0],
+            "tv": [100.0, 0.0, 120.0, 110.0, 90.0, 95.0],
+            "search": [50.0, 55.0, 60.0, 45.0, 52.0, 58.0],
+            "price": [9.9, 9.9, 10.5, 10.5, 10.1, 10.2],
+        }
+    )
+    model.add_context(frame.iloc[:4], **ROLES)
+    result = model.inference(frame.iloc[4:], n_samples=6, provenance={"graphs": "unavailable"})
+    assert result.provenance["graphs"] == "unavailable"
+    diagnostics = result.diagnostics()
+    assert diagnostics.metrics["graph/cardinality_mean"] is not None
+    assert diagnostics.summary["panels"]["graph_cardinality"]["status"] == "ok"
+    assert diagnostics.summary["arrays"]["graphs"]
+    assert type(result.plot).__name__ == "ResultPlots"
+    assert type(diagnostics.plot).__name__ == "DiagnosticsPlots"
 
 
 @pytest.mark.parametrize("key", sorted(hosted.RESERVED_PROVENANCE))

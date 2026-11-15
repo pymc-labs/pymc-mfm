@@ -72,6 +72,12 @@ class Diagnostics:
 
     @property
     def plot(self) -> DiagnosticsPlots:
+        from pymc_mfm.inference.result import graphs_unavailable
+
+        if graphs_unavailable(self.result):  # hosted: graph figures raise HostedUnsupported
+            from pymc_mfm.hosted import hosted_plots_class
+
+            return hosted_plots_class(diagnostics=True)(self)
         return DiagnosticsPlots(self)
 
     def report(self, out_dir, *, strict=True) -> dict[str, Any]:

@@ -384,7 +384,7 @@ def result_from_draws(
     ``graphs`` is one all-zero placeholder edge, masked as padding, and ``provenance["graphs"]``
     is ``"unavailable"``. Arrays keep the file's dtype (float32).
     """
-    from pymc_mfm.inference.result import DecompositionResult
+    from pymc_mfm.inference.result import NO_GRAPH_EDGE, DecompositionResult
 
     attrs = dict(draws.attrs)
     schema = attrs.get("schema")
@@ -444,7 +444,7 @@ def result_from_draws(
         component_names=tuple(names),
         component_families=tuple(families),
         component_mask=np.ones(len(names), dtype=bool),
-        edge_names=("graphs:unavailable",),
+        edge_names=(NO_GRAPH_EDGE,),
         edge_mask=np.zeros(1, dtype=bool),
         channel_names=tuple(channels),
         control_names=tuple(controls),
@@ -458,17 +458,23 @@ def result_from_draws(
 
 
 @cache
-def hosted_plots_class() -> type:
-    """``ResultPlots`` with the graph methods replaced by ``HostedUnsupported`` refusals."""
-    from pymc_mfm.diagnostics.accessors import ResultPlots
+def hosted_plots_class(diagnostics: bool = False) -> type:
+    """``ResultPlots`` (or ``DiagnosticsPlots``) whose graph methods raise ``HostedUnsupported``."""
+    from pymc_mfm.diagnostics import accessors
 
-    namespace = {name: _graph_refusal(name) for name in GRAPH_METHODS if hasattr(ResultPlots, name)}
-    return type("HostedResultPlots", (ResultPlots,), {"__slots__": (), **namespace})
+    base = accessors.DiagnosticsPlots if diagnostics else accessors.ResultPlots
+    prefix = "result.diagnostics().plot" if diagnostics else "result.plot"
+    namespace = {
+        name: _graph_refusal(f"{prefix}.{name}()", name)
+        for name in GRAPH_METHODS
+        if hasattr(base, name)
+    }
+    return type("Hosted" + base.__name__, (base,), {"__slots__": (), **namespace})
 
 
-def _graph_refusal(name: str):
+def _graph_refusal(label: str, name: str):
     def refused(self, *args: Any, **kwargs: Any):
-        raise HostedUnsupported(f"result.plot.{name}()", "the hosted draws file has no graphs")
+        raise HostedUnsupported(label, "the hosted draws file has no graphs")
 
     refused.__name__ = name
     return refused

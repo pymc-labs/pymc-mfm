@@ -35,6 +35,23 @@ _TUPLE_FIELDS = (
 )
 
 
+#: The one placeholder edge of a result built from a draws file without graphs (hosted).
+NO_GRAPH_EDGE = "graphs:unavailable"
+
+
+def graphs_unavailable(result: DecompositionResult) -> bool:
+    """Whether ``result`` was built without graphs: the hosted conversion's placeholder edge.
+
+    Needs the placeholder edge, its all-False mask and the provenance flag together, so a
+    local result whose caller wrote ``provenance={"graphs": "unavailable"}`` is not affected.
+    """
+    return (
+        result.provenance.get("graphs") == "unavailable"
+        and result.edge_names == (NO_GRAPH_EDGE,)
+        and not result.edge_mask.any()
+    )
+
+
 def _numpy(value):
     if hasattr(value, "detach"):
         value = value.detach().cpu()
@@ -274,7 +291,7 @@ class DecompositionResult:
         """Figures of these draws; matplotlib is imported only when a figure is drawn."""
         from pymc_mfm.diagnostics.accessors import ResultPlots
 
-        if self.provenance.get("graphs") == "unavailable":  # a hosted result has no graphs
+        if graphs_unavailable(self):  # a hosted result has no graphs
             from pymc_mfm.hosted import hosted_plots_class
 
             return hosted_plots_class()(self)

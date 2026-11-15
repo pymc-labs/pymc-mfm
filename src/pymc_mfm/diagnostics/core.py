@@ -112,6 +112,13 @@ def _series(samples, truth=None):
 #: Metric names derived from graph draws; a result without graphs (hosted) cannot score them.
 _GRAPH_METRIC_PREFIXES = ("uncertainty/", "graph/", "graph_support/", "edge/", "set_approximation/")
 _GRAPH_METRIC_NAMES = ("support/active_edges", "support/padded_edges", "support/edge_padding_mass")
+#: ``uncertainty/`` metrics that come from the total variance and covariance only, so they
+#: need no graphs and stay computed.
+_GRAPH_FREE_UNCERTAINTY = (
+    "uncertainty/total_variance_mean",
+    "uncertainty/latent_total/total_variance_mean",
+)
+_GRAPH_FREE_UNCERTAINTY_PREFIX = "uncertainty/time_mean/"
 _GRAPH_PANELS = (
     "structure_heatmap",
     "dag_recovery",
@@ -125,21 +132,40 @@ _GRAPH_PANELS = (
     "graph_uncertainty",
     "set_posterior",
 )
+#: Arrays built from graph draws. ``None`` is how the catalog says an array is unavailable.
+_GRAPH_ARRAYS = (
+    "graphs",
+    "graph_support",
+    "reliability",
+    "set_posterior",
+    "uncertainty",
+    "total_uncertainty",
+    "aggregate_uncertainty",
+)
+_NO_GRAPHS = "the result has no graphs (the hosted draws file carries none)"
 
 
-def _mark_graphs_unavailable(metrics, panels):
-    """Report every graph-derived metric and panel as unavailable, never as a value.
+def _graph_metric(name):
+    if name in _GRAPH_FREE_UNCERTAINTY or name.startswith(_GRAPH_FREE_UNCERTAINTY_PREFIX):
+        return False
+    return name.startswith(_GRAPH_METRIC_PREFIXES) or name in _GRAPH_METRIC_NAMES
 
-    Placeholder graphs say nothing about graph uncertainty: 0 unique-graph variance would be
-    a claim, so these entries get no value and the reason ``graphs unavailable``.
+
+def _mark_graphs_unavailable(metrics, panels, arrays):
+    """Report every graph-derived metric, panel and array as unavailable, never as a value.
+
+    Placeholder graphs say nothing about graph uncertainty: zero between-graph variance would
+    be a claim. Metrics keep no value, panels get status ``unavailable`` and arrays are ``None``.
+    Quantities from the draws alone (total variance, component covariance) stay computed.
     """
-    reason = "the result has no graphs (the hosted draws file carries none)"
     for name in metrics.values:
-        if name.startswith(_GRAPH_METRIC_PREFIXES) or name in _GRAPH_METRIC_NAMES:
+        if _graph_metric(name):
             metrics.values[name] = None
-            metrics.statuses[f"metric/{name}"] = {"status": "unavailable", "reason": reason}
+            metrics.statuses[f"metric/{name}"] = {"status": "unavailable", "reason": _NO_GRAPHS}
     for name in _GRAPH_PANELS:
-        panels[name] = {"status": "unavailable", "reason": reason}
+        panels[name] = {"status": "unavailable", "reason": _NO_GRAPHS}
+    for name in _GRAPH_ARRAYS:
+        arrays[name] = None
 
 
 class _Metrics:
@@ -1259,8 +1285,11 @@ def compute_diagnostics(
                     metrics.add(
                         metric, value, status="reference_dependent", reason=detail["qualification"]
                     )
-    if result.provenance.get("graphs") == "unavailable":
-        _mark_graphs_unavailable(metrics, panels)
+    from pymc_mfm.inference.result import graphs_unavailable
+
+    no_graphs = graphs_unavailable(result)
+    if no_graphs:
+        _mark_graphs_unavailable(metrics, panels, arrays)
     statuses = dict(metrics.statuses)
     if result.mode != "model_average":
         reason = (
@@ -1307,6 +1336,8 @@ def compute_diagnostics(
             "status": "ok" if available else "unavailable",
             "reason": None if available else "required evidence not supplied",
         }
+        if no_graphs and name in _GRAPH_ARRAYS:
+            statuses[f"array/{name}"]["reason"] = _NO_GRAPHS
     if result.mode != "model_average":
         statuses["array/graphs"] = {
             "status": "hypothesis_conditional",
