@@ -540,8 +540,20 @@ body.mfm-river-hero-on {
   padding-top: 0 !important; /* Quarto writes padding-top on body as an inline style */
 }
 
-/* Hero layers, back to front: the scene, numbers in the fog, the title, the fog veil,
-   the scroll hint. */
+/* Hero layers, back to front: the picture (shown as it is until the canvas draws it), the
+   canvas (the picture brought to life, mist over it), numbers in the mist, the title, the
+   mist in front, the scroll hint. */
+.mfm-river__picture {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 60% 50%; /* as the canvas crops: the river and the moon on narrow screens */
+  pointer-events: none;
+}
+
 .mfm-river__canvas,
 .mfm-river__veil {
   position: absolute;
@@ -550,7 +562,7 @@ body.mfm-river-hero-on {
   height: 100%;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 2.2s ease;
+  transition: opacity 1.2s ease;
 }
 
 .mfm-river__canvas {

@@ -77,6 +77,18 @@ reason = "Models page card for Ocean: open swells under a cloudy moon, with a hu
 sha256 = "058e53dcbec1de3ad66d6c41e92efebbaa98cdce45728a2e5504f260044c5c0e"
 
 [[allow]]
+path = "docs/assets/img/river/river-hero.webp"
+rules = ["binary"]
+reason = "River 1.0 page hero picture: the Orinoco at night, a tepui under a full moon, supplied by the maintainer for the site (2560x1440 WebP, 170 kB). river.js animates and colour-grades it in WebGL. These exact bytes are pinned; a new picture needs a new review."
+sha256 = "6ded835294fbeb201ffa9943077fedc3bbfd622fd68ed34a8b1473f676ed8879"
+
+[[allow]]
+path = "docs/assets/img/river/river-hero-water.png"
+rules = ["binary"]
+reason = "River 1.0 page hero: where the river is in the hero picture, a hand-drawn polygon blurred to a soft grey mask (640x360 PNG, 7 kB); river.js moves only the water. These exact bytes are pinned; a new mask needs a new review."
+sha256 = "98e52bd1f726d2ebdf6952c5aa30d210c2cc7fc710f1214a91bc8c5a8a7a2469"
+
+[[allow]]
 path = "docs/assets/fonts/inter-latin-400-500.woff2"
 rules = ["binary"]
 reason = "Self-hosted website font: Inter (PyMC Labs brand text face), Latin subset, variable font limited to weights 400 to 500 (34 kB), made with fontTools from the Google Fonts file. SIL Open Font License 1.1 (text in docs/assets/fonts/OFL.txt). Fonts are served from the site, not from Google. These exact bytes are pinned; a new font file needs a new review."

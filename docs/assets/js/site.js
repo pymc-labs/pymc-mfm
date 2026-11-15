@@ -3,7 +3,6 @@
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
      initConsoleButton marks the "Open Console" navbar link with data-mfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
-     initColorScheme   the navbar dark-mode button: back to the system's mode, it follows the system again
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
      initCodeLabels    a language label with its logo on every code block (Python, curl, shell, JSON)
@@ -116,23 +115,6 @@
       if (link.dataset.mfm || link.querySelector(".bi") || link.host === window.location.host) return;
       link.classList.add("is-external");
     });
-  }
-
-  /* Light or dark: Quarto follows the system setting (respect-user-color-scheme in _quarto.yml)
-     until the navbar button stores a choice. Pressing the button back to the system's mode drops
-     the stored choice, so the page follows the system again. Quarto flips from its stored value,
-     so the mode on screen is stored first. */
-  function initColorScheme() {
-    const toggle = window.quartoToggleColorScheme;
-    if (!toggle) return;
-    const KEY = "quarto-color-scheme";
-    const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
-    window.quartoToggleColorScheme = () => {
-      const dark = document.body.classList.contains("quarto-dark");
-      window.localStorage.setItem(KEY, dark ? "alternate" : "default");
-      toggle();
-      if (!dark === systemDark.matches) window.localStorage.removeItem(KEY);
-    };
   }
 
   function copyText(text) {
@@ -311,7 +293,6 @@
     initModelsMenu,
     initConsoleButton,
     initExternalLinks,
-    initColorScheme,
     initCopyButtons,
     initCodeLabels,
     initCodeScroll,
