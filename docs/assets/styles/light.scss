@@ -13,9 +13,11 @@ $tone-1: #f1f4fa;
 $tone-2: #e3e9f4;
 $danger: #b3261e;
 
-$font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+// The PyMC Labs brand pair: Inter for text and captions, Archivo Expanded (Archivo at width 125)
+// for headlines, large text and expressive subheadings. Plex Mono for code.
+$font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 $font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; // taste-skill-ignore: code font
-$font-display: "Archivo", "IBM Plex Sans", system-ui, sans-serif;
+$font-display: "Archivo", "Inter", system-ui, sans-serif;
 
 $font-family-sans-serif: $font-sans;
 $font-family-monospace: $font-mono; // taste-skill-ignore: code font

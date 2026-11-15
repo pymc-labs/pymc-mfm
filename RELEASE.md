@@ -133,7 +133,7 @@ distribution prerequisites, not an approved or published release.
   page, a Guide (written pages plus every notebook in `examples/`, rendered from stored
   outputs), an API reference generated from the docstrings with quartodoc, a Models page
   with one card per model (River, plus Sea and Ocean marked "Coming soon" and not
-  linked), each with a night scene rendered from the site's shaders, and a Blog. The
+  linked), each with a night scene rendered from the site's shaders. The
   navbar's Models menu opens on hover and links each released model directly. River 1.0
   has an introduction page with its specification, training, benchmarks, speed, limits
   and links, drawn from the white paper and the academic paper; a WebGL river scene
@@ -142,8 +142,13 @@ distribution prerequisites, not an approved or published release.
   site on every pull request and publishes to GitHub Pages only when run by hand on
   `main`. The landing page loads GSAP 3.15.1 from jsDelivr with subresource integrity and
   works without it. The navbar shows the MFM mark alone (navy on light pages, soft white
-  on dark ones). The favicons are the mark on a navy circle; the ICO, the Apple touch
-  icon and the three card JPEGs are pinned in the public-boundary allowlist.
+  on dark ones) and stays pinned as a translucent bar, clear over the River hero. It links
+  GitHub and pymc-labs.com (home of the PyMC Labs blog), lists Sea and Ocean as coming soon
+  and Hugging Face in the Models menu, shows search on Guide and API pages only, and has a
+  dark-mode button; light or dark follows the system setting until the reader picks one.
+  Text is Inter and headlines Archivo Expanded, self-hosted. The favicons are the mark
+  on a navy circle; the ICO, the Apple touch icon and the three card JPEGs are pinned in
+  the public-boundary allowlist.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer

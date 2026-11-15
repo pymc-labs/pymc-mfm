@@ -1,21 +1,23 @@
-/* Self-hosted fonts (Latin subsets, SIL Open Font License 1.1, see OFL.txt).
-   IBM Plex Sans: text, weights 400 and 500 (one variable file cut to that range) and italic 400.
-   IBM Plex Mono: code, 400 and 500 (code inside headings, terms and the current page).
-   Archivo at width 125 (Expanded), weight 400: page titles only. */
+/* Self-hosted fonts (Latin subsets, SIL Open Font License 1.1, see OFL.txt). The PyMC Labs brand
+   pair, plus a code face:
+   Inter: text and captions, weights 400 and 500 (one variable file cut to that range) and italic 400.
+   Archivo at width 125 (Archivo Expanded): headlines, large text and expressive subheadings,
+   weights 400 and 500 (one variable file cut to that range).
+   IBM Plex Mono: code, 400 and 500 (code inside headings, terms and the current page). */
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Inter";
   font-style: normal;
   font-weight: 400 500;
   font-display: swap;
-  src: url("ibm-plex-sans-latin-400-500.woff2") format("woff2");
+  src: url("inter-latin-400-500.woff2") format("woff2");
 }
 
 @font-face {
-  font-family: "IBM Plex Sans";
+  font-family: "Inter";
   font-style: italic;
   font-weight: 400;
   font-display: swap;
-  src: url("ibm-plex-sans-latin-400-italic.woff2") format("woff2");
+  src: url("inter-latin-400-italic.woff2") format("woff2");
 }
 
 @font-face {
@@ -37,8 +39,8 @@
 @font-face {
   font-family: "Archivo";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 400 500;
   font-stretch: 125%;
   font-display: swap;
-  src: url("archivo-latin-wdth125-400.woff2") format("woff2");
+  src: url("archivo-latin-wdth125-400-500.woff2") format("woff2");
 }

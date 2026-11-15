@@ -8,6 +8,8 @@
       - faint numbers that glitch in and out among the fog;
       - a veil of fog that drifts in front of everything, the title included.
       Everything pauses off screen; reduced motion draws one still frame and no numbers.
+      The hero fills the first screen under the navbar, which stays clear (no glass, light
+      ink) while the hero is under it: body.mfm-nav-clear, site.css.
    2. Article: the charts, numbers and resource lists reveal as they scroll into view.
       Their colours are in model.css (data-series), so they follow light and dark mode. */
 (() => {
@@ -602,13 +604,16 @@
     window.setTimeout(spawn, 2500);
   }
 
-  // 2. Scroll: the title recedes ----------------------------------
+  // 2. Scroll: the title recedes; the navbar is clear while the hero is under it ------
   function onScroll(hero) {
     const title = hero.querySelector(".mfm-river__title");
     const hint = hero.querySelector(".mfm-river__scroll");
+    const bar = document.getElementById("quarto-header");
     let ticking = false;
     const update = () => {
       ticking = false;
+      const barHeight = bar ? bar.offsetHeight : 0;
+      document.body.classList.toggle("mfm-nav-clear", hero.getBoundingClientRect().bottom > barHeight);
       const height = Math.max(1, hero.offsetHeight);
       if (reduceMotion || !title) return;
       const p = clamp01(window.scrollY / (height * 0.7));

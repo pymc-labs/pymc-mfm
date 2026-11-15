@@ -3,10 +3,11 @@
    theme through Bootstrap's variables, so most rules here only add layout and detail.
    Landing-only and page-specific rules live in landing.css, model.css and the other page sheets.
 
-   House rules: Plex Sans 400 for text; 500 only for section headings, the current page, sidebar
-   group titles, the Console button and strong; Archivo for h1 page titles only. Corners 6, 8 and
-   12 px, no pills. No thin rules except real tables. A surface is a tone step, never a line or a
-   shadow. No dot separators in titles or labels. */
+   House rules: the PyMC Labs brand pair. Inter 400 for text, 500 only for h3 and smaller, the
+   current page, sidebar group titles, the Console button and strong; Archivo Expanded (Archivo
+   at width 125) for headlines and large text: page titles at 400, section headings (h2) at 500.
+   Corners 6, 8 and 12 px, no pills. No thin rules except real tables. A surface is a tone step,
+   never a line or a shadow. No dot separators in titles or labels. */
 
 html {
   scroll-padding-top: calc(var(--mfm-nav-h) + 1rem);
@@ -93,11 +94,16 @@ main h6 {
   border: 0;
 }
 
+/* Section headings are headlines: Archivo Expanded. */
 main h2 {
   margin-top: 3.25rem;
   margin-bottom: 0.9rem;
   padding-bottom: 0;
+  font-family: var(--mfm-font-display);
+  font-stretch: 125%;
   font-size: 1.4rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 main h3 {
@@ -189,6 +195,7 @@ main table td:first-child > p > a {
 }
 
 /* Navbar ---------------------------------------------------------------------- */
+/* Glass: the bar stays pinned and the page shows through it, blurred, as it scrolls under. */
 #quarto-header .navbar {
   --bs-navbar-color: var(--mfm-ink-2);
   --bs-navbar-hover-color: var(--mfm-heading);
@@ -201,7 +208,10 @@ main table td:first-child > p > a {
   padding-bottom: 0;
   border: 0;
   box-shadow: none; /* taste-skill-ignore: removes Bootstrap's shadow */
-  background: var(--mfm-bg);
+  background: color-mix(in srgb, var(--mfm-bg) 72%, transparent);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  backdrop-filter: saturate(140%) blur(12px);
+  transition: background-color calc(var(--mfm-dur) * 2) var(--mfm-ease);
 }
 
 .navbar .navbar-brand-container {
@@ -272,6 +282,27 @@ body.quarto-dark .navbar-logo {
   transform: scaleX(1);
 }
 
+/* Links that leave the site (PyMC Labs; site.js adds .is-external): Phosphor ArrowUpRight
+   after the label. */
+.navbar .navbar-nav .nav-link.is-external::after {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 0.3em;
+  vertical-align: -0.05em;
+  background: currentColor;
+  mask: url("../icons/phosphor/arrow-up-right.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/arrow-up-right.svg") center / contain no-repeat;
+  opacity: 0.7;
+}
+
+/* Icon links (GitHub): Quarto's Bootstrap glyph at the Phosphor size. */
+.navbar .navbar-nav .nav-link > .bi {
+  font-size: 20px;
+  line-height: 1;
+}
+
 /* The menu caret: Phosphor CaretDown instead of Bootstrap's border triangle. */
 .navbar .dropdown-toggle::after {
   width: 12px;
@@ -284,17 +315,65 @@ body.quarto-dark .navbar-logo {
   -webkit-mask: url("../icons/phosphor/caret-down.svg") center / contain no-repeat;
 }
 
-/* Quarto's own dark-mode toggle moved to the footer. */
-.quarto-navbar-tools {
-  display: none;
+/* Quiet icon squares in the bar: the dark-mode button (Quarto's own toggle, shown everywhere
+   but the always-dark landing page) and search. The icon is the mode a press switches to. */
+#quarto-header .quarto-navbar-tools {
+  display: flex;
+  align-items: center;
 }
 
-/* The navbar row, wide screens: mark, links on the left; search and Console on the right.
-   Bootstrap keeps the collapse as a flex box with !important; display: contents lets the two
-   link lists and the search box sit in one row, ordered below. */
+#quarto-header :is(.quarto-color-scheme-toggle, #quarto-search .aa-DetachedSearchButton) {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mfm-r);
+  background: none;
+  color: var(--mfm-ink-2);
+  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+}
+
+#quarto-header :is(.quarto-color-scheme-toggle, #quarto-search .aa-DetachedSearchButton):is(:hover, :focus-visible) {
+  background: var(--mfm-tone-1);
+  color: var(--mfm-heading);
+}
+
+#quarto-header .quarto-color-scheme-toggle .bi {
+  display: block;
+  line-height: 0;
+}
+
+#quarto-header .quarto-color-scheme-toggle .bi::before {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  background: currentColor;
+  mask: url("../icons/phosphor/moon.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/moon.svg") center / contain no-repeat;
+}
+
+/* Quarto adds "alternate" to the toggle while dark mode is on. */
+#quarto-header .quarto-color-scheme-toggle.alternate .bi::before {
+  mask-image: url("../icons/phosphor/sun.svg");
+  -webkit-mask-image: url("../icons/phosphor/sun.svg");
+}
+
+/* The navbar row, wide screens: mark and links on the left; GitHub, the dark-mode button,
+   search and Open Console on the right, each a 40px square. Bootstrap keeps the collapse as a
+   flex box with !important; display: contents lets the link lists, the tools and the search
+   button sit in one row, ordered below. The right-hand list lays out its own items in that row
+   too, so the Console comes last, after search. */
 @media (min-width: 992px) {
   .navbar-expand-lg .navbar-collapse {
     display: contents !important; /* Bootstrap sets display: flex !important here */
+  }
+
+  .navbar .navbar-brand-container {
+    order: 1;
   }
 
   .navbar .navbar-nav:first-of-type {
@@ -302,28 +381,64 @@ body.quarto-dark .navbar-logo {
     margin-right: auto;
   }
 
-  .navbar .navbar-brand-container {
-    order: 1;
+  .navbar .navbar-nav.ms-auto {
+    display: contents;
+  }
+
+  .navbar .navbar-nav.ms-auto > .nav-item {
+    order: 3;
+  }
+
+  .navbar .quarto-navbar-tools {
+    order: 4;
   }
 
   .navbar #quarto-search {
-    order: 3;
-    margin-left: auto;
+    order: 5;
   }
 
-  .navbar .navbar-nav.ms-auto {
-    order: 4;
-    margin-left: 0.5rem;
+  .navbar .navbar-nav.ms-auto > .nav-item:last-child {
+    order: 6;
+    margin-left: 0.25rem;
+  }
+
+  /* GitHub and Open Console: the icon alone; the label stays for screen readers. */
+  .navbar .navbar-nav .nav-link:is([data-mfm="console"], :has(> .bi)) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: var(--mfm-r);
+  }
+
+  .navbar .navbar-nav .nav-link:has(> .bi):is(:hover, :focus-visible) {
+    background: var(--mfm-tone-1);
+  }
+
+  .navbar .navbar-nav .nav-link:is([data-mfm="console"], :has(> .bi)) .menu-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  #quarto-header .navbar .navbar-nav .nav-link[data-mfm="console"]::after {
+    content: none;
   }
 }
 
 /* Search ------------------------------------------------------------------------- */
-/* Quarto's textbox search: a field in the navbar with a "/" key hint; below 992px Quarto opens
-   it as a full-screen sheet. The results panel and the sheet are always a light surface on the
-   landing page and on light pages, a navy one in dark mode. search.js adds the path line under
-   each title, the empty-results message and the panel position. Several selectors carry
-   #quarto-search-results or html body: they must outrank Quarto's own id-level search rules.
-   The theme tokens live on body (light.scss, dark.scss), so these do too. */
+/* Quarto's overlay search: a magnifier button in the bar, on Guide and API pages only (pages
+   with a sidebar, River's excepted); "/" and Ctrl/Cmd+K open it anywhere. It opens a sheet:
+   a floating panel on wide screens, the full screen on phones. The sheet is a light surface on
+   light pages and the landing page, a navy one in dark mode. search.js adds the path line under
+   each title and the empty-results message. Several selectors carry #quarto-search-results or
+   html body: they must outrank Quarto's own id-level search rules. The theme tokens live on
+   body (light.scss, dark.scss), so these do too. */
 body {
   --mfm-search-field: var(--mfm-tone-1);
   --mfm-search-field-focus: #ffffff;
@@ -347,10 +462,33 @@ body.quarto-dark:not(.mfm-landing) {
   --mfm-search-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-#quarto-search {
-  position: relative;
+.navbar #quarto-search {
+  display: none;
+}
+
+body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
   display: flex;
   align-items: center;
+}
+
+#quarto-search .aa-DetachedSearchButtonIcon {
+  display: flex;
+  width: 20px;
+  color: inherit;
+}
+
+#quarto-search .aa-DetachedSearchButtonIcon svg,
+#quarto-search .aa-DetachedSearchButton :is(.aa-DetachedSearchButtonPlaceholder, .aa-DetachedSearchButtonQuery) {
+  display: none;
+}
+
+#quarto-search .aa-DetachedSearchButtonIcon::before {
+  content: "";
+  width: 20px;
+  height: 20px;
+  background: currentColor;
+  mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
+  -webkit-mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
 }
 
 :is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form {
@@ -362,10 +500,6 @@ body.quarto-dark:not(.mfm-landing) {
   background: var(--mfm-search-field);
   box-shadow: none; /* taste-skill-ignore: removes Quarto's field ring */
   transition: background-color var(--mfm-dur) var(--mfm-ease);
-}
-
-html body #quarto-search .aa-Form {
-  width: 280px;
 }
 
 :is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form:focus-within {
@@ -416,8 +550,7 @@ html body #quarto-search .aa-Form {
   min-width: 0;
 }
 
-:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper .aa-Input,
-#quarto-search .aa-Form .aa-InputWrapper .aa-Input {
+:is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper .aa-Input {
   width: 100%;
   height: 36px;
   padding: 0 34px 0 36px;
@@ -434,22 +567,6 @@ html body #quarto-search .aa-Form {
 }
 
 :is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper .aa-Input::-webkit-search-cancel-button {
-  display: none;
-}
-
-/* The plain "/" hint, hidden while the field has text. */
-html body #quarto-search .aa-Autocomplete .aa-Form::after {
-  content: "/";
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  translate: 0 -50%;
-  color: var(--mfm-ink-2);
-  font: 400 14px/1 var(--mfm-font-sans);
-  pointer-events: none;
-}
-
-html body #quarto-search .aa-Form:has(.aa-Input:not(:placeholder-shown))::after {
   display: none;
 }
 
@@ -506,20 +623,6 @@ html body .aa-Panel {
   box-shadow: var(--mfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
   color: var(--mfm-search-ink);
   overflow: auto;
-}
-
-/* Under the field, 560px wide; search.js sets the position from the field's box. */
-@media (min-width: 992px) {
-  html body #quarto-search-results .aa-Panel {
-    position: fixed;
-    top: var(--mfm-search-panel-top, 52px) !important; /* Quarto positions the panel inline */
-    left: var(--mfm-search-panel-left, 600px) !important; /* Quarto positions the panel inline */
-    right: auto !important; /* Quarto positions the panel inline */
-    width: 560px;
-    max-width: calc(100vw - 16px);
-    max-height: 70vh;
-    z-index: 1200;
-  }
 }
 
 /* With an empty field Quarto opens a panel whose only line it hides: no empty panel either. */
@@ -705,7 +808,7 @@ html body .aa-List {
   font-weight: 500;
 }
 
-/* Phone: the full-screen sheet. */
+/* The sheet: full screen on phones; from 680px Quarto's modal, styled below as a floating panel. */
 html body .aa-DetachedOverlay {
   background: var(--mfm-search-surface);
 }
@@ -776,9 +879,26 @@ html body .aa-DetachedContainer .aa-Panel {
   box-shadow: none; /* taste-skill-ignore: the sheet is the surface */
 }
 
+/* Wide screens: a floating panel over the dimmed page; the results scroll inside it. */
+html body .aa-DetachedOverlay:has(.aa-DetachedContainer--modal) {
+  background: rgba(7, 20, 42, 0.35);
+}
+
+html body .aa-DetachedContainer--modal {
+  max-width: 640px;
+  overflow: hidden;
+  border-radius: var(--mfm-r-card);
+  box-shadow: var(--mfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
+}
+
+html body .aa-DetachedContainer--modal .aa-PanelLayout {
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+}
+
 /* Open Console: the one action. Navy with white text on light pages (light on navy on dark
-   ones): Phosphor TerminalWindow, label, an ArrowRight that moves 3px on hover. site.js sets
-   data-mfm. */
+   ones): Phosphor TerminalWindow, label, an ArrowRight that moves 3px on hover; on wide screens
+   a 40px square with the icon alone. site.js sets data-mfm. */
 .navbar .navbar-nav .nav-link[data-mfm="console"] {
   display: inline-flex;
   align-items: center;
@@ -846,6 +966,32 @@ body.mfm-landing:is(.quarto-light, .quarto-dark) {
   --mfm-console-fg: #0c1f40;
   --mfm-console-hover: #ffffff;
   --mfm-on-navy: #0c1f40;
+}
+
+/* A clear bar over a dark hero (River's, while the hero is under the bar; river.js sets the
+   class): no glass, and the dark chrome tokens on the header alone. */
+body.mfm-nav-clear #quarto-header {
+  --mfm-bg: #07142a;
+  --mfm-ink: #dde3ee;
+  --mfm-ink-2: #c9d3e6;
+  --mfm-heading: #f2f5fa;
+  --mfm-accent: #8fa9ff;
+  --mfm-tone-1: rgba(255, 255, 255, 0.08);
+  --mfm-tone-2: rgba(255, 255, 255, 0.12);
+  --mfm-console-bg: #f2f5fa;
+  --mfm-console-fg: #0c1f40;
+  --mfm-console-hover: #ffffff;
+  --mfm-on-navy: #0c1f40;
+}
+
+body.mfm-nav-clear #quarto-header .navbar {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+body.mfm-nav-clear .navbar-logo {
+  filter: brightness(0) invert(0.97);
 }
 
 /* Models menu (site.js adds .mfm-models-menu): a tone surface, no line ------- */
@@ -957,7 +1103,8 @@ body.mfm-landing:is(.quarto-light, .quarto-dark) {
     background: var(--mfm-tone-1);
   }
 
-  body.mfm-landing .navbar .dropdown-menu.mfm-models-menu {
+  /* On dark chrome the menu is solid navy: the page must not show through it. */
+  body:is(.quarto-dark, .mfm-landing, .mfm-nav-clear) .navbar .dropdown-menu.mfm-models-menu {
     background: #0c1f40;
   }
 }
@@ -1496,7 +1643,7 @@ div.callout[class*="callout-"].callout-style-default > .callout-header {
   padding-top: 0;
 }
 
-/* Footer: one quiet line and the dark-mode button -------------------------------------- */
+/* Footer: one quiet line ------------------------------------------------------------------ */
 footer.footer {
   margin-top: 4rem;
   padding: 0 0 2rem;
@@ -1534,47 +1681,6 @@ footer.footer .nav-footer a {
 
 footer.footer .nav-footer a:hover {
   color: var(--mfm-heading);
-}
-
-.mfm-theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  height: 2rem;
-  padding: 0 0.6rem;
-  border: 0;
-  border-radius: var(--mfm-r);
-  background: none;
-  color: var(--mfm-ink-2);
-  font-family: var(--mfm-font-sans);
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
-}
-
-.mfm-theme-toggle:hover {
-  background: var(--mfm-tone-1);
-  color: var(--mfm-heading);
-}
-
-.mfm-theme-toggle::before {
-  content: "";
-  width: 14px;
-  height: 14px;
-  background: currentColor;
-  /* a half-filled disc: the mode to switch to */
-  mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5a6.5 6.5 0 1 0 0 13z' fill='black'/%3E%3Ccircle cx='8' cy='8' r='6.1' fill='none' stroke='black' stroke-width='1.4'/%3E%3C/svg%3E");
-  -webkit-mask: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1.5a6.5 6.5 0 1 0 0 13z' fill='black'/%3E%3Ccircle cx='8' cy='8' r='6.1' fill='none' stroke='black' stroke-width='1.4'/%3E%3C/svg%3E");
-}
-
-/* Quarto adds "alternate" to the toggle while dark mode is on. */
-.mfm-theme-toggle .mfm-theme-toggle-light,
-.mfm-theme-toggle.alternate .mfm-theme-toggle-dark {
-  display: none;
-}
-
-.mfm-theme-toggle.alternate .mfm-theme-toggle-light {
-  display: inline;
 }
 
 /* The landing page is dark already and carries no footer. */
@@ -1665,15 +1771,13 @@ body.mfm-landing footer.footer {
     padding-inline: var(--mfm-phone-gutter);
   }
 
-  /* The bar keeps one height: each item fills it, and the menu opens as a sheet below it. */
-  .navbar .navbar-brand-container,
-  .navbar #quarto-search {
+  /* The bar keeps one height: each item fills it, and the menu opens as a sheet below it. The
+     mark sits left; search, the dark-mode button and the menu sit right: the first of them
+     that shows takes the free space (Bootstrap spreads the row with space-between). */
+  .navbar .navbar-brand-container {
     display: flex;
     align-items: center;
     height: var(--mfm-nav-h);
-  }
-
-  .navbar .navbar-brand-container {
     order: 1;
     margin: 0;
   }
@@ -1683,72 +1787,24 @@ body.mfm-landing footer.footer {
     margin-left: auto;
   }
 
-  .navbar .navbar-toggler {
+  .navbar .quarto-navbar-tools {
     order: 3;
+    margin-left: auto;
   }
 
-  .navbar #navbarCollapse {
+  body.nav-sidebar:not(.mfm-river-page) .navbar .quarto-navbar-tools {
+    margin-left: 0;
+  }
+
+  .navbar .navbar-toggler {
     order: 4;
   }
 
-  /* Search: a field-shaped button between the mark and the menu; it opens the sheet. The menu
-     is a 40px target with a 20px line icon; its right edge sits on the gutter. */
-  .navbar #quarto-search.type-textbox {
-    flex: 1;
-    min-width: 0;
-    margin: 0 12px;
+  .navbar #navbarCollapse {
+    order: 5;
   }
 
-  #quarto-search .aa-Autocomplete {
-    width: 100%;
-  }
-
-  #quarto-search .aa-DetachedSearchButton {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 8px;
-    width: 100%;
-    height: 36px;
-    padding: 0 12px;
-    border: 0;
-    border-radius: var(--mfm-r);
-    background: var(--mfm-search-field);
-    color: var(--mfm-ink-2);
-    font: 400 14px/1 var(--mfm-font-sans);
-  }
-
-  #quarto-search .aa-DetachedSearchButtonIcon {
-    display: flex;
-    width: 16px;
-    color: inherit;
-  }
-
-  #quarto-search .aa-DetachedSearchButtonIcon svg {
-    display: none;
-  }
-
-  #quarto-search .aa-DetachedSearchButtonIcon::before {
-    content: "";
-    width: 16px;
-    height: 16px;
-    background: currentColor;
-    mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
-    -webkit-mask: url("../icons/phosphor/magnifying-glass.svg") center / contain no-repeat;
-  }
-
-  /* The placeholder stays, even after a search: the button always reads "Search". */
-  #quarto-search .aa-DetachedSearchButton .aa-DetachedSearchButtonPlaceholder,
-  #quarto-search .aa-DetachedSearchButton .aa-DetachedSearchButtonPlaceholder[hidden] {
-    display: block;
-    flex: 1;
-    text-align: left;
-  }
-
-  #quarto-search .aa-DetachedSearchButtonQuery {
-    display: none;
-  }
-
+  /* The menu is a 40px target with a 20px line icon; its right edge sits on the gutter. */
   #quarto-header .navbar-toggler {
     display: grid;
     flex: none; /* Quarto's flex-basis: content would ignore the width */
@@ -1815,6 +1871,7 @@ body.mfm-landing footer.footer {
   #navbarCollapse .navbar-nav .nav-link {
     display: flex;
     align-items: center;
+    gap: 0.6rem;
     min-height: 2.75rem;
     padding: 0;
     font-size: 1.125rem;

@@ -2,6 +2,8 @@
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
      initConsoleButton marks the "Open Console" navbar link with data-mfm="console" (site.css draws it)
+     initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
+     initColorScheme   the navbar dark-mode button: back to the system's mode, it follows the system again
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
      initCodeLabels    a language label with its logo on every code block (Python, curl, shell, JSON)
@@ -96,11 +98,41 @@
   }
 
   /* The right-hand navbar list holds one link, the hosted Console. The hook is this attribute,
-     never the link's address, so the address can change without touching the styles. */
+     never the link's address, so the address can change without touching the styles. On wide
+     screens site.css shows the icon alone; the label stays for screen readers, and as a tooltip. */
   function initConsoleButton() {
     const links = document.querySelectorAll("#navbarCollapse .navbar-nav.ms-auto .nav-link");
     const link = links[links.length - 1];
-    if (link) link.dataset.mfm = "console";
+    if (!link) return;
+    link.dataset.mfm = "console";
+    link.title = "Open Console";
+  }
+
+  /* Navbar text links to another host get .is-external (site.css adds an ArrowUpRight). By host,
+     not by the href text: Quarto rewrites the site's own links to full addresses. The Console
+     and icon links (GitHub) draw their own icons. */
+  function initExternalLinks() {
+    document.querySelectorAll("#navbarCollapse .navbar-nav > .nav-item > a.nav-link").forEach((link) => {
+      if (link.dataset.mfm || link.querySelector(".bi") || link.host === window.location.host) return;
+      link.classList.add("is-external");
+    });
+  }
+
+  /* Light or dark: Quarto follows the system setting (respect-user-color-scheme in _quarto.yml)
+     until the navbar button stores a choice. Pressing the button back to the system's mode drops
+     the stored choice, so the page follows the system again. Quarto flips from its stored value,
+     so the mode on screen is stored first. */
+  function initColorScheme() {
+    const toggle = window.quartoToggleColorScheme;
+    if (!toggle) return;
+    const KEY = "quarto-color-scheme";
+    const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+    window.quartoToggleColorScheme = () => {
+      const dark = document.body.classList.contains("quarto-dark");
+      window.localStorage.setItem(KEY, dark ? "alternate" : "default");
+      toggle();
+      if (!dark === systemDark.matches) window.localStorage.removeItem(KEY);
+    };
   }
 
   function copyText(text) {
@@ -278,6 +310,8 @@
   [
     initModelsMenu,
     initConsoleButton,
+    initExternalLinks,
+    initColorScheme,
     initCopyButtons,
     initCodeLabels,
     initCodeScroll,

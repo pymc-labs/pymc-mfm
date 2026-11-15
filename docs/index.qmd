@@ -25,35 +25,30 @@ css:
   <div class="mfm-grain" aria-hidden="true"></div>
   <div class="mfm-hero__copy">
     <img class="mfm-hero__mark" data-mfm="mark" src="assets/img/logo/mfm-logo-light.svg" alt="" width="1107" height="1040">
-    <!-- Once, on a desktop, the first word glitches into "Bayesian" for a second (landing.js). -->
-    <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>
-    <p class="mfm-hero__line">Marketing foundation models by PyMC Labs. Train once, decompose many.</p>
+    <!-- The line wraps to the width of the name (landing.css). Every few seconds the first word
+         glitches into "Bayesian" and back (landing.js). -->
+    <div class="mfm-hero__name" data-mfm="name">
+      <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>
+      <p class="mfm-hero__line">Marketing foundation models by PyMC&nbsp;Labs.<br>Train once, decompose many.</p>
+    </div>
     <div class="mfm-hero__actions">
       <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
-      <a class="mfm-btn mfm-btn--ghost no-external" href="https://mfm-staging.pymc-labs.com/sign-in/">
-        <svg class="mfm-btn__icon" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M128,128a8,8,0,0,1-3,6.25l-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32A8,8,0,0,1,128,128Zm48,24H136a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm56-96V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Z"/></svg>
-        Open Console <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg>
+      <a class="mfm-btn mfm-btn--ghost" href="https://github.com/pymc-labs/pymc-mfm">
+        <svg class="mfm-btn__icon" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></svg>
+        GitHub <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></svg>
       </a>
     </div>
   </div>
 </section>
 
-<!-- 2. What it does, in one statement -------------------------------------------- -->
-<section class="mfm-statement">
-  <p class="mfm-statement__text" data-mfm="statement">
-    PyMC MFM trains neural networks on simulated marketing worlds. Hand one your weekly
-    spend, controls and sales, and it returns posterior draws of every contribution, with the
-    causal graph behind each draw. No MCMC. No refit.
-  </p>
-</section>
-
-<!-- 3. The library at work: a notebook in an editor --------------------------------- -->
+<!-- 2. The library at work: a notebook in an editor --------------------------------- -->
 <section class="mfm-show" aria-labelledby="mfm-show-title">
   <header class="mfm-show__head mfm-reveal">
     <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
   </header>
 
   <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, decomposes the last 13 weeks into 1,000 posterior draws, exports an ArviZ DataTree, summarises each channel's total contribution, and plots its distribution, the weekly contributions with 90% intervals and the stacked mean decomposition. Synthetic data; the outputs come from River 1.0.">
+    <div class="mfm-stage__bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="mfm-grain" aria-hidden="true"></div>
 
     <div class="mfm-ide" data-mfm="notebook" data-ui>
@@ -296,13 +291,14 @@ css:
   </div>
 </section>
 
-<!-- 4. Why amortize: painted tiles. One wall pins while you scroll and changes in place,
-     Amortized, Causal, Bayesian (tiles-scene.css, tiles-scene.js). Full width; sticky needs
-     no ancestor that scrolls (.mfm clips, which is fine). -------------------------------- -->
+<!-- 3. Why amortize. The section pins while you scroll and changes in place: Amortized,
+     Causal, Bayesian, each word big in the middle of the screen with a wall of painted tiles
+     behind it (tiles-scene.css, tiles-scene.js). Full width; sticky needs no ancestor that
+     scrolls (.mfm clips, which is fine). ------------------------------------------------ -->
 <section class="tiles-scene" aria-label="Amortized, causal, Bayesian">
   <div class="ts-pin">
     <div class="ts-text">
-      <ol class="ts-steps" aria-hidden="true"><li class="is-on">1</li><li>2</li><li>3</li></ol>
+      <ol class="ts-steps" aria-hidden="true"><li class="is-on">01</li><li>02</li><li>03</li></ol>
       <div class="ts-copies">
         <div class="ts-copy is-on"><h2 class="ts-title">Amortized.</h2><p class="ts-line">Training is paid once, on simulated worlds with known answers. A new dataset is context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p></div>
         <div class="ts-copy"><h2 class="ts-title">Causal.</h2><p class="ts-line">Every draw carries the causal graph it was sampled with, over channels, controls and latent demand. Average over graphs, take the most frequent one, or fix your own.</p></div>
@@ -313,7 +309,7 @@ css:
   </div>
 </section>
 
-<!-- 5. Latest model -------------------------------------------------------------- -->
+<!-- 4. Latest model -------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-labelledby="mfm-model-title">
   <div class="mfm-release">
     <div class="mfm-release__name">
@@ -329,7 +325,7 @@ css:
   </div>
 </section>
 
-<!-- 6. Explore ----------------------------------------------------------------- -->
+<!-- 5. Explore ----------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
   <nav class="mfm-explore" aria-label="Explore">
     <a href="guide/index.html"><span class="mfm-explore__title">Docs <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
@@ -349,7 +345,6 @@ css:
      still works: landing.js falls back to static layouts and CSS reveals. -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/gsap.min.js" integrity="sha384-3vCAhD+a3BOliP3QqjQINn6ZWiZxoqu0WFxX5ZQZgqekDZuSb1mJBrrLMmu94H8f" crossorigin="anonymous" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/ScrollTrigger.min.js" integrity="sha384-H2WL1iy/jKQQ7MTHU2hskZKNHTYWWD/KgKE1vCNnaWY8An2ESTh23KN/fTp8XS3j" crossorigin="anonymous" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/SplitText.min.js" integrity="sha384-e98MX/fxZrUXA/6T+aCptryLfHgR2FpEmWxDbbPloHT0Qg79dEXKdLJ/iwD2lzxs" crossorigin="anonymous" defer></script>
 <script src="assets/js/landing.js" defer></script>
 <script src="assets/js/tiles-scene.js" defer></script>
 ```
