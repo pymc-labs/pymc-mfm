@@ -199,9 +199,11 @@ between two analyses: their draws are not paired.
 
 `analyze` also takes `name` (optional, 1 to 120 characters: the label the user sees on the site and
 in the export), `decision_weeks=(i, j)` (1-based, inclusive: the only weeks that scenarios and
-curves may change), `draws` and `seed`. Use `draws` of 200 to 500 for exploration and 1,000 (the default) for numbers
-you report. At most 2,000. Set `seed` when the user needs a repeatable result. At most 200 different
-plans run per analysis. A plan needs spend for every channel and a value for every control, for every
+curves may change), `draws` and `seed`. Use `draws` of 200 to 500 for exploration and the default of 2,000 (also the
+maximum) for numbers you report. A request without a `seed` uses seed 0. The same request gives the
+same numbers only with the same model revision, library revision, device class, dtype and execution
+settings; results can differ across devices. More draws reduce sampling error. A different `seed` does
+not. At most 200 different plans run per analysis. A plan needs spend for every channel and a value for every control, for every
 forecast week.
 
 Look at `dataset.history_ranges` and the preview warnings before you start. The weekly `p05` and
