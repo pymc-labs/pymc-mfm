@@ -128,8 +128,10 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
      window. Level 1 equals the base and does not run again. Level ids are
      `curve:<channel>:<base>:<level>`. For a first look use levels 0 to 2 in steps of 0.25.
    - `name` is optional: 1 to 120 characters, trimmed; `422` otherwise.
-   - `draws` is 1 to 2,000 (default 1,000). Use 200 to 500 for exploration. `seed` is 0 to 2147483647;
-     the server picks one if you leave it out.
+   - `draws` is 1 to 2,000 (default 2,000). Use 200 to 500 for exploration. `seed` is 0 to 2147483647;
+     a request without one uses seed 0. The same request gives the same numbers only with the same
+     model revision, library revision, device class, dtype and execution settings, and results can
+     differ across devices. More draws reduce sampling error. A different seed does not.
    - At most 200 different plans per analysis. Equal plans run once.
 5. Poll `GET /v1/analyses/{id}` every 3 seconds until `status` is `done`, `failed` or `deleted`.
    `status` is one of `queued`, `running`, `done`, `failed`, `deleted`. The first run after idle can take
