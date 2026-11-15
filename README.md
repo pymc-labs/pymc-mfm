@@ -513,6 +513,51 @@ and connection errors, and waits as long as `Retry-After` asks, up to `Client(ma
 others, each with `code`, `message` and `field` from the service. Scenario steps were
 removed: a body with `steps` gets `422 steps_removed`.
 
+## Hosted model
+
+`from_pretrained` loads a model that runs on the hosted service when you pass `api_key=`.
+It needs no PyTorch. Install `pymc-mfm[client]`; `base_url=` defaults to `MFM_API_URL`.
+
+```python
+from pymc_mfm import from_pretrained
+
+model = from_pretrained("pymc-labs/mfm", profile="river-1", api_key=KEY)  # hosted
+model = from_pretrained("pymc-labs/mfm", profile="river-1")  # Hugging Face
+model = from_pretrained("models/river-1")  # local folder
+
+model.add_context(
+    history,
+    date_column="week",
+    target_column="sales",
+    channel_columns=["tv", "search"],
+    control_columns=["price"],
+)
+result = model.inference(plan, n_samples=1000)  # a DecompositionResult on all three
+result.plot.reconstruction(observed=held_out)
+```
+
+`api_key=` alone selects the hosted service; the environment variable `MFM_API_KEY` does not,
+and `token=` keeps its Hugging Face meaning. Without `api_key=`, nothing changes.
+
+The hosted model has the `add_context` and `inference` signatures of `MFM`, but:
+
+- `n_samples` must be at least 100. The local default is 32, so `inference(plan)` without
+  `n_samples` raises `ValueError` before any request.
+- The seed is the service default, 0. There is no `seed=` argument.
+- Dates must be weekly. The same checks as a local `add_context` run first, then the history is
+  stored with `client.datasets.create(..., reuse=True)`.
+- The draws file is float32 and the result keeps float32 (`result.provenance["draws_dtype"]`).
+  Do not expect local float64 precision.
+- The file has no graphs. `graphs` is one all-zero placeholder edge that `edge_mask` marks as
+  padding. `result.plot.dag()` and the other graph plots raise `HostedUnsupported`.
+- `revision=` raises `ValueError`: the service does not report its model revision before a run.
+  A result records `provenance["model_revision"]`.
+- `to()`, `parameters()`, `compile_sampling()`, `decompose()`, `build_idata()`,
+  `input_usage()` and a `mode`, `graph` or `router_samples` argument raise
+  `HostedUnsupported` (a `pymc_mfm.client.ClientError`) and name the method.
+
+Service errors are the client's own (`ValidationError`, `Gone`, ...).
+
 ## Train an amortized network
 
 ### Training data

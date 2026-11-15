@@ -254,15 +254,15 @@ def _graph_scores(draws, truth, families, endpoints, metrics):
     only the truth-free keys (entropy, distinct graphs, edge co-moments and
     cycle rates) have values; the cycle rates also need the edge metadata.
     """
-    from pymc_mfm.model.graph import SQUARE_EDGE_TYPES
     from pymc_mfm.training import metrics as scoring
-    from pymc_mfm.training.evaluation import GRAPH_METRICS, METRIC_UNITS
+    from pymc_mfm.training._metric_tables import GRAPH_METRICS, METRIC_UNITS
 
-    blocks = (
-        {}
-        if families is None or endpoints is None
-        else scoring.adjacency_blocks(draws, families, endpoints, SQUARE_EDGE_TYPES)
-    )
+    if families is None or endpoints is None:
+        blocks = {}
+    else:  # imported here: without edge metadata (a hosted result) this needs no PyTorch
+        from pymc_mfm.model.graph import SQUARE_EDGE_TYPES
+
+        blocks = scoring.adjacency_blocks(draws, families, endpoints, SQUARE_EDGE_TYPES)
     world = scoring.graph_scores(draws, truth, blocks, prefix="graph/")
     for key in GRAPH_METRICS:
         name = f"graph/{key}"

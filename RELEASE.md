@@ -7,6 +7,13 @@ distribution prerequisites, not an approved or published release.
 
 ## Changes
 
+- **`from_pretrained(..., api_key=)` loads the hosted model, with no PyTorch.** The returned object
+  has the `add_context` and `inference` signatures of `MFM` and returns a `DecompositionResult`
+  (float32 draws, no graphs; at least 100 draws, weekly dates, the service's default seed).
+  Without `api_key=`, loading is unchanged. `pymc_mfm.inference`, `pymc_mfm.diagnostics` and
+  `pymc_mfm.training` now import their names on first use, so `DecompositionResult` and
+  `result.plot` import without PyTorch.
+
 - **Client (for `client-v0.1.0`): repeat-safe `analyze`, resumable `wait`.** An identical `analyze`,
   `explore` or `Analysis.again` call, also from a new process, returns the same analysis,
   because the `Idempotency-Key` comes from the request content. New `fresh=True` on

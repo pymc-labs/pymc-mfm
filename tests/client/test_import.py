@@ -32,13 +32,20 @@ def test_local_names_explain_the_extra_when_torch_is_missing():
         sys.modules["torch"] = None  # makes "import torch" fail, as in a light install
         sys.modules["safetensors"] = None
         import pymc_mfm
-        for name in ("decompose", "MFM", "from_pretrained"):
+        for name in ("decompose", "MFM"):
             try:
                 getattr(pymc_mfm, name)
             except ImportError as error:
                 assert 'pip install "pymc-mfm[local]"' in str(error), error
             else:
                 raise SystemExit(f"{name} loaded without torch")
+        # from_pretrained is a torch-free dispatcher; only its local branch needs torch
+        try:
+            pymc_mfm.from_pretrained("models/river-1")
+        except ImportError as error:
+            assert 'pip install "pymc-mfm[local]"' in str(error), error
+        else:
+            raise SystemExit("local from_pretrained loaded without torch")
         try:
             pymc_mfm.nope
         except AttributeError:

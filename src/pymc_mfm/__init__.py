@@ -12,10 +12,10 @@ from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ._loading import from_pretrained
     from .inference import (
         DecompositionResult,
         decompose,
-        from_pretrained,
         list_profiles,
         observation_batch,
         push_to_hub,
@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 
 __version__ = version("pymc-mfm")
 
-#: Public name -> module that defines it. Every module here imports PyTorch.
+#: Public name -> module that defines it. Each name needs PyTorch, except
+#: ``DecompositionResult`` and ``from_pretrained`` with ``api_key=`` (the hosted path).
 _LOCAL_EXPORTS = {
     "MFM": "pymc_mfm.model",
     "ModelConfig": "pymc_mfm.model",
@@ -53,14 +54,10 @@ __all__ = [
 _LOCAL_DEPENDENCIES = ("torch", "safetensors")
 
 
-def __getattr__(name: str):
-    if name == "client":  # torch-free; `import pymc_mfm` then `pymc_mfm.client` works
-        return import_module(f"{__name__}.client")
-    module_name = _LOCAL_EXPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+def _import_local(name: str):
+    """The local export ``name``; a missing PyTorch becomes an install hint."""
     try:
-        value = getattr(import_module(module_name), name)
+        return getattr(import_module(_LOCAL_EXPORTS[name]), name)
     except ModuleNotFoundError as error:
         # Only a missing PyTorch dependency becomes the install hint. Any other
         # missing module is a real bug and keeps its own error.
@@ -69,8 +66,20 @@ def __getattr__(name: str):
         raise ImportError(
             f"pymc_mfm.{name} runs the model in this process and needs PyTorch. "
             'Install it with: pip install "pymc-mfm[local]". '
-            "To call a hosted service without PyTorch, use pymc_mfm.client."
+            "To call a hosted service without PyTorch, use pymc_mfm.client, "
+            "or pass api_key= to from_pretrained."
         ) from error
+
+
+def __getattr__(name: str):
+    if name == "client":  # torch-free; `import pymc_mfm` then `pymc_mfm.client` works
+        return import_module(f"{__name__}.client")
+    if name == "from_pretrained":  # torch-free dispatcher: hosted with api_key=, else local
+        value = import_module(f"{__name__}._loading").from_pretrained
+    elif name in _LOCAL_EXPORTS:
+        value = _import_local(name)
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     globals()[name] = value
     return value
 

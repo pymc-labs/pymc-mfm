@@ -11,11 +11,9 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_complex_dtype, is_numeric_dtype
 
-from pymc_mfm.data.observations import encode_observations
-from pymc_mfm.model.config import ModelConfig
-
 if TYPE_CHECKING:
     from pymc_mfm.inference.result import DecompositionResult
+    from pymc_mfm.model.config import ModelConfig
 
 
 def _column_names(value, role: str) -> tuple[str, ...]:
@@ -143,6 +141,8 @@ class _FittedContext:
             while name in control_names:
                 name = "_" + name
             control_names.append(name)
+        from pymc_mfm.data.observations import encode_observations
+
         # Validate the same context-only representation as inference, without
         # manufacturing a query row or changing any model state.
         encoded = encode_observations(
