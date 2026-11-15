@@ -28,3 +28,27 @@ jobs:
           uv sync --all-extras
       - name: Compare the shard-plan probes with the recorded arrays
         run: uv run --no-sync pytest -q tests/test_generator_drift.py
+
+  report-failure:
+    needs: latest-generator
+    if: ${{ always() && github.event_name == 'schedule' && needs.latest-generator.result == 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the drift issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Generator drift failed"
+          body="The scheduled generator-drift run failed: $RUN_URL"
+          number=$(gh issue list --label generator-drift --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+            gh issue edit "$number" --add-assignee derwells
+          else
+            gh label create generator-drift --description "Scheduled generator-drift run failed" --color D93F0B || true
+            gh issue create --title "$title" --body "$body" --label generator-drift --assignee derwells
+          fi

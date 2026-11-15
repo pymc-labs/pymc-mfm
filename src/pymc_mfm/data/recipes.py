@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from pymc_mfm.data.corpus import SUPPORTED_CORPUS_SCHEMAS
 from pymc_mfm.data.profiles import PROFILE_A, PROFILE_B, ArtifactProfile
 
 if TYPE_CHECKING:
@@ -382,9 +383,9 @@ _REQUIRED_CORPUS_KEYS = ("is_val", "cell_id", "support_mask")
 
 
 def load_corpora(paths: Sequence[str | Path]) -> list[LoadedCorpus]:
-    """Load schema-4 corpora with ``pymc_generator.load_corpus`` in the given order.
+    """Load schema-4 or schema-5 corpora with ``pymc_generator.load_corpus`` in the given order.
 
-    Each corpus must be stamped ``diagnostics["schema_version"] == 4`` and carry
+    Each corpus must be stamped ``diagnostics["schema_version"]`` of 4 or 5 and carry
     ``is_val``, ``cell_id`` and ``support_mask``; anything else raises
     ``ValueError`` naming the file. Geometry agreement across corpora is the
     consumer's check, not this loader's. Requires the ``generation`` extra.
@@ -399,8 +400,13 @@ def load_corpora(paths: Sequence[str | Path]) -> list[LoadedCorpus]:
         path = Path(raw_path)
         corpus = load_corpus(path)
         diagnostics = corpus.get("diagnostics")
-        if not isinstance(diagnostics, Mapping) or diagnostics.get("schema_version") != 4:
-            raise ValueError(f"corpus {path}: diagnostics must declare schema_version 4")
+        if (
+            not isinstance(diagnostics, Mapping)
+            or diagnostics.get("schema_version") not in SUPPORTED_CORPUS_SCHEMAS
+        ):
+            raise ValueError(
+                f"corpus {path}: diagnostics must declare schema_version {SUPPORTED_CORPUS_SCHEMAS}"
+            )
         missing = [key for key in _REQUIRED_CORPUS_KEYS if key not in corpus]
         if missing:
             raise ValueError(f"corpus {path}: missing required arrays {missing}")

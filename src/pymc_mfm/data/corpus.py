@@ -13,6 +13,10 @@ from torch import Tensor
 from pymc_mfm.data.observations import encode_observations
 from pymc_mfm.model.graph import EdgeSlotLayout
 
+#: Generator corpus schemas this library consumes. Schema 5 adds trajectory leaves and opt-in
+#: truth arrays; every array read here is unchanged from schema 4.
+SUPPORTED_CORPUS_SCHEMAS = (4, 5)
+
 _GENERATOR_EDGE_TYPES = ("cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz")
 
 
@@ -22,7 +26,7 @@ def corpus_batch(
     *,
     device: str | torch.device = "cpu",
 ) -> dict[str, Tensor]:
-    """Prepare selected schema-4 worlds without reading future outcome for features.
+    """Prepare selected schema-4 or schema-5 worlds without reading future outcome for features.
 
     Generate with ``pymc_generator.DataGenerator.generate`` or load with
     ``pymc_generator.load_corpus`` and validate with its ``validate_corpus``.
@@ -53,10 +57,11 @@ def corpus_batch(
         raise ValueError("corpus diagnostics must declare schema_version and edge_types")
     version = diagnostics.get("schema_version")
     if isinstance(version, (bool, np.bool_)) or not isinstance(version, (int, np.integer)):
-        raise ValueError("corpus schema_version must be integer 4")
-    if version != 4:
+        raise ValueError("corpus schema_version must be an integer")
+    if version not in SUPPORTED_CORPUS_SCHEMAS:
         raise ValueError(
-            "corpus_batch supports schema_version 4; use the generator's corpus reader"
+            f"corpus_batch supports schema_version {SUPPORTED_CORPUS_SCHEMAS}; "
+            "use the generator's corpus reader"
         )
     edge_types = diagnostics.get("edge_types")
     if not isinstance(edge_types, (list, tuple)) or tuple(edge_types) != _GENERATOR_EDGE_TYPES:
