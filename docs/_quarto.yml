@@ -89,9 +89,7 @@ website:
             href: models/index.qmd
           - text: "Hugging Face"
             href: https://huggingface.co/pymc-labs/mfm
-      # The PyMC Labs blog; MFM has no blog of its own.
-      - text: Blog
-        href: https://www.pymc-labs.com/blog-posts
+      # pymc-labs.com, which carries the PyMC Labs blog too: MFM has no blog of its own.
       - text: PyMC Labs
         href: https://www.pymc-labs.com
     right:

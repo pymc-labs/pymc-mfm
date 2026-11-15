@@ -246,6 +246,9 @@
       set(to);
     };
     const mark = hero.querySelector('[data-mfm="mark"]');
+    // The line under the title wraps to the name's width (landing.css): hold that width while
+    // the longer word shows, so the line does not reflow.
+    const name = hero.querySelector('[data-mfm="name"]');
     const burst = async (from, to, ms) => {
       word.classList.add("is-glitching");
       mark?.classList.add("is-glitching");
@@ -264,9 +267,11 @@
     const schedule = (delay) =>
       setTimeout(async () => {
         if (onScreen && !document.hidden && window.scrollY < hero.offsetHeight * 0.4) {
+          if (name) name.style.width = `${name.getBoundingClientRect().width}px`;
           await burst(FROM, TO, 380);
           await wait(GLITCH_HOLD_MS);
           await burst(TO, FROM, 320);
+          if (name) name.style.width = "";
         }
         schedule(7000 + Math.random() * 3000);
       }, delay);

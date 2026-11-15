@@ -13,9 +13,9 @@ $tone-2: mix(#ffffff, $navy-deep, 9%);
 $danger: #ff9b8f;
 $heading: #f2f5fa;
 
-$font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 $font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; // taste-skill-ignore: code font
-$font-display: "Archivo", "IBM Plex Sans", system-ui, sans-serif;
+$font-display: "Archivo", "Inter", system-ui, sans-serif;
 
 $font-family-sans-serif: $font-sans;
 $font-family-monospace: $font-mono; // taste-skill-ignore: code font

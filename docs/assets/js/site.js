@@ -2,7 +2,7 @@
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
      initConsoleButton marks the "Open Console" navbar link with data-mfm="console" (site.css draws it)
-     initExternalLinks marks navbar text links that leave the site (Blog, PyMC Labs) for their arrow
+     initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
      initColorScheme   the navbar dark-mode button: back to the system's mode, it follows the system again
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match

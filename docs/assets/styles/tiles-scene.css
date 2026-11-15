@@ -3,7 +3,7 @@
    the centre of the screen, big, with its line under it; behind it, a small box of painted
    tiles (tiles-scene.js), blurred and faded at its edges, gives the word a coloured glow
    without competing with it. Sizes follow the section's own width (container units), not the
-   window. Fonts: the site's "Archivo" (wdth 125), "IBM Plex Sans" and "IBM Plex Mono".
+   window. Fonts: the site's "Archivo" (wdth 125), "Inter" and "IBM Plex Mono".
    Sticky needs no ancestor with overflow: hidden/auto. */
 .tiles-scene {
   --ts-ground: #07142a;
@@ -16,7 +16,7 @@
   height: 390vh;
   background: var(--ts-ground);
   color: var(--ts-ink);
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-family: var(--mfm-font-sans, "Inter", system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
 }
 .tiles-scene *, .tiles-scene *::before, .tiles-scene *::after { box-sizing: border-box; }

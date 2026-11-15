@@ -54,9 +54,9 @@
   margin: 0;
   padding: 0;
   border: 0;
-  font-family: var(--mfm-font-sans);
+  font-family: var(--mfm-font-display);
   font-size: 1.5rem;
-  font-stretch: 100%;
+  font-stretch: 125%;
   font-weight: 500;
   line-height: 1.1;
   letter-spacing: normal;
@@ -224,7 +224,8 @@ body.mfm-river-page main strong {
 
 .mfm-stats strong,
 .mfm-ratios strong {
-  font-family: var(--mfm-font-sans);
+  font-family: var(--mfm-font-display);
+  font-stretch: 125%;
   font-size: clamp(1.35rem, 2.4vw, 1.75rem);
   font-weight: 500;
   line-height: 1.15;
@@ -530,7 +531,7 @@ body.mfm-river-page main strong {
   overflow: hidden;
   isolation: isolate;
   background: #050d1d;
-  font-family: var(--mfm-font-sans, "IBM Plex Sans", system-ui, sans-serif);
+  font-family: var(--mfm-font-sans, "Inter", system-ui, sans-serif);
   font-feature-settings: "cv11", "ss01", "ss03";
 }
 

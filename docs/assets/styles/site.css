@@ -3,10 +3,11 @@
    theme through Bootstrap's variables, so most rules here only add layout and detail.
    Landing-only and page-specific rules live in landing.css, model.css and the other page sheets.
 
-   House rules: Plex Sans 400 for text; 500 only for section headings, the current page, sidebar
-   group titles, the Console button and strong; Archivo for h1 page titles only. Corners 6, 8 and
-   12 px, no pills. No thin rules except real tables. A surface is a tone step, never a line or a
-   shadow. No dot separators in titles or labels. */
+   House rules: the PyMC Labs brand pair. Inter 400 for text, 500 only for h3 and smaller, the
+   current page, sidebar group titles, the Console button and strong; Archivo Expanded (Archivo
+   at width 125) for headlines and large text: page titles at 400, section headings (h2) at 500.
+   Corners 6, 8 and 12 px, no pills. No thin rules except real tables. A surface is a tone step,
+   never a line or a shadow. No dot separators in titles or labels. */
 
 html {
   scroll-padding-top: calc(var(--mfm-nav-h) + 1rem);
@@ -93,11 +94,16 @@ main h6 {
   border: 0;
 }
 
+/* Section headings are headlines: Archivo Expanded. */
 main h2 {
   margin-top: 3.25rem;
   margin-bottom: 0.9rem;
   padding-bottom: 0;
+  font-family: var(--mfm-font-display);
+  font-stretch: 125%;
   font-size: 1.4rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 main h3 {
@@ -276,7 +282,7 @@ body.quarto-dark .navbar-logo {
   transform: scaleX(1);
 }
 
-/* Links that leave the site (Blog, PyMC Labs; site.js adds .is-external): Phosphor ArrowUpRight
+/* Links that leave the site (PyMC Labs; site.js adds .is-external): Phosphor ArrowUpRight
    after the label. */
 .navbar .navbar-nav .nav-link.is-external::after {
   content: "";
