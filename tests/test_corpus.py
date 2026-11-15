@@ -218,6 +218,20 @@ def test_packed_graph_preserves_direction_offdiagonals_and_outcome_edges(corpus)
         torch.testing.assert_close(batch[f"g_{family}"], value.unsqueeze(0).expand(2, *value.shape))
 
 
+def test_schema_versions_four_and_five_give_the_same_batch(corpus):
+    reference = corpus_batch(corpus)
+    corpus["diagnostics"]["schema_version"] = 5
+    for name, tensor in corpus_batch(corpus).items():
+        torch.testing.assert_close(tensor, reference[name])
+
+
+@pytest.mark.parametrize("version", [3, 6, "4", True, None])
+def test_other_schema_versions_are_rejected(corpus, version):
+    corpus["diagnostics"]["schema_version"] = version
+    with pytest.raises(ValueError, match="schema_version"):
+        corpus_batch(corpus)
+
+
 @pytest.mark.parametrize(
     "support",
     [[1, 0, 1, 1, 0, 0], [0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1]],

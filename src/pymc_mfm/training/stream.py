@@ -24,7 +24,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from pymc_mfm.data.corpus import corpus_batch
+from pymc_mfm.data.corpus import SUPPORTED_CORPUS_SCHEMAS, corpus_batch
 
 SPLITS = ("train", "holdout", "all")
 
@@ -51,8 +51,14 @@ class BatchProvenance:
 def _geometry(corpus: Mapping[str, Any]) -> tuple[int, int, int, int, int]:
     """``(N, K, M, J, T)`` of a schema-4 corpus; the array checks ``corpus_batch`` repeats."""
     diagnostics = corpus.get("diagnostics")
-    if not isinstance(diagnostics, Mapping) or diagnostics.get("schema_version") != 4:
-        raise ValueError("CorpusStream consumes corpora with diagnostics schema_version 4")
+    if (
+        not isinstance(diagnostics, Mapping)
+        or diagnostics.get("schema_version") not in SUPPORTED_CORPUS_SCHEMAS
+    ):
+        raise ValueError(
+            f"CorpusStream consumes corpora with diagnostics schema_version "
+            f"{SUPPORTED_CORPUS_SCHEMAS}"
+        )
     treatment = np.shape(corpus["treatment_raw"])
     covariates = np.shape(corpus["covariates"])
     latent = np.shape(corpus["latent_active_mask"])

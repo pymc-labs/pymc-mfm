@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 import pymc_mfm.data.__main__ as cli
+from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.data.recipes import SHARD_PLANS, load_corpora, prior_sidecar_path, provenance
 
 RECORD = Path(__file__).resolve().parent / "data" / "generator_probes.json"
@@ -124,6 +125,11 @@ def test_cli_writes_a_loadable_probe_with_a_bound_sidecar(cli_probe):
     assert sorted(cli_probe.parent.iterdir()) == [cli_probe, prior_sidecar_path(cli_probe)]
     (loaded,) = load_corpora([cli_probe])
     assert loaded.n_worlds == PROBE_CELLS * SHARD_PLANS["A"].draws_per_cell
+    first_length = int(loaded.corpus["support_mask"][0].sum())
+    same_length = np.flatnonzero(loaded.corpus["support_mask"].sum(axis=1) == first_length)
+    assert corpus_batch(loaded.corpus, rows=same_length.tolist())["g_cy"].shape[0] == len(
+        same_length
+    )
     record = provenance(loaded)
     assert record["data_origin"] == "synthetic"
     prior = record["prior_sidecar"]["prior"]
