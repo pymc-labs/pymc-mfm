@@ -385,7 +385,9 @@ _REQUIRED_CORPUS_KEYS = ("is_val", "cell_id", "support_mask")
 def load_corpora(paths: Sequence[str | Path]) -> list[LoadedCorpus]:
     """Load schema-4 or schema-5 corpora with ``pymc_generator.load_corpus`` in the given order.
 
-    Each corpus must be stamped ``diagnostics["schema_version"]`` of 4 or 5 and carry
+    The installed generator's ``load_corpus`` reads the files, so it decides which archive
+    versions load (a schema-5 generator refuses schema-4 archives). Each loaded corpus must be
+    stamped ``diagnostics["schema_version"]`` of 4 or 5 and carry
     ``is_val``, ``cell_id`` and ``support_mask``; anything else raises
     ``ValueError`` naming the file. Geometry agreement across corpora is the
     consumer's check, not this loader's. Requires the ``generation`` extra.
