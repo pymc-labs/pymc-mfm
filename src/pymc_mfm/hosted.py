@@ -44,6 +44,23 @@ MIN_HOSTED_DRAWS = 100
 #: ``MFM.inference`` default (``pymc_mfm.model.DEFAULT_N_SAMPLES``); a test keeps them equal.
 LOCAL_DEFAULT_N_SAMPLES = 32
 DRAWS_SCHEMA = "river-draws/1"
+#: Provenance keys a hosted result sets itself; a caller's ``provenance`` cannot use them.
+RESERVED_PROVENANCE = frozenset(
+    {
+        "backend",
+        "analysis_id",
+        "dataset_id",
+        "draws_requested",
+        "draws_schema",
+        "draws_dtype",
+        "graphs",
+        "graph_note",
+        "inference_config",
+        "seed",
+        "model_revision",
+        "library_revision",
+    }
+)
 
 #: Public ``MFM`` methods that need the model in this process.
 _REFUSED_METHODS = (
@@ -172,14 +189,16 @@ class HostedMFM:
     ) -> Self:
         """Check the history, store it on the service and remember its column roles.
 
-        The column, date, sign and finiteness checks are those of ``MFM.add_context``,
-        and run before any request. Dates must also be weekly (one row for each week,
-        in order after sorting); a local model accepts other regular cadences. The
-        history is uploaded with ``client.datasets.create(..., reuse=True)``, so an
-        identical history already stored is reused. A failed call keeps the last
-        successful context.
+        The column, date, sign, finiteness and finite-representation checks are those of
+        ``MFM.add_context``, and run before any request. The check of how many controls the
+        model holds is the service's, because the hosted model's width is not known here.
+        Dates must also be weekly (one row for each week, in order after sorting); a local
+        model accepts other regular cadences. The history is uploaded with
+        ``client.datasets.create(..., reuse=True)``, so an identical history already stored is
+        reused. A failed call keeps the last successful context.
         """
         from pymc_mfm.inference.dataframe import (
+            _check_representation,
             _column_names,
             _numeric_columns,
             _ordered_frame,
@@ -197,10 +216,14 @@ class HostedMFM:
         if len(dates) < 2:
             raise ValueError("add_context needs at least two dated context rows")
         spend = _numeric_columns(frame, channels)
-        _numeric_columns(frame, controls)
+        represented = _numeric_columns(frame, controls)
         outcome = _numeric_columns(frame, (target_column,))[:, 0]
         if np.any(spend < 0) or np.any(outcome <= 0):
             raise ValueError("channel spend must be nonnegative and context outcomes positive")
+        # The model width is unknown here, so this checks the supplied controls only.
+        _check_representation(
+            spend, represented, outcome, np.ones(len(controls), dtype=bool), len(channels), 1
+        )
         check_weekly_dates(iso_dates(dates), "history")
         upload = frame.loc[:, list(required)].copy()
         upload[date_column] = dates
@@ -241,13 +264,14 @@ class HostedMFM:
         - The file has no graphs. ``graphs`` is one all-zero placeholder edge that
           ``edge_mask`` marks as padding. ``result.plot.dag()`` and the other graph
           plots raise :class:`HostedUnsupported`.
-        - Only the default ``mode="model_average"`` exists; ``mode``, ``graph`` and
-          ``router_samples`` raise :class:`HostedUnsupported` when set.
+        - Only the default ``mode="model_average"`` exists; a ``mode`` other than that,
+          ``graph`` and ``router_samples`` raise :class:`HostedUnsupported`.
 
-        ``units`` is a label; ``provenance`` entries are added to the result's provenance
-        and must not replace an existing key. Raises client errors (``ValidationError``,
-        ``Gone``, ...) as ``pymc_mfm.client`` does, and ``ClientError`` if the analysis
-        fails.
+        ``units`` is a label. ``provenance`` entries are added to the result's provenance. A key
+        that the hosted path sets itself (``RESERVED_PROVENANCE``, for example ``seed``,
+        ``graphs`` or ``model_revision``) raises ``ValueError`` before any request. Service
+        errors are the client's (``ValidationError``, ``Gone``, ...); a failed analysis raises
+        ``ClientError``.
         """
         from pymc_mfm.inference.dataframe import _numeric_columns, _ordered_frame
 
@@ -272,6 +296,11 @@ class HostedMFM:
             raise ValueError("units must be a nonempty label")
         if provenance is not None and not isinstance(provenance, Mapping):
             raise ValueError("provenance must be a mapping")
+        clash = sorted(set(provenance or ()) & RESERVED_PROVENANCE)
+        if clash:
+            raise ValueError(
+                f"provenance keys {clash} are set by the hosted path and cannot be replaced"
+            )
         required = (context.date_column, *context.channels, *context.controls)
         frame, dates = _ordered_frame(data, required, context.date_column)
         _numeric_columns(frame, context.channels)
@@ -326,11 +355,11 @@ def _result_from_analysis(
         context_length=context.dataset.weeks,
         units=units,
         provenance={
+            **annotations,
             "backend": "hosted",
             "analysis_id": analysis.id,
             "dataset_id": context.dataset.dataset_id,
             "draws_requested": requested,
-            **annotations,
         },
     )
 
@@ -407,8 +436,8 @@ def result_from_draws(
             for key in ("seed", "model_revision", "library_revision")
             if key in attrs
         },
-        **(provenance or {}),
     }
+    info = {**(provenance or {}), **info}  # measured facts win over supplied extras
     return DecompositionResult(
         components=components,
         graphs=np.zeros((n_draws, 1), dtype=np.int8),

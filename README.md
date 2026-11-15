@@ -544,17 +544,21 @@ The hosted model has the `add_context` and `inference` signatures of `MFM`, but:
 - `n_samples` must be at least 100. The local default is 32, so `inference(plan)` without
   `n_samples` raises `ValueError` before any request.
 - The seed is the service default, 0. There is no `seed=` argument.
-- Dates must be weekly. The same checks as a local `add_context` run first, then the history is
-  stored with `client.datasets.create(..., reuse=True)`.
+- Dates must be weekly. The checks of a local `add_context` run first, except the limit on the
+  number of controls (the service applies it); then the history is stored with `client.datasets.create(..., reuse=True)`.
 - The draws file is float32 and the result keeps float32 (`result.provenance["draws_dtype"]`).
   Do not expect local float64 precision.
 - The file has no graphs. `graphs` is one all-zero placeholder edge that `edge_mask` marks as
-  padding. `result.plot.dag()` and the other graph plots raise `HostedUnsupported`.
+  padding. `result.plot.dag()` and the other graph plots raise `HostedUnsupported`, and the
+  graph metrics and panels of `result.diagnostics()` are reported as unavailable.
+- The file holds only the controls you supplied, with no padded control slots, so a local model
+  with a wider control capacity returns extra masked control components that the hosted result
+  does not have.
 - `revision=` raises `ValueError`: the service does not report its model revision before a run.
   A result records `provenance["model_revision"]`.
 - `to()`, `parameters()`, `compile_sampling()`, `decompose()`, `build_idata()`,
-  `input_usage()` and a `mode`, `graph` or `router_samples` argument raise
-  `HostedUnsupported` (a `pymc_mfm.client.ClientError`) and name the method.
+  `input_usage()`, a `mode` other than `"model_average"`, and a `graph` or
+  `router_samples` argument raise `HostedUnsupported` (a `pymc_mfm.client.ClientError`) and name the method.
 
 Service errors are the client's own (`ValidationError`, `Gone`, ...).
 

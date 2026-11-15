@@ -7,6 +7,7 @@ other names import modules that do. Importing this package imports none of them.
 from __future__ import annotations
 
 from importlib import import_module
+from pkgutil import iter_modules
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -30,6 +31,9 @@ _EXPORTS = {
     "warm_up_sampling": "warmup",
 }
 
+#: Submodules that load on attribute access, as the eager package left them bound.
+_SUBMODULES = frozenset(info.name for info in iter_modules(__path__))
+
 __all__ = [
     "DecompositionResult",
     "decompose",
@@ -47,6 +51,9 @@ __all__ = [
 def __getattr__(name: str):
     submodule = _EXPORTS.get(name)
     if submodule is None:
+        # A submodule the eager package used to import (``package.calibration``).
+        if name in _SUBMODULES:
+            return import_module(f"{__name__}.{name}")
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     value = getattr(import_module(f"{__name__}.{submodule}"), name)
     globals()[name] = value
@@ -54,4 +61,4 @@ def __getattr__(name: str):
 
 
 def __dir__() -> list[str]:
-    return sorted({*globals(), *_EXPORTS})
+    return sorted({*globals(), *_EXPORTS, *_SUBMODULES})

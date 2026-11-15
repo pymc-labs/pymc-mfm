@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ._artifact_schema import digest_bytes, json_bytes
+from ._digest import digest_bytes, json_bytes
 from .result import DecompositionResult, _checked_evidence
 
 if TYPE_CHECKING:

@@ -388,6 +388,15 @@ def test_the_hosted_path_runs_without_torch():
         assert result.components.shape == (100, 2, 8)
         figure = result.plot.reconstruction(observed=[1.0, 2.0])
         assert figure.axes
+        import tempfile
+        from pymc_mfm.inference.result import DecompositionResult
+        with tempfile.TemporaryDirectory() as folder:
+            result.save(folder + "/result")
+            again = DecompositionResult.load(folder + "/result")
+        assert again.component_names == result.component_names
+        assert again.components.dtype == result.components.dtype
+        assert (again.components == result.components).all()
+        assert again.provenance["graphs"] == "unavailable"
         assert "torch" not in sys.modules or sys.modules["torch"] is None
         try:
             pymc_mfm.from_pretrained("models/river-1")
@@ -409,3 +418,103 @@ def test_the_torch_free_metric_tables_match_the_model_and_the_evaluator():
     assert _metric_tables.SQUARE_EDGE_TYPES == SQUARE_EDGE_TYPES
     for name in ("METRIC_BOUNDS", "METRIC_UNITS", "GRAPH_METRICS", "metric_units"):
         assert getattr(evaluation, name) is getattr(_metric_tables, name)
+
+
+def test_a_hosted_result_saves_loads_and_exports_a_datatree(fake, history, plan, tmp_path):
+    pytest.importorskip("arviz_base")
+    from pymc_mfm.inference.result import DecompositionResult
+
+    result = load().add_context(history, **ROLES).inference(plan, n_samples=N_DRAWS)
+    result.save(tmp_path / "saved")
+    again = DecompositionResult.load(tmp_path / "saved")
+    np.testing.assert_array_equal(again.components, result.components)
+    assert again.provenance["draws_dtype"] == "float32"
+    assert result.to_datatree() is not None
+
+
+def test_graph_diagnostics_of_a_hosted_result_are_unavailable_not_zero(fake, history, plan):
+    pytest.importorskip("matplotlib")
+    result = load().add_context(history, **ROLES).inference(plan, n_samples=N_DRAWS)
+    diagnostics = result.diagnostics()
+    graph_metrics = [
+        name
+        for name in diagnostics.metrics
+        if name.startswith(("uncertainty/", "graph/", "graph_support/", "edge/"))
+        or name in ("support/active_edges", "support/padded_edges", "support/edge_padding_mass")
+    ]
+    assert "uncertainty/n_unique_graphs" in graph_metrics
+    for name in graph_metrics:
+        assert diagnostics.metrics[name] is None, name
+        assert diagnostics.statuses[f"metric/{name}"]["status"] == "unavailable", name
+    for panel in ("graph_cardinality", "graph_uncertainty", "structure_heatmap", "support"):
+        assert diagnostics.summary["panels"][panel]["status"] == "unavailable"
+    with pytest.raises(ValueError, match="graph_cardinality is unavailable"):
+        diagnostics.plot.cardinality()
+    with pytest.raises(ValueError, match="graph_uncertainty is unavailable"):
+        diagnostics.plot.uncertainty()
+    # What does not need graphs still works, and still counts the latent total.
+    assert diagnostics.metrics["support/active_components"] == 8
+    assert result.plot.reconstruction(observed=[1000.0, 1100.0]).axes
+
+
+@pytest.mark.parametrize("key", sorted(hosted.RESERVED_PROVENANCE))
+def test_caller_provenance_cannot_replace_measured_fields(fake, history, plan, key):
+    model = load().add_context(history, **ROLES)
+    sent = len(fake.service.requests)
+    with pytest.raises(ValueError, match=key):
+        model.inference(plan, n_samples=N_DRAWS, provenance={key: "x"})
+    assert len(fake.service.requests) == sent
+
+
+def test_caller_provenance_is_kept_beside_the_measured_fields(fake, history, plan):
+    result = (
+        load()
+        .add_context(history, **ROLES)
+        .inference(plan, n_samples=N_DRAWS, provenance={"scenario": "board forecast"})
+    )
+    assert result.provenance["scenario"] == "board forecast"
+    assert result.provenance["graphs"] == "unavailable" and result.provenance["seed"] == 0
+
+
+def test_the_finite_representation_check_runs_before_any_request(fake, history):
+    extreme = history.assign(sales=[1e-300, 1e300, 1e300, 1e300])
+    with pytest.raises(ValueError, match="cannot be represented"):
+        load().add_context(extreme, **ROLES)
+    assert fake.service.requests == []
+
+
+def test_the_hugging_face_form_of_the_top_level_loader(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    hf = pytest.importorskip("huggingface_hub")
+    from pymc_mfm.inference.checkpoint import save_pretrained
+    from pymc_mfm.model import MFM, ModelConfig
+
+    torch.manual_seed(10)
+    config = ModelConfig(
+        d_model=8, n_layers=1, n_heads=2, d_ff=16, flow_hidden=16, n_controls=1, n_demand=2
+    )
+    source = tmp_path / "source"
+    save_pretrained(MFM(config).eval(), source / "profiles" / "river-1", profile="river-1")
+    commit = "a" * 40
+    calls = []
+
+    def snapshot_download(**kwargs):
+        calls.append(kwargs)
+        destination = tmp_path / "cache" / "models--pymc-labs--mfm" / "snapshots" / commit
+        import fnmatch
+        import shutil
+
+        for file in source.rglob("*"):
+            relative = file.relative_to(source).as_posix()
+            if file.is_file() and any(
+                fnmatch.fnmatchcase(relative, p) for p in kwargs["allow_patterns"]
+            ):
+                (destination / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(file, destination / relative)
+        return str(destination)
+
+    monkeypatch.setattr(hf, "snapshot_download", snapshot_download)
+    model = pymc_mfm.from_pretrained("pymc-labs/mfm", profile="river-1")
+    assert isinstance(model, pymc_mfm.MFM)
+    assert model.provenance["hub_revision"] == commit
+    assert {call["repo_id"] for call in calls} == {"pymc-labs/mfm"}

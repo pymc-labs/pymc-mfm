@@ -34,6 +34,8 @@ from pymc_mfm.model.flow import (
 )
 from pymc_mfm.model.graph import STRUCT_EDGE_KEYS, EdgeSlotLayout
 
+from ._digest import digest_bytes, json_bytes  # noqa: F401  (torch-free home, re-exported)
+
 FORMAT_VERSION = 1
 SEMANTIC_SCHEMA_VERSION = 2
 ARCHITECTURE = "mfm-graph-conditional-v1"
@@ -143,14 +145,6 @@ _TORCH_BUILD = re.compile(
 _REFERENCE_KEYS = frozenset(
     {"name", "sha256", "config_hash", "content_hash", "manifest_hash", "uri", "status", "recipe"}
 )
-
-
-def json_bytes(value: object) -> bytes:
-    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
-
-
-def digest_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
 
 
 def file_record(path: Path) -> dict:

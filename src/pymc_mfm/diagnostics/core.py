@@ -109,6 +109,39 @@ def _series(samples, truth=None):
     }
 
 
+#: Metric names derived from graph draws; a result without graphs (hosted) cannot score them.
+_GRAPH_METRIC_PREFIXES = ("uncertainty/", "graph/", "graph_support/", "edge/", "set_approximation/")
+_GRAPH_METRIC_NAMES = ("support/active_edges", "support/padded_edges", "support/edge_padding_mass")
+_GRAPH_PANELS = (
+    "structure_heatmap",
+    "dag_recovery",
+    "dag_posterior",
+    "graph_cardinality",
+    "graph_statistics",
+    "cycles",
+    "reliability",
+    "support",
+    "zero_atoms",
+    "graph_uncertainty",
+    "set_posterior",
+)
+
+
+def _mark_graphs_unavailable(metrics, panels):
+    """Report every graph-derived metric and panel as unavailable, never as a value.
+
+    Placeholder graphs say nothing about graph uncertainty: 0 unique-graph variance would be
+    a claim, so these entries get no value and the reason ``graphs unavailable``.
+    """
+    reason = "the result has no graphs (the hosted draws file carries none)"
+    for name in metrics.values:
+        if name.startswith(_GRAPH_METRIC_PREFIXES) or name in _GRAPH_METRIC_NAMES:
+            metrics.values[name] = None
+            metrics.statuses[f"metric/{name}"] = {"status": "unavailable", "reason": reason}
+    for name in _GRAPH_PANELS:
+        panels[name] = {"status": "unavailable", "reason": reason}
+
+
 class _Metrics:
     def __init__(self):
         self.values = {}
@@ -1226,6 +1259,8 @@ def compute_diagnostics(
                     metrics.add(
                         metric, value, status="reference_dependent", reason=detail["qualification"]
                     )
+    if result.provenance.get("graphs") == "unavailable":
+        _mark_graphs_unavailable(metrics, panels)
     statuses = dict(metrics.statuses)
     if result.mode != "model_average":
         reason = (

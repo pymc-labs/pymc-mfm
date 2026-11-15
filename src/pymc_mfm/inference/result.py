@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO
 
 import numpy as np
 
+from ._digest import json_bytes
 from ._time import _validate_time
 from ._usage import _input_usage
 
@@ -32,13 +33,6 @@ _TUPLE_FIELDS = (
     "channel_names",
     "control_names",
 )
-
-
-def json_bytes(value: object) -> bytes:
-    """Canonical JSON bytes; imported on use because ``_artifact_schema`` needs PyTorch."""
-    from ._artifact_schema import json_bytes as canonical
-
-    return canonical(value)
 
 
 def _numpy(value):

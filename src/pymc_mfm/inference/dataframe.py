@@ -87,6 +87,30 @@ def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     return pd.tseries.frequencies.to_offset(intervals[0])
 
 
+def _check_representation(spend, controls, outcome, control_mask, n_channels, n_demand):
+    """Raise ``ValueError`` if the context cannot be encoded in the model's finite float32 form.
+
+    Validates the context-only representation as inference does, without manufacturing a query
+    row or changing any model state. ``controls`` and ``control_mask`` are padded to the model
+    width, or hold only the supplied controls (the hosted model, whose width is unknown).
+    """
+    from pymc_mfm.data.observations import encode_observations
+
+    encoded = encode_observations(
+        spend[None],
+        controls[None],
+        outcome[None],
+        np.ones((1, n_channels), dtype=bool),
+        control_mask[None],
+        np.ones((1, n_demand), dtype=bool),
+    )
+    for name, value in encoded.items():
+        with np.errstate(over="ignore", invalid="ignore"):
+            narrowed = value if name == "sales_scale" else value.astype(np.float32)
+        if not np.isfinite(narrowed).all():
+            raise ValueError(f"{name} exceeds the finite model representation")
+
+
 @dataclass(frozen=True)
 class _FittedContext:
     date_column: str
@@ -141,23 +165,9 @@ class _FittedContext:
             while name in control_names:
                 name = "_" + name
             control_names.append(name)
-        from pymc_mfm.data.observations import encode_observations
-
-        # Validate the same context-only representation as inference, without
-        # manufacturing a query row or changing any model state.
-        encoded = encode_observations(
-            spend[None],
-            padded_controls[None],
-            outcome[None],
-            np.ones((1, len(channels)), dtype=bool),
-            control_mask[None],
-            np.ones((1, model_config.n_demand), dtype=bool),
+        _check_representation(
+            spend, padded_controls, outcome, control_mask, len(channels), model_config.n_demand
         )
-        for name, value in encoded.items():
-            with np.errstate(over="ignore", invalid="ignore"):
-                narrowed = value if name == "sales_scale" else value.astype(np.float32)
-            if not np.isfinite(narrowed).all():
-                raise ValueError(f"{name} exceeds the finite model representation")
         date_values = dates.to_numpy(dtype="datetime64[ns]", copy=True)
         for array in (date_values, spend, padded_controls, outcome, control_mask):
             array.setflags(write=False)
