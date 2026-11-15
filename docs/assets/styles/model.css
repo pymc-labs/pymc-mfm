@@ -524,14 +524,19 @@ body.mfm-river-page main strong {
   position: relative;
   display: none; /* shown once _hero.html lifts it above the page columns */
   place-items: center;
-  /* The first screen under the fixed navbar. */
-  min-height: calc(100vh - var(--mfm-nav-h, 48px));
-  min-height: calc(100svh - var(--mfm-nav-h, 48px));
+  /* The whole first screen: the navbar sits clear over it (river.js, site.css). */
+  min-height: 100vh;
+  min-height: 100svh;
   overflow: hidden;
   isolation: isolate;
   background: #050d1d;
   font-family: var(--mfm-font-sans, "IBM Plex Sans", system-ui, sans-serif);
   font-feature-settings: "cv11", "ss01", "ss03";
+}
+
+/* The hero runs under the navbar: drop the offset Quarto sets inline for the fixed bar. */
+body.mfm-river-hero-on {
+  padding-top: 0 !important; /* Quarto writes padding-top on body as an inline style */
 }
 
 /* Hero layers, back to front: the scene, numbers in the fog, the title, the fog veil,

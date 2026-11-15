@@ -1,6 +1,6 @@
-/* Small additions to Quarto's own search (the textbox in the navbar; no second search UI):
+/* Small additions to Quarto's own search (the overlay behind the navbar's magnifier button;
+   no second search UI):
      - Ctrl/Cmd+K also opens it (Quarto handles "/").
-     - On wide screens the results panel sits under the field (site.css reads the position).
      - Each result gets a plain path line ("Guide, Decompose a time series"); API and reference
        rows show the first sentence of the page description instead of the signature.
      - "No results" names the query and links to the Guide and the HTTP API.
@@ -12,8 +12,6 @@
   const search = document.getElementById("quarto-search");
   if (!search) return;
 
-  const WIDE = window.matchMedia("(min-width: 992px)");
-  const PANEL_WIDTH = 560;
   const SECTION_NAMES = {
     guide: "Guide",
     api: "HTTP API",
@@ -167,16 +165,6 @@
     if (none.nextElementSibling !== block) none.after(block);
   }
 
-  function placePanel() {
-    const form = search.querySelector(".aa-Form");
-    if (!form || !WIDE.matches) return;
-    const rect = form.getBoundingClientRect();
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - PANEL_WIDTH - 16));
-    const root = document.documentElement.style;
-    root.setProperty("--mfm-search-panel-left", `${Math.round(left)}px`);
-    root.setProperty("--mfm-search-panel-top", `${Math.round(rect.bottom + 6)}px`);
-  }
-
   function setAttr(el, name, value) {
     if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
@@ -209,7 +197,6 @@
   function enhance() {
     document.querySelectorAll(".aa-Item").forEach(decorateItem);
     decorateEmpty();
-    placePanel();
     fixAria();
   }
 
@@ -242,7 +229,6 @@
     }
   });
 
-  window.addEventListener("resize", schedule);
   new MutationObserver(schedule).observe(document.body, {
     childList: true,
     subtree: true,

@@ -1,9 +1,8 @@
 /* Landing page motion, one scene per section:
    1. Hero: a WebGL ridgeline of drifting distributions behind the name; the name rises
-      in on load and glitches "PyMC" into "Bayesian" once (desktop only). Nothing in the hero
-      is tied to scrolling: the copy and the field stay put while the page scrolls.
-   2. Statement: its words light up as they pass.
-   3. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
+      in on load, and every 7-10 s "PyMC" glitches into "Bayesian" and back. Nothing in the
+      hero is tied to scrolling: the copy and the field stay put while the page scrolls.
+   2. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
    The chapters after the editor (painted tiles) are tiles-scene.js.
    Everything is decoration over static HTML. Without GSAP the page keeps its plain
    layout; with reduced motion nothing moves and the notebook shows finished. */
@@ -216,17 +215,15 @@
     document.addEventListener("visibilitychange", sync);
   }
 
-  // The title glitches once: "PyMC" scrambles into "Bayesian", holds, and returns. The
-  // field behind tears and splits its colours for the same moments. It never runs on
-  // phones or touch screens (narrow or coarse pointer), under reduced motion, or after
-  // the reader has scrolled away from the hero, so screenshots and link previews do not
-  // catch a half-changed name.
-  const GLITCH_DELAY_MS = 4500;
-  const GLITCH_HOLD_MS = 900;
-  const noGlitch = window.matchMedia("(max-width: 767px), (pointer: coarse)");
+  // "PyMC" scrambles into "Bayesian", holds, and returns: first after a few seconds, then
+  // every 7-10 s while the hero is on screen. The field behind tears and splits its colours
+  // for the same moments. It never runs under reduced motion, nor once the reader has
+  // scrolled away from the hero.
+  const GLITCH_FIRST_MS = 3800;
+  const GLITCH_HOLD_MS = 1100;
 
   function titleGlitch(word, hero) {
-    if (reduceMotion || noGlitch.matches) return;
+    if (reduceMotion) return;
     const FROM = word.textContent;
     const TO = "Bayesian";
     const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#%&$@";
@@ -260,14 +257,20 @@
       await wait(110);
       glitch.level = 0;
     };
-    setTimeout(async () => {
-      const inView = window.scrollY < hero.offsetHeight * 0.4 && !document.hidden;
-      if (!inView || noGlitch.matches) return;
-      await burst(FROM, TO, 380);
-      await wait(GLITCH_HOLD_MS);
-      await burst(TO, FROM, 320);
-      word.dataset.glitchRuns = "1"; // read by the page checks
-    }, GLITCH_DELAY_MS);
+    let onScreen = true;
+    whenVisible(hero, (visible) => {
+      onScreen = visible;
+    });
+    const schedule = (delay) =>
+      setTimeout(async () => {
+        if (onScreen && !document.hidden && window.scrollY < hero.offsetHeight * 0.4) {
+          await burst(FROM, TO, 380);
+          await wait(GLITCH_HOLD_MS);
+          await burst(TO, FROM, 320);
+        }
+        schedule(7000 + Math.random() * 3000);
+      }, delay);
+    schedule(GLITCH_FIRST_MS);
   }
 
   // Hero copy: the words rise out of a blur on load ------------------------------------
@@ -288,23 +291,7 @@
       .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8);
   }
 
-  // 2. Statement: words light up as they pass -------------------------------------------
-  function statement(element) {
-    if (reduceMotion || !hasGsap() || !window.SplitText) return;
-    const split = SplitText.create(element, { type: "words", wordsClass: "mfm-word" });
-    gsap.fromTo(
-      split.words,
-      { opacity: 0.14 },
-      {
-        opacity: 1,
-        ease: "none",
-        stagger: 0.1,
-        scrollTrigger: { trigger: element, start: "top 82%", end: "bottom 48%", scrub: 0.6 },
-      },
-    );
-  }
-
-  // 3. The notebook ----------------------------------------------------------------
+  // 2. The notebook ----------------------------------------------------------------
   // Its outputs are static HTML and matplotlib SVGs from a real River 1.0 run; this only
   // plays the run: cells execute in turn, outputs reveal, the editor follows along.
   function notebook(ide) {
@@ -403,7 +390,6 @@
   const hero = root.querySelector(".mfm-hero");
   const fieldCanvas = root.querySelector('[data-mfm="field"]');
   const glitchWord = root.querySelector('[data-mfm="glitch"]');
-  const statementText = root.querySelector('[data-mfm="statement"]');
   const ide = root.querySelector('[data-mfm="notebook"]');
 
   if (fieldCanvas && hero) field(fieldCanvas, hero);
@@ -411,11 +397,10 @@
   if (ide) notebook(ide);
   reveal();
   inPageLinks();
-  // Text splits measure glyphs: wait for the web fonts.
+  // The intro animates laid-out text: wait for the web fonts.
   const ready = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
   ready.then(() => {
     if (hero) heroCopy(hero);
-    if (statementText) statement(statementText);
     if (hasGsap()) ScrollTrigger.refresh();
   });
 })();

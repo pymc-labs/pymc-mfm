@@ -38,16 +38,7 @@ css:
   </div>
 </section>
 
-<!-- 2. What it does, in one statement -------------------------------------------- -->
-<section class="mfm-statement">
-  <p class="mfm-statement__text" data-mfm="statement">
-    PyMC MFM trains neural networks on simulated marketing worlds. Hand one your weekly
-    spend, controls and sales, and it returns posterior draws of every contribution, with the
-    causal graph behind each draw. No MCMC. No refit.
-  </p>
-</section>
-
-<!-- 3. The library at work: a notebook in an editor --------------------------------- -->
+<!-- 2. The library at work: a notebook in an editor --------------------------------- -->
 <section class="mfm-show" aria-labelledby="mfm-show-title">
   <header class="mfm-show__head mfm-reveal">
     <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
@@ -296,13 +287,14 @@ css:
   </div>
 </section>
 
-<!-- 4. Why amortize: painted tiles. One wall pins while you scroll and changes in place,
-     Amortized, Causal, Bayesian (tiles-scene.css, tiles-scene.js). Full width; sticky needs
-     no ancestor that scrolls (.mfm clips, which is fine). -------------------------------- -->
+<!-- 3. Why amortize. The section pins while you scroll and changes in place: Amortized,
+     Causal, Bayesian, each word big in the middle of the screen with a wall of painted tiles
+     behind it (tiles-scene.css, tiles-scene.js). Full width; sticky needs no ancestor that
+     scrolls (.mfm clips, which is fine). ------------------------------------------------ -->
 <section class="tiles-scene" aria-label="Amortized, causal, Bayesian">
   <div class="ts-pin">
     <div class="ts-text">
-      <ol class="ts-steps" aria-hidden="true"><li class="is-on">1</li><li>2</li><li>3</li></ol>
+      <ol class="ts-steps" aria-hidden="true"><li class="is-on">01</li><li>02</li><li>03</li></ol>
       <div class="ts-copies">
         <div class="ts-copy is-on"><h2 class="ts-title">Amortized.</h2><p class="ts-line">Training is paid once, on simulated worlds with known answers. A new dataset is context, not a new fit: a thousand posterior draws in seconds, on a CPU.</p></div>
         <div class="ts-copy"><h2 class="ts-title">Causal.</h2><p class="ts-line">Every draw carries the causal graph it was sampled with, over channels, controls and latent demand. Average over graphs, take the most frequent one, or fix your own.</p></div>
@@ -313,7 +305,7 @@ css:
   </div>
 </section>
 
-<!-- 5. Latest model -------------------------------------------------------------- -->
+<!-- 4. Latest model -------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-labelledby="mfm-model-title">
   <div class="mfm-release">
     <div class="mfm-release__name">
@@ -329,7 +321,7 @@ css:
   </div>
 </section>
 
-<!-- 6. Explore ----------------------------------------------------------------- -->
+<!-- 5. Explore ----------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
   <nav class="mfm-explore" aria-label="Explore">
     <a href="guide/index.html"><span class="mfm-explore__title">Docs <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
@@ -349,7 +341,6 @@ css:
      still works: landing.js falls back to static layouts and CSS reveals. -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/gsap.min.js" integrity="sha384-3vCAhD+a3BOliP3QqjQINn6ZWiZxoqu0WFxX5ZQZgqekDZuSb1mJBrrLMmu94H8f" crossorigin="anonymous" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/ScrollTrigger.min.js" integrity="sha384-H2WL1iy/jKQQ7MTHU2hskZKNHTYWWD/KgKE1vCNnaWY8An2ESTh23KN/fTp8XS3j" crossorigin="anonymous" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.1/dist/SplitText.min.js" integrity="sha384-e98MX/fxZrUXA/6T+aCptryLfHgR2FpEmWxDbbPloHT0Qg79dEXKdLJ/iwD2lzxs" crossorigin="anonymous" defer></script>
 <script src="assets/js/landing.js" defer></script>
 <script src="assets/js/tiles-scene.js" defer></script>
 ```

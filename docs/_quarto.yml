@@ -39,11 +39,12 @@ website:
   bread-crumbs: false
   page-navigation: true
   back-to-top-navigation: false
-  # A field in the navbar ("/" focuses it); below 992px Quarto opens it as a full-screen
-  # sheet. assets/js/search.js adds the result path lines and the empty-results message.
+  # A magnifier button ("/" or Ctrl/Cmd+K opens it) for Quarto's search sheet. site.css shows
+  # it only on Guide and API pages, next to the dark-mode button and Open Console.
+  # assets/js/search.js adds the result path lines and the empty-results message.
   search:
     location: navbar
-    type: textbox
+    type: overlay
     keyboard-shortcut: ["/"]
   # Share image for every page. Link previews need a full URL; it points at the staging
   # host until there is a production address (site-url is not served yet).
@@ -64,27 +65,41 @@ website:
     logo-alt: "PyMC MFM home"
     title: false
     collapse-below: lg
+    # The bar stays on screen while the page scrolls under it (glass, site.css).
+    pinned: true
     left:
       - text: Docs
         href: guide/index.qmd
       - text: API
         href: api/index.qmd
       # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
-      # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge.
+      # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge,
+      # and a text-only item ending in " SOON" a greyed "Coming soon" entry (models/upcoming.yml).
       # Items with only `text` are column headers; "---" starts the second column.
       - text: Models
         menu:
           - text: "Models"
           - text: "River NEW"
             href: models/river-1/index.qmd
+          - text: "Sea SOON"
+          - text: "Ocean SOON"
           - text: "---"
           - text: "Resources"
           - text: "All models"
             href: models/index.qmd
+          - text: "Hugging Face"
+            href: https://huggingface.co/pymc-labs/mfm
       # The PyMC Labs blog; MFM has no blog of its own.
       - text: Blog
         href: https://www.pymc-labs.com/blog-posts
+      - text: PyMC Labs
+        href: https://www.pymc-labs.com
     right:
+      # On wide screens site.css draws these as icon squares (the label stays for screen
+      # readers); the phone menu shows icon and label.
+      - text: GitHub
+        icon: github
+        href: https://github.com/pymc-labs/pymc-mfm
       # The hosted Console's sign-in page, at /sign-in/ on the same host as the site (the host root is the
       # landing page; docs/_scripts/mount.py lays the site out that way).
       - text: "Open Console"
@@ -115,13 +130,10 @@ website:
         - section: Examples
           # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
           contents: "guide/examples/*.ipynb"
+  # One quiet line. The dark-mode button is in the navbar (Quarto's own toggle, site.css).
   page-footer:
-    # One quiet line and the dark-mode button. Quarto's own toggle (the class and the
-    # onclick below) switches the stylesheets and flips the "alternate" class on this button.
     left: |
       Built by [PyMC Labs](https://www.pymc-labs.com), the creators of PyMC.
-    right: |
-      <button type="button" class="quarto-color-scheme-toggle mfm-theme-toggle" onclick="window.quartoToggleColorScheme(); return false;"><span class="mfm-theme-toggle-dark">Dark mode</span><span class="mfm-theme-toggle-light">Light mode</span></button>
 
 language:
   search-text-placeholder: "Search"
@@ -220,6 +232,9 @@ format:
     theme:
       light: [cosmo, assets/styles/light.scss]
       dark: [cosmo, assets/styles/dark.scss]
+    # Light or dark follows the visitor's system setting until they press the navbar button;
+    # pressing it back to the system's mode follows the system again (site.js).
+    respect-user-color-scheme: true
     css:
       - assets/fonts/fonts.css
       - assets/styles/site.css
