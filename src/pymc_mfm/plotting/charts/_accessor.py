@@ -31,9 +31,10 @@ class ModelPlots:
     pyplot; plotly charts return an interactive ``plotly.graph_objects.Figure``.
     Charts read the model when called, so they follow its latest ``inference``.
 
-    Intervals are pointwise central intervals of the model's draws. Draws are the
-    expected outcome without observation noise, and contributions are conditional
-    on the inputs, not causal lift. Context and query draws are separate marginals.
+    Intervals are central intervals of the model's draws: pointwise over weeks or spend
+    levels, one per series for shares and window totals. Draws are the expected outcome
+    without observation noise, and contributions are conditional on the inputs, not
+    causal lift. Context and query draws are separate marginals.
     """
 
     __slots__ = ("_source",)

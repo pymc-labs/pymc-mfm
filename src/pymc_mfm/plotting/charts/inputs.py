@@ -9,7 +9,7 @@ import numpy as np
 
 from pymc_mfm.plotting.panels import COLORS, _suptitle
 
-from ._backend import draw
+from ._backend import check, draw
 from ._mpl import compact_axis, figure, forecast_span, time_positions
 from ._style import ACTUAL
 
@@ -111,5 +111,6 @@ def _plotly(data: Inputs) -> Any:
 
 
 def inputs(source: ModelSource, *, backend: str | None = None, title: str | None = None) -> Any:
+    check(backend)
     data = prepare(source, title=title)
     return draw(data, backend=backend, matplotlib=_matplotlib, plotly=_plotly)

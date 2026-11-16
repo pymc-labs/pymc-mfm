@@ -125,13 +125,25 @@ def test_each_scenario_scales_one_channel_in_the_varied_weeks(
 
 
 def test_defaults_vary_every_channel_over_every_forecast_week(predicted_model, recorded):
-    curves = predicted_model.response_curves(levels=[1])
-    assert len(recorded) == 1
+    curves = predicted_model.response_curves(levels=[1, 2])
+    assert len(recorded) == 3  # the shared level-1 run, then each channel at level 2
     assert curves.channels == tuple(CHANNELS) and curves.weeks == 6 and curves.n_samples == 40
-    assert curves.draws.shape == (2, 1, 40)
+    assert curves.draws.shape == (2, 2, 40)
     curves = predicted_model.response_curves(channels=["tv"], weeks=1, n_samples=2)
     np.testing.assert_array_equal(curves.levels, np.linspace(0, 2, 9))
     assert curves.channels == ("tv",) and curves.draws.shape == (1, 9, 2)
+
+
+def test_a_channel_without_spend_in_the_weeks_gets_the_unchanged_run(predicted_model, recorded):
+    # tv has no spend in the first forecast week: scaling it changes no input.
+    curves = predicted_model.response_curves(levels=[0, 0.5, 2], weeks=1)
+    assert curves.spend[1] == 0
+    assert len(recorded) == 4  # search at each level, then one unchanged run for tv
+    actual = predicted_model._prediction_snapshot.observations["spend"][:25]
+    np.testing.assert_array_equal(recorded[-1]["observations"]["spend"], actual)
+    unchanged = _channel_totals(recorded[-1]["result"], "tv")
+    for level in range(3):
+        np.testing.assert_array_equal(curves.draws[1, level], unchanged)
 
 
 def test_to_frame_summarizes_the_draws_of_each_channel_and_level(forecast_model):
@@ -173,7 +185,8 @@ def test_scenarios_keep_the_mode_graphs_units_and_provenance_of_inference(
         options["router_samples"] = 7
     query = model.inference(future, **options)
     curves = model.response_curves(levels=[0, 1], weeks=1)
-    assert curves.units == "USD" and curves.n_samples == 3 and len(recorded) == 3
+    # tv has no spend in the first forecast week, so it reuses the unchanged run.
+    assert curves.units == "USD" and curves.n_samples == 3 and len(recorded) == 2
     for call in recorded:
         used = call["options"]
         assert (used["mode"], used["units"], used["n_samples"]) == (mode, "USD", 3)
@@ -196,6 +209,7 @@ def test_scenarios_keep_the_mode_graphs_units_and_provenance_of_inference(
         ({"levels": []}, "nonempty"),
         ({"levels": [[0, 1]]}, "nonempty"),
         ({"levels": ["1"]}, "nonempty"),
+        ({"levels": [1, 1.0]}, "at least two distinct levels"),
         ({"channels": ["radio"]}, r"unknown channels \['radio'\]"),
         ({"channels": []}, "at least one of"),
         ({"channels": "tv"}, "not a string"),
@@ -224,16 +238,16 @@ def test_curves_follow_the_latest_context_and_inference(model, chart_frames):
     model.inference(future, n_samples=2)
     with pytest.raises(RuntimeError, match=r"model\.response_curves\(\.\.\.\) first"):
         model.plot.response_curves()
-    curves = model.response_curves(levels=[1], weeks=1)
+    curves = model.response_curves(levels=[0, 1], weeks=1)
     with pytest.raises(ValueError, match="nonnegative"):
         model.response_curves(levels=[-1])
     assert ModelSource(model).response_curves() is curves
     model.inference(future, n_samples=2)
     with pytest.raises(RuntimeError, match=r"model\.response_curves"):
         model.plot.response_curves()
-    model.response_curves(levels=[1], weeks=1)
+    model.response_curves(levels=[0, 1], weeks=1)
     model.add_context(history, **CHART_ROLES)
-    with pytest.raises(RuntimeError, match=r"model\.response_curves"):
+    with pytest.raises(RuntimeError, match=r"model\.inference"):
         model.plot.response_curves()
 
 
@@ -264,7 +278,7 @@ def test_matplotlib_draws_the_frame_of_each_channel(swept):
     text = " ".join(fig.get_suptitle().split())
     assert text.startswith("Where does extra spend stop paying off?")
     assert "80% pointwise intervals over 4 draws" in text and CAVEAT in text
-    assert "varied separately over the first 2 forecast weeks;" in text
+    assert "varied separately over a plan of the first 2 forecast weeks;" in text
 
 
 def test_plotly_draws_the_same_numbers(swept):
@@ -291,7 +305,7 @@ def test_plotly_draws_the_same_numbers(swept):
     assert [shape.x0 for shape in fig.layout.shapes] == [1.0, 1.0]
     assert [shape.name for shape in fig.layout.shapes] == ["Actual spend (100%)"] * 2
     assert fig.layout.title.text.startswith("Sweep<br>")
-    assert "varied separately over the first 2 forecast weeks;" in fig.layout.title.text
+    assert "varied separately over a plan of the first 2 forecast weeks;" in fig.layout.title.text
 
 
 def test_panels_say_when_a_channel_had_no_spend_and_skip_the_missing_level_1(forecast_model):
@@ -301,7 +315,7 @@ def test_panels_say_when_a_channel_had_no_spend_and_skip_the_missing_level_1(for
     [ax] = fig.axes
     assert ax.get_title(loc="left") == "tv · no spend in these weeks"
     assert len(ax.collections) == 1  # the band only
-    assert "over the first forecast week;" in " ".join(fig.get_suptitle().split())
+    assert "over a one-week plan;" in " ".join(fig.get_suptitle().split())
 
 
 @pytest.mark.parametrize(

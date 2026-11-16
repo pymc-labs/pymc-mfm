@@ -26,9 +26,9 @@ class ResponseCurves:
     ``draws[k, l]`` are the ``n_samples`` draws of channel ``channels[k]``'s contribution
     summed over ``dates``, the first ``weeks`` forecast weeks, in ``units``, with that
     channel's spend in those weeks at ``levels[l]`` (sorted multipliers) times its actual
-    spend and every other input as given to ``inference``. ``spend`` is each channel's
-    actual spend summed over those weeks. Each level is a separate sample: draws are not
-    paired across levels.
+    spend. Each run decomposes the history and a plan of just those weeks, every other
+    input as given to ``inference``. ``spend`` is each channel's actual spend summed over
+    those weeks. Each level is a separate sample: draws are not paired across levels.
     """
 
     channels: tuple[str, ...]
@@ -114,8 +114,12 @@ def response_curves(
     reference = sample(actual) if 1.0 in levels else None
     draws = np.empty((len(names), len(levels), n_samples))
     for row, (name, column) in enumerate(zip(names, columns, strict=True)):
+        # Scaling no spend changes no input: such a channel's curve is the unchanged run.
+        idle = not actual[start:, column].any()
+        if idle and reference is None:
+            reference = sample(actual)
         for index, level in enumerate(levels):
-            if level == 1.0:
+            if level == 1.0 or idle:
                 result = reference
             else:
                 scenario = actual.copy()
@@ -160,7 +164,7 @@ def select_channels(channels: Iterable[str] | None, available: tuple[str, ...]) 
 
 
 def _levels(levels: Iterable[float] | None) -> np.ndarray:
-    """Sorted distinct spend multipliers; 0, 0.25, ..., 2 when ``None``."""
+    """Sorted distinct spend multipliers, at least two; 0, 0.25, ..., 2 when ``None``."""
     if levels is None:
         return np.linspace(0.0, 2.0, 9)
     values = np.asarray(levels)
@@ -169,7 +173,13 @@ def _levels(levels: Iterable[float] | None) -> np.ndarray:
     values = values.astype(np.float64)
     if not np.isfinite(values).all() or (values < 0).any():
         raise ValueError(f"levels must be finite and nonnegative, got {values.tolist()}")
-    return np.unique(values)
+    values = np.unique(values)
+    if values.size < 2:
+        raise ValueError(
+            f"a curve needs at least two distinct levels, got {values.tolist()}; "
+            "use inference for one plan"
+        )
+    return values
 
 
 def _weeks(weeks: int | None, available: int) -> int:

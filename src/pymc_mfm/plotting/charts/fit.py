@@ -9,10 +9,10 @@ import numpy as np
 
 from pymc_mfm.plotting.panels import _figure, _suptitle
 
-from ._backend import draw
+from ._backend import check, draw
 from ._data import interval_quantiles, summarize
 from ._mpl import compact_axis, forecast_span, time_positions
-from ._style import ACTUAL, BAND_ALPHA, EXPECTED, caption, rgba
+from ._style import ACTUAL, BAND_ALPHA, EXPECTED, caption, percent, rgba
 
 if TYPE_CHECKING:
     from ._data import ModelSource, Window
@@ -164,7 +164,7 @@ def _metrics(score: Score, interval: float) -> tuple[tuple[str, str], ...]:
         ("MAPE", "" if score.mape is None else f"{score.mape:.1%} ± {score.mape_sd:.1%}"),
         ("R²", "" if score.r2 is None else f"{score.r2:.2f} ± {score.r2_sd:.2f}"),
         (
-            f"Inside {interval:.0%} interval",
+            f"Inside {percent(interval)} interval",
             f"{score.coverage:.0%} ({score.inside} of {score.weeks})",
         ),
     )
@@ -207,7 +207,7 @@ def _matplotlib(data: Fit) -> Any:
         x = positions[start : start + len(segment.dates)]
         start += len(x)
         first, single = index == 0, len(x) == 1
-        label = f"{data.interval:.0%} interval" if first else None
+        label = f"{percent(data.interval)} interval" if first else None
         band = {"color": EXPECTED, "alpha": BAND_ALPHA, "label": label}
         if single:  # one week has no width to fill: its interval is a bar
             ax.vlines(x, segment.low, segment.high, linewidth=8, **band)
@@ -251,7 +251,7 @@ def _plotly(data: Fit) -> Any:
         fig = plotting.figure(2, 1, vertical_spacing=0.1, **table)
     else:
         fig = plotting.figure()
-    band = f"{data.interval:.0%} interval"
+    band = f"{percent(data.interval)} interval"
     hover = (
         f"%{{x|%Y-%m-%d}}<br>Expected %{{y:,.4~r}}<br>{band} "
         "%{customdata[0]:,.4~r} to %{customdata[1]:,.4~r}<extra></extra>"
@@ -349,5 +349,6 @@ def fit(
     backend: str | None = None,
     title: str | None = None,
 ) -> Any:
+    check(backend)
     data = prepare(source, window=window, interval=interval, title=title)
     return draw(data, backend=backend, matplotlib=_matplotlib, plotly=_plotly)

@@ -10,10 +10,10 @@ import numpy as np
 
 from pymc_mfm.plotting.panels import COLORS, _suptitle
 
-from ._backend import draw
+from ._backend import check, draw
 from ._data import checked_names, interval_quantiles, summarize, truth_by_week, window_weeks
 from ._mpl import compact_axis, figure, figure_legend
-from ._style import ACTUAL, CAVEAT, caption, panel_grid, rgba
+from ._style import ACTUAL, CAVEAT, caption, panel_grid, percent, rgba
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -108,7 +108,7 @@ def _matplotlib(data: ContributionVsSpend) -> Any:
     rows, columns = panel_grid(count)
     # Each row's panels, plus room for the title lines and the legend.
     fig, axes = figure(rows, columns, width=11, row_height=3.2 + 1.4 / rows, sharey=True)
-    band = f"{data.interval:.0%} interval"
+    band = f"{percent(data.interval)} interval"
     for ax, channel in zip(axes.flat, data.channels):
         ax.vlines(
             channel.spend,
@@ -164,7 +164,7 @@ def _plotly(data: ContributionVsSpend) -> Any:
         vertical_spacing=0.36 / rows,
     )
     weeks = np.datetime_as_string(data.dates, unit="D")
-    band = f"{data.interval:.0%} interval"
+    band = f"{percent(data.interval)} interval"
     truth_shown = False
     for index, channel in enumerate(data.channels):
         where = {"row": index // columns + 1, "col": index % columns + 1}
@@ -232,6 +232,7 @@ def contribution_vs_spend(
     backend: str | None = None,
     title: str | None = None,
 ) -> Any:
+    check(backend)
     data = prepare(
         source, window=window, channels=channels, interval=interval, truth=truth, title=title
     )

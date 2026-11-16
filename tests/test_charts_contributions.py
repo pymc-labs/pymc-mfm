@@ -256,8 +256,13 @@ def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
         pytest.param(
             {"stacked": False, "truth": "radio"}, r"truth columns \['radio'\] are not components"
         ),
+        pytest.param(
+            {"stacked": False, "truth": "sundays"},
+            r"truth\['tv'\] has no value on any drawn date",
+            id="truth-on-other-dates",
+        ),
         pytest.param({"backend": "plotly", "ax": "axes"}, "does not apply to backend='plotly'"),
-        pytest.param({"stacked": False, "ax": "axes"}, "draws 8 panels, one per component"),
+        pytest.param({"stacked": False, "ax": "axes"}, "draws one panel per component; ax="),
     ],
 )
 def test_arguments_are_checked(predicted_model, chart_frames, arguments, error):
@@ -266,11 +271,15 @@ def test_arguments_are_checked(predicted_model, chart_frames, arguments, error):
     dates = pd.DatetimeIndex(chart_frames[0]["date"])
     frames = {"frame": {"tv": 1.0}, "radio": {"tv": 1.0, "radio": 2.0}}
     if isinstance(arguments.get("truth"), str):
-        arguments["truth"] = pd.DataFrame(frames[arguments["truth"]], index=dates)
+        index = dates - pd.Timedelta(days=1) if arguments["truth"] == "sundays" else dates
+        arguments["truth"] = pd.DataFrame(frames.get(arguments["truth"], {"tv": 1.0}), index=index)
     if arguments.get("ax") == "axes":
         arguments["ax"] = Figure().subplots()
+    state = torch.get_rng_state()
     with pytest.raises(ValueError, match=error):
         predicted_model.plot.contributions_over_time(**arguments)
+    if "ax" in arguments:  # backend and axes errors come before the context is sampled
+        assert torch.equal(torch.get_rng_state(), state)
 
 
 def test_plotly_draws_the_matplotlib_numbers(predicted_model, chart_frames):

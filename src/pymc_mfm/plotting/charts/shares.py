@@ -9,10 +9,10 @@ import numpy as np
 
 from pymc_mfm.plotting.panels import COLORS, _single, _title
 
-from ._backend import draw
+from ._backend import check, draw
 from ._data import interval_quantiles, summarize
 from ._mpl import percent_axis
-from ._style import CAVEAT, caption, rgba, series_colors
+from ._style import CAVEAT, caption, percent, rgba, series_colors
 
 if TYPE_CHECKING:
     from ._data import ModelSource, Window
@@ -175,7 +175,12 @@ def prepare_window(
         palette = series_colors(names)
         colors = tuple(palette[name] for name in names)
         grid, density = _densities(shares)
-    spread_note = () if view == "bars" else (_SPREAD_NOTE,)
+    # The spread draws densities, not intervals, so its caption names only the draws.
+    if view == "bars":
+        lead = (caption(interval, len(shares), pointwise=False), CAVEAT)
+    else:
+        lead = (f"{len(shares):,} draws · expected outcome, without observation noise", CAVEAT)
+        lead += (_SPREAD_NOTE,)
     notes = _left_out(data, share, left_out_draws, left_out_draw_weeks)
     return Shares(
         view=view,
@@ -196,7 +201,7 @@ def prepare_window(
             if share == "mean"
             else f"Share of expected {data.target} over the {weeks}"
         ),
-        caption=(caption(interval, len(shares), pointwise=False), CAVEAT, *spread_note, *notes),
+        caption=(*lead, *notes),
         title=title or f"How does each driver contribute to {data.target}?",
     )
 
@@ -281,7 +286,7 @@ def _plotly(data: Shares) -> Any:
     from . import _plotly as plotting
 
     fig = plotting.figure()
-    interval = f"{data.interval:.0%} interval"
+    interval = f"{percent(data.interval)} interval"
     if data.view == "bars":
         positions = np.arange(len(data.names))
         hover = (
@@ -376,5 +381,6 @@ def shares(
     title: str | None = None,
     ax: Any = None,
 ) -> Any:
+    check(backend, ax)
     data = prepare(source, share=share, window=window, view=view, interval=interval, title=title)
     return draw(data, backend=backend, matplotlib=_matplotlib, plotly=_plotly, ax=ax)

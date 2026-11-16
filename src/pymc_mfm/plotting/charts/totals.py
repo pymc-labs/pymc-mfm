@@ -10,10 +10,10 @@ import numpy as np
 
 from pymc_mfm.plotting.panels import COLORS, _suptitle
 
-from ._backend import draw
+from ._backend import check, draw
 from ._data import checked_names, interval_quantiles, summarize, truth_by_week, window_weeks
 from ._mpl import compact_axis, figure, figure_legend
-from ._style import ACTUAL, CAVEAT, caption, panel_grid, rgba
+from ._style import ACTUAL, CAVEAT, caption, panel_grid, percent, rgba
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -135,7 +135,7 @@ def _matplotlib(data: Totals) -> Any:
     rows, columns = panel_grid(count)
     # Each row's panels, plus room for the title lines and the legend.
     fig, axes = figure(rows, columns, width=11, row_height=2.8 + 1.2 / rows)
-    band = f"{data.interval:.0%} interval"
+    band = f"{percent(data.interval)} interval"
     for ax, total in zip(axes.flat, data.totals):
         color = COLORS[total.family]
         ax.stairs(total.counts, total.edges, fill=True, color=color, alpha=_HISTOGRAM_ALPHA)
@@ -174,7 +174,7 @@ def _plotly(data: Totals) -> Any:
         horizontal_spacing=0.08,
         vertical_spacing=0.36 / rows,
     )
-    band = f"{data.interval:.0%} interval"
+    band = f"{percent(data.interval)} interval"
     truth_shown = False
     for index, total in enumerate(data.totals):
         where = {"row": index // columns + 1, "col": index % columns + 1}
@@ -257,6 +257,7 @@ def contribution_totals(
     backend: str | None = None,
     title: str | None = None,
 ) -> Any:
+    check(backend)
     data = prepare(
         source,
         window=window,

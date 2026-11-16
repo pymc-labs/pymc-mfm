@@ -743,16 +743,20 @@ class MFM(nn.Module):
         """Each channel's contribution as its spend in the first forecast weeks scales.
 
         Needs a successful ``inference``. For each of ``channels`` (default: every
-        channel column) and each spend multiplier in ``levels`` (finite, nonnegative,
-        sorted and deduplicated; default 0, 0.25, ..., 2), that channel's spend in the
-        first ``weeks`` forecast weeks (default: all of them) is multiplied by the level,
-        history and every other input kept as given to ``inference``, and those weeks
-        are decomposed again; each draw sums the channel's contribution over them.
-        Level 1, when listed, is one unchanged-input run that every channel shares;
-        every other level runs once per channel. Each run draws ``n_samples`` (default:
-        the inference's) with the inference's mode, router samples, units and
-        provenance; a ``mode="fixed"`` inference reuses its graphs, one per draw, so
-        ``n_samples`` must equal its draw count.
+        channel column) and each spend multiplier in ``levels`` (at least two; finite,
+        nonnegative, sorted and deduplicated; default 0, 0.25, ..., 2), that channel's
+        spend in the first ``weeks`` forecast weeks (default: all of them) is multiplied
+        by the level and those weeks are decomposed again; each draw sums the channel's
+        contribution over them. The runs see the history and a plan of just those weeks,
+        every other input as given to ``inference``, as ``inference`` on that shorter
+        plan would: the model reads every week of a plan, so with ``weeks`` below the
+        forecast length level 1 is that shorter plan, not the original inference.
+        Level 1, when listed, is one unchanged-input run that every channel shares, and
+        a channel with no spend in those weeks reuses that run at every level (scaling
+        no spend changes no input); every other level runs once per channel. Each run
+        draws ``n_samples`` (default: the inference's) with the inference's mode, router
+        samples, units and provenance; a ``mode="fixed"`` inference reuses its graphs,
+        one per draw, so ``n_samples`` must equal its draw count.
 
         Draws come from PyTorch's global random generator: call ``torch.manual_seed``
         first to repeat them. Levels are sampled separately, so draws are not paired

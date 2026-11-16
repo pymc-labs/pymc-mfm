@@ -13,10 +13,10 @@ import pandas as pd
 from pymc_mfm.inference.curves import select_channels
 from pymc_mfm.plotting.panels import COLORS, _suptitle
 
-from ._backend import draw
+from ._backend import check, draw
 from ._data import summarize
 from ._mpl import compact_axis, figure, percent_axis
-from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact
+from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact, percent
 
 if TYPE_CHECKING:
     from ._data import ModelSource
@@ -71,7 +71,7 @@ def prepare(
     totals = curves.spend[rows]
     (actual,) = np.nonzero(curves.levels == 1.0)
     weeks = curves.weeks
-    span = "the first forecast week" if weeks == 1 else f"the first {weeks} forecast weeks"
+    span = "a one-week plan" if weeks == 1 else f"a plan of the first {weeks} forecast weeks"
     return Curves(
         channels=names,
         panel_titles=tuple(
@@ -85,7 +85,7 @@ def prepare(
         high=high,
         actual=int(actual[0]) if actual.size else None,
         truth=_truth(truth, curves.levels, curves.channels, names),
-        band=f"{interval:.0%} interval",
+        band=f"{percent(interval)} interval",
         ylabel=f"Contribution over {weeks} week{'s' if weeks > 1 else ''} ({curves.target})",
         title=title or _TITLE,
         caption=(
@@ -293,5 +293,6 @@ def response_curves(
     backend: str | None = None,
     title: str | None = None,
 ) -> Any:
+    check(backend)
     data = prepare(source, channels=channels, interval=interval, truth=truth, title=title)
     return draw(data, backend=backend, matplotlib=_matplotlib, plotly=_plotly)
