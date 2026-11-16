@@ -498,6 +498,27 @@ class MFM(nn.Module):
         """Return the complete scalar training objective."""
         return self.loss_terms(batch, weights=weights)["loss"]
 
+    def _add_context(
+        self,
+        data: DataFrame,
+        *,
+        date_column: str,
+        target_column: str,
+        channel_columns: Sequence[str],
+        control_columns: Sequence[str],
+    ) -> _FittedContext:
+        """Prepare validated history without publishing it as model state."""
+        from pymc_mfm.inference.dataframe import _FittedContext
+
+        return _FittedContext.from_data(
+            data,
+            model_config=self.config,
+            date_column=date_column,
+            target_column=target_column,
+            channel_columns=channel_columns,
+            control_columns=control_columns,
+        )
+
     def input_usage(
         self,
         context: DataFrame,
@@ -516,11 +537,9 @@ class MFM(nn.Module):
         validation. Counts do not measure model capacity, memory or runtime.
         """
         from pymc_mfm.inference._usage import _input_usage
-        from pymc_mfm.inference.dataframe import _FittedContext
 
-        fitted = _FittedContext.from_data(
+        fitted = self._add_context(
             context,
-            model_config=self.config,
             date_column=date_column,
             target_column=target_column,
             channel_columns=channel_columns,
@@ -585,19 +604,16 @@ class MFM(nn.Module):
         Runtime analysis state is never included in ``save_pretrained``.
         """
         from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
-        from pymc_mfm.inference.api import decompose
-        from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
 
         _require_arviz()
-        fitted = _FittedContext.from_data(
+        fitted = self._add_context(
             context,
-            model_config=self.config,
             date_column=date_column,
             target_column=target_column,
             channel_columns=channel_columns,
             control_columns=control_columns,
         )
-        result, observations, time, annotations = self._sample_query(
+        prediction = self._add_query(
             fitted,
             query,
             n_samples=n_samples,
@@ -607,37 +623,7 @@ class MFM(nn.Module):
             units=units,
             provenance=provenance,
         )
-        prediction = _PredictionSnapshot(
-            fitted_context=fitted,
-            observations=observations,
-            time=time,
-            query=result,
-            # Derived result metadata is not caller provenance to replay.
-            annotations=deepcopy(annotations),
-            n_samples=result.n_samples,
-            mode=result.mode,
-            router_samples=(
-                result.provenance["inference_config"]["router_samples"]
-                if result.mode == "map"
-                else None
-            ),
-            units=result.units,
-            query_outcome=fitted.query_outcome(query),
-        )
-        context_result = decompose(
-            self,
-            observations,
-            n_samples=prediction.n_samples,
-            window="context",
-            mode=prediction.mode,
-            graph=result.graphs[:, None, :] if result.mode == "fixed" else None,
-            router_samples=prediction.router_samples,
-            channel_names=result.channel_names,
-            control_names=result.control_names,
-            time=time,
-            units=result.units,
-            provenance=prediction.annotations,
-        )
+        context_result = self._sample_context(prediction)
         revision = self._inference_revision + 1
         tree = prediction_datatree(context_result, prediction, revision=revision)
         # Publish only the completed run: no candidate state leaks on failure.
@@ -681,6 +667,49 @@ class MFM(nn.Module):
             provenance=provenance,
         )
         return result
+
+    def _add_query(
+        self,
+        context: _FittedContext,
+        query: DataFrame,
+        *,
+        n_samples: int,
+        mode: str,
+        graph,
+        router_samples: int | None,
+        units: str,
+        provenance: Mapping[str, object] | None,
+    ) -> _PredictionSnapshot:
+        """Prepare a sampled query snapshot without publishing it as model state."""
+        from pymc_mfm.inference.dataframe import _PredictionSnapshot
+
+        result, observations, time, annotations = self._sample_query(
+            context,
+            query,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            units=units,
+            provenance=provenance,
+        )
+        return _PredictionSnapshot(
+            fitted_context=context,
+            observations=observations,
+            time=time,
+            query=result,
+            # Derived result metadata is not caller provenance to replay.
+            annotations=deepcopy(annotations),
+            n_samples=result.n_samples,
+            mode=result.mode,
+            router_samples=(
+                result.provenance["inference_config"]["router_samples"]
+                if result.mode == "map"
+                else None
+            ),
+            units=result.units,
+            query_outcome=context.query_outcome(query),
+        )
 
     def _sample_query(
         self,
@@ -728,6 +757,26 @@ class MFM(nn.Module):
             provenance=annotations,
         )
         return result, observations, time, annotations
+
+    def _sample_context(self, prediction: _PredictionSnapshot) -> DecompositionResult:
+        """Sample history for this candidate query without publishing either marginal."""
+        from pymc_mfm.inference.api import decompose
+
+        query = prediction.query
+        return decompose(
+            self,
+            prediction.observations,
+            n_samples=prediction.n_samples,
+            window="context",
+            mode=prediction.mode,
+            graph=query.graphs[:, None, :] if prediction.mode == "fixed" else None,
+            router_samples=prediction.router_samples,
+            channel_names=query.channel_names,
+            control_names=query.control_names,
+            time=prediction.time,
+            units=prediction.units,
+            provenance=prediction.annotations,
+        )
 
     @property
     def idata(self) -> DataTree | None:

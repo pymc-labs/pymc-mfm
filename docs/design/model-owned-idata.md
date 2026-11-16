@@ -90,9 +90,9 @@ Preserve the notes about independent amortized draws, inapplicable MCMC converge
 
 ### Complete `inference(context, query, ...)`
 
-1. Validate/snapshot candidate history with `_FittedContext`, then validate the query against those candidate roles, cadence and context-only scales. Validate sampling options, exportable labels and provenance; capture query observations separately. Never attach candidate context to the live model as an intermediate step.
-2. Compute query first, preserving the current seeded query-sampling order. Compute context once from the same actual pair and canonical sampling settings. Fixed mode replays the exact per-draw query graphs, as the current `_context_result` does.
-3. Build candidate `_PredictionSnapshot`, completed context result and complete DataTree without changing published fields.
+1. `_add_context` validates and snapshots candidate history with `_FittedContext`, without publishing it. The same private stage supports no-sampling input preflight.
+2. `_add_query` builds the candidate `_PredictionSnapshot`, including validated query inputs, sampled query draws and separately captured observations. It shares `_sample_query` with independent `predict` calls. `_sample_context` then samples history for that exact candidate, replaying its per-draw graphs in fixed mode and preserving query-then-context RNG order.
+3. Assemble the complete DataTree from those candidates without changing published fields. The private stages are separately callable; none installs partial context, query or idata state.
 4. After all work succeeds, publish candidate context, prediction, context result, idata and revision together, removing old curves.
 
 A first-call failure leaves an uninitialized model; a later failure leaves the prior complete run. Validation errors occur before sampling. Random numbers consumed by failed sampling are not rolled back; unpublished query/context candidates are discarded rather than hidden in a partial cache. Preserve existing restoration of training/eval mode and unchanged weights/gradients.

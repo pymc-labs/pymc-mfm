@@ -50,6 +50,10 @@ distribution prerequisites, not an approved or published release.
   their declared tree dependencies and automatic idata instead of expecting
   exports to fail. Installed local-wheel checks cover both return modes,
   independent prediction and automatic curve attachment.
+- **Private inference stages.** `_add_context`, `_add_query` and `_sample_context`
+  prepare independent candidates; complete inference only orchestrates them and
+  publishes the successful run. Prediction and preflight reuse their relevant
+  stages without exposing new public setters or partial model state.
 
 ## Historical development records
 
