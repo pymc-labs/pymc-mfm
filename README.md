@@ -106,8 +106,10 @@ moved by up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws and b
 4,000 draws. Cost grows about linearly with draws. On CPU, River-1 (8 threads, shared
 Linux x86 machine, `benchmarks/inference_speed.py --repeats 3`, median of 3 runs) took
 2.6, 12.3 and 34.8 s at 1,000 draws and 4.4, 22.0 and 69.8 s at 2,000 draws, for 10, 50
-and 150 query weeks. For a quick look, pass a smaller count; for numbers you report, keep
-the default or raise it and seed the call:
+and 150 query weeks. Memory also grows with draws: CPU sampling holds every draw's noise
+for every task at once, so split a large `predict_batch` into smaller batches or lower
+`n_samples`. For a quick look, pass a smaller count; for numbers you report, keep the
+default or raise it and seed the call:
 
 ```python
 query = model.inference(future, n_samples=200)  # quick look, noisier summaries

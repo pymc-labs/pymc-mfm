@@ -283,7 +283,7 @@ distribution prerequisites, not an approved or published release.
 - **Fixed architecture.** `ModelConfig` holds only size and geometry.
   - The five loss weights and checkpoint selection (`selection_head`, conditional by default) belong to `TrainingConfig` / `LossWeights`.
   - The flow numerics are constants: 2 Fourier frequencies, 16 Euler steps, trajectory correlation 0.98.
-  - `DEFAULT_N_SAMPLES = 32` is the draw count when `n_samples` is omitted.
+  - `DEFAULT_N_SAMPLES` is the draw count when `n_samples` is omitted (32 then, 2,000 now).
   - A float64 architecture lock test pins losses, samples and every parameter's default-loss gradient of a two-layer model to outputs recorded before the refactor.
 - **A/B bundles.**
   - Original dimensional A/B weights require retraining for semantic representation 2; matching tensor shapes are not compatibility.
