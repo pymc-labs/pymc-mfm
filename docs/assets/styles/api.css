@@ -179,7 +179,7 @@
 }
 
 .mfm-api-code div.sourceCode pre.sourceCode {
-  overflow-x: visible;
+  overflow-x: visible !important;
   padding-inline: 0.9rem;
 }
 

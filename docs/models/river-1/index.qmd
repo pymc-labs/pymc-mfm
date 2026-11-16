@@ -1,6 +1,6 @@
 ---
 title: "River 1.0"
-subtitle: "PyMC Labs' first Marketing Foundation Model"
+subtitle: "PyMC Labs' first Marketing Foundational Model"
 # The Models page shows `summary`; link previews use the open-graph text and the site's
 # share image (`image` below is the Models tile, not a share image).
 summary: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
@@ -41,7 +41,7 @@ notes. Keep every number traceable to one of them.
 -->
 
 ::: {.lead}
-We're introducing **River 1.0**, the first Marketing Foundation Model from PyMC Labs and
+We're introducing **River 1.0**, the first Marketing Foundational Model from PyMC Labs and
 the first network for the PyMC MFM library. River reads one weekly marketing table
 (spend per channel, controls and sales) and returns draws of every contribution, with
 the causal graph behind each draw. It needs no new parameter fit: it learned from
@@ -272,7 +272,7 @@ model = from_pretrained(
   <div><strong>Hugging Face</strong><span>Repository pymc-labs/mfm, profile river-1. Private to the PyMC Labs organisation.</span></div>
   <a href="https://www.pymc-labs.com/marketing-foundation-models"><strong>White paper</strong><span>For practitioners and decision makers</span><i aria-hidden="true">↗</i></a>
   <div><strong>Academic paper</strong><span>Amortized Bayesian Inference over Mixtures of Marketing Mix Models. arXiv preprint coming soon.</span></div>
-  <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o"><strong>Explainer video</strong><span>What Are Marketing Foundation Models?</span><i aria-hidden="true">↗</i></a>
+  <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o"><strong>Explainer video</strong><span>What Are Marketing Foundational Models?</span><i aria-hidden="true">↗</i></a>
   <a href="../../guide/examples/river_1_quickstart.html"><strong>Quickstart notebook</strong><span>Decompose a simulated dataset with River 1.0</span><i aria-hidden="true">→</i></a>
   <a href="../../guide/index.html"><strong>Guide</strong><span>Install, concepts and the library API</span><i aria-hidden="true">→</i></a>
 </div>
