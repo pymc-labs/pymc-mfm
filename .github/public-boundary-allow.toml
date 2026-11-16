@@ -7,7 +7,7 @@
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
 reason = "Fully executed synthetic-data quickstart with the pinned River-1 model: all 25 code cells ran, including the input-token example, and 14 inline PNG plots were regenerated. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
-sha256 = "781a9626e1714163420872bc6742dbb1fc658e9912cf8b2e664c3212b205706a"
+sha256 = "d5f16da727e8cdb8ab4284680311fc3bd434224d037cde0bd4e0cbd07e0f1cae"
 max_bytes = 3000000
 
 # Range scans use the end-revision allowlist for every historical blob.

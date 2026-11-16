@@ -1,6 +1,7 @@
 """The observation boundary uses no synthetic labels and preserves result identity."""
 
 import copy
+import inspect
 import json
 import subprocess
 import sys
@@ -578,3 +579,20 @@ def test_decomposition_restores_units_without_changing_graphs(
     replay = DecompositionResult.load(actual.save(tmp_path / "scaled"))
     np.testing.assert_array_equal(replay.components, actual.components)
     assert replay.units == "rescaled sales"
+
+
+def test_default_draw_count_is_2000_on_every_public_sampling_signature():
+    from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, JointFlowHead
+    from pymc_mfm.model.model import MFM
+
+    assert DEFAULT_N_SAMPLES == 2000
+    for fn in (
+        decompose,
+        MFM.inference,
+        MFM.predict_batch,
+        MFM.sample_context,
+        MFM.sample_disentangled,
+        MFM.sample,
+        JointFlowHead.sample,
+    ):
+        assert inspect.signature(fn).parameters["n_samples"].default == 2000, fn.__qualname__
