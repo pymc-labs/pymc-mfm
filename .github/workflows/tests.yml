@@ -57,8 +57,7 @@ jobs:
         run: |
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
-      # A later -m replaces the "-m 'not slow'" default in pyproject.toml, so "-m slow" runs
-      # only the slow tests.
+      # Each lane selects its marker expression explicitly; plain pytest runs all tests.
       - name: Exercise local contracts without publication credentials
         run: >-
           uv run --no-sync pytest -q ${{ matrix.lane == 'slow' && '-m slow' || '-n 2 --dist worksteal -m "not slow"' }}

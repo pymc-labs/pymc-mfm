@@ -121,7 +121,7 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers -m 'not slow'"
+addopts = "--strict-markers"
 markers = [
-    "slow: the slowest tests (over 10 s each); local runs skip them, CI runs them in their own lane (-m slow)",
+    "slow: long-running tests; CI runs these serially in a separate lane (-m slow)",
 ]

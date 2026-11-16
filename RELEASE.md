@@ -7,6 +7,11 @@ distribution prerequisites, not an approved or published release.
 
 ## Changes
 
+- **Parallel CI test lanes.** Fast tests run on two workers; slow integration tests
+  run serially beside the installed-distribution smoke job. Local pytest keeps all
+  cases by default, including focused file and node selections. The README documents
+  explicit fast and slow commands and the all-extras setup for the slow and full suites.
+
 - **Default sampling is 2,000 draws.** `DEFAULT_N_SAMPLES` rises from 32 to 2,000, so
   `decompose`, `MFM.inference`, `MFM.predict_batch`, `MFM.sample_context`,
   `MFM.sample_disentangled`, `MFM.sample` and the flow head's `sample` draw 2,000 samples
