@@ -87,10 +87,10 @@ automatic; excess controls are rejected and channel count is not fixed.
 
 `inference` requires only the stored date, channel and control columns. Physical
 column order does not matter; extra columns and any query targets are ignored.
-Dates must be timezone-naive, unique, and regularly spaced. Rows are sorted
-without modifying the dataframe. Queries must start at the next context period
-and follow its cadence without gaps. Calendar frequency is inferred when
-possible; two-row histories use their fixed interval.
+Data must be weekly: one row per week, exactly 7 days apart, on any weekday. Dates must
+be timezone-naive and unique. Rows are sorted without modifying the dataframe. Queries
+must start one week after the last context date and have no missing weeks. Daily,
+two-weekly and monthly data raise a `ValueError` that names the offending dates.
 
 Repeated predictions reuse the same context without appending predictions.
 A successful second `add_context` replaces context; a failed call preserves it.

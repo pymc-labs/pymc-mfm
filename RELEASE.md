@@ -7,6 +7,15 @@ distribution prerequisites, not an approved or published release.
 
 ## Changes
 
+- **`add_context` and `inference` require exactly one row per week.** Context and query
+  dates must be 7 days apart after sorting; any weekday works and unsorted rows are still
+  sorted. Daily, two-weekly and monthly data, which passed before, now raise `ValueError`.
+  The messages name the dates: `'date' repeats these dates: 2024-01-15`,
+  `context dates skip 1 week(s): 2024-01-15` and
+  `context dates must be exactly 7 days apart; 2024-01-15 to 2024-01-23 is 8 days`. They
+  list at most 5 dates, then "and N more". The hosted client applies the same 7-day rule
+  but does not sort.
+
 - **Client (for `client-v0.1.0`): repeat-safe `analyze`, resumable `wait`.** An identical `analyze`,
   `explore` or `Analysis.again` call, also from a new process, returns the same analysis,
   because the `Idempotency-Key` comes from the request content. New `fresh=True` on

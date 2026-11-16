@@ -35,7 +35,53 @@ def _column_names(value, role: str) -> tuple[str, ...]:
     return names
 
 
-def _ordered_frame(data, required: tuple[str, ...], date_column: str):
+_WEEK_NS = 7 * 24 * 3600 * 10**9
+_WEEK = pd.Timedelta(days=7)
+_LISTED_DATES = 5
+
+
+def _label(stamp: pd.Timestamp) -> str:
+    return stamp.date().isoformat() if stamp == stamp.normalize() else stamp.isoformat(sep=" ")
+
+
+def _named(labels, total: int) -> str:
+    """Join at most ``_LISTED_DATES`` labels and count the rest."""
+    shown = []
+    for label in labels:
+        shown.append(label)
+        if len(shown) == _LISTED_DATES:
+            break
+    text = ", ".join(shown)
+    return text if total <= len(shown) else f"{text} and {total - len(shown)} more"
+
+
+def _require_weekly(dates: pd.DatetimeIndex, role: str) -> None:
+    """Require sorted, unique dates to be exactly 7 days apart (no date grid is built)."""
+    steps = np.diff(dates.asi8)
+    off = np.flatnonzero(steps != _WEEK_NS)
+    if off.size == 0:
+        return
+    irregular = off[(steps[off] % _WEEK_NS != 0)]
+    if irregular.size:
+        i = int(irregular[0])
+        gap = pd.Timedelta(int(steps[i]), unit="ns")
+        size = f"{gap.days} days" if gap == pd.Timedelta(days=gap.days) else str(gap)
+        raise ValueError(
+            f"{role} dates must be exactly 7 days apart; "
+            f"{_label(dates[i])} to {_label(dates[i + 1])} is {size}"
+        )
+    skipped = steps[off] // _WEEK_NS - 1
+    total = int(skipped.sum())
+
+    def missing():
+        for i, count in zip(off, skipped, strict=True):
+            for k in range(1, int(count) + 1):
+                yield _label(dates[int(i)] + k * _WEEK)
+
+    raise ValueError(f"{role} dates skip {total} week(s): {_named(missing(), total)}")
+
+
+def _ordered_frame(data, required: tuple[str, ...], date_column: str, role: str):
     if not isinstance(data, pd.DataFrame):
         raise ValueError("data must be a pandas DataFrame")
     if data.empty:
@@ -57,10 +103,18 @@ def _ordered_frame(data, required: tuple[str, ...], date_column: str):
         dates = dates.as_unit("ns")
     except (TypeError, ValueError, OverflowError) as error:
         raise ValueError(f"invalid dates in {date_column!r}: {error}") from None
-    if dates.hasnans or dates.has_duplicates:
-        raise ValueError(f"{date_column!r} must contain valid, unique dates without NaT")
+    if dates.hasnans:
+        raise ValueError(f"{date_column!r} must contain valid dates without NaT")
+    if dates.has_duplicates:
+        repeated = dates[dates.duplicated()].unique().sort_values()
+        raise ValueError(
+            f"{date_column!r} repeats these dates: "
+            f"{_named((_label(d) for d in repeated), len(repeated))}"
+        )
     order = np.argsort(dates.asi8, kind="stable")
-    return data.iloc[order], dates[order]
+    dates = dates[order]
+    _require_weekly(dates, role)
+    return data.iloc[order], dates
 
 
 def _numeric_columns(data: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
@@ -80,13 +134,7 @@ def _numeric_columns(data: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
 def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if len(dates) < 2:
         raise ValueError("add_context needs at least two dated context rows to determine frequency")
-    frequency = pd.infer_freq(dates) if len(dates) >= 3 else None
-    if frequency is not None:
-        return pd.tseries.frequencies.to_offset(frequency)
-    intervals = dates[1:] - dates[:-1]
-    if not (intervals == intervals[0]).all():
-        raise ValueError("context dates must follow a regular frequency without missing periods")
-    return pd.tseries.frequencies.to_offset(intervals[0])
+    return pd.tseries.frequencies.to_offset(_WEEK)
 
 
 @dataclass(frozen=True)
@@ -127,7 +175,7 @@ class _FittedContext:
                 f"model supports at most {model_config.n_controls} control columns; "
                 f"received {len(controls)}"
             )
-        frame, dates = _ordered_frame(data, required, date_column)
+        frame, dates = _ordered_frame(data, required, date_column, "context")
         frequency = _cadence(dates)
         spend = _numeric_columns(frame, channels)
         represented_controls = _numeric_columns(frame, controls)
@@ -177,16 +225,12 @@ class _FittedContext:
 
     def observations(self, data: pd.DataFrame) -> tuple[dict[str, np.ndarray], np.ndarray]:
         required = (self.date_column, *self.channel_columns, *self.control_columns)
-        frame, dates = _ordered_frame(data, required, self.date_column)
-        expected = pd.date_range(
-            start=pd.Timestamp(self.dates[-1]) + self.frequency,
-            periods=len(dates),
-            freq=self.frequency,
-        )
-        if not dates.equals(expected):
+        frame, dates = _ordered_frame(data, required, self.date_column, "query")
+        expected = pd.Timestamp(self.dates[-1]) + self.frequency
+        if dates[0] != expected:
             raise ValueError(
-                "query dates must start immediately after the last context date and "
-                f"follow its {self.frequency.freqstr!r} frequency without gaps"
+                "query dates must start one week after the last context date: "
+                f"expected {_label(expected)}, got {_label(dates[0])}"
             )
         spend = _numeric_columns(frame, self.channel_columns)
         controls = _numeric_columns(frame, self.control_columns)

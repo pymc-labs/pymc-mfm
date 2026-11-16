@@ -490,9 +490,17 @@ def test_add_context_validates_canonical_representation_without_waiting_for_a_qu
 
 
 @pytest.mark.parametrize(
-    "problem", ["missing", "invalid", "numeric", "aware", "duplicate", "irregular"]
+    ("problem", "message"),
+    [
+        ("missing", "must contain valid dates without NaT"),
+        ("invalid", "invalid dates in 'date'"),
+        ("numeric", "must contain dates, not numeric row labels"),
+        ("aware", "timezone-naive"),
+        ("duplicate", r"'date' repeats these dates: 2024-01-01$"),
+        ("irregular", r"exactly 7 days apart; 2024-01-08 to 2024-01-16 is 8 days$"),
+    ],
 )
-def test_add_context_rejects_invalid_or_irregular_dates(model, history, problem):
+def test_add_context_rejects_invalid_or_irregular_dates(model, history, problem, message):
     if problem == "invalid":
         history["date"] = ["not a date", *history["date"].dt.strftime("%Y-%m-%d").tolist()[1:]]
     elif problem == "numeric":
@@ -509,7 +517,7 @@ def test_add_context_rejects_invalid_or_irregular_dates(model, history, problem)
             dates[2] += np.timedelta64(1, "D")
         history["date"] = dates
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         model.add_context(history, **COLUMN_ROLES)
     assert torch.equal(torch.get_rng_state(), before)
 
@@ -543,11 +551,19 @@ def test_inference_validates_query_schema_and_domains_before_rng_consumption(
 
 
 @pytest.mark.parametrize(
-    "problem",
-    ["missing", "aware", "duplicate", "overlap", "start_gap", "internal_gap", "single_off_grid"],
+    ("problem", "message"),
+    [
+        ("missing", "must contain valid dates without NaT"),
+        ("aware", "timezone-naive"),
+        ("duplicate", r"'date' repeats these dates: 2024-02-05$"),
+        ("overlap", r"expected 2024-02-05, got 2024-01-29$"),
+        ("start_gap", r"expected 2024-02-05, got 2024-02-12$"),
+        ("internal_gap", r"query dates skip 1 week\(s\): 2024-02-19$"),
+        ("single_off_grid", r"expected 2024-02-05, got 2024-02-06$"),
+    ],
 )
 def test_inference_rejects_dates_outside_the_immediate_regular_horizon(
-    model, history, future, problem
+    model, history, future, problem, message
 ):
     model.add_context(history, **COLUMN_ROLES)
     if problem == "aware":
@@ -569,9 +585,9 @@ def test_inference_rejects_dates_outside_the_immediate_regular_horizon(
             dates[-1] += np.timedelta64(7, "D")
         future["date"] = dates
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         model.input_usage(future)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         model.inference(future, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
@@ -591,18 +607,18 @@ def test_nonzero_query_inputs_cannot_use_zero_context_scales(model, history, fut
     ("history_dates", "query_date"),
     [
         pytest.param(
-            pd.date_range("2023-11-30", periods=5, freq="ME"),
-            pd.Timestamp("2024-04-30"),
-            id="calendar-month-end-across-leap-day",
+            pd.date_range("2024-01-07", periods=5, freq="W-SUN"),
+            pd.Timestamp("2024-02-11"),
+            id="sunday-weeks",
         ),
         pytest.param(
-            pd.to_datetime(["2024-01-01 06:00", "2024-01-01 11:00"]),
-            pd.Timestamp("2024-01-01 16:00"),
-            id="two-row-fixed-timedelta",
+            pd.to_datetime(["2024-01-01 06:00", "2024-01-08 06:00"]),
+            pd.Timestamp("2024-01-15 06:00"),
+            id="two-row-exactly-seven-days",
         ),
     ],
 )
-def test_calendar_and_two_row_cadences_accept_the_exact_next_single_row(
+def test_weekly_cadences_accept_the_exact_next_single_row(
     model, history, future, history_dates, query_date
 ):
     history = history.iloc[: len(history_dates)].assign(date=history_dates)
@@ -614,6 +630,94 @@ def test_calendar_and_two_row_cadences_accept_the_exact_next_single_row(
     expected = _canonical_result(model, history, future, actual.control_names, n_samples=2)
     _assert_same_result(actual, expected)
     np.testing.assert_array_equal(actual.time, np.array([query_date], dtype="datetime64[ns]"))
+
+
+def _with_dates(history, dates):
+    return history.iloc[: len(dates)].assign(date=pd.to_datetime(dates))
+
+
+@pytest.mark.parametrize(
+    ("dates", "message"),
+    [
+        pytest.param(
+            ["2024-01-01", "2024-01-15"],
+            r"context dates skip 1 week\(s\): 2024-01-08$",
+            id="two-rows-14-days-apart",
+        ),
+        pytest.param(
+            ["2024-01-01", "2024-01-15", "2024-01-29", "2024-02-12"],
+            r"context dates skip 3 week\(s\): 2024-01-08, 2024-01-22, 2024-02-05$",
+            id="every-other-week-missing",
+        ),
+        pytest.param(
+            pd.date_range("2024-01-01", periods=5, freq="D"),
+            "exactly 7 days apart; 2024-01-01 to 2024-01-02 is 1 days",
+            id="daily",
+        ),
+        pytest.param(
+            pd.date_range("2024-01-01", periods=4, freq="MS"),
+            "exactly 7 days apart; 2024-01-01 to 2024-02-01 is 31 days",
+            id="monthly",
+        ),
+        pytest.param(
+            ["2024-01-01", "2024-01-15", "2024-01-15"],
+            r"'date' repeats these dates: 2024-01-15$",
+            id="duplicate-named",
+        ),
+        pytest.param(
+            ["2024-01-01", "2024-01-08", "2024-01-16"],
+            r"exactly 7 days apart; 2024-01-08 to 2024-01-16 is 8 days$",
+            id="off-step",
+        ),
+        pytest.param(
+            ["2024-01-01", "2024-01-08", "2034-01-02"],
+            r"context dates skip 520 week\(s\): 2024-01-15, 2024-01-22, 2024-01-29, "
+            r"2024-02-05, 2024-02-12 and 515 more$",
+            id="ten-year-gap-lists-five",
+        ),
+    ],
+)
+def test_add_context_names_repeated_missing_and_off_step_dates(model, history, dates, message):
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match=message):
+        model.add_context(_with_dates(history, dates), **COLUMN_ROLES)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+def test_add_context_accepts_unsorted_weekly_dates_and_sorts_them(model, history):
+    shuffled = history.iloc[[3, 0, 4, 2, 1]]
+    model.add_context(shuffled, **COLUMN_ROLES)
+    expected = history["date"].to_numpy(dtype="datetime64[ns]")
+    np.testing.assert_array_equal(model._inference_context.dates, expected)
+
+
+@pytest.mark.parametrize(
+    ("offsets", "message"),
+    [
+        pytest.param([0, 2], r"query dates skip 1 week\(s\): 2024-02-12$", id="two-rows-14-days"),
+        pytest.param(
+            [0, 2, 4],
+            r"query dates skip 2 week\(s\): 2024-02-12, 2024-02-26$",
+            id="every-other-week-missing",
+        ),
+        pytest.param([0, 1, 1], r"'date' repeats these dates: 2024-02-12$", id="duplicate"),
+        pytest.param(
+            [0, 1, 60], r"query dates skip 58 week\(s\): 2024-02-19, .* and 53 more$", id="long-gap"
+        ),
+    ],
+)
+def test_inference_names_repeated_and_missing_query_dates(model, history, future, offsets, message):
+    model.add_context(history, **COLUMN_ROLES)
+    base = pd.Timestamp("2024-02-05")
+    query = future.iloc[: len(offsets)].assign(date=[base + pd.Timedelta(weeks=k) for k in offsets])
+    with pytest.raises(ValueError, match=message):
+        model.inference(query, n_samples=2)
+
+
+def test_inference_accepts_unsorted_weekly_query_dates(model, history, future):
+    model.add_context(history, **COLUMN_ROLES)
+    result = model.inference(future.iloc[[2, 0, 1]], n_samples=2)
+    np.testing.assert_array_equal(result.time, future["date"].to_numpy(dtype="datetime64[ns]"))
 
 
 @pytest.mark.parametrize("stage", ["add_context", "inference"])
