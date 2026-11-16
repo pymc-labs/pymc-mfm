@@ -184,7 +184,7 @@ quartodoc:
             - contributions_over_time
             - shares
             - contribution_totals
-            - contribution_vs_spend
+            - contribution_vs_media
             - response_curves
         - plotting.set_backend
         - name: inference.curves.ResponseCurves

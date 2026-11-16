@@ -78,7 +78,6 @@ class Fit:
     observed: np.ndarray | None
     first_query: int | None
     scores: tuple[Score, ...]
-    target: str
     interval: float
     title: str
     caption: str
@@ -144,16 +143,15 @@ def prepare(
                 for part in windows
             ]
         )
-    first, target = windows[0], windows[0].target
+    first = windows[0]
     return Fit(
         dates=np.concatenate([part.dates for part in windows]),
         segments=tuple(segments),
         observed=observed,
         first_query=len(first.dates) if len(windows) > 1 else None,
         scores=tuple(scores),
-        target=target,
         interval=interval,
-        title=title or f"Expected and observed {target}",
+        title=title or "Expected and observed outcome",
         caption=caption(interval, first.n_samples),
     )
 
@@ -229,11 +227,11 @@ def _matplotlib(data: Fit) -> Any:
             linewidth=1.1,
             marker="o",
             markersize=2.5,
-            label=f"Observed {data.target}",
+            label="Observed outcome",
         )
     if data.first_query is not None:
         forecast_span(ax, positions, data.first_query)
-    ax.set_ylabel(data.target, fontsize=9)
+    ax.set_ylabel("outcome", fontsize=9)
     compact_axis(ax.yaxis)
     ax.grid(axis="y", alpha=0.15)
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1), ncols=4, frameon=False, fontsize=8)
@@ -302,7 +300,7 @@ def _plotly(data: Fit) -> Any:
             col=1,
         )
     if data.observed is not None:
-        actual = plotting.text(f"Observed {data.target}")
+        actual = "Observed outcome"
         fig.add_trace(
             go.Scatter(
                 x=data.dates,
@@ -336,7 +334,7 @@ def _plotly(data: Fit) -> Any:
             row=2,
             col=1,
         )
-    fig.update_yaxes(title_text=plotting.text(data.target), row=1, col=1)
+    fig.update_yaxes(title_text="outcome", row=1, col=1)
     height = 560 if data.scores else 410
     return plotting.finish(fig, title=data.title, caption=data.caption, height=height)
 

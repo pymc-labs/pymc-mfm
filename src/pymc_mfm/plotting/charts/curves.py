@@ -1,4 +1,4 @@
-"""Each channel's contribution as its spend scales (``model.plot.response_curves``)."""
+"""Each media covariate's contribution by its level (``model.plot.response_curves``)."""
 
 from __future__ import annotations
 
@@ -21,21 +21,21 @@ from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact, percent
 if TYPE_CHECKING:
     from ._data import ModelSource
 
-_TITLE = "Response curves: channel contribution by spend level"
+_TITLE = "Response curves: contribution by media covariate level"
 #: Panels per row before the grid wraps.
 _COLUMNS = 5
 _CURVE = COLORS["channel"]
-#: The dashed line at the actual spend.
+#: The dashed line at the observed level.
 _REFERENCE = "#737373"
-_REFERENCE_LABEL = "Actual spend (100%)"
-_XLABEL = "Spend, % of actual"
+_REFERENCE_LABEL = "Observed level (100%)"
+_XLABEL = "Media covariate, % of observed"
 
 
 @dataclass(frozen=True, slots=True)
 class Curves:
-    """One panel per channel, in drawing order.
+    """One panel per media covariate, in drawing order.
 
-    ``spend`` (the level times the actual spend), ``mean``, ``low``, ``high`` and
+    ``media`` (the level times the observed total), ``mean``, ``low``, ``high`` and
     ``truth`` are ``[channel, level]``; ``truth`` is NaN where none was given and
     ``None`` without truth. ``actual`` indexes level 1 in ``levels``, if listed.
     """
@@ -43,7 +43,7 @@ class Curves:
     channels: tuple[str, ...]
     panel_titles: tuple[str, ...]
     levels: np.ndarray
-    spend: np.ndarray
+    media: np.ndarray
     mean: np.ndarray
     low: np.ndarray
     high: np.ndarray
@@ -63,34 +63,36 @@ def prepare(
     truth: pd.DataFrame | None = None,
     title: str | None = None,
 ) -> Curves:
-    """Mean and central ``interval`` of the latest ``model.response_curves``, by channel."""
+    """Mean and central ``interval`` of the latest ``model.response_curves``, by media covariate."""
     curves = source.response_curves()
     names = select_channels(channels, curves.channels)
     rows = [curves.channels.index(name) for name in names]
     mean, low, high = summarize(curves.draws[rows], interval, axis=2)
-    totals = curves.spend[rows]
+    totals = curves.media[rows]
     (actual,) = np.nonzero(curves.levels == 1.0)
     weeks = curves.weeks
     span = "a one-week plan" if weeks == 1 else f"a plan of the first {weeks} forecast weeks"
     return Curves(
         channels=names,
         panel_titles=tuple(
-            f"{name} · spend {compact(total)}" if total > 0 else f"{name} · no spend in these weeks"
+            f"{name} · media covariate total {compact(total)}"
+            if total > 0
+            else f"{name} · zero in these weeks"
             for name, total in zip(names, totals, strict=True)
         ),
         levels=curves.levels,
-        spend=totals[:, None] * curves.levels,
+        media=totals[:, None] * curves.levels,
         mean=mean,
         low=low,
         high=high,
         actual=int(actual[0]) if actual.size else None,
         truth=_truth(truth, curves.levels, curves.channels, names),
         band=f"{percent(interval)} interval",
-        ylabel=f"Contribution over {weeks} week{'s' if weeks > 1 else ''} ({curves.target})",
+        ylabel=f"Contribution over {weeks} week{'s' if weeks > 1 else ''} (outcome)",
         title=title or _TITLE,
         caption=(
             caption(interval, curves.n_samples),
-            f"Each channel varied separately over {span}; history and other inputs fixed.",
+            f"Each media covariate varied separately over {span}; history and other inputs fixed.",
             CAVEAT,
         ),
     )
@@ -114,7 +116,7 @@ def _truth(
         index = truth.index.to_numpy(dtype=np.float64)
         values = truth.to_numpy(dtype=np.float64)
     except (TypeError, ValueError):
-        raise ValueError("truth must hold numbers, indexed by spend level") from None
+        raise ValueError("truth must hold numbers, indexed by level") from None
     matches = np.isclose(index[:, None], levels, rtol=1e-9, atol=1e-12)
     found = matches.any(axis=1)
     if not found.all():
@@ -215,10 +217,10 @@ def _plotly(data: Curves) -> Any:
                 mode="lines",
                 name="Mean",
                 line={"color": _CURVE, "width": 2},
-                customdata=np.column_stack((data.spend[index], data.low[index], data.high[index])),
+                customdata=np.column_stack((data.media[index], data.low[index], data.high[index])),
                 hovertemplate=(
-                    f"{plotting.text(name)} at %{{x:.1%}} of its spend<br>"
-                    "Spend %{customdata[0]:,.4~r}<br>"
+                    f"{plotting.text(name)} at %{{x:.1%}} of its observed level<br>"
+                    "Media covariate %{customdata[0]:,.4~r}<br>"
                     f"Mean contribution %{{y:,.4~r}} · {data.band} "
                     "%{customdata[1]:,.4~r} to %{customdata[2]:,.4~r}<extra></extra>"
                 ),
@@ -268,7 +270,7 @@ def _plotly(data: Curves) -> Any:
                     name="Truth",
                     marker={"color": ACTUAL, "size": 6},
                     hovertemplate=(
-                        f"Truth for {plotting.text(name)} at %{{x:.1%}} of its spend<br>"
+                        f"Truth for {plotting.text(name)} at %{{x:.1%}} of its observed level<br>"
                         "%{y:,.4~r}<extra></extra>"
                     ),
                     legendgroup="truth",

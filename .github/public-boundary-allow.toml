@@ -6,11 +6,18 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Fully executed synthetic-data quickstart with the pinned River-1 model after the model.plot rewrite and its renames (view=\"dist\", descriptive chart titles): all 24 code cells ran top to bottom (add_context, inference, the model.plot charts, response_curves and the graph section), with 15 inline PNG plots; stderr streams (download progress, a tqdm warning naming local paths) were dropped. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
-sha256 = "e7da8d1ac1d3978daedbde26bdef82a21f6b80098cda9fd5634234e1f38bdd1a"
+reason = "Fully executed synthetic-data quickstart with the pinned River-1 model after the model.plot rewrite and its renames (view=\"dist\", descriptive chart titles, outcome and media/control covariate wording, target column \"outcome\"): all 24 code cells ran top to bottom (add_context, inference, the model.plot charts, response_curves and the graph section), with 15 inline PNG plots; stderr streams (download progress, a tqdm warning naming local paths) were dropped. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
+sha256 = "cbd9bc9fc77b5c58ac0068b424070cf5ca198c7a5f8a52352e0c3ce261c072fc"
 max_bytes = 3000000
 
 # Range scans use the end-revision allowlist for every historical blob.
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed model.plot quickstart after the view=\"dist\" and descriptive-title renames, before the outcome and media/control covariate wording (target column \"sales\"). Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+sha256 = "e7da8d1ac1d3978daedbde26bdef82a21f6b80098cda9fd5634234e1f38bdd1a"
+max_bytes = 3000000
+
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]

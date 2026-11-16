@@ -1,4 +1,4 @@
-"""Weekly contribution against weekly spend, per channel (``model.plot.contribution_vs_spend``)."""
+"""Weekly contribution against the weekly media covariate (``model.plot.contribution_vs_media``)."""
 
 from __future__ import annotations
 
@@ -22,21 +22,23 @@ if TYPE_CHECKING:
 
 _COLOR = COLORS["channel"]
 _ERROR_ALPHA = 0.35
+_XLABEL = "Media covariate (weekly value)"
 _CARRYOVER = (
-    "A week's contribution also depends on earlier weeks' spend (carryover), "
+    "A week's contribution also depends on earlier weeks (carryover), "
     "so the points need not lie on one curve"
 )
 
 
 @dataclass(frozen=True, slots=True)
 class ChannelWeeks:
-    """One channel by week: raw spend and the mean and central interval of its contribution.
+    """One media covariate by week: its raw value and the mean and central interval of its
+    contribution.
 
     ``truth`` is the channel's truth by week (NaN where it has none), or ``None``.
     """
 
     name: str
-    spend: np.ndarray
+    media: np.ndarray
     mean: np.ndarray
     low: np.ndarray
     high: np.ndarray
@@ -44,8 +46,8 @@ class ChannelWeeks:
 
 
 @dataclass(frozen=True, slots=True)
-class ContributionVsSpend:
-    """One panel per channel, in drawing order, over the weeks ``dates``."""
+class ContributionVsMedia:
+    """One panel per media covariate, in drawing order, over the weeks ``dates``."""
 
     dates: np.ndarray
     channels: tuple[ChannelWeeks, ...]
@@ -63,8 +65,8 @@ def prepare(
     interval: float = 0.9,
     truth: pd.DataFrame | None = None,
     title: str | None = None,
-) -> ContributionVsSpend:
-    """Each channel's weekly spend beside the mean and interval of its contribution draws.
+) -> ContributionVsMedia:
+    """Each media covariate's weekly value beside the mean and interval of its contribution.
 
     ``interval`` is checked before any window is read. A drawn channel's truth may
     miss some weeks, which get no cross, but not every week: its dates would not be
@@ -72,13 +74,13 @@ def prepare(
     """
     interval_quantiles(interval)
     data = source.window(window)
-    # Channel components come in the order of the spend columns.
+    # Channel components come in the order of the media covariate columns.
     names = tuple(
         name
         for name, family in zip(data.components, data.families, strict=True)
         if family == "channel"
     )
-    spend = dict(zip(names, data.spend.T, strict=True))
+    media = dict(zip(names, data.media.T, strict=True))
     selected = names if channels is None else checked_names(channels, names, "channels")
     weekly = {} if truth is None else truth_by_week(truth, data)
     weeks = window_weeks(data)
@@ -91,19 +93,19 @@ def prepare(
                 "index it by the dates of the data given to the model"
             )
         mean, low, high = summarize(data.contribution(name), interval)
-        panels.append(ChannelWeeks(name, spend[name], mean, low, high, known))
-    default = f"Weekly contribution against weekly spend over the {weeks}, by channel"
-    return ContributionVsSpend(
+        panels.append(ChannelWeeks(name, media[name], mean, low, high, known))
+    default = f"Weekly contribution against the media covariate over the {weeks}"
+    return ContributionVsMedia(
         dates=data.dates,
         channels=tuple(panels),
-        ylabel=f"Weekly contribution ({data.target})",
+        ylabel="Weekly contribution (outcome)",
         interval=interval,
         n_samples=data.n_samples,
         title=title or default,
     )
 
 
-def _matplotlib(data: ContributionVsSpend) -> Any:
+def _matplotlib(data: ContributionVsMedia) -> Any:
     count = len(data.channels)
     rows, columns = panel_grid(count)
     # Each row's panels, plus room for the title lines and the legend.
@@ -111,7 +113,7 @@ def _matplotlib(data: ContributionVsSpend) -> Any:
     band = f"{percent(data.interval)} interval"
     for ax, channel in zip(axes.flat, data.channels):
         ax.vlines(
-            channel.spend,
+            channel.media,
             channel.low,
             channel.high,
             color=_COLOR,
@@ -119,10 +121,10 @@ def _matplotlib(data: ContributionVsSpend) -> Any:
             linewidth=1.5,
             label=band,
         )
-        ax.scatter(channel.spend, channel.mean, color=_COLOR, s=16, zorder=3, label="Mean")
+        ax.scatter(channel.media, channel.mean, color=_COLOR, s=16, zorder=3, label="Mean")
         if channel.truth is not None:
             ax.scatter(
-                channel.spend,
+                channel.media,
                 channel.truth,
                 color=ACTUAL,
                 marker="x",
@@ -132,7 +134,7 @@ def _matplotlib(data: ContributionVsSpend) -> Any:
                 label="Truth",
             )
         ax.set_title(channel.name, loc="left", fontsize=10)
-        ax.set_xlabel("Weekly spend", fontsize=9)
+        ax.set_xlabel(_XLABEL, fontsize=9)
         compact_axis(ax.xaxis)
         compact_axis(ax.yaxis)
         ax.grid(alpha=0.15)
@@ -147,7 +149,7 @@ def _matplotlib(data: ContributionVsSpend) -> Any:
     return fig
 
 
-def _plotly(data: ContributionVsSpend) -> Any:
+def _plotly(data: ContributionVsMedia) -> Any:
     import plotly.graph_objects as go
 
     from . import _plotly as plotting
@@ -171,7 +173,7 @@ def _plotly(data: ContributionVsSpend) -> Any:
         extra = f"<extra>{plotting.text(channel.name)}</extra>"
         fig.add_trace(
             go.Scatter(
-                x=channel.spend,
+                x=channel.media,
                 y=channel.mean,
                 mode="markers",
                 marker={"color": _COLOR, "size": 6},
@@ -190,7 +192,7 @@ def _plotly(data: ContributionVsSpend) -> Any:
                 legendgroup="mean",
                 showlegend=index == 0,
                 hovertemplate=(
-                    "%{text}<br>Spend %{x:,.4~r}<br>Mean contribution %{y:,.4~r}<br>"
+                    "%{text}<br>Media covariate %{x:,.4~r}<br>Mean contribution %{y:,.4~r}<br>"
                     f"{band} %{{customdata[0]:,.4~r}} to %{{customdata[1]:,.4~r}}{extra}"
                 ),
             ),
@@ -199,7 +201,7 @@ def _plotly(data: ContributionVsSpend) -> Any:
         if channel.truth is not None:
             fig.add_trace(
                 go.Scatter(
-                    x=channel.spend,
+                    x=channel.media,
                     y=channel.truth,
                     mode="markers",
                     marker={"color": ACTUAL, "symbol": "x", "size": 7},
@@ -207,12 +209,14 @@ def _plotly(data: ContributionVsSpend) -> Any:
                     name="Truth",
                     legendgroup="truth",
                     showlegend=not truth_shown,
-                    hovertemplate=f"%{{text}}<br>Spend %{{x:,.4~r}}<br>Truth %{{y:,.4~r}}{extra}",
+                    hovertemplate=(
+                        f"%{{text}}<br>Media covariate %{{x:,.4~r}}<br>Truth %{{y:,.4~r}}{extra}"
+                    ),
                 ),
                 **where,
             )
             truth_shown = True
-    fig.update_xaxes(title={"text": "Weekly spend", "font": {"size": 11}})
+    fig.update_xaxes(title={"text": _XLABEL, "font": {"size": 11}})
     fig.update_yaxes(title={"text": plotting.text(data.ylabel), "font": {"size": 11}}, col=1)
     return plotting.finish(
         fig,
@@ -222,7 +226,7 @@ def _plotly(data: ContributionVsSpend) -> Any:
     )
 
 
-def contribution_vs_spend(
+def contribution_vs_media(
     source: ModelSource,
     *,
     window: str = "context",

@@ -740,20 +740,20 @@ class MFM(nn.Module):
         weeks: int | None = None,
         n_samples: int | None = None,
     ) -> ResponseCurves:
-        """Each channel's contribution as its spend in the first forecast weeks scales.
+        """Each media covariate's contribution as its level in the first forecast weeks scales.
 
-        Needs a successful ``inference``. For each of ``channels`` (default: every
-        channel column) and each spend multiplier in ``levels`` (at least two; finite,
-        nonnegative, sorted and deduplicated; default 0, 0.25, ..., 2), that channel's
-        spend in the first ``weeks`` forecast weeks (default: all of them) is multiplied
-        by the level and those weeks are decomposed again; each draw sums the channel's
-        contribution over them. The runs see the history and a plan of just those weeks,
-        every other input as given to ``inference``, as ``inference`` on that shorter
-        plan would: the model reads every week of a plan, so with ``weeks`` below the
-        forecast length level 1 is that shorter plan, not the original inference.
-        Level 1, when listed, is one unchanged-input run that every channel shares, and
-        a channel with no spend in those weeks reuses that run at every level (scaling
-        no spend changes no input); every other level runs once per channel. Each run
+        Needs a successful ``inference``. For each media covariate in ``channels``
+        (default: every channel column) and each multiplier in ``levels`` (at least two;
+        finite, nonnegative, sorted and deduplicated; default 0, 0.25, ..., 2), that
+        covariate in the first ``weeks`` forecast weeks (default: all of them) is
+        multiplied by the level and those weeks are decomposed again; each draw sums the
+        covariate's contribution over them. The runs see the history and a plan of just
+        those weeks, every other input as given to ``inference``, as ``inference`` on that
+        shorter plan would: the model reads every week of a plan, so with ``weeks`` below
+        the forecast length level 1 is that shorter plan, not the original inference.
+        Level 1, when listed, is one unchanged-input run that every covariate shares, and
+        a covariate that is zero in those weeks reuses that run at every level (scaling
+        zero changes no input); every other level runs once per covariate. Each run
         draws ``n_samples`` (default: the inference's) with the inference's mode, router
         samples, units and provenance; a ``mode="fixed"`` inference reuses its graphs,
         one per draw, so ``n_samples`` must equal its draw count.

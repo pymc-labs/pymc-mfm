@@ -52,8 +52,7 @@ def _window(means: dict[str, list[float]], families: tuple[str, ...]) -> Window:
         draws=np.stack((mean - 1, mean + 1)),
         outcome=None,
         channels=("search",),
-        spend=np.zeros((weeks, 1)),
-        target="sales",
+        media=np.zeros((weeks, 1)),
         units="outcome",
     )
 
@@ -94,7 +93,7 @@ def test_stack_piles_positive_means_up_and_negative_means_down(predicted_model, 
     history, future = chart_frames
     fig = predicted_model.plot.contributions_over_time()
     ax = fig.axes[0]
-    assert ax.get_legend_handles_labels()[1] == [*ORDER, "Observed sales", "Forecast weeks"]
+    assert ax.get_legend_handles_labels()[1] == [*ORDER, "Observed outcome", "Forecast weeks"]
     drawn = _stack(fig)
     windows = ModelSource(predicted_model).windows(None)
     assert len(drawn) == len(windows) * len(ORDER)
@@ -160,7 +159,7 @@ def test_components_pick_layers_keep_their_colors_and_query_never_samples_contex
     assert torch.equal(torch.get_rng_state(), state)
     ax = fig.axes[0]
     handles, labels = ax.get_legend_handles_labels()
-    assert labels == ["baseline", "search", "tv", "Observed sales"]
+    assert labels == ["baseline", "search", "tv", "Observed outcome"]
     query = ModelSource(predicted_model).window("query")
     names = ("baseline", "search", "tv")
     for (values, _, baseline), (lower, upper) in zip(
@@ -305,7 +304,7 @@ def test_plotly_draws_the_matplotlib_numbers(predicted_model, chart_frames):
         np.testing.assert_array_equal(bottom.y, np.append(baseline, baseline[-1]))
         np.testing.assert_allclose(date2num(pd.to_datetime(top.x).to_numpy()), edges)
         np.testing.assert_allclose(hover.customdata, mean, rtol=1e-12, atol=1e-9)
-    [actual] = [trace for trace in fig.data if trace.name == "Observed sales"]
+    [actual] = [trace for trace in fig.data if trace.name == "Observed outcome"]
     np.testing.assert_array_equal(actual.y, np.concatenate([history["sales"], future["sales"]]))
     [span] = [shape for shape in fig.layout.shapes if shape.name == "Forecast weeks"]
     assert pd.Timestamp(span.x0) == future["date"].iloc[0] - WEEK / 2

@@ -15,7 +15,7 @@ pytest.importorskip("matplotlib")
 
 COMPONENTS = ("baseline", "search", "tv", "temperature", "price")
 FAMILIES = ("baseline", "channel", "channel", "control", "control")
-#: 3 draws x 2 weeks of COMPONENTS; a week's expected sales are its row sum. Draw 1's
+#: 3 draws x 2 weeks of COMPONENTS; a week's expected outcome is its row sum. Draw 1's
 #: second week expects -100, so its two weeks total 0.
 DRAWS = np.array(
     [
@@ -41,7 +41,7 @@ MEAN_SHARES = [  # contribution / expected, averaged over the weeks that expect 
         (2 / 100 + 10 / 500) / 2,
     ],
 ]
-TOTAL_SHARES = [  # the weeks' contribution / their expected sales; draw 1 totals 0
+TOTAL_SHARES = [  # the weeks' contribution / their expected outcome; draw 1 totals 0
     [70 / 300, 30 / 300, 24 / 300, 6 / 300],
     [200 / 600, 60 / 600, 48 / 600, 12 / 600],
 ]
@@ -54,7 +54,7 @@ def matplotlib_default(monkeypatch):
 
 
 def _window(draws, components=COMPONENTS, families=FAMILIES):
-    """A hand-made history window of ``draws`` ``[sample, week, component]`` of sales."""
+    """A hand-made history window of ``draws`` ``[sample, week, component]`` of the outcome."""
     weeks = draws.shape[1]
     channels = tuple(
         name for name, family in zip(components, families, strict=True) if family == "channel"
@@ -67,8 +67,7 @@ def _window(draws, components=COMPONENTS, families=FAMILIES):
         draws=draws,
         outcome=None,
         channels=channels,
-        spend=np.zeros((weeks, len(channels))),
-        target="sales",
+        media=np.zeros((weeks, len(channels))),
         units="outcome",
     )
 
@@ -117,16 +116,16 @@ def _bars(ax, window, per_draw, interval):
             "mean",
             MEAN_SHARES,
             (0, 1),
-            "1 of 6 draw-weeks left out: expected sales ≤ 0",
-            "Average of each week's share of expected sales, over 2 history weeks",
+            "1 of 6 draw-weeks left out: expected outcome ≤ 0",
+            "Average of each week's share of the expected outcome, over 2 history weeks",
             id="mean",
         ),
         pytest.param(
             "total",
             TOTAL_SHARES,
             (1, 0),
-            "1 of 3 draws left out: total expected sales ≤ 0",
-            "Share of expected sales over the 2 history weeks",
+            "1 of 3 draws left out: total expected outcome ≤ 0",
+            "Share of the expected outcome over the 2 history weeks",
             id="total",
         ),
     ],
@@ -144,15 +143,15 @@ def test_shares_of_a_hand_made_window(share, per_draw, left_out, note, xlabel):
     assert data.xlabel == xlabel
 
 
-def test_a_draw_without_a_week_expecting_sales_is_left_out():
+def test_a_draw_without_a_week_expecting_a_positive_outcome_is_left_out():
     draws = DRAWS.copy()
     draws[1, 0, 0] = -60  # draw 1's first week now expects 0
     data = prepare_window(_window(draws), share="mean", view="bars", interval=0.9)
     np.testing.assert_allclose(data.shares, [MEAN_SHARES[0], MEAN_SHARES[2]])
     assert (data.left_out_draws, data.left_out_draw_weeks) == (1, 2)
     assert data.caption[2:] == (
-        "2 of 6 draw-weeks left out: expected sales ≤ 0",
-        "1 of 3 draws left out: expected sales ≤ 0 in every week",
+        "2 of 6 draw-weeks left out: expected outcome ≤ 0",
+        "1 of 3 draws left out: expected outcome ≤ 0 in every week",
     )
     for share in ("mean", "total"):
         with pytest.raises(ValueError, match="no share is defined"):
@@ -194,8 +193,8 @@ def test_default_bars_are_mean_shares_of_the_history_weeks(predicted_model):
     assert expected[0][0] >= expected[0][1]  # each family largest first
     np.testing.assert_allclose(drawn[0], expected[0])
     np.testing.assert_allclose(drawn[1], expected[1])
-    assert (
-        ax.get_xlabel() == "Average of each week's share of expected sales, over 24 history weeks"
+    assert ax.get_xlabel() == (
+        "Average of each week's share of the expected outcome, over 24 history weeks"
     )
 
 
@@ -211,8 +210,9 @@ def test_query_total_shares_never_sample_the_context(predicted_model):
     labels, drawn, expected = _bars(ax, query, _total_shares(query), 0.9)
     np.testing.assert_allclose(drawn[0], expected[0])
     np.testing.assert_allclose(drawn[1], expected[1])
-    assert ax.get_xlabel() == "Share of expected sales over the 6 forecast weeks"
-    assert ax.get_title().startswith("Share of expected sales by channel and control\n")
+    assert ax.get_xlabel() == "Share of the expected outcome over the 6 forecast weeks"
+    title = "Share of the expected outcome by media and control covariate\n"
+    assert ax.get_title().startswith(title)
 
 
 def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
@@ -220,7 +220,7 @@ def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
     data = prepare(ModelSource(predicted_model), window="query", interval=0.8)
     ax = predicted_model.plot.shares(window="query", interval=0.8).axes[0]
     fig = predicted_model.plot.shares(window="query", interval=0.8, backend="plotly")
-    assert [trace.name for trace in fig.data] == ["channels", "controls"]
+    assert [trace.name for trace in fig.data] == ["media covariates", "control covariates"]
     assert all(trace.orientation == "h" for trace in fig.data)
     assert list(fig.layout.yaxis.ticktext) == list(data.names)
     assert [label.get_text() for label in ax.get_yticklabels()] == list(data.names)

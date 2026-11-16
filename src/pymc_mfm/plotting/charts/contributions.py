@@ -68,7 +68,6 @@ class Contributions:
     first_query: int | None
     outcome: np.ndarray | None
     truth: tuple[np.ndarray | None, ...]
-    target: str
     interval: float
     title: str
     caption: tuple[str, ...]
@@ -210,9 +209,8 @@ def prepare(
         first_query=len(first.dates) if len(windows) > 1 else None,
         outcome=_outcome(windows) if stacked else None,
         truth=_truth(truth, windows, names),
-        target=first.target,
         interval=interval,
-        title=title or f"Weekly contributions to expected {first.target}",
+        title=title or "Weekly contributions to the expected outcome",
         caption=lines,
     )
 
@@ -244,11 +242,11 @@ def _matplotlib_stack(data: Contributions, ax) -> Any:
             linewidth=1.1,
             marker="o",
             markersize=2.5,
-            label=f"Observed {data.target}",
+            label="Observed outcome",
         )
     if data.first_query is not None:
         forecast_span(ax, positions, data.first_query)
-    ax.set_ylabel(data.target, fontsize=9)
+    ax.set_ylabel("outcome", fontsize=9)
     compact_axis(ax.yaxis)
     ax.grid(axis="y", alpha=0.15)
     ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1), frameon=False)
@@ -369,7 +367,7 @@ def _plotly_stack(fig, data: Contributions) -> None:
                 )
             )
     if data.outcome is not None:
-        actual = plotting.text(f"Observed {data.target}")
+        actual = "Observed outcome"
         fig.add_trace(
             go.Scatter(
                 x=data.dates,
@@ -387,7 +385,7 @@ def _plotly_stack(fig, data: Contributions) -> None:
         plotting.forecast_span(
             fig, data.dates, data.first_query, name="Forecast weeks", showlegend=True
         )
-    fig.update_yaxes(title_text=plotting.text(data.target))
+    fig.update_yaxes(title_text="outcome")
 
 
 def _plotly_panels(fig, data: Contributions, columns: int) -> None:

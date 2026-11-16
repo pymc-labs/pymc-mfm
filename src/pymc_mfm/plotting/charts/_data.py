@@ -31,8 +31,8 @@ class Window:
     ``draws`` is ``[sample, week, component]`` in outcome units; ``components`` are
     display names (``"tv"``, not ``"channel:tv"``) and ``families`` their component
     families. ``outcome`` is the observed outcome by week (NaN where unobserved), or
-    ``None`` when none was supplied. ``spend`` is raw weekly spend, one column per
-    name in ``channels``.
+    ``None`` when none was supplied. ``media`` holds the raw weekly media covariates,
+    one column per name in ``channels``.
     """
 
     name: str
@@ -42,8 +42,7 @@ class Window:
     draws: np.ndarray
     outcome: np.ndarray | None
     channels: tuple[str, ...]
-    spend: np.ndarray
-    target: str
+    media: np.ndarray
     units: str
 
     @property
@@ -196,12 +195,12 @@ class ModelSource:
         length = len(history.dates)
         if name == "context":
             result = self._model._context_result()
-            dates, outcome, spend = history.dates, history.outcome, history.spend
+            dates, outcome, media = history.dates, history.outcome, history.spend
         else:
             result = prediction.query
             dates = prediction.time[length:]
             outcome = prediction.query_outcome
-            spend = prediction.observations["spend"][length:]
+            media = prediction.observations["spend"][length:]
         active, names = display_names(result)
         return Window(
             name=name,
@@ -211,8 +210,7 @@ class ModelSource:
             draws=result.components[:, :, active],
             outcome=outcome,
             channels=history.channel_columns,
-            spend=spend,
-            target=history.target_column,
+            media=media,
             units=result.units,
         )
 

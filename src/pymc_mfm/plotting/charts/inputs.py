@@ -1,4 +1,4 @@
-"""Model inputs: outcome, spend and controls by week (``model.plot.inputs``)."""
+"""Model inputs: outcome, media and control covariates by week (``model.plot.inputs``)."""
 
 from __future__ import annotations
 
@@ -17,13 +17,21 @@ if TYPE_CHECKING:
     from ._data import ModelSource
 
 _ROLE_COLORS = {"outcome": ACTUAL, "channel": COLORS["channel"], "control": COLORS["control"]}
-_ROLE_LABELS = {"outcome": "outcome", "channel": "spend", "control": "control"}
+_ROLE_LABELS = {"channel": "media covariate", "control": "control covariate"}
 _SPAN_NOTE = "Shaded: forecast weeks, whose outcome the model did not see"
+
+
+def _label(name: str, role: str) -> str:
+    """A panel's title: ``outcome``, or a covariate's name and role."""
+    return name if role == "outcome" else f"{name} ({_ROLE_LABELS[role]})"
 
 
 @dataclass(frozen=True, slots=True)
 class Inputs:
-    """Weekly series in drawing order: ``(name, role, values)``; roles as in ``_ROLE_COLORS``."""
+    """Weekly series in drawing order: ``(name, role, values)``; roles as in ``_ROLE_COLORS``.
+
+    The outcome is named ``"outcome"``, whatever its column is called.
+    """
 
     dates: np.ndarray
     first_query: int | None
@@ -34,29 +42,30 @@ class Inputs:
 def prepare(source: ModelSource, *, title: str | None = None) -> Inputs:
     """The context, and the forecast weeks of the latest ``inference`` if there is one.
 
-    Forecast-week outcomes are the target column given to ``inference`` (NaN where
-    it had none); the model never read them.
+    Forecast-week outcomes come from the target column given to ``inference`` (NaN
+    where it had none); the model never read them.
     """
     history = source.history()
     prediction = source.prediction()
     length = len(history.dates)
     if prediction is None:
         dates, first = history.dates, None
-        spend, controls, outcome = history.spend, history.controls, history.outcome
+        media, controls, outcome = history.spend, history.controls, history.outcome
     else:
         dates, first = prediction.time, length
-        spend = prediction.observations["spend"]
+        media = prediction.observations["spend"]
         controls = prediction.observations["controls"]
         query = prediction.query_outcome
         future = np.full(len(dates) - length, np.nan) if query is None else query
         outcome = np.concatenate((history.outcome, future))
     channels, controls_named = history.channel_columns, history.control_columns
     series = (
-        (history.target_column, "outcome", outcome),
-        *((name, "channel", spend[:, index]) for index, name in enumerate(channels)),
+        ("outcome", "outcome", outcome),
+        *((name, "channel", media[:, index]) for index, name in enumerate(channels)),
         *((name, "control", controls[:, index]) for index, name in enumerate(controls_named)),
     )
-    return Inputs(dates, first, series, title or "Model inputs: outcome, spend and controls")
+    title = title or "Model inputs: outcome, media and control covariates"
+    return Inputs(dates, first, series, title)
 
 
 def _matplotlib(data: Inputs) -> Any:
@@ -66,7 +75,7 @@ def _matplotlib(data: Inputs) -> Any:
         ax.plot(positions, values, color=_ROLE_COLORS[role], linewidth=1.2)
         if data.first_query is not None:
             forecast_span(ax, positions, data.first_query, label=None)
-        ax.set_title(f"{name} ({_ROLE_LABELS[role]})", loc="left", fontsize=9)
+        ax.set_title(_label(name, role), loc="left", fontsize=9)
         compact_axis(ax.yaxis)
         ax.grid(axis="y", alpha=0.15)
     for ax in axes[:-1, 0]:  # the rows share one date axis, labelled once at the bottom
@@ -86,9 +95,7 @@ def _plotly(data: Inputs) -> Any:
         1,
         shared_xaxes=True,
         vertical_spacing=min(0.06, 0.4 / rows),
-        subplot_titles=[
-            plotting.text(f"{name} ({_ROLE_LABELS[role]})") for name, role, _ in data.series
-        ],
+        subplot_titles=[plotting.text(_label(name, role)) for name, role, _ in data.series],
     )
     for row, (name, role, values) in enumerate(data.series, start=1):
         fig.add_trace(

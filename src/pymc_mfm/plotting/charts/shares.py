@@ -24,7 +24,7 @@ GRID_POINTS = 400
 #: Bandwidth, as a fraction of ``max(1, |share|)``, when every draw has the same share.
 FLAT_BANDWIDTH = 1e-3
 _DRIVERS = ("channel", "control")
-_GROUPS = {"channel": "channels", "control": "controls"}
+_GROUPS = {"channel": "media covariates", "control": "control covariates"}
 _BAR_HEIGHT = 0.6
 _FILL_ALPHA = 0.25
 _DIST_NOTE = "Kernel densities, each scaled to a peak of 1"
@@ -122,14 +122,13 @@ def _left_out(data: Window, share: str, draws: int, draw_weeks: int) -> tuple[st
     lines = ()
     if draw_weeks:
         lines += (
-            f"{draw_weeks:,} of {samples * weeks:,} draw-weeks left out: "
-            f"expected {data.target} ≤ 0",
+            f"{draw_weeks:,} of {samples * weeks:,} draw-weeks left out: expected outcome ≤ 0",
         )
     if draws:
         why = (
-            f"total expected {data.target} ≤ 0"
+            "total expected outcome ≤ 0"
             if share == "total"
-            else f"expected {data.target} ≤ 0 in every week"
+            else "expected outcome ≤ 0 in every week"
         )
         lines += (f"{draws:,} of {samples:,} draws left out: {why}",)
     return lines
@@ -158,7 +157,7 @@ def prepare_window(
     if not len(shares):
         expected = "total expected" if share == "total" else "expected"
         raise ValueError(
-            f"every draw's {expected} {data.target} is ≤ 0 over the {weeks}, so no share is defined"
+            f"every draw's {expected} outcome is ≤ 0 over the {weeks}, so no share is defined"
         )
     mean, low, high = summarize(shares, interval)
     names = tuple(data.components[index] for index in drivers)
@@ -197,12 +196,12 @@ def prepare_window(
         grid=grid,
         density=density,
         xlabel=(
-            f"Average of each week's share of expected {data.target}, over {weeks}"
+            f"Average of each week's share of the expected outcome, over {weeks}"
             if share == "mean"
-            else f"Share of expected {data.target} over the {weeks}"
+            else f"Share of the expected outcome over the {weeks}"
         ),
         caption=(*lead, *notes),
-        title=title or f"Share of expected {data.target} by channel and control",
+        title=title or "Share of the expected outcome by media and control covariate",
     )
 
 

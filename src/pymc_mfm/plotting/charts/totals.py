@@ -121,7 +121,7 @@ def prepare(
     weeks = window_weeks(data)
     return Totals(
         totals=tuple(totals),
-        xlabel=f"Total over {weeks} ({data.target})",
+        xlabel=f"Total over {weeks} (outcome)",
         interval=interval,
         n_samples=data.n_samples,
         title=title or f"Total contribution over the {weeks}, by component",

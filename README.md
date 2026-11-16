@@ -73,7 +73,7 @@ model.add_context(
     channel_columns=["search", "social"],
     control_columns=["seasonality"],
 )
-future = data.iloc[n_context:]  # its sales are kept for model.plot; the model never reads them
+future = data.iloc[n_context:]  # its outcome is kept for model.plot; the model never reads it
 torch.manual_seed(0)
 query = model.inference(future, n_samples=500)
 
@@ -108,12 +108,12 @@ exercises the API, not attribution calibration.
 extra) or plotly (the `[interactive]` extra):
 
 ```python
-model.plot.inputs()  # outcome, spend and controls by week, forecast weeks shaded
+model.plot.inputs()  # outcome, media and control covariates by week, forecast weeks shaded
 model.plot.fit()  # expected vs observed outcome, with MAPE, R² and interval coverage
 model.plot.contributions_over_time()  # stacked weekly means of every component
-model.plot.shares()  # each channel's and control's share of the expected outcome
+model.plot.shares()  # share of the expected outcome by media and control covariate
 model.plot.contribution_totals()  # each component's total over the window, over draws
-model.plot.contribution_vs_spend()  # each week's spend against its contribution
+model.plot.contribution_vs_media()  # each week's media covariate against its contribution
 
 model.response_curves(levels=[0, 0.5, 1, 1.5, 2], weeks=8)  # reruns inference per level
 model.plot.response_curves()
@@ -123,13 +123,13 @@ model.plot.fit(backend="plotly")  # interactive: hover, zoom, click a legend ent
 
 | Method | Shows | Main options |
 | --- | --- | --- |
-| `inputs()` | Outcome, spend and controls by week | |
+| `inputs()` | Outcome, media covariates and control covariates by week | |
 | `fit()` | Mean and interval of the expected outcome over the observed outcome; MAPE and R² of the mean line (± their standard deviation over draws) and the empirical coverage of the interval | `window` |
 | `contributions_over_time()` | Stacked weekly means of every component; `stacked=False` gives one panel per component with its interval | `window`, `components`, `stacked`, `truth` |
-| `shares()` | Each channel's and control's share of the expected outcome: bars with intervals, or `view="dist"` kernel densities | `share="mean"` or `"total"`, `window`, `view` |
+| `shares()` | Each media and control covariate's share of the expected outcome: bars with intervals, or `view="dist"` kernel densities | `share="mean"` or `"total"`, `window`, `view` |
 | `contribution_totals()` | Histogram of each component's total over the window | `window`, `components`, `bins`, `truth` |
-| `contribution_vs_spend()` | Each week's raw spend against the channel's mean contribution | `window`, `channels`, `truth` |
-| `response_curves()` | The latest `model.response_curves(...)`: contribution by spend level, actual spend marked | `channels`, `truth` |
+| `contribution_vs_media()` | Each week's raw media covariate against its mean contribution | `window`, `channels`, `truth` |
+| `response_curves()` | The latest `model.response_curves(...)`: contribution by media covariate level, observed level marked | `channels`, `truth` |
 
 Every chart takes `backend=` (`"matplotlib"` or `"plotly"`; set a session default with
 `pymc_mfm.plotting.set_backend`), `title=` and, where it summarizes draws, `interval=`
@@ -138,11 +138,11 @@ Every chart takes `backend=` (`"matplotlib"` or `"plotly"`; set a session defaul
 `plotly.graph_objects.Figure`. `window` is `"context"` (history weeks), `"query"`
 (forecast weeks) or, for the charts over time, `None` for both. `truth`, for simulated
 data, is a DataFrame of known contributions indexed by date (by level for response
-curves) with one column per channel or control name.
+curves) with one column per media or control covariate name.
 
 Charts never sample, with one exception: the first chart that shows context weeks
 samples the context marginal once, the same draws `build_idata` reuses; a `window="query"`
-chart never does. `response_curves` reruns inference once per channel and level (one
+chart never does. `response_curves` reruns inference once per media covariate and level (one
 shared run for level 1), with the inference's draws and options, and keeps the result
 until the next `add_context` or `inference`. Intervals are central intervals of the draws
 (pointwise over weeks or levels) and exclude observation noise; contributions are

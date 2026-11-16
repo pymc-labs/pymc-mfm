@@ -86,8 +86,8 @@ def test_each_scenario_scales_one_channel_in_the_varied_weeks(
     np.testing.assert_array_equal(curves.levels, [0, 1, 2])
     assert curves.channels == tuple(CHANNELS) and curves.draws.shape == (2, 3, 8)
     assert (curves.weeks, curves.n_samples) == (2, 8)
-    assert (curves.target, curves.units) == ("sales", "outcome")
-    np.testing.assert_array_equal(curves.spend, future[CHANNELS].iloc[:2].sum())
+    assert curves.units == "outcome"
+    np.testing.assert_array_equal(curves.media, future[CHANNELS].iloc[:2].sum())
     np.testing.assert_array_equal(curves.dates, future["date"].iloc[:2].to_numpy())
     frame = curves.to_frame()
     low, high = np.quantile(curves.draws, [0.05, 0.95], axis=2)
@@ -104,7 +104,7 @@ def test_each_scenario_scales_one_channel_in_the_varied_weeks(
         assert call["options"]["n_samples"] == 8 and call["options"]["window"] == "query"
         assert call["options"]["mode"] == "model_average" and call["options"]["graph"] is None
     # One unchanged run is level 1 of both channels; every other run scales one
-    # channel's spend in the varied weeks only.
+    # media covariate in the varied weeks only.
     actual = weeks[CHANNELS].to_numpy()
     reference, *scenarios = recorded
     np.testing.assert_array_equal(reference["observations"]["spend"], actual)
@@ -134,10 +134,10 @@ def test_defaults_vary_every_channel_over_every_forecast_week(predicted_model, r
     assert curves.channels == ("tv",) and curves.draws.shape == (1, 9, 2)
 
 
-def test_a_channel_without_spend_in_the_weeks_gets_the_unchanged_run(predicted_model, recorded):
-    # tv has no spend in the first forecast week: scaling it changes no input.
+def test_a_media_covariate_at_zero_in_the_weeks_gets_the_unchanged_run(predicted_model, recorded):
+    # tv is zero in the first forecast week: scaling it changes no input.
     curves = predicted_model.response_curves(levels=[0, 0.5, 2], weeks=1)
-    assert curves.spend[1] == 0
+    assert curves.media[1] == 0
     assert len(recorded) == 4  # search at each level, then one unchanged run for tv
     actual = predicted_model._prediction_snapshot.observations["spend"][:25]
     np.testing.assert_array_equal(recorded[-1]["observations"]["spend"], actual)
@@ -150,10 +150,10 @@ def test_to_frame_summarizes_the_draws_of_each_channel_and_level(forecast_model)
     torch.manual_seed(1)
     curves = forecast_model.response_curves(levels=[0.5, 1], weeks=3, n_samples=6)
     frame = curves.to_frame(0.8)
-    assert list(frame.columns) == ["channel", "level", "spend", "mean", "low", "high"]
+    assert list(frame.columns) == ["channel", "level", "media", "mean", "low", "high"]
     assert frame["channel"].tolist() == ["search", "search", "tv", "tv"]
     np.testing.assert_array_equal(frame["level"], [0.5, 1, 0.5, 1])
-    np.testing.assert_allclose(frame["spend"], np.outer(curves.spend, [0.5, 1]).ravel())
+    np.testing.assert_allclose(frame["media"], np.outer(curves.media, [0.5, 1]).ravel())
     low, high = np.quantile(curves.draws, [0.1, 0.9], axis=2)
     np.testing.assert_allclose(frame["mean"], curves.draws.mean(axis=2).ravel())
     np.testing.assert_allclose(frame["low"], low.ravel())
@@ -185,7 +185,7 @@ def test_scenarios_keep_the_mode_graphs_units_and_provenance_of_inference(
         options["router_samples"] = 7
     query = model.inference(future, **options)
     curves = model.response_curves(levels=[0, 1], weeks=1)
-    # tv has no spend in the first forecast week, so it reuses the unchanged run.
+    # tv is zero in the first forecast week, so it reuses the unchanged run.
     assert curves.units == "USD" and curves.n_samples == 3 and len(recorded) == 2
     for call in recorded:
         used = call["options"]
@@ -256,7 +256,7 @@ def test_matplotlib_draws_the_frame_of_each_channel(swept):
     fig = model.plot.response_curves(interval=0.8, truth=TRUTH)
     frame = curves.to_frame(0.8)
     titles = [ax.get_title(loc="left") for ax in fig.axes]
-    assert titles == ["search · spend 97.5", "tv · spend 87.1"]
+    assert titles == ["search · media covariate total 97.5", "tv · media covariate total 87.1"]
     levels = [0, 0.5, 1, 2]
     for ax, name in zip(fig.axes, CHANNELS, strict=True):
         mean, low, high = _summary(frame, name)
@@ -276,9 +276,9 @@ def test_matplotlib_draws_the_frame_of_each_channel(swept):
         _points(fig.axes[1].collections[2]), [[0, 20], [0.5, 30], [1, 40]]
     )
     text = " ".join(fig.get_suptitle().split())
-    assert text.startswith("Response curves: channel contribution by spend level")
+    assert text.startswith("Response curves: contribution by media covariate level")
     assert "80% pointwise intervals over 4 draws" in text and CAVEAT in text
-    assert "varied separately over a plan of the first 2 forecast weeks;" in text
+    assert "media covariate varied separately over a plan of the first 2 forecast weeks;" in text
 
 
 def test_plotly_draws_the_same_numbers(swept):
@@ -298,22 +298,22 @@ def test_plotly_draws_the_same_numbers(swept):
         np.testing.assert_allclose(edges[2 * index + 1].y, low)
         np.testing.assert_allclose(dots[index].y, [mean[2]])
         rows = frame[frame["channel"] == name]
-        np.testing.assert_allclose(means[index].customdata, rows[["spend", "low", "high"]])
-        assert f"{name} at %{{x:.1%}} of its spend" in means[index].hovertemplate
+        np.testing.assert_allclose(means[index].customdata, rows[["media", "low", "high"]])
+        assert f"{name} at %{{x:.1%}} of its observed level" in means[index].hovertemplate
     np.testing.assert_array_equal(truths[0].y, [np.nan] * 4)
     np.testing.assert_array_equal(truths[1].y, [20, 30, 40, np.nan])
     assert [shape.x0 for shape in fig.layout.shapes] == [1.0, 1.0]
-    assert [shape.name for shape in fig.layout.shapes] == ["Actual spend (100%)"] * 2
+    assert [shape.name for shape in fig.layout.shapes] == ["Observed level (100%)"] * 2
     assert fig.layout.title.text.startswith("Sweep<br>")
     assert "varied separately over a plan of the first 2 forecast weeks;" in fig.layout.title.text
 
 
-def test_panels_say_when_a_channel_had_no_spend_and_skip_the_missing_level_1(forecast_model):
-    # tv has no spend in the first forecast week; level 1 is not swept, so no dot.
+def test_panels_say_when_a_covariate_is_zero_and_skip_the_missing_level_1(forecast_model):
+    # tv is zero in the first forecast week; level 1 is not swept, so no dot.
     forecast_model.response_curves(levels=[0, 2], weeks=1)
     fig = forecast_model.plot.response_curves(channels=["tv"])
     [ax] = fig.axes
-    assert ax.get_title(loc="left") == "tv · no spend in these weeks"
+    assert ax.get_title(loc="left") == "tv · zero in these weeks"
     assert len(ax.collections) == 1  # the band only
     assert "over a one-week plan;" in " ".join(fig.get_suptitle().split())
 
