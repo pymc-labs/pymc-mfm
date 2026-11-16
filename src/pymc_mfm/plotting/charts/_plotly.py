@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import textwrap
+from collections.abc import Sequence
 from html import escape
 
 import numpy as np
@@ -12,6 +14,8 @@ from plotly.subplots import make_subplots
 from ._style import BAND_ALPHA, FORECAST, FORECAST_ALPHA, rgba
 
 TEMPLATE = "plotly_white"
+#: Characters per caption line: plotly never wraps titles, so captions wrap here.
+CAPTION_WIDTH = 120
 
 
 def figure(rows: int = 1, cols: int = 1, **options) -> go.Figure:
@@ -24,15 +28,22 @@ def text(value: str) -> str:
     return escape(value, quote=False)
 
 
-def finish(fig: go.Figure, *, title: str, caption: str | None = None, height: int) -> go.Figure:
-    """Title, optional caption line, size and the shared look."""
-    heading = text(title) if caption is None else f"{text(title)}<br><sup>{text(caption)}</sup>"
+def finish(
+    fig: go.Figure, *, title: str, caption: str | Sequence[str] | None = None, height: int
+) -> go.Figure:
+    """Title, optional caption (a string or lines, each wrapped), size and the shared look.
+
+    The top margin grows with the caption so the title, caption and legend never overlap.
+    """
+    parts = [] if caption is None else [caption] if isinstance(caption, str) else list(caption)
+    lines = [wrapped for part in parts for wrapped in textwrap.wrap(part, CAPTION_WIDTH)]
+    heading = "<br>".join([text(title), *(f"<sup>{text(line)}</sup>" for line in lines)])
     fig.update_layout(
         template=TEMPLATE,
-        title={"text": heading, "x": 0.01, "xanchor": "left"},
-        height=height,
+        title={"text": heading, "x": 0.01, "xanchor": "left", "y": 0.99, "yanchor": "top"},
+        height=height + 18 * len(lines),
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 1, "xanchor": "right"},
-        margin={"t": 100, "l": 60, "r": 20, "b": 50},
+        margin={"t": 90 + 18 * len(lines), "l": 60, "r": 20, "b": 50},
     )
     return fig
 
