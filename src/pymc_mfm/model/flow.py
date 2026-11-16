@@ -75,7 +75,7 @@ FLOW_STEPS_SAMPLE = 16
 #: Base-noise variance share of the rank-four trajectory component.
 FLOW_TRAJECTORY_CORRELATION = 0.98
 #: Draws per sampling call when ``n_samples`` is omitted.
-DEFAULT_N_SAMPLES = 32
+DEFAULT_N_SAMPLES = 2000
 
 
 @dataclass(frozen=True)

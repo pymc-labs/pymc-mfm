@@ -98,6 +98,21 @@ A successful second `add_context` replaces context; a failed call preserves it.
 history, so call `add_context` again after loading. The illustrative data above
 exercises the API, not attribution calibration.
 
+### Number of draws
+
+`n_samples` defaults to 2,000 draws per call. Summaries from few draws change between
+runs: on the River-1 quickstart world, the posterior-mean contribution of one channel
+moved by up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws and by 3% at
+4,000 draws. Cost grows about linearly with draws. On CPU, River-1 (8 threads, shared
+Linux x86 machine, `benchmarks/inference_speed.py --repeats 3`, median of 3 runs) took
+2.6, 12.3 and 34.8 s at 1,000 draws and 4.4, 22.0 and 69.8 s at 2,000 draws, for 10, 50
+and 150 query weeks. For a quick look, pass a smaller count; for numbers you report, keep
+the default or raise it and seed the call:
+
+```python
+query = model.inference(future, n_samples=200)  # quick look, noisier summaries
+```
+
 ### Context and query snapshots
 
 With the `[arviz]` extra, request both decomposition windows after a successful

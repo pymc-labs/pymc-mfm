@@ -7,6 +7,17 @@ distribution prerequisites, not an approved or published release.
 
 ## Changes
 
+- **Default sampling is 2,000 draws.** `DEFAULT_N_SAMPLES` rises from 32 to 2,000, so
+  `decompose`, `MFM.inference`, `MFM.predict_batch`, `MFM.sample_context`,
+  `MFM.sample_disentangled`, `MFM.sample` and the flow head's `sample` draw 2,000 samples
+  when `n_samples` is omitted; with MAP routing, the router bank follows `n_samples`
+  unless `router_samples` is set. On the River-1 quickstart world, the posterior-mean
+  contribution of one channel moved by up to about 36% across 20 seeds at 32 draws, by
+  9% at 1,000 draws and by 3% at 4,000 draws (figures from PR #96). The new default
+  removes the main cause of that spread, so PR #96's small-`n` warning is not added. Cost grows about linearly with draws; pass `n_samples=200` or similar for a
+  quick look. Code that relied on the old default now runs about 60 times more draws and
+  returns different seeded results. The README gives measured CPU times.
+
 - **Client (for `client-v0.1.0`): repeat-safe `analyze`, resumable `wait`.** An identical `analyze`,
   `explore` or `Analysis.again` call, also from a new process, returns the same analysis,
   because the `Idempotency-Key` comes from the request content. New `fresh=True` on

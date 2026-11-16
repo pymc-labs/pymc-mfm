@@ -136,7 +136,7 @@ def decompose(
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
     context/query posterior. The caller controls the PyTorch random seed;
-    ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` conditional draws.
+    ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
     if not isinstance(observations, Mapping):
