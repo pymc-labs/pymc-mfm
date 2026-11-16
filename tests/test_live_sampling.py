@@ -176,6 +176,24 @@ def test_transport_batches_and_their_schedule_never_change_a_draw(
     torch.testing.assert_close(concurrent, serial, **ROUND_OFF)
 
 
+def test_concurrent_batches_get_equal_thread_shares(monkeypatch):
+    # Unequal shares let a batch run on 2 threads in one call and 3 in the next, which
+    # changed round-off between identical calls.
+    if not flow._thread_counts_per_thread():
+        pytest.skip("thread counts are process-wide here")
+    monkeypatch.setattr(flow, "_SPLIT_SAMPLE_THREADS", True)
+    threads = torch.get_num_threads()
+    torch.set_num_threads(flow._SAMPLE_BATCH_WORKERS + 3)
+    try:
+        counts = flow._map_batches(
+            lambda start, stop: torch.get_num_threads(), 16, 1, torch.device("cpu")
+        )
+    finally:
+        torch.set_num_threads(threads)
+    assert len(counts) == 16
+    assert set(counts) == {1}
+
+
 @pytest.mark.parametrize("window", ["query", "context"])
 def test_x86_network_layout_never_changes_a_draw(model64, batch64, monkeypatch, window):
     monkeypatch.setattr(flow, "_HIDDEN_CHUNK_ROWS", None)

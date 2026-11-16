@@ -11,9 +11,8 @@ from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM
 
 # One intra-op thread for every test. On many-core machines PyTorch's default thread
-# count slows the tiny test models down and lets the summation order, and so exact
-# draws, change between identical runs. Tests that need more threads set them and
-# restore this value.
+# count makes the tiny test models several times slower. Tests that need more threads
+# set them and restore this value.
 torch.set_num_threads(1)
 
 GENERATOR_EDGE_TYPES = ["cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz"]
