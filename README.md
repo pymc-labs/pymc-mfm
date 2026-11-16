@@ -29,7 +29,8 @@ safetensors, which load local models and run inference in your process. Names su
 | --- | --- |
 | `local` | PyTorch and safetensors, to load local models and run inference |
 | `draws` | `xarray`, `h5netcdf` and `h5py`, to read the API's per-draw files |
-| `plot` | `matplotlib`, for the client's plots |
+| `plot` | `matplotlib`, for `model.plot` charts and the client's plots |
+| `interactive` | `plotly`, for interactive `model.plot` charts |
 | `client` | `draws` and `plot` |
 | `hub` | `local`, and loading from and publishing to the Hugging Face Hub |
 | `training` | `local`, MLflow tracking and the diagnostics recorded during training |
@@ -72,7 +73,7 @@ model.add_context(
     channel_columns=["search", "social"],
     control_columns=["seasonality"],
 )
-future = data.iloc[n_context:].drop(columns="sales")
+future = data.iloc[n_context:]  # its sales are kept for model.plot; the model never reads them
 torch.manual_seed(0)
 query = model.inference(future, n_samples=500)
 
@@ -86,7 +87,10 @@ spend, and at least one channel and control. Control padding and masks are
 automatic; excess controls are rejected and channel count is not fixed.
 
 `inference` requires only the stored date, channel and control columns. Physical
-column order does not matter; extra columns and any query targets are ignored.
+column order does not matter and extra columns are ignored. The model never reads
+query targets: a target column in the query frame is kept only so `model.plot` can
+compare the forecast with what happened (values that are not finite numbers count as
+unobserved).
 Dates must be timezone-naive, unique, and regularly spaced. Rows are sorted
 without modifying the dataframe. Queries must start at the next context period
 and follow its cadence without gaps. Calendar frequency is inferred when
@@ -97,6 +101,52 @@ A successful second `add_context` replaces context; a failed call preserves it.
 `inference` before `add_context` raises an error. Weight bundles exclude private
 history, so call `add_context` again after loading. The illustrative data above
 exercises the API, not attribution calibration.
+
+### Charts
+
+`model.plot` draws the latest `add_context` and `inference` with matplotlib (the `[plot]`
+extra) or plotly (the `[interactive]` extra):
+
+```python
+model.plot.inputs()  # outcome, spend and controls by week, forecast weeks shaded
+model.plot.fit()  # expected vs observed outcome, with MAPE, R² and interval coverage
+model.plot.contributions_over_time()  # stacked weekly means of every component
+model.plot.shares()  # each channel's and control's share of the expected outcome
+model.plot.contribution_totals()  # each component's total over the window, over draws
+model.plot.contribution_vs_spend()  # each week's spend against its contribution
+
+model.response_curves(levels=[0, 0.5, 1, 1.5, 2], weeks=8)  # reruns inference per level
+model.plot.response_curves()
+
+model.plot.fit(backend="plotly")  # interactive: hover, zoom, click a legend entry to hide it
+```
+
+| Method | Shows | Main options |
+| --- | --- | --- |
+| `inputs()` | Outcome, spend and controls by week | |
+| `fit()` | Mean and interval of the expected outcome over the observed outcome; MAPE and R² of the mean line (± their spread over draws) and the share of observed weeks inside the interval | `window` |
+| `contributions_over_time()` | Stacked weekly means of every component; `stacked=False` gives one panel per component with its interval | `window`, `components`, `stacked`, `truth` |
+| `shares()` | Each channel's and control's share of the expected outcome: bars with intervals, or `view="spread"` densities | `share="mean"` or `"total"`, `window`, `view` |
+| `contribution_totals()` | Histogram of each component's total over the window | `window`, `components`, `bins`, `truth` |
+| `contribution_vs_spend()` | Each week's raw spend against the channel's mean contribution | `window`, `channels`, `truth` |
+| `response_curves()` | The latest `model.response_curves(...)`: contribution by spend level, actual spend marked | `channels`, `truth` |
+
+Every chart takes `backend=` (`"matplotlib"` or `"plotly"`; set a session default with
+`pymc_mfm.plotting.set_backend`), `title=` and, where it summarizes draws, `interval=`
+(default 0.9). Charts with one axes also take matplotlib `ax=`. Matplotlib charts return a
+`Figure` that notebooks show without pyplot; plotly charts return a
+`plotly.graph_objects.Figure`. `window` is `"context"` (history weeks), `"query"`
+(forecast weeks) or, for the charts over time, `None` for both. `truth`, for simulated
+data, is a DataFrame of known contributions indexed by date (by level for response
+curves) with one column per channel or control name.
+
+Charts never sample, with one exception: the first chart that shows context weeks
+samples the context marginal once, the same draws `build_idata` reuses; a `window="query"`
+chart never does. `response_curves` reruns inference once per channel and level (one
+shared run for level 1), with the inference's draws and options, and keeps the result
+until the next `add_context` or `inference`. Intervals are central intervals of the draws
+(pointwise over weeks or levels) and exclude observation noise; contributions are
+conditional on the inputs, not causal lift.
 
 ### Number of draws
 
