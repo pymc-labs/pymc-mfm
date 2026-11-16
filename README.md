@@ -746,6 +746,9 @@ Before each render, `docs/_scripts/prepare.py` copies `examples/*.ipynb` into th
 and writes the API reference from the docstrings (quartodoc). Both are generated and
 ignored by Git.
 
+Guide code samples scroll inside the code body, keeping the language label and Copy
+button fixed. HTTP API samples wrap within their narrower panels instead.
+
 | Section | Source |
 | --- | --- |
 | Guide | `docs/guide/*.qmd`; listed in `website.sidebar` in `docs/_quarto.yml` |
