@@ -143,13 +143,16 @@ def main() -> None:
             "-I",
             "-c",
             """
+import importlib.util
 import pathlib
 import sys
 import pymc_mfm
-from pymc_mfm.training._provenance import code_record
 p = pathlib.Path(pymc_mfm.__file__).resolve()
 assert p.is_relative_to(pathlib.Path(sys.prefix).resolve()), p
-assert code_record()["revision_status"] == "not_available"
+# Training provenance needs PyTorch; the arviz-only install has none.
+if importlib.util.find_spec("torch") is not None:
+    from pymc_mfm.training._provenance import code_record
+    assert code_record()["revision_status"] == "not_available"
 print(p)
 """,
             cwd=out,
