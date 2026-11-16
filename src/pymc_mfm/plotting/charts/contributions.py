@@ -12,10 +12,9 @@ import numpy as np
 from pymc_mfm.plotting.panels import COLORS, _single, _suptitle, _title
 
 from ._backend import draw
-from ._data import interval_quantiles, summarize
+from ._data import checked_names, interval_quantiles, summarize, truth_by_week
 from ._mpl import compact_axis, figure, forecast_span, time_positions
 from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, rgba, series_colors
-from .totals import checked_names, truth_by_week
 
 if TYPE_CHECKING:
     import pandas as pd

@@ -11,7 +11,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ._style import BAND_ALPHA, FORECAST, FORECAST_ALPHA, rgba
+from ._style import BAND_ALPHA, FORECAST, FORECAST_ALPHA, panel_grid, rgba
 
 TEMPLATE = "plotly_white"
 #: Characters per caption line: plotly never wraps titles, so captions wrap here.
@@ -21,6 +21,15 @@ CAPTION_WIDTH = 120
 def figure(rows: int = 1, cols: int = 1, **options) -> go.Figure:
     """An empty figure of ``rows`` x ``cols`` subplots."""
     return make_subplots(rows=rows, cols=cols, **options)
+
+
+def subplot_specs(count: int, columns: int = 2) -> list[list[dict | None]]:
+    """``specs`` of :func:`~._style.panel_grid`: no axes in a cell past the last panel."""
+    rows, columns = panel_grid(count, columns)
+    return [
+        [{} if row * columns + column < count else None for column in range(columns)]
+        for row in range(rows)
+    ]
 
 
 def text(value: str) -> str:

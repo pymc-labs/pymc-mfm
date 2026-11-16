@@ -55,3 +55,19 @@ def percent_axis(axis) -> None:
     from matplotlib.ticker import PercentFormatter
 
     axis.set_major_formatter(PercentFormatter(1.0, decimals=0))
+
+
+def figure_legend(fig, axes) -> None:
+    """One legend below the panels of ``fig``: each label once, as first drawn."""
+    entries = {}
+    for ax in axes:
+        for handle, label in zip(*ax.get_legend_handles_labels(), strict=True):
+            entries.setdefault(label, handle)
+    fig.legend(
+        list(entries.values()),
+        list(entries),
+        loc="outside lower center",
+        ncols=len(entries),
+        frameon=False,
+        fontsize=9,
+    )
