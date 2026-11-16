@@ -687,10 +687,14 @@ lift curves.
 
 ```bash
 uv sync --locked --extra local --extra client
-uv run pytest -q
+uv run pytest -q -n 2
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+`pytest` skips tests marked `slow` (seven tests, about four minutes in total). Run them
+with `uv run pytest -q -n 2 -m slow`, or run everything with `-m ""`. CI runs both lanes.
+Use at most `-n 2` on a small machine.
 
 The client tests need only the light install. To run them without PyTorch, as CI does:
 

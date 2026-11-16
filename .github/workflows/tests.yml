@@ -15,19 +15,26 @@ concurrency:
 
 jobs:
   contracts:
+    # Two lanes per install. "fast" is every test not marked slow. "slow" is the seven tests
+    # marked slow (about 245 s serial). Together they run every test once per install, and
+    # the two lanes run in parallel, so the critical path is the longer lane, not the sum.
+    name: contracts (${{ matrix.installation }}, ${{ matrix.lane }})
     runs-on: ubuntu-latest
-    # Whole-job hang guard: the longest observed full lane took 30.3 min.
+    # Whole-job hang guard: the longest observed full lane took 30.3 min, serial.
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         installation: [base, full]
+        lane: [fast, slow]
     env:
       MPLBACKEND: Agg
       HF_HUB_OFFLINE: "1"
       MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: "false"
-      OMP_NUM_THREADS: "2"
-      MKL_NUM_THREADS: "2"
+      # Two xdist workers use the two vCPUs of a runner. One math thread each avoids
+      # oversubscribing them.
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -45,28 +52,51 @@ jobs:
         if: matrix.installation == 'full'
         run: uv sync --locked --all-extras
       - name: Check formatting and lint
-        if: matrix.installation == 'base'
+        if: matrix.installation == 'base' && matrix.lane == 'fast'
         run: |
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
+      # A later -m replaces the "-m 'not slow'" default in pyproject.toml, so "-m slow" runs
+      # only the slow tests.
       - name: Exercise local contracts without publication credentials
-        run: uv run --no-sync pytest -q --durations=25 --junitxml=junit/contracts-${{ matrix.installation }}.xml --timeout=120
+        run: >-
+          uv run --no-sync pytest -q -n 2 --dist worksteal -m "${{ matrix.lane == 'slow' && 'slow' || 'not slow' }}"
+          --durations=25 --junitxml=junit/contracts-${{ matrix.installation }}-${{ matrix.lane }}.xml
+          --timeout=120
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-contracts-${{ matrix.installation }}-${{ matrix.lane }}
+          path: junit/
+          retention-days: 30
+
+  installed-smoke:
+    # Builds the sdist and wheels, then installs each into a clean environment. It needs no
+    # test results, so it runs beside the test jobs.
+    runs-on: ubuntu-latest
+    # Whole-job hang guard: observed about 4 min.
+    timeout-minutes: 20
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - name: Install the native graph renderer
+        # The installed workflow check renders diagnostic graphs.
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
+      - name: Install complete integration extras
+        run: uv sync --locked --all-extras
       - name: Plant ignored local files the build must leave out
-        if: matrix.installation == 'full'
         # The installed-distribution check rejects any of these in the sdist or wheels.
         run: touch src/pymc_mfm/canary.pt tests/canary.npz examples/.env.canary
       - name: Build distributable artifacts
         run: uv build
       - name: Verify installed sdist, base wheel, diagnostics-only wheel and arviz-only wheel
-        if: matrix.installation == 'full'
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
-      - name: Upload test timings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: junit-contracts-${{ matrix.installation }}
-          path: junit/
-          retention-days: 30
 
   light:
     # The default install is a light client with no PyTorch. Run its tests in two
@@ -105,7 +135,7 @@ jobs:
   # counts as passed. A failed or cancelled job fails it.
   ci-ok:
     if: always()
-    needs: [contracts, light]
+    needs: [contracts, installed-smoke, light]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

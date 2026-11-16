@@ -72,6 +72,7 @@ Issues = "https://github.com/pymc-labs/pymc-mfm/issues"
 dev = [
     "pytest>=8.3",
     "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.6",
     "ruff>=0.9",
 ]
 # Website build (docs/). Quarto itself is a system tool; see README "Documentation site".
@@ -120,3 +121,7 @@ select = ["E", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers -m 'not slow'"
+markers = [
+    "slow: the slowest tests (over 10 s each); local runs skip them, CI runs them in their own lane (-m slow)",
+]
