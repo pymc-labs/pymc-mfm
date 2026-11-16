@@ -158,7 +158,10 @@ def prepare(
     )
     chosen = first.components if components is None else components
     chosen = checked_names(chosen, first.components, "components")
-    order = [index for index in ranked if first.components[index] in chosen]
+    if stacked or components is None:
+        order = [index for index in ranked if first.components[index] in chosen]
+    else:  # panels follow the order the caller listed them in
+        order = [first.components.index(name) for name in dict.fromkeys(chosen)]
     names = tuple(first.components[index] for index in order)
     # Colored over every component, so a component keeps its color in any selection.
     palette = series_colors(

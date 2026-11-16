@@ -214,6 +214,17 @@ def test_panels_draw_each_components_mean_and_interval_with_truth(predicted_mode
         np.testing.assert_array_equal(dashed.get_ydata(), expected)
 
 
+def test_panels_follow_the_listed_components_while_the_stack_keeps_its_order(predicted_model):
+    listed = ["tv", "baseline", "temperature"]
+    panels = predicted_model.plot.contributions_over_time(
+        window="query", stacked=False, components=listed
+    )
+    assert [ax.get_title(loc="left") for ax in panels.axes if ax.get_visible()] == listed
+    stack = predicted_model.plot.contributions_over_time(window="query", components=listed)
+    labels = stack.axes[0].get_legend_handles_labels()[1]
+    assert [label for label in labels if label in listed] == ["baseline", "temperature", "tv"]
+
+
 def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
     from matplotlib.dates import date2num
 

@@ -31,7 +31,8 @@ def _half_step(positions: np.ndarray) -> float:
 
 
 def forecast_span(ax, positions: np.ndarray, first: int, *, label: str | None = "Forecast weeks"):
-    """Shade the weeks from ``positions[first]`` on: the weeks the model did not see."""
+    """Shade, behind everything drawn, the weeks from ``positions[first]`` on: the weeks
+    the model did not see."""
     half = _half_step(positions)
     ax.axvspan(
         positions[first] - half,
@@ -40,6 +41,7 @@ def forecast_span(ax, positions: np.ndarray, first: int, *, label: str | None = 
         alpha=FORECAST_ALPHA,
         linewidth=0,
         label=label,
+        zorder=0,
     )
 
 
