@@ -687,10 +687,25 @@ lift curves.
 
 ```bash
 uv sync --locked --extra local --extra client
-uv run pytest -q
+uv run --no-sync pytest -q -n 2 -m "not slow"
 uv run ruff check .
 uv run ruff format --check .
 ```
+
+The fast command excludes tests marked `slow`. Plain `pytest` applies no marker filter,
+so file and node selections retain their slow cases. CI runs both lanes. Use at most
+`-n 2` on a small machine.
+
+Install all extras before running the slow integration tests, which need the generation,
+training and examples dependencies. Run these tests serially:
+
+```bash
+uv sync --locked --all-extras
+uv run --no-sync pytest -q -m slow
+```
+
+After that sync, `uv run --no-sync pytest -q` runs the full suite, including slow tests,
+serially.
 
 The client tests need only the light install. To run them without PyTorch, as CI does:
 
