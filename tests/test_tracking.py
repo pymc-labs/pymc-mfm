@@ -129,6 +129,7 @@ def assert_scalar_histories(client, run_id, records):
 
 # Trains, logs to a real MLflow client and renders every report with matplotlib: over the
 # 120 s CI hang guard on a 2-core runner (CI 2026-11-13: still rendering at 120 s).
+@pytest.mark.slow
 @pytest.mark.timeout(480)
 def test_actual_client_histories_reports_and_checkpoint_versions(tmp_path, monkeypatch):
     mlflow = pytest.importorskip("mlflow")
@@ -260,6 +261,7 @@ def test_actual_client_histories_reports_and_checkpoint_versions(tmp_path, monke
     assert any(path.endswith("/model.safetensors") for path in paths)
 
 
+@pytest.mark.slow
 def test_tracking_on_off_preserves_weights_rng_consumption_and_predictions(tmp_path, monkeypatch):
     pytest.importorskip("mlflow")
     pytest.importorskip("matplotlib")
@@ -826,7 +828,7 @@ def test_credential_bearing_report_withholds_html_and_figures_too(
     assert receipt["status"] == "withheld_credentials"
 
 
-@pytest.mark.parametrize("hook", ["on_step", "on_diagnostic"])
+@pytest.mark.parametrize("hook", ["on_step", pytest.param("on_diagnostic", marks=pytest.mark.slow)])
 def test_observer_exception_credentials_never_enter_failure_artifacts(tmp_path, monkeypatch, hook):
     from pymc_mfm.training import TrainingObserver
 

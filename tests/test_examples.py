@@ -24,7 +24,13 @@ def run_code_cells(notebook: Path) -> dict:
     return namespace
 
 
-@pytest.mark.parametrize("corpus", ["generated", "synthetic"])
+@pytest.mark.parametrize(
+    "corpus",
+    [
+        pytest.param("generated", marks=pytest.mark.slow),
+        pytest.param("synthetic", marks=pytest.mark.slow),
+    ],
+)
 def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypatch):
     # Matplotlib is the only optional dependency of the notebook's path; it ships
     # with the diagnostics and training extras. The generator extra is optional.
@@ -46,6 +52,7 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
     assert {"attribution", "window_totals", "cumulative", "temporal", "reliability"} <= rendered
 
 
+@pytest.mark.slow
 def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkeypatch):
     # River-1 is in a private repository, so an untrained model with its control and
     # latent widths stands in: the data, split, inference and figures still run. The

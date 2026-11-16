@@ -209,6 +209,7 @@ def test_warm_up_world_is_a_valid_observation(model):
     assert np.isfinite(result.components).all()
 
 
+@pytest.mark.slow
 def test_default_compiler_matches_eager(model, batch):
     """The real ``torch.compile`` path (Inductor on CPU) agrees with eager sampling."""
     torch._dynamo.reset()
