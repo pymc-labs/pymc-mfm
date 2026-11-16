@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
+    from pymc_mfm.inference.curves import ResponseCurves
     from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
     from pymc_mfm.inference.result import DecompositionResult
     from pymc_mfm.model.model import MFM
@@ -124,6 +125,14 @@ class ModelSource:
                 "this chart draws inference draws: call model.inference(future_data) first"
             )
         return prediction
+
+    def response_curves(self) -> ResponseCurves:
+        """The latest ``model.response_curves`` of the current prediction; raises before one."""
+        self.history()
+        curves = self._model._response_curves
+        if curves is None:
+            raise RuntimeError("call model.response_curves(...) first")
+        return curves
 
     def window(self, name: str) -> Window:
         """Named draws of the ``"context"`` or ``"query"`` window.

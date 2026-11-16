@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from . import curves as _curves
 from . import fit as _fit
 from . import inputs as _inputs
 from . import shares as _shares
@@ -183,6 +184,36 @@ class ModelPlots:
         return _spend.contribution_vs_spend(
             self._source,
             window=window,
+            channels=channels,
+            interval=interval,
+            truth=truth,
+            backend=backend,
+            title=title,
+        )
+
+    def response_curves(
+        self,
+        *,
+        channels: Sequence[str] | None = None,
+        interval: float = 0.9,
+        truth: pd.DataFrame | None = None,
+        backend: str | None = None,
+        title: str | None = None,
+    ) -> Any:
+        """Where each channel's extra spend stops adding to the outcome.
+
+        One panel per channel, sharing the y axis: the mean and central ``interval``
+        of the channel's contribution, summed over the weeks it was varied, against
+        its spend as a percent of the actual spend, with a dashed line (and a dot on
+        the mean) at the actual spend. Draws the latest ``model.response_curves(...)``,
+        which needs ``inference``; a new ``add_context`` or ``inference`` drops them.
+        ``channels`` picks panels (default: every channel of the curves). ``truth``,
+        a DataFrame indexed by level with one column per channel, adds known
+        contributions (from a simulation, say) as black dots. ``interval`` is a
+        fraction between 0 and 1.
+        """
+        return _curves.response_curves(
+            self._source,
             channels=channels,
             interval=interval,
             truth=truth,
