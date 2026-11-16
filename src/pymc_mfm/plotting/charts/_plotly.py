@@ -40,7 +40,14 @@ def finish(
     heading = "<br>".join([text(title), *(f"<sup>{text(line)}</sup>" for line in lines)])
     fig.update_layout(
         template=TEMPLATE,
-        title={"text": heading, "x": 0.01, "xanchor": "left", "y": 0.99, "yanchor": "top"},
+        title={
+            "text": heading,
+            "x": 0.01,
+            "xanchor": "left",
+            "y": 1,
+            "yanchor": "top",
+            "pad": {"t": 14},
+        },
         height=height + 18 * len(lines),
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 1, "xanchor": "right"},
         margin={"t": 90 + 18 * len(lines), "l": 60, "r": 20, "b": 50},
