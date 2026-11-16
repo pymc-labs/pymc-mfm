@@ -35,13 +35,16 @@ def _column_names(value, role: str) -> tuple[str, ...]:
     return names
 
 
-_WEEK_NS = 7 * 24 * 3600 * 10**9
+_DAY_NS = 24 * 3600 * 10**9
+_WEEK_NS = 7 * _DAY_NS
 _WEEK = pd.Timedelta(days=7)
 _LISTED_DATES = 5
 
 
 def _label(stamp: pd.Timestamp) -> str:
-    return stamp.date().isoformat() if stamp == stamp.normalize() else stamp.isoformat(sep=" ")
+    # No ``normalize()``: it overflows near ``pd.Timestamp.min``.
+    midnight = stamp.value % _DAY_NS == 0
+    return stamp.date().isoformat() if midnight else stamp.isoformat(sep=" ")
 
 
 def _named(labels, total: int) -> str:
@@ -57,15 +60,16 @@ def _named(labels, total: int) -> str:
 
 def _require_weekly(dates: pd.DatetimeIndex, role: str) -> None:
     """Require sorted, unique dates to be exactly 7 days apart (no date grid is built)."""
-    steps = np.diff(dates.asi8)
+    # Python integers: an int64 difference wraps for dates centuries apart.
+    steps = np.diff(dates.asi8.astype(object))
     off = np.flatnonzero(steps != _WEEK_NS)
     if off.size == 0:
         return
-    irregular = off[(steps[off] % _WEEK_NS != 0)]
+    irregular = off[(steps[off] % _WEEK_NS != 0).astype(bool)]
     if irregular.size:
         i = int(irregular[0])
-        gap = pd.Timedelta(int(steps[i]), unit="ns")
-        size = f"{gap.days} days" if gap == pd.Timedelta(days=gap.days) else str(gap)
+        step = int(steps[i])
+        size = f"{step // _DAY_NS} days" if step % _DAY_NS == 0 else f"{step / _DAY_NS:.4g} days"
         raise ValueError(
             f"{role} dates must be exactly 7 days apart; "
             f"{_label(dates[i])} to {_label(dates[i + 1])} is {size}"

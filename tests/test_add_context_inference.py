@@ -12,6 +12,7 @@ from safetensors.torch import load_file
 
 from pymc_mfm.inference.api import decompose
 from pymc_mfm.inference.checkpoint import save_pretrained
+from pymc_mfm.inference.dataframe import _ordered_frame
 from pymc_mfm.inference.hub import from_pretrained
 from pymc_mfm.inference.result import DecompositionResult
 from pymc_mfm.model.graph import EdgeSlotLayout
@@ -1152,3 +1153,24 @@ def test_loaded_recorded_model_builds_both_windows_without_replaying_derived_pro
             assert tree[window].attrs["state_sha256"] == loaded.provenance["state_sha256"]
             assert tree[window].attrs["data_sha256"] == query.provenance["data_sha256"]
     assert loaded.artifact_metadata["provenance"]["training_evaluation"] == recorded
+
+
+@pytest.mark.parametrize(
+    ("dates", "message"),
+    [
+        pytest.param(
+            ["1700-01-01", "2200-01-01"],
+            r"context dates must be exactly 7 days apart; 1700-01-01 to 2200-01-01 is 182621 days$",
+            id="centuries-apart",
+        ),
+        pytest.param(
+            [pd.Timestamp.min, pd.Timestamp.min],
+            r"'date' repeats these dates: 1677-09-21 00:12:43\.145224193$",
+            id="earliest-timestamp",
+        ),
+    ],
+)
+def test_extreme_dates_keep_their_named_errors(dates, message):
+    frame = pd.DataFrame({"date": dates, "x": [1.0, 2.0]})
+    with pytest.raises(ValueError, match=message):
+        _ordered_frame(frame, ("date", "x"), "date", "context")
