@@ -48,8 +48,9 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
 
 def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkeypatch):
     # River-1 is in a private repository, so an untrained model with its control and
-    # latent widths stands in: the data, split, inference and figures still run. The
-    # data come from PyMC-Marketing's transformers, which the examples extra installs.
+    # latent widths stands in: the data, context, inference, charts and response curves
+    # still run. The data come from PyMC-Marketing's transformers, which the examples
+    # extra installs.
     pytest.importorskip("matplotlib")
     pytest.importorskip("pymc_marketing")
     import pymc_mfm
@@ -75,6 +76,12 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
     assert re.fullmatch(r"[0-9a-f]{40}", options["revision"])
     n_weeks, context = namespace["N_WEEKS"], namespace["CONTEXT"]
     assert context == int(0.8 * n_weeks)
-    for result, weeks in ((namespace["context"], context), (namespace["query"], n_weeks - context)):
+    model = namespace["model"]
+    # The first chart of the context weeks sampled them once, with the inference's draws.
+    history = model._context_decomposition
+    for result, weeks in ((history, context), (namespace["query"], n_weeks - context)):
         assert result.components.shape[:2] == (1_000, weeks)
         assert np.isfinite(result.components).all()
+    curves = namespace["curves"]
+    assert curves.draws.shape == (2, 41, 1_000) and curves.weeks == 8
+    assert model._response_curves is curves
