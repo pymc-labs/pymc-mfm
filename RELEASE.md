@@ -45,6 +45,11 @@ distribution prerequisites, not an approved or published release.
   preserves reviewed numeric/chart outputs and every graph analysis/export;
   its headless acceptance uses a synthetic stand-in without downloading weights.
   No runtime context, result, curve or idata is captured in weight bundles.
+- **Installed-artifact CI contracts.** The bare wheel is checked separately for
+  lightweight client isolation. Local and diagnostics wheels positively exercise
+  their declared tree dependencies and automatic idata instead of expecting
+  exports to fail. Installed local-wheel checks cover both return modes,
+  independent prediction and automatic curve attachment.
 
 ## Historical development records
 

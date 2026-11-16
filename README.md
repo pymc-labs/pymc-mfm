@@ -179,7 +179,9 @@ for every task at once, so split a large `predict_batch` into smaller batches or
 default or raise it and seed the call:
 
 ```python
-prediction = model.predict(future, n_samples=200)  # independent quick look; stored analysis unchanged
+prediction = model.predict(
+    future, n_samples=200
+)  # independent quick look; stored analysis unchanged
 ```
 
 ### Context and query snapshots
