@@ -107,7 +107,7 @@ def _plotly(data: Inputs) -> Any:
     if data.first_query is not None:
         plotting.forecast_span(fig, data.dates, data.first_query, row="all", col=1)
     caption = _SPAN_NOTE if data.first_query is not None else None
-    return plotting.finish(fig, title=data.title, caption=caption, height=110 * rows + 160)
+    return plotting.finish(fig, title=data.title, caption=caption, height=110 * rows + 50)
 
 
 def inputs(source: ModelSource, *, backend: str | None = None, title: str | None = None) -> Any:

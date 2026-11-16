@@ -33,11 +33,16 @@ def finish(
 ) -> go.Figure:
     """Title, optional caption (a string or lines, each wrapped), size and the shared look.
 
-    The top margin grows with the caption so the title, caption and legend never overlap.
+    Title, caption and a one-row legend sit in the top margin, in that order, and the
+    margin keeps room below the legend for subplot titles: nothing overlaps. ``height``
+    is the height of the plotting area plus the bottom margin.
     """
     parts = [] if caption is None else [caption] if isinstance(caption, str) else list(caption)
     lines = [wrapped for part in parts for wrapped in textwrap.wrap(part, CAPTION_WIDTH)]
     heading = "<br>".join([text(title), *(f"<sup>{text(line)}</sup>" for line in lines)])
+    legend_top = 14 + 30 + 18 * len(lines)  # title padding, title line, caption lines
+    top = legend_top + 28 + 28  # the legend row, then room for subplot titles
+    total = height + top
     fig.update_layout(
         template=TEMPLATE,
         title={
@@ -48,9 +53,16 @@ def finish(
             "yanchor": "top",
             "pad": {"t": 14},
         },
-        height=height + 18 * len(lines),
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 1, "xanchor": "right"},
-        margin={"t": 90 + 18 * len(lines), "l": 60, "r": 20, "b": 50},
+        height=total,
+        legend={
+            "orientation": "h",
+            "yref": "container",
+            "y": 1 - legend_top / total,
+            "yanchor": "top",
+            "x": 1,
+            "xanchor": "right",
+        },
+        margin={"t": top, "l": 60, "r": 20, "b": 50},
     )
     return fig
 
