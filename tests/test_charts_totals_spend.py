@@ -85,7 +85,7 @@ def test_totals_bin_each_channel_and_control_per_draw_total(predicted_model):
         assert ax.get_xlabel() == "Total over 24 history weeks (sales)"
     assert [ax.get_ylabel() for ax in panels] == ["Draws", "", "Draws"]
     heading = fig.get_suptitle()
-    assert heading.startswith("How much does each component add over the 24 history weeks?")
+    assert heading.startswith("Total contribution over the 24 history weeks, by component")
     assert "40 draws" in heading and "not causal lift" in heading
 
 

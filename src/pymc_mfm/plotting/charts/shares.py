@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from ._data import ModelSource, Window
 
 SHARES = ("mean", "total")
-VIEWS = ("bars", "spread")
-#: Points of the grid every spread density is evaluated on.
+VIEWS = ("bars", "dist")
+#: Points of the grid every kernel density is evaluated on.
 GRID_POINTS = 400
 #: Bandwidth, as a fraction of ``max(1, |share|)``, when every draw has the same share.
 FLAT_BANDWIDTH = 1e-3
@@ -27,18 +27,18 @@ _DRIVERS = ("channel", "control")
 _GROUPS = {"channel": "channels", "control": "controls"}
 _BAR_HEIGHT = 0.6
 _FILL_ALPHA = 0.25
-_SPREAD_NOTE = "Densities scaled to equal height"
+_DIST_NOTE = "Kernel densities, each scaled to a peak of 1"
 
 
 @dataclass(frozen=True, slots=True)
 class Shares:
-    """Each driver's per-draw share of the expected outcome and its summary, in drawing order.
+    """Each series' per-draw share of the expected outcome and its summary, in drawing order.
 
-    Drivers are the channels and controls. ``shares`` is ``[kept draw, driver]``, as
+    The series are the channels and controls. ``shares`` is ``[kept draw, series]``, as
     fractions of the expected outcome; ``mean``, ``low`` and ``high`` summarize it over
     the kept draws. ``left_out_draws`` and ``left_out_draw_weeks`` count what was left
-    out because its expected outcome was not positive. The spread view adds the shared
-    ``grid`` and each driver's kernel density on it, ``density`` ``[driver, point]``,
+    out because its expected outcome was not positive. The ``dist`` view adds the shared
+    ``grid`` and each series' kernel density on it, ``density`` ``[series, point]``,
     scaled to peak at 1. ``caption`` holds the caption's lines.
     """
 
@@ -141,12 +141,12 @@ def prepare_window(
     """Every number the chart of ``data`` draws; :func:`prepare` checks the arguments.
 
     The expected outcome of a draw and week is the sum of every component.
-    ``share="total"`` divides each driver's window total by the expected total, per
+    ``share="total"`` divides each series' window total by the expected total, per
     draw; ``"mean"`` averages each week's share over the weeks with a positive expected
     outcome. A draw whose expected total (``"total"``) or every week (``"mean"``) is not
     positive is left out, as is each such draw-week from the ``"mean"`` average. Bars
-    run channels, then controls, each largest mean first; the spread keeps the
-    component order and draws each driver's per-draw shares as a Gaussian kernel
+    run channels, then controls, each largest mean first; ``dist`` keeps the
+    component order and draws each series' per-draw shares as a Gaussian kernel
     density, with Scott's bandwidth or, when every draw has the same share,
     ``FLAT_BANDWIDTH * max(1, |share|)``.
     """
@@ -175,12 +175,12 @@ def prepare_window(
         palette = series_colors(names)
         colors = tuple(palette[name] for name in names)
         grid, density = _densities(shares)
-    # The spread draws densities, not intervals, so its caption names only the draws.
+    # The distribution view draws densities, not intervals: its caption names only the draws.
     if view == "bars":
         lead = (caption(interval, len(shares), pointwise=False), CAVEAT)
     else:
         lead = (f"{len(shares):,} draws · expected outcome, without observation noise", CAVEAT)
-        lead += (_SPREAD_NOTE,)
+        lead += (_DIST_NOTE,)
     notes = _left_out(data, share, left_out_draws, left_out_draw_weeks)
     return Shares(
         view=view,
@@ -202,7 +202,7 @@ def prepare_window(
             else f"Share of expected {data.target} over the {weeks}"
         ),
         caption=(*lead, *notes),
-        title=title or f"How does each driver contribute to {data.target}?",
+        title=title or f"Share of expected {data.target} by channel and control",
     )
 
 
@@ -254,11 +254,11 @@ def _matplotlib_bars(ax, data: Shares) -> None:
     if data.separator is not None:
         ax.axhline(data.separator, color="0.5", linestyle="--", linewidth=0.8)
     ax.set_yticks(positions, data.names, fontsize=9)
-    ax.invert_yaxis()  # the first driver on top
+    ax.invert_yaxis()  # the first series on top
     ax.grid(axis="x", alpha=0.15)
 
 
-def _matplotlib_spread(ax, data: Shares) -> None:
+def _matplotlib_dist(ax, data: Shares) -> None:
     for name, color, density in zip(data.names, data.colors, data.density, strict=True):
         ax.fill_between(data.grid, density, color=color, alpha=_FILL_ALPHA, linewidth=0)
         ax.plot(data.grid, density, color=color, linewidth=1.4, label=name)
@@ -272,7 +272,7 @@ def _matplotlib(data: Shares, ax=None) -> Any:
     # Room for the title and each caption line above the axes.
     height = (1.4 + 0.35 * len(data.names) if bars else 3.0) + 0.22 * (1 + len(data.caption))
     fig, ax, owned = _single(ax, width=10, row_height=height)
-    (_matplotlib_bars if bars else _matplotlib_spread)(ax, data)
+    (_matplotlib_bars if bars else _matplotlib_dist)(ax, data)
     percent_axis(ax.xaxis)
     ax.set_xlabel(data.xlabel, fontsize=9)
     ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1), frameon=False)
@@ -356,7 +356,7 @@ def _plotly(data: Shares) -> Any:
         height = 340
     fig.update_xaxes(tickformat=".0%", title_text=plotting.text(data.xlabel), zeroline=False)
     fig = plotting.finish(fig, title=data.title, caption=data.caption, height=height)
-    if data.view == "spread":  # one entry per driver: a column at the right, as in matplotlib
+    if data.view == "dist":  # one entry per series: a column at the right, as in matplotlib
         fig.update_layout(
             legend={
                 "orientation": "v",

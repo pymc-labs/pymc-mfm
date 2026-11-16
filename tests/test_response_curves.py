@@ -276,7 +276,7 @@ def test_matplotlib_draws_the_frame_of_each_channel(swept):
         _points(fig.axes[1].collections[2]), [[0, 20], [0.5, 30], [1, 40]]
     )
     text = " ".join(fig.get_suptitle().split())
-    assert text.startswith("Where does extra spend stop paying off?")
+    assert text.startswith("Response curves: channel contribution by spend level")
     assert "80% pointwise intervals over 4 draws" in text and CAVEAT in text
     assert "varied separately over a plan of the first 2 forecast weeks;" in text
 

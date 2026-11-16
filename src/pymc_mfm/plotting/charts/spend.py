@@ -92,14 +92,14 @@ def prepare(
             )
         mean, low, high = summarize(data.contribution(name), interval)
         panels.append(ChannelWeeks(name, spend[name], mean, low, high, known))
-    question = f"Does each channel's weekly contribution follow its spend over the {weeks}?"
+    default = f"Weekly contribution against weekly spend over the {weeks}, by channel"
     return ContributionVsSpend(
         dates=data.dates,
         channels=tuple(panels),
         ylabel=f"Weekly contribution ({data.target})",
         interval=interval,
         n_samples=data.n_samples,
-        title=title or question,
+        title=title or default,
     )
 
 

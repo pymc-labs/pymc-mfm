@@ -21,7 +21,7 @@ from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact, percent
 if TYPE_CHECKING:
     from ._data import ModelSource
 
-_TITLE = "Where does extra spend stop paying off?"
+_TITLE = "Response curves: channel contribution by spend level"
 #: Panels per row before the grid wraps.
 _COLUMNS = 5
 _CURVE = COLORS["channel"]

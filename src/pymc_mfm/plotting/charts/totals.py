@@ -1,4 +1,4 @@
-"""How much each component adds over a window, draw by draw (``model.plot.contribution_totals``)."""
+"""Distribution over draws of each component's window total (``model.plot.contribution_totals``)."""
 
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ def prepare(
         xlabel=f"Total over {weeks} ({data.target})",
         interval=interval,
         n_samples=data.n_samples,
-        title=title or f"How much does each component add over the {weeks}?",
+        title=title or f"Total contribution over the {weeks}, by component",
     )
 
 

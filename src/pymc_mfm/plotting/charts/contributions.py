@@ -1,4 +1,4 @@
-"""What each component contributed, week by week (``model.plot.contributions_over_time``)."""
+"""Weekly contribution of each component (``model.plot.contributions_over_time``)."""
 
 from __future__ import annotations
 
@@ -212,7 +212,7 @@ def prepare(
         truth=_truth(truth, windows, names),
         target=first.target,
         interval=interval,
-        title=title or f"What each component contributed to {first.target}, week by week",
+        title=title or f"Weekly contributions to expected {first.target}",
         caption=lines,
     )
 
@@ -244,7 +244,7 @@ def _matplotlib_stack(data: Contributions, ax) -> Any:
             linewidth=1.1,
             marker="o",
             markersize=2.5,
-            label=f"Actual {data.target}",
+            label=f"Observed {data.target}",
         )
     if data.first_query is not None:
         forecast_span(ax, positions, data.first_query)
@@ -369,7 +369,7 @@ def _plotly_stack(fig, data: Contributions) -> None:
                 )
             )
     if data.outcome is not None:
-        actual = plotting.text(f"Actual {data.target}")
+        actual = plotting.text(f"Observed {data.target}")
         fig.add_trace(
             go.Scatter(
                 x=data.dates,

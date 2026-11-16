@@ -159,7 +159,7 @@ def test_a_draw_without_a_week_expecting_sales_is_left_out():
             prepare_window(_window(-np.abs(DRAWS)), share=share, view="bars", interval=0.9)
 
 
-def test_spread_densities_peak_at_one_where_normal_shares_center():
+def test_dist_densities_peak_at_one_where_normal_shares_center():
     # Normal quantiles as draws: their kernel density peaks at their mean.
     probabilities = (np.arange(2000) + 0.5) / 2000
     search = np.array([NormalDist(0.3, 0.05).inv_cdf(p) for p in probabilities])
@@ -171,7 +171,7 @@ def test_spread_densities_peak_at_one_where_normal_shares_center():
         components=("baseline", "search", "temperature", "price"),
         families=("baseline", "channel", "control", "control"),
     )
-    data = prepare_window(window, share="total", view="spread", interval=0.9)
+    data = prepare_window(window, share="total", view="dist", interval=0.9)
     assert data.names == ("search", "temperature", "price")  # component order
     assert data.colors == tuple(series_colors(data.names).values())
     np.testing.assert_allclose(data.shares, np.stack([search, temperature, price], axis=-1))
@@ -183,7 +183,7 @@ def test_spread_densities_peak_at_one_where_normal_shares_center():
     reach = 3 * search.std(ddof=1) * 2000**-0.2
     assert data.grid.shape == (GRID_POINTS,)
     np.testing.assert_allclose(data.grid[[0, -1]], [temperature[0] - reach, search[-1] + reach])
-    assert "Densities scaled to equal height" in data.caption
+    assert "Kernel densities, each scaled to a peak of 1" in data.caption
 
 
 def test_default_bars_are_mean_shares_of_the_history_weeks(predicted_model):
@@ -212,7 +212,7 @@ def test_query_total_shares_never_sample_the_context(predicted_model):
     np.testing.assert_allclose(drawn[0], expected[0])
     np.testing.assert_allclose(drawn[1], expected[1])
     assert ax.get_xlabel() == "Share of expected sales over the 6 forecast weeks"
-    assert ax.get_title().startswith("How does each driver contribute to sales?\n")
+    assert ax.get_title().startswith("Share of expected sales by channel and control\n")
 
 
 def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
@@ -244,11 +244,11 @@ def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
     assert "80% interval" in fig.data[0].hovertemplate
 
 
-def test_spread_draws_the_same_densities_in_both_backends(predicted_model):
+def test_dist_draws_the_same_densities_in_both_backends(predicted_model):
     pytest.importorskip("plotly")
-    data = prepare(ModelSource(predicted_model), window="query", view="spread")
-    ax = predicted_model.plot.shares(window="query", view="spread").axes[0]
-    fig = predicted_model.plot.shares(window="query", view="spread", backend="plotly")
+    data = prepare(ModelSource(predicted_model), window="query", view="dist")
+    ax = predicted_model.plot.shares(window="query", view="dist").axes[0]
+    fig = predicted_model.plot.shares(window="query", view="dist", backend="plotly")
     assert data.names == ("search", "tv", "temperature")
     assert [line.get_label() for line in ax.lines] == [trace.name for trace in fig.data]
     assert [trace.name for trace in fig.data] == list(data.names)
@@ -263,7 +263,7 @@ def test_spread_draws_the_same_densities_in_both_backends(predicted_model):
         np.testing.assert_array_equal(trace.y, density)
         assert line.get_color() == trace.line.color == color
         assert trace.fill == "tozeroy"
-    assert "Densities scaled to equal height" in fig.layout.title.text
+    assert "Kernel densities, each scaled to a peak of 1" in fig.layout.title.text
 
 
 @pytest.mark.parametrize(

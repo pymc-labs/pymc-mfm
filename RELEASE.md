@@ -10,9 +10,10 @@ distribution prerequisites, not an approved or published release.
 - **`model.plot`: charts of the latest `add_context` and `inference`.** `MFM.plot` returns
   `pymc_mfm.plotting.ModelPlots`. It offers seven charts:
   - `inputs`: outcome, spend and controls by week.
-  - `fit`: expected against observed outcome, with MAPE, R² and interval coverage.
+  - `fit`: expected against observed outcome, with MAPE, R² and empirical interval coverage.
   - `contributions_over_time`: stacked weekly means, or one panel per component.
-  - `shares`: each driver's share of the expected outcome, as bars or densities.
+  - `shares`: each channel's and control's share of the expected outcome, as bars with
+    intervals or (`view="dist"`) kernel densities.
   - `contribution_totals`: window totals over draws.
   - `contribution_vs_spend`: weekly spend against contribution.
   - `response_curves`: contribution by spend level.

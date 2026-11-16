@@ -58,16 +58,16 @@ class ModelPlots:
         backend: str | None = None,
         title: str | None = None,
     ) -> Any:
-        """How well the expected outcome follows the observed outcome, week by week.
+        """Expected against observed outcome by week, with goodness-of-fit scores.
 
         Draws the mean and central ``interval`` of the expected-outcome draws over the
         observed outcome, each window as its own segment, with the forecast weeks
         shaded when both windows are drawn. Below, the scores of each window with at
         least two observed weeks (cards in matplotlib, a table in plotly): MAPE (over
         weeks whose outcome is not zero) and R² (left out for a constant outcome) of
-        the mean line, each ± its standard deviation over draws, and the share of
-        observed weeks inside the interval. The intervals exclude observation noise,
-        so fewer observed weeks than ``interval`` may fall inside them.
+        the mean line, each ± its standard deviation over draws, and the empirical
+        coverage of the interval (the share of observed weeks inside it). The intervals
+        exclude observation noise, so coverage can fall below ``interval``.
 
         Needs ``inference``. Forecast weeks show and score the outcome only when the
         data given to ``inference`` had the target column. ``window`` is ``"context"``
@@ -100,9 +100,9 @@ class ModelPlots:
         the caption says how many.
 
         ``view="bars"`` draws each mean share with its central ``interval`` over draws:
-        channels first, then controls, each largest first. ``view="spread"`` draws the
-        per-draw shares of each as a Gaussian kernel density (Scott's bandwidth), all
-        scaled to the same height.
+        channels first, then controls, each largest first. ``view="dist"`` draws the
+        distribution of each series' per-draw shares as a Gaussian kernel density
+        (Scott's bandwidth), all scaled to the same peak height.
 
         Needs ``inference``. ``window`` is ``"context"`` (the history weeks) or
         ``"query"`` (the forecast weeks; never samples the context). ``interval`` is a
@@ -130,7 +130,7 @@ class ModelPlots:
         backend: str | None = None,
         title: str | None = None,
     ) -> Any:
-        """How much each component adds over a window: the spread of its total over draws.
+        """Distribution over draws of each component's total contribution over a window.
 
         One panel per component: a histogram of its per-draw totals (each draw's
         weekly contributions summed over the window), with their mean (solid line),
@@ -202,7 +202,7 @@ class ModelPlots:
         backend: str | None = None,
         title: str | None = None,
     ) -> Any:
-        """Where each channel's extra spend stops adding to the outcome.
+        """Response curves: each channel's contribution by spend level.
 
         One panel per channel, sharing the y axis: the mean and central ``interval``
         of the channel's contribution, summed over the weeks it was varied, against
@@ -235,7 +235,7 @@ class ModelPlots:
         title: str | None = None,
         ax: Any = None,
     ) -> Any:
-        """What each component contributed to the outcome, week by week.
+        """Weekly contribution of each component to the expected outcome.
 
         Components are drawn from the bottom of the stack up: baseline, latent,
         indirect, controls, then channels on top. ``stacked=True`` stacks each

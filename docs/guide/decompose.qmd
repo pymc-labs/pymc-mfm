@@ -35,7 +35,7 @@ model.plot.inputs()  # outcome, spend and controls by week
 model.plot.fit()  # expected vs observed outcome, with MAPE, R² and interval coverage
 model.plot.contributions_over_time()  # stacked weekly means of every component
 model.plot.contributions_over_time(stacked=False, truth=truth)  # one panel per component
-model.plot.shares()  # each driver's share of the expected outcome; view="spread" for densities
+model.plot.shares()  # share of the expected outcome by channel and control; view="dist" for densities
 model.plot.contribution_totals(window="query")  # each component's total over the forecast
 model.plot.contribution_vs_spend()  # weekly spend against weekly contribution
 

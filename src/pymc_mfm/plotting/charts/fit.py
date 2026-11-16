@@ -1,4 +1,4 @@
-"""How well the expected outcome follows the observed outcome (``model.plot.fit``)."""
+"""Expected against observed outcome, with goodness-of-fit scores (``model.plot.fit``)."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ def prepare(
         scores=tuple(scores),
         target=target,
         interval=interval,
-        title=title or f"How well the expected outcome follows actual {target}",
+        title=title or f"Expected and observed {target}",
         caption=caption(interval, first.n_samples),
     )
 
@@ -164,7 +164,7 @@ def _metrics(score: Score, interval: float) -> tuple[tuple[str, str], ...]:
         ("MAPE", "" if score.mape is None else f"{score.mape:.1%} ± {score.mape_sd:.1%}"),
         ("R²", "" if score.r2 is None else f"{score.r2:.2f} ± {score.r2_sd:.2f}"),
         (
-            f"Inside {percent(interval)} interval",
+            f"Coverage of the {percent(interval)} interval",
             f"{score.coverage:.0%} ({score.inside} of {score.weeks})",
         ),
     )
@@ -229,7 +229,7 @@ def _matplotlib(data: Fit) -> Any:
             linewidth=1.1,
             marker="o",
             markersize=2.5,
-            label=f"Actual {data.target}",
+            label=f"Observed {data.target}",
         )
     if data.first_query is not None:
         forecast_span(ax, positions, data.first_query)
@@ -302,7 +302,7 @@ def _plotly(data: Fit) -> Any:
             col=1,
         )
     if data.observed is not None:
-        actual = plotting.text(f"Actual {data.target}")
+        actual = plotting.text(f"Observed {data.target}")
         fig.add_trace(
             go.Scatter(
                 x=data.dates,

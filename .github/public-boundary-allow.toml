@@ -6,15 +6,22 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Fully executed synthetic-data quickstart with the pinned River-1 model after the model.plot rewrite: all 24 code cells ran top to bottom (add_context, inference, the model.plot charts, response_curves and the graph section), with 15 inline PNG plots; stderr streams (download progress, a tqdm warning naming local paths) were dropped. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
-sha256 = "b187d9897f10bd05f675cc3550907ba423708dca06ca485137670497d351bd16"
+reason = "Fully executed synthetic-data quickstart with the pinned River-1 model after the model.plot rewrite and its renames (view=\"dist\", descriptive chart titles): all 24 code cells ran top to bottom (add_context, inference, the model.plot charts, response_curves and the graph section), with 15 inline PNG plots; stderr streams (download progress, a tqdm warning naming local paths) were dropped. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
+sha256 = "e7da8d1ac1d3978daedbde26bdef82a21f6b80098cda9fd5634234e1f38bdd1a"
 max_bytes = 3000000
 
 # Range scans use the end-revision allowlist for every historical blob.
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Reviewed model.plot quickstart before one code cell was wrapped for the 100-character line limit; its outputs are byte-identical to the current notebook. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+reason = "Reviewed model.plot quickstart before the chart renames (view=\"spread\", question-style titles), with its data cell wrapped for the 100-character limit. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+sha256 = "b187d9897f10bd05f675cc3550907ba423708dca06ca485137670497d351bd16"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed model.plot quickstart before its data cell was wrapped for the 100-character line limit. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
 sha256 = "bdfb3e9f7bff7a69e77ebc66d9149c56a920757d7ec0d0c8c24626eab5cd959a"
 max_bytes = 3000000
 

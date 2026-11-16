@@ -1,4 +1,4 @@
-"""What the model reads: outcome, spend and controls by week (``model.plot.inputs``)."""
+"""Model inputs: outcome, spend and controls by week (``model.plot.inputs``)."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def prepare(source: ModelSource, *, title: str | None = None) -> Inputs:
         *((name, "channel", spend[:, index]) for index, name in enumerate(channels)),
         *((name, "control", controls[:, index]) for index, name in enumerate(controls_named)),
     )
-    return Inputs(dates, first, series, title or "What the model reads")
+    return Inputs(dates, first, series, title or "Model inputs: outcome, spend and controls")
 
 
 def _matplotlib(data: Inputs) -> Any:

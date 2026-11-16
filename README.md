@@ -124,9 +124,9 @@ model.plot.fit(backend="plotly")  # interactive: hover, zoom, click a legend ent
 | Method | Shows | Main options |
 | --- | --- | --- |
 | `inputs()` | Outcome, spend and controls by week | |
-| `fit()` | Mean and interval of the expected outcome over the observed outcome; MAPE and R² of the mean line (± their spread over draws) and the share of observed weeks inside the interval | `window` |
+| `fit()` | Mean and interval of the expected outcome over the observed outcome; MAPE and R² of the mean line (± their standard deviation over draws) and the empirical coverage of the interval | `window` |
 | `contributions_over_time()` | Stacked weekly means of every component; `stacked=False` gives one panel per component with its interval | `window`, `components`, `stacked`, `truth` |
-| `shares()` | Each channel's and control's share of the expected outcome: bars with intervals, or `view="spread"` densities | `share="mean"` or `"total"`, `window`, `view` |
+| `shares()` | Each channel's and control's share of the expected outcome: bars with intervals, or `view="dist"` kernel densities | `share="mean"` or `"total"`, `window`, `view` |
 | `contribution_totals()` | Histogram of each component's total over the window | `window`, `components`, `bins`, `truth` |
 | `contribution_vs_spend()` | Each week's raw spend against the channel's mean contribution | `window`, `channels`, `truth` |
 | `response_curves()` | The latest `model.response_curves(...)`: contribution by spend level, actual spend marked | `channels`, `truth` |
