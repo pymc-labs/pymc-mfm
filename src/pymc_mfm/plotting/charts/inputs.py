@@ -98,7 +98,7 @@ def _plotly(data: Inputs) -> Any:
                 mode="lines",
                 name=name,
                 line={"color": _ROLE_COLORS[role], "width": 1.5},
-                hovertemplate=f"%{{x|%Y-%m-%d}}<br>%{{y:,.4~g}}<extra>{plotting.text(name)}</extra>",
+                hovertemplate=f"%{{x|%Y-%m-%d}}<br>%{{y:,.4~r}}<extra>{plotting.text(name)}</extra>",
                 showlegend=False,
             ),
             row=row,
