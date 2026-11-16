@@ -1,179 +1,169 @@
-# Design: model-owned inference data
+# Design: one-call inference and model-owned idata
 
 Status: proposal, not implemented. Stacked on [PR #115](https://github.com/pymc-labs/pymc-mfm/pull/115), head `c9c6c231516217961ded867ed2ad1fe265df7d70`.
 
-## Goal and recommended contract
+## Recommended API
 
-Make inference data part of the dataframe workflow, not a separate export step:
+Make **`model.inference(context, query, ...)` the complete operation**: validate both frames, sample both marginals, and return the same populated tree stored as `model.idata`. There is no preceding context-attachment call or subsequent export call.
 
-- `model.add_context(history, ...)` creates and stores a populated `model.idata` immediately, without sampling or training.
-- `idata = model.inference(plan, ...)` automatically adds the context and query draws and returns the exact object stored as `model.idata`.
-- `model.response_curves(...)` adds its result to that tree while retaining its existing `ResponseCurves` return type.
-- A successful rerun replaces its previous output and removes dependent outputs. Nothing appends draws, dates, scenarios or run history implicitly.
-- Reading `model.idata` and drawing charts never runs inference, converts arrays or consumes random numbers.
-- A failed operation preserves all previously published model state. A successful operation publishes a new tree; previously returned trees are not rewritten.
+| API | Responsibility | Return and stored-state effect |
+| --- | --- | --- |
+| `model.inference(context, query, ...)` | Complete inference for an explicit history/future pair | Returns and stores a new complete `xarray.DataTree`; atomically replaces the previous run |
+| `model.predict(query, ...)` | Query-only decomposition using the last successful inference's history and column roles | Returns a fresh `DecompositionResult`; does not modify the stored inference, idata or curves |
+| `model.response_curves(...)` | Sweep scenarios around the last complete inference | Returns `ResponseCurves` and attaches/replaces its subtree in a new `model.idata` root |
+| `model.idata` | Read the last complete inference, with any attached curve output | Passive property; `None` before the first successful inference |
+| `model.query_result` | Access the exact query `DecompositionResult` from the last complete inference | Passive property; `None` before the first successful inference |
 
-This is a deliberate public API change: remove `MFM.build_idata` and change the dataframe `MFM.inference` return from `DecompositionResult` to `xarray.DataTree`. Keep array-level `decompose`, `DecompositionResult`, and its standalone export/persistence APIs. Do not add a return-type switch, `store` flag, lazy property, or compatibility alias.
+`inference` requires both dataframes and keyword-only column roles: `date_column`, `target_column`, `channel_columns`, `control_columns`. Keep the existing sampling options: `n_samples`, `mode`, `graph`, `router_samples`, `units`, `provenance`. Roles are explicit on each complete call; do not guess them from column names or a previous run.
 
-Expose a passive `model.query_result` property for the exact `DecompositionResult` already retained by `_PredictionSnapshot`. It is `None` before inference and after successful context replacement; successful inference replaces it, failed calls preserve it, and curve calculations do not change it. It performs no reconstruction, copying or sampling. This small companion accessor preserves result-specific diagnostics, graph inspection and evidence saving without a second inference run or a public DataTree-to-result adapter.
+`predict` inherits only the stored history and role schema. It accepts the current query-only inference's sampling options/defaults; it does not silently inherit a previous draw count or fixed graph bank. `mode="fixed"` still requires explicit `graph`. Calling it before a successful complete inference raises a clear error. It never appends predictions to history or samples context.
 
-## Evidence and the important modeling constraint
+**State decision:** prediction is a calculation, not a replacement of the stored complete analysis. `model.plot` and `response_curves` continue to describe the last successful `inference`, not an intervening `predict`. To make another plan the stored/plotted analysis, call `inference(context, new_query, ...)`. This avoids retaining context draws from one plan alongside query draws from another. Do not add an `update_idata` flag or a partially populated query-only model tree.
+
+### What this simplifies
+
+Remove public `MFM.add_context` and `MFM.build_idata`; keep context validation/snapshotting private. The earlier proposal's data-only idata state is no longer necessary: before inference there is no tree, and after inference both marginals are ready. Rename the old query-only operation to `predict` rather than overloading `inference` to mean two different things. Preserve array-level `decompose`, `DecompositionResult`, and standalone result persistence/export.
+
+The `query_result` reader is needed because existing diagnostics, graph inspection and evidence-saving APIs consume a `DecompositionResult`. It exposes the already-computed query result without reconstruction, copying or sampling. A result returned by `predict` is independent and is not installed as `model.query_result`.
+
+## Why context and query belong in one call
 
 At the PR #115 base:
 
-- [`MFM.add_context`](../../src/pymc_mfm/model/model.py) stores an immutable `_FittedContext`, clears predictions and curves, and sets `_idata` to `None`.
-- `MFM.inference` returns a `DecompositionResult`, retains `_PredictionSnapshot`, and clears the context-draw cache, curves and idata.
-- `MFM.build_idata` is an explicit, optional-dependency export. Its first call samples context; only `store=True` populates the passive idata property.
-- `MFM._context_result` is also called by [`ModelSource.window`](../../src/pymc_mfm/plotting/charts/_data.py), so a context chart may currently sample.
-- [`prediction_datatree`](../../src/pymc_mfm/inference/_datatree.py) already separates context/query marginals and uses named components. It does not include input covariates or query observations.
-- [`observation_batch`](../../src/pymc_mfm/inference/api.py) requires a nonempty query. Context decomposition uses the actual context-plus-query encoder input, including its relative time positions. A different plan or horizon can change context draws even when history is unchanged.
+- [`MFM.add_context`](../../src/pymc_mfm/model/model.py) validates/stores history; `MFM.inference` samples query only and retains `_PredictionSnapshot`.
+- `MFM.build_idata` samples missing context draws and converts the windows; only `store=True` populates idata.
+- [`ModelSource.window`](../../src/pymc_mfm/plotting/charts/_data.py) also triggers that context sampling on the first context chart.
+- [`prediction_datatree`](../../src/pymc_mfm/inference/_datatree.py) already separates the two posterior marginals, but omits input covariates and query observations.
+- [`observation_batch`](../../src/pymc_mfm/inference/api.py) requires a nonempty query. Context draws depend on the actual context-plus-query encoder input, including future covariates and relative time positions.
 
-Consequently, **creating idata at `add_context` does not mean producing a context posterior there**. Populate real history and metadata, but omit posterior groups until an actual plan is inferred. Do not manufacture future rows, silently hold out history, or use dummy covariates to make the sampler run. Context-only decomposition would require a separate modeling/API proposal.
+Changing a future plan or its horizon can therefore change context draws even when history is unchanged. Accepting both inputs at the sampling boundary makes this dependency explicit. Never manufacture future rows, silently hold out history, or use dummy covariates to obtain context draws.
 
-### Upstream precedent, not a schema to copy blindly
+One call does **not** change the statistical model: context and query remain separate marginals, not paired full-horizon trajectories. Matching draw indices do not pair their samples. Contributions exclude observation noise and are not automatically causal lift.
 
-[PyMC `sample`](https://www.pymc.io/projects/docs/en/stable/api/generated/pymc.sample.html) returns inference data by default. [PyMC-Marketing's `ModelBuilder` at the inspected revision](https://github.com/pymc-labs/pymc-marketing/blob/6f88b343a9837e4b68577f30c754819cb90bb36c/pymc_marketing/model_builder.py) stores and returns idata from `fit`; its fit path also removes posterior-derived groups before updating. Its posterior-predictive method can add groups while returning extracted predictions. These establish ownership and lifecycle precedents, not identical return contracts for every method.
+### Upstream precedent
 
-Retain this repository's `xarray.DataTree` representation rather than introducing legacy `arviz.InferenceData` alongside it. Here, “idata” names that tree. PyMC-Marketing's current source also uses DataTree; PyMC's documented stable sampling API names `InferenceData`. Do not claim those Python types are interchangeable.
+[PyMC `sample`](https://www.pymc.io/projects/docs/en/stable/api/generated/pymc.sample.html) returns inference data by default. [PyMC-Marketing's inspected `ModelBuilder`](https://github.com/pymc-labs/pymc-marketing/blob/6f88b343a9837e4b68577f30c754819cb90bb36c/pymc_marketing/model_builder.py) stores and returns idata from `fit`, and removes posterior-derived outputs when replacing the posterior. Its prediction helpers illustrate that a convenience result return need not match the main inference return.
 
-MFM draws are amortized conditional decomposition draws, not MCMC samples or noisy posterior-predictive observations. Preserve those distinctions despite familiar ArviZ group names.
+Keep this repository's `xarray.DataTree`; do not introduce legacy `arviz.InferenceData` alongside it. Here, “idata” names that tree. PyMC's stable sampling documentation names `InferenceData`; those Python types are not interchangeable. MFM draws are amortized conditional draws, not MCMC samples.
 
-## Lifecycle and overwrite semantics
+## Lifecycle, overwrite and ownership
 
-`model.idata` is `None` on construction and after loading a weight bundle. It becomes non-`None` after the first successful `add_context` and stays populated through subsequent successful operations.
+Construction and loading a weight bundle leave idata, query result, context and curves unset. A successful `inference` installs the context snapshot, complete prediction, both marginals and tree together. Repeating it replaces that entire run and removes curves, whether history, plan, sampling settings or only provenance changed. Identical inputs still sample afresh.
 
-| Operation | Published data | Replaced or invalidated | Return |
-| --- | --- | --- | --- |
-| `add_context(history, ...)` | New context observations, covariates and role metadata | All earlier context, both posterior marginals, query data and response curves | `self`, preserving chaining |
-| `inference(plan, ...)` | Current history plus this plan's covariates, available query observations, and both posterior marginals | Entire previous query subtree, context posterior and its inference metadata, response curves | New `model.idata` |
-| `response_curves(...)` | Current inference plus the completed sweep | Entire previous response-curve subtree, including omitted channels/levels | Existing `ResponseCurves` result; new tree available through `model.idata` |
-| `idata`, `input_usage`, charts | No new model state | Nothing | Existing property/report/figure contract |
-| Any failed operation | No new model state | Nothing | Raise the original error |
+A shorter plan replaces a longer plan: no leftover dates, coordinates, observations or variables. Every complete inference regenerates both marginals; do not cache context draws merely because history is unchanged. Failed validation, sampling or conversion preserves the entire last successful run and its curves.
 
-Every inference rerun regenerates **both** marginals, even if only future inputs, horizon, draw count, graph mode, units or provenance changed. Never reuse context draws solely because history is unchanged. Query draws and context draws are separate marginals; equal draw indices do not pair them across time windows.
+A successful `response_curves` call replaces its entire previous subtree, including channels/levels omitted on the rerun. Internal scenarios do not change the base inference. A failed sweep or conversion leaves the last curve result/tree intact. `predict`, `input_usage`, property reads and charts never publish changes to the stored run; sampling in `predict` still consumes random numbers.
 
-A shorter plan replaces a longer plan: no leftover dates, coordinates, observations or variables. A curve rerun with fewer channels or levels removes old ones. Repeating identical inputs still performs fresh sampling and overwrites; it is not an inference cache. A new context removes query and curve groups entirely rather than publishing empty placeholders.
+Each successful publishing operation assigns a newly assembled root to `_idata`. `model.inference(...) is model.idata` holds immediately after the call; repeated property reads return that same current root. Earlier caller-held trees and results remain snapshots and must not be rewritten by later calls. Curve attachment does not replace `query_result`.
 
-### Object identity and caller-held results
+Copy tree structure and mutable attribute mappings, but reuse unchanged owned/read-only numeric buffers where safe. Do not reparent live DataTree nodes, share mutable tree structure between published snapshots, or deep-copy all posterior arrays merely to attach curves. Required named-slot/dtype conversion copies are acceptable. Verify xarray aliasing behavior rather than assuming a shallow copy isolates everything.
 
-“Inference adds to idata” describes the logical dataset, not permanent Python object identity. Each successful state-changing operation assigns a newly assembled root to `_idata`. Repeated property reads return the same current root. `model.inference(...) is model.idata` holds immediately after the call; an earlier local reference remains the earlier snapshot after another call.
+The public tree is read-only by convention. Users copy before editing; editing a tree is not a supported way to change neural inputs or model state. Keep the workflow sequential: concurrent mutating calls on one model are unsupported, with no new locks, background tasks, results registry or export history.
 
-Copy tree structure and mutable attribute mappings, but reuse unchanged, owned, read-only numeric buffers where safe. Never deep-copy the entire history and posterior on every curve update. Conversely, do not reparent live DataTree nodes or share mutable tree structure with older snapshots. Numeric conversion copies required for named active slots or safe dtypes are acceptable; redundant draw copies are not.
+## Tree schema and provenance
 
-The public tree is read-only by convention, not a custom immutable wrapper. Users must copy before editing it; manual mutation is not a supported way to change context, inference or curves. Model updates must not mutate older published trees. Validate buffer ownership/read-only behavior against the actual xarray APIs during implementation rather than assuming a shallow tree copy isolates everything.
+Preserve existing named posterior variables, active-slot filtering and separate context/query paths. Each subtree owns its axes; the convenience root has no date, draw, channel, level or edge coordinates.
 
-## Tree schema
-
-Preserve existing context/query posterior paths, names, active-slot filtering and dimensions. Extend their data groups instead of flattening both windows into a global posterior. No date, draw, channel, level or edge coordinates on the convenience root: each subtree owns its axes, so differently shaped runs cannot align accidentally.
-
-| Path | Contents and dimensions | Available after |
+| Path | Contents | Published by |
 | --- | --- | --- |
-| `/context/observed_data` | `outcome(date)` with sorted, original-unit history outcomes | `add_context` |
-| `/context/constant_data` | `media(date, channel)`, `controls(date, control)` for supplied, unpadded roles; existing component/edge descriptors added when available | `add_context`; descriptors completed by inference |
-| `/context/posterior` | Existing named decomposition variables and `graph` | `inference` |
-| `/query/constant_data` | This plan's media/control covariates, with the same named-role convention | `inference` |
-| `/query/observed_data` | Optional `outcome(date)`; finite supplied values, NaN for unobserved dates | `inference`, only when any observation is available |
-| `/query/posterior` | Existing named decomposition variables and `graph` | `inference` |
-| `/response_curves/posterior` | `contribution(chain, draw, channel, level)` from the completed sweep | `response_curves` |
-| `/response_curves/constant_data` | `media(channel, level)` totals at each multiplier and the actual sweep dates on a local date axis | `response_curves` |
+| `/context/observed_data` | Sorted original-unit `outcome(date)` | `inference` |
+| `/context/constant_data` | `media(date, channel)`, `controls(date, control)` and available component/edge descriptors | `inference` |
+| `/context/posterior` | Existing named decomposition variables and graph draws | `inference` |
+| `/query/constant_data` | This plan's original-unit covariates and descriptors | `inference` |
+| `/query/observed_data` | Optional `outcome(date)` with NaN for unobserved dates | `inference`, only when any finite outcome is supplied |
+| `/query/posterior` | Existing named decomposition variables and graph draws | `inference` |
+| `/response_curves/posterior` | `contribution(chain, draw, channel, level)` | `response_curves` |
+| `/response_curves/constant_data` | `media(channel, level)` totals and actual sweep dates on a local date axis | `response_curves` |
 
-Both window posterior groups retain `chain=1`; contributions have `chain, draw, date` plus `channel` or `control` where appropriate, and graph has `chain, draw, edge`. Padded controls and inactive graph slots remain absent. Preserve zero-edge behavior: do not invent a graph variable where the existing converter omits it. Covariates are original-unit values, not model-normalized inputs.
+Window posteriors retain `chain=1`; contributions have `chain, draw, date` plus channel/control where appropriate, and graph has `chain, draw, edge`. Preserve omission of padded controls/inactive graph slots and the converter's zero-edge behavior. Configured role names/order and target/date column names remain serializable metadata; role labels are coordinate values, not group paths.
 
-Retain configured role names/order and the target/date column names as serializable metadata, while observed values use the stable variable name `outcome`. Treat role labels as coordinate values, never group paths or parsed identifiers. Detect labels that cannot be represented by the supported tree/storage contract during context validation, before any sampling.
+Query outcomes follow PR #115's `query_outcome` sanitization and remain display/evaluation-only. They never enter encoder inputs, scaling, graph selection or inference input identity. A plan with no finite observed outcome has no query observation group. Changing only query outcomes cannot change seeded draws.
 
-Query outcomes follow PR #115's `query_outcome` sanitization. They remain evaluation/display-only: they never enter encoder inputs, scaling, graph selection or inference input identity. Omit `/query/observed_data` entirely when there are no finite query observations. Changing only those observations must not change seeded decomposition draws.
+Keep units and existing scalar identity attributes on each inference window. Store its complete canonical result provenance as JSON text in `attrs["provenance"]`, including authoritative `input_usage`, sampling configuration and nested caller annotations. Readers JSON-decode that attribute, or use `model.query_result.provenance`. Reuse existing JSON validation/canonicalization, rejecting unsupported/nonfinite metadata before sampling rather than stringifying arbitrary objects. Generic standalone result exports keep their existing contract.
 
-Keep units and the existing selected scalar identity attributes on each inference window. Additionally, store the complete canonical result provenance as a documented JSON string in each window's `attrs["provenance"]`, including authoritative `input_usage`, inference configuration and nested caller annotations. The replacement for `query.provenance["input_usage"]` is the `input_usage` entry obtained by JSON-decoding `model.idata["query"].attrs["provenance"]`; `model.query_result.provenance` also remains available. Reuse the existing JSON validation/canonicalization rules, reject unsupported or nonfinite values before sampling, and never stringify arbitrary objects as a fallback. This changes the model-tree schema, not generic standalone result exports.
+Add a model-tree schema version and one model-local `inference_revision`, advanced only on successful complete inference. Curves record the source revision, actual sweep sampling settings and units; levels/dates remain coordinates/data. Base-run provenance is separately labeled JSON `source_provenance`, not a claim that every truncated/scaled scenario has the original full-plan input identity or usage. No separate context revision is needed because context is installed only as part of a complete run.
 
-Add a versioned model-tree schema attribute and model-local context/prediction revision numbers, committed only on success. Curve metadata records source revisions, actual sweep sampling settings and units; levels/dates live in coordinates/data rather than nonportable nested attributes. Store base-prediction provenance separately as JSON `source_provenance`, not as a claim that every truncated/scaled scenario has the original full-plan input identity or usage. Revisions describe local dependency lineage, not globally unique identities or replacements for existing data/model digests. Do not claim inference provenance exists on the data-only tree before sampling.
+Preserve the notes about independent amortized draws, inapplicable MCMC convergence diagnostics and separate marginals. Curve level draws are not paired; the unchanged reference may be reused across channels/zero-input levels. Do not add synthetic observation noise, posterior-predictive/likelihood/sample-stat groups or invented evidence. ArviZ summaries target a window subtree such as `model.idata['query']`, not the root; curve draws have their own axes and may use a different count.
 
-Preserve the existing warnings about independent amortized draws, inapplicable MCMC convergence diagnostics, and separate context/query marginals. Add a curve-specific note: level draws are not paired; the shared unchanged-input reference can be reused across channels/zero-input levels. Curve distributions describe conditional contributions, not causal lift. Do not label decomposition draws as `posterior_predictive`, add observation noise, or invent likelihood/sample-stat groups.
+## Execution boundary
 
-ArviZ summaries target a window subtree such as `model.idata['query']`, not the convenience root. The response-curve subtree has its own sample axes and may have a different draw count from the base prediction.
+### Complete `inference(context, query, ...)`
 
-## Sampling and publication boundary
+1. Validate/snapshot candidate history with `_FittedContext`, then validate the query against those candidate roles, cadence and context-only scales. Validate sampling options, exportable labels and provenance; capture query observations separately. Never attach candidate context to the live model as an intermediate step.
+2. Compute query first, preserving the current seeded query-sampling order. Compute context once from the same actual pair and canonical sampling settings. Fixed mode replays the exact per-draw query graphs, as the current `_context_result` does.
+3. Build candidate `_PredictionSnapshot`, completed context result and complete DataTree without changing published fields.
+4. After all work succeeds, publish candidate context, prediction, context result, idata and revision together, removing old curves.
 
-### `add_context`
+A first-call failure leaves an uninitialized model; a later failure leaves the prior complete run. Validation errors occur before sampling. Random numbers consumed by failed sampling are not rolled back; unpublished query/context candidates are discarded rather than hidden in a partial cache. Preserve existing restoration of training/eval mode and unchanged weights/gradients.
 
-Validate/snapshot the dataframe using `_FittedContext`; construct the context-only data groups from that candidate. Publish the context and tree together, then discard all previous prediction-derived state. It performs no encoder/router/decoder work and does not touch the random generator. A tree-construction failure is a failed context update, not a half-installed context.
+The full call deliberately pays for both marginals and their analysis representation. Measure latency and retained/peak memory; do not promise current query-only costs. This is why `predict` remains a separate, cheaper query-only operation rather than a flag that changes inference's meaning.
 
-### `inference`
+### Query-only `predict(query, ...)`
 
-1. Require context, validate the plan/options/exportable labels/provenance and capture display-only query observations.
-2. Compute the query marginal first, preserving the existing seeded query-sampling order. Compute the context marginal once from the same actual plan and canonical sampling settings. For fixed mode, replay the exact per-draw query graphs as the current `_context_result` does; do not independently select replacement graphs.
-3. Construct candidate snapshots, both converted posterior groups and the complete current tree without mutating published fields.
-4. Only after all work succeeds, replace prediction/context-result/idata state together and remove old curves.
+Use the context/roles from the last successful complete run, validate the new query/options and call the shared query computation. Return its `DecompositionResult` without publishing any context, prediction, curve, idata or revision changes. Do not call complete `inference` internally, convert a tree, or generate context draws. Successful and failed predictions leave the stored run unchanged; only sampling may advance RNG. New query dates start immediately after the stored history, not after previous query predictions.
 
-Eagerly computing context is intentional: inference completion means both marginals are ready, and plotting cannot surprise users with sampling or errors. It moves the existing first context-chart/export cost into every dataframe inference call, including query-only workflows. It also retains both marginals and their tree representation in memory. Measure that cost; do not promise the present query-only latency or memory footprint. Query-only/high-throughput consumers can use the existing stateless `decompose` API, not a second dataframe return/storage mode.
+Factor the current query calculation into a private helper accepting an explicit candidate context, so both methods reuse it without temporarily installing model state. Stateless `decompose` remains available for independent array-level query inference without establishing a complete dataframe session.
 
-A sampling/conversion failure leaves the last successful state intact. Random numbers already consumed by failed sampling are not rolled back, and retries may redraw candidate results. Input/metadata validation failures must occur before sampling. Successful query draws from a failed unpublished transaction are not retained in a hidden partial cache. Model training/eval mode restoration and unchanged weights/gradients remain existing requirements.
+### Readers, curves and preflight
 
-### Response curves and charts
+Remove sampling from `_context_result`; make it a checked reader or remove it. Every model chart reads the last complete inference and its attached curves, never an intervening prediction result. Before complete inference, charts raise a clear prerequisite error; there is no history-only public chart state. Independent prediction-result diagnostics can use the returned result directly.
 
-Build the entire curve result and its subtree off to the side, then publish both `_response_curves` and the new idata root together. Internal scenario evaluations continue to call stateless `decompose`, never public `MFM.inference`: a sweep must not overwrite the base prediction or recursively compute/publish context marginals for each level. An exception at any level or during tree conversion leaves the previous curves and base inference untouched.
+Build curves and their tree off to the side, then publish `_response_curves` and a new root together. Internal scenarios continue to use stateless `decompose`, never state-publishing inference; no context marginal is needed per sweep level. Charts and tree values share completed numerical results, not independently regenerated draws.
 
-Remove sampling from `_context_result`; make it a checked reader of completed inference state or remove it if callers no longer need it. Charts reuse the exact published computational draws/curve buffers, not independently regenerated results. `plot.inputs` remains useful after `add_context`; charts that require posterior draws still raise a clear “call inference first” error. Chart validation/import failures do not change idata or random state.
-
-### Internal ownership
-
-Keep the validated dataframe context and `_PredictionSnapshot` for model inputs, sampling configuration and provenance replay. `query_result` exposes the snapshot's existing result; context results remain private computational state. Those objects and idata derive from the same completed draws. The tree is the primary public analysis representation, not input to the neural model. Do not introduce a second sampler path, a generic results registry, an event system, or synchronized histories of exports. Share existing conversion helpers where their contracts fit; leave generic single-result and evaluation-archive exports unchanged.
-
-The model remains a sequential mutable workflow, not a concurrent session manager. Concurrent mutating calls on one instance are unsupported. Do not add locks, background tasks or a new cache invalidation framework.
+Preserve no-sampling preflight through `input_usage`: accept explicit context/query and role inputs for a new run, sharing the candidate validation path without a prior successful inference or state publication. Preserve context-only usage inspection without inventing a zero-length query; migrate existing stored-context examples to explicit inputs. Do not require expensive inference merely to inspect request size.
 
 ## Dependencies and persistence
 
-Automatic idata must work with the normal local-model install, not only when an optional export extra happens to be installed. Add explicit `xarray>=2024.10` and `arviz-base>=1.3,<2` dependencies to `local` and update the lockfile. The current lock already includes ArviZ Base 1.3.0. Do not add PyMC, PyMC-Marketing, plotting backends or ArviZ statistics to the local inference requirement just to construct trees. Keep base HTTP-client imports lightweight; `pymc-mfm[arviz]` can continue to supply optional statistics capabilities, with its description updated accordingly.
+Add explicit `xarray>=2024.10` and `arviz-base>=1.3,<2` dependencies to `local` and update the lockfile; the lock already contains ArviZ Base 1.3.0. Normal local inference must construct idata without an optional export extra. Do not pull in PyMC, PyMC-Marketing, statistics or plotting just for tree construction. Base HTTP-client imports remain lightweight; the `arviz` extra continues to supply optional statistics.
 
-Keep dependency gates honest: core context/inference lifecycle, curve conversion, rollback and bundle privacy tests must run with `local` plus the test runner, without `arviz_stats`, matplotlib or plotly. The current `needs_arviz` marker also requires statistics, and `test_response_curves.py` currently skips the whole file without matplotlib; separate computational acceptance from statistics/rendering gates. Split the combined lazy-import test in `test_datatree.py`: the standalone array API and saved-result operations retain their lazy tree-import boundary, while dataframe operations intentionally import the now-required tree packages.
+Core lifecycle, prediction isolation, curve conversion, rollback and bundle privacy acceptance runs with `local` plus the test runner, without statistics/plotting. Split the current `needs_arviz` gate, whole-file matplotlib skip in `test_response_curves.py` and combined lazy-import check in `test_datatree.py`: mandatory dataframe behavior cannot be skipped because optional rendering/statistics are absent, while standalone array/result operations retain lazy tree imports.
 
-Do not expand this PR into a persistence redesign. Existing xarray tree export is explicit analysis-data export; it may contain sensitive history, inputs, observed query outcomes, labels and inference results. `save_pretrained` and model Hub bundles remain strictly weights/configuration/provenance only and must never capture runtime idata, contexts, predictions or curves. Loading a weight bundle still yields `idata is None`. Reading a saved analysis tree does not restore a runnable model session.
+Analysis-tree file export remains explicit and requires the existing `draws` extra with `engine="h5netcdf"` for netCDF roundtrips. `local` guarantees an in-memory tree, not a file backend. `query_result.save`/`DecompositionResult.load` remain evidence persistence, distinct from analysis-tree export. Neither restores an attached runnable session.
 
-File export still requires the existing `draws` extra: specify `engine="h5netcdf"` for DataTree netCDF roundtrips. The `local` dependency expansion guarantees in-memory idata, not a netCDF backend. Keep `model.query_result.save`/`DecompositionResult.load` as result-evidence persistence, distinct from xarray analysis-tree export; neither restores an attached model session.
+Trees may contain sensitive outcomes, covariates, labels and results. `save_pretrained` and Hub weight bundles must never capture runtime context, predictions, curves or idata. Loading weights leaves all runtime analysis state unset. No automatic file writes or persistence redesign.
 
 ## Migration and implementation sequence
 
-This PR contains only this proposal. The following are implementation work units, not completed changes.
+This PR contains only the proposal. These are future work units, not completed changes.
 
 | Order | Files / surface | Work and acceptance |
 | --- | --- | --- |
-| 1 | `inference/_datatree.py`, `inference/dataframe.py` | Define context-only data groups, complete window assembly and curve conversion. Reuse named posterior conversion. Validate metadata early. Keep standalone result/archive exports stable. Prove sorted original-unit inputs, role ordering and isolated axes. |
-| 2 | `pyproject.toml`, `uv.lock`, `model/model.py` | Make tree dependencies part of `local`; implement atomic automatic creation/publication; return and store the same tree from inference; compute both marginals; expose the already-retained `query_result`; remove `build_idata` and lazy sampling. Prove fresh data-only context and replacement semantics. |
-| 3 | `inference/curves.py`, `model/model.py`, `plotting/charts/_data.py` | Attach complete curve subtrees transactionally; preserve stateless sweep calls and existing typed curve return. Make all charts sampling-free. Prove that plots and idata share numerical results. |
-| 4 | `tests/conftest.py`, `tests/test_add_context_inference.py`, `tests/test_datatree.py`, `tests/test_model_plots.py`, `tests/test_response_curves.py`, affected chart tests | Migrate consumer contracts and cover the failure/overwrite cases below. Split required computational acceptance from optional stats/rendering gates and preserve standalone lazy-import/export tests. Remove tests that pin optional storage, lazy sampling or old return-type contracts instead of retaining obsolete behavior. |
-| 5 | `README.md`, `RELEASE.md`, `docs/guide/decompose.qmd`, `docs/_quarto.yml`, `examples/river_1_quickstart.ipynb`, `tests/test_examples.py` | Migrate every dataframe consumer and API reference; replace explicit build/store examples with automatic property/return use. Explain the data-only initial state and eager-context cost. Re-execute synthetic/example material and review/pin changed notebook bytes under existing publication rules. |
+| 1 | `inference/dataframe.py`, `inference/_datatree.py` | Share candidate context/query validation and complete-tree/curve assembly; keep generic result/archive exports stable. Prove sorted original-unit inputs, role order and isolated axes. |
+| 2 | `model/model.py`, `pyproject.toml`, `uv.lock` | Introduce complete paired-input inference, nonpublishing query-only `predict`, passive `query_result` and transactional publication. Remove public `add_context`, `build_idata` and lazy context sampling. Make preflight accept explicit inputs. Prove first-call completeness and prediction isolation. |
+| 3 | `inference/curves.py`, `plotting/charts/_data.py`, model integration | Attach curves transactionally; make charts sampling-free and keep internal scenarios nonpublishing. Prove exact numerical agreement and independence from `predict`. |
+| 4 | `tests/conftest.py`, lifecycle/DataTree/curve/chart/example tests | Migrate changed contracts, separate core/optional gates, retain standalone import/export coverage, and exercise the acceptance cases below. Remove obsolete two-step/lazy-storage tests rather than preserving shims. |
+| 5 | `README.md`, `RELEASE.md`, `docs/guide/decompose.qmd`, `docs/_quarto.yml`, `examples/river_1_quickstart.ipynb` | Make one complete inference call the primary example. Explain `predict` isolation, paired-input dependence, costs and API breaks. Re-execute synthetic examples, review/pin notebook bytes and preserve every graph analysis/export. |
 
-Dependencies: schema first; model lifecycle next; curves/charts next; end-to-end consumer migration last. Converter/schema coverage and dependency metadata can be prepared independently, but one owner integrates the model/curve publication boundary. Before implementing exported-symbol changes, use reference navigation when available and inventory all repository callers, including tests, examples and documentation. No hidden compatibility shim for `build_idata` or the old dataframe inference return.
+Schema/validation precedes model integration; curve/chart migration and end-to-end examples follow. Use one integration owner for publication state. Before implementing exported-symbol changes, use reference navigation when available and inventory every repository caller, including input-usage examples. Clean cutover: no old `inference(query)` overload or aliases for removed public methods.
 
-Migrate dataframe analysis to the named posterior tree. Existing result-specific work uses `model.query_result`: `components`, diagnostics, DAG/inspector helpers and `save` all operate on the exact query draw bank that populated idata. It is not an independently sampled approximation. In the quickstart, retain the returned tree for high-level analysis and bind a separate result reference from `model.query_result` immediately after inference; the graph catalog, ranked topologies, DOT/SVG exports and result-evidence persistence use that reference. The response-curve sweep must not replace it. Preserve configured names, masks, dates and padded-layout metadata through the existing result object rather than reconstructing them from active-only DataTree arrays.
+Most existing `add_context(history)` plus `inference(query)` callers become one `inference(history, query, roles...)`. Repeated plans that need stored trees/charts remain complete paired calls. Deliberate query-only computations use `predict(query)` after a completed run; their returned result is analyzed independently.
 
-The stateless `decompose` API remains for callers who intentionally choose independent, result-centric inference. It is not the notebook migration mechanism and must not be presented as a no-resampling reader of current idata. Name the dataframe return-type break and new result accessor prominently in release notes.
+In the quickstart, keep the returned tree for analysis and bind the exact `model.query_result` for components, diagnostics, graph catalogs/ranks, DOT/SVG exports and evidence saving. Neither curves nor `predict` replaces that result. Do not re-run `decompose` merely to recover a result for plotting, or reconstruct masks/padded metadata from the active-only tree.
 
 ## Verification plan for implementation
 
-Use the existing small synthetic model/dataframe fixtures. Test observable values, state transitions and numerical agreement, not implementation source text or incidental call wiring.
+Use existing small synthetic model/dataframe fixtures; assert observable values and state, not source text or incidental wiring.
 
-- **Initial context:** real sorted outcomes/covariates and names exist immediately, with no fabricated query or posterior. Caller dataframe/list mutations cannot change stored values. Context attachment, idata reads and `input_usage` leave RNG/weights/mode unchanged.
-- **Completed inference:** returned tree is the stored tree; both marginals numerically match the canonical lower-level sampling sequence. Cover model-average, MAP and fixed per-draw graphs, supplied role ordering, padded controls, no active edges and nondefault units/provenance. Inference still restores model mode and does not change weights or gradients.
-- **Replacement:** rerun with shorter dates, a different draw count/mode and changed inputs; old coordinates/observations/curve groups disappear, context draws match the new plan, and earlier caller-held trees remain identical. Repeat with changed role names/width and new history; no old query/posterior survives.
-- **Identical reruns and metadata-only changes:** make consecutive identical calls without reseeding; capture each call's starting RNG state and compare to its canonical query-then-context sequence. Assert new root publication and prediction-revision advancement while old trees remain unchanged. Repeat with only provenance changes. This detects accidental caching deterministically; do not assert that stochastic arrays merely “differ.”
-- **Curve attachment:** compare stored raw curve draws/totals/dates with the returned `ResponseCurves`; allow a different sweep sample count. A second sweep with fewer levels/channels replaces rather than merges. Base window arrays remain unchanged. Fixed-graph restrictions, shorter-plan semantics and zero-input reference reuse remain correct.
-- **Query observations:** partial/missing/invalid target values preserve PR #115 sanitization, dates and missingness. Changing only query outcomes cannot change seeded posterior values, input scales or input identity. A later plan without observations removes the old observation group.
-- **Atomic failures:** inject context conversion failure; invalid inference input/provenance; failure during context sampling after successful query sampling; posterior conversion failure; failure midway through a sweep; curve conversion failure. In each case assert the entire previous public tree, private context/prediction/curve state and revisions remain current. Do not assert RNG rollback after sampling.
-- **Readers and aliasing:** repeated property reads and context/query/curve charts leave RNG and trees unchanged; figure data agrees with stored posterior/curve numbers. Hold an old tree across every successful operation and assert it is not rewritten. Check that candidate node attachment/attribute updates cannot leak into prior trees.
-- **Exact-result consumers:** `query_result` is the original query draw bank used for the tree, remains unchanged by curves/readers and becomes unavailable on context replacement. Extend the quickstart acceptance beyond finite shapes: derive complete-graph counts/ranks/frequencies from that bank, verify selected edge endpoints and compare DOT/SVG topology to the selected graph. Preserve every existing graph analysis/export and verify result save/load independently of analysis-tree export.
-- **Packaging/privacy:** an isolated `local`-only environment, without statistics/plotting packages, exercises core lifecycle/curves/rollback/privacy acceptance; base client imports remain lightweight. Extend the existing bundle test, which does not currently populate curves or compare the manifest: build a synthetic sentinel-bearing context/query/curve session, compare all bundle artifacts (configuration, manifest and weights) against a runtime-free baseline, and confirm no sentinel/runtime data is captured. Loading must restore no context, prediction, curves, `query_result` or idata.
-- **Interop:** summarize context/query subtrees when `arviz_stats` is installed. With the `draws` extra and explicit `h5netcdf` engine, export/reload a context-only tree and a populated tree bearing partial query observations, nested caller annotations, authoritative input usage and curves with a different draw count. Compare dimensions, dates, JSON-decoded provenance, missingness, attributes and values. No automatic file writes or model-session rehydration.
+- **One-call completeness:** on a fresh model, one explicit history/query call returns the stored tree with both marginals, covariates and valid observations. No context setter, export builder or chart is required. Match the canonical query-then-context sequence for model-average, MAP and per-draw fixed graphs, including padding, role order, zero-edge cases, units and provenance. Caller frame/list mutations cannot alter snapshots; weights/gradients and model mode remain intact.
+- **Replacement and identical reruns:** change history, roles, horizon, draw count/mode or metadata; the complete new run replaces all old coordinates/observations and drops curves. For identical successive calls without reseeding, capture each starting RNG state and compare its canonical sampling sequence; assert fresh root/revision publication and unchanged older trees, not probabilistic “arrays differ.”
+- **Prediction isolation:** predict a different plan/horizon/settings after full inference and curves. Match canonical query-only draws; assert the full tree, query result, context marginal, curve state and revision are unchanged. Cover identical repeated predictions, no-inference prerequisite, fixed graphs, invalid queries and failures after sampling. A subsequent full inference still replaces everything correctly. Prediction RNG advances as query sampling requires, not as a hidden context run.
+- **Observations/provenance:** partial/missing/invalid query targets follow existing sanitization. Target-only changes cannot affect seeded draws, scales or inference input identity. Reruns without observations remove the old observation group. Nested provenance and authoritative input usage survive the documented JSON representation.
+- **Atomic failures:** invalid candidate history/query/options/metadata; context sampling failure after successful query sampling; posterior conversion failure; mid-sweep and curve conversion failures. Test both fresh and previously populated models; no candidate context or partial run becomes visible and no revision advances. Do not require RNG rollback after sampling.
+- **Curves and readers:** compare attached curve draws/totals/dates with `ResponseCurves`, including a different sample count, smaller channel/level subsets, fixed graphs, shorter plans and zero-input reference reuse. Charts/property reads never sample; curve attachment preserves base results. Readers remain on the last full inference after `predict`, with errors before the first full run. Check old-tree buffer/metadata isolation across publishing calls.
+- **Exact-result migration:** query-result diagnostics use the original query draw bank. Extend quickstart acceptance beyond finite shapes: compare graph counts/ranks/frequencies, selected endpoints and DOT/SVG topology to that bank; preserve every existing graph analysis/export. Check result evidence save/load separately from analysis-tree export.
+- **Preflight and packaging:** explicit-pair/context-only `input_usage` works before inference, validates without sampling and preserves stored state/RNG. Core inference/prediction/curve/rollback tests run in a genuinely local-only environment; optional statistics/rendering cannot hide them. Retain standalone lazy imports and lightweight base-client imports.
+- **Privacy:** extend the bundle test with sentinel-bearing context/query/curves and independent predictions; compare configuration, manifest and weights with a runtime-free baseline. Loading restores no context, prediction, curves, query result or tree. Existing tests do not yet establish populated-curve/manifest coverage.
+- **Interop:** with `draws` and explicit `h5netcdf`, roundtrip a complete tree with partial observations, nested provenance, authoritative usage and curves having a different draw count. Compare axes/dates, JSON-decoded metadata, missingness and values. Summarize actual window subtrees when statistics are installed.
 
-Run the narrow lifecycle/DataTree/curve tests in the local-only environment after integration; run rendering/statistics checks separately with their extras. Run the migrated quickstart using its declared Python extras and a Graphviz-equipped environment (`dot` is a system executable, not installed by the `examples` extra), with the existing small synthetic stand-in model so no Hub access is required. Inspect at least one context/query chart and one curve chart in the supported backends, since the sampling boundary and data ownership changed. Measure query-only-before versus complete-inference-after latency and retained/peak memory on the same synthetic workload; report the tradeoff without a fabricated performance target. No live model, cloud account, private data or token is required for acceptance.
+Run the narrow computational tests after integration, then optional rendering/statistics and the migrated quickstart. Its native SVG exports require system Graphviz (`dot`), not just the Python extras; use the existing synthetic stand-in model so acceptance needs no Hub access. Inspect context/query and curve charts in supported backends. Measure full inference and query-only prediction latency/retained/peak memory on the same synthetic workload; report costs without fabricated targets.
 
-## Alternatives considered
+## Alternatives rejected
 
-- **Keep `build_idata(store=True)` or make `idata` lazy:** still requires a second action or hides sampling/conversion in a read; fails the requested lifecycle.
-- **Create an empty tree at `add_context`:** satisfies object existence but provides no usable history; populate actual observations and covariates instead.
-- **Sample context at `add_context`:** the existing inference contract requires a real future plan. A fabricated one changes the question being answered.
-- **Keep the current dataframe result return and only set the property:** less migration, but misses the requested PyMC-style primary outcome. Recommend a clean idata return, with the already-existing lower-level API for result-centric callers.
-- **Compute query eagerly but context on the first chart/property:** faster query-only inference, but retains the hidden sampling/error boundary. Prefer explicit eager completion.
-- **Mutate one tree forever:** easier stale-reference surprises and partial updates on failure. Prefer replacement snapshots with reusable numerical buffers.
-- **Flatten context and query or merge on rerun:** risks implying paired draws and retaining stale labels/dates. Keep independent subtrees and whole-output replacement.
+- **Two mandatory calls, context setter plus inference:** hides a dependency that needs both inputs and forces a data-only intermediate state. One paired call is the primary workflow.
+- **One overloaded inference method or a `window`/`store` mode switch:** gives the main method conditional completeness, return types or publication rules. Separate complete `inference` and nonpublishing `predict` keep those contracts fixed.
+- **Prediction replaces only query in the stored tree:** would leave context posterior tied to an older future plan. Removing that posterior instead would reintroduce partial model trees. Keep the complete run unchanged.
+- **Retain `add_context` as an alias or advanced public setter:** adds another public state transition without helping the one-call workflow. Keep its useful validation private and retain stateless `decompose` for lower-level work.
+- **Lazy context sampling in a property or chart:** keeps surprise computation/errors after the main operation. Complete inference finishes both marginals before publishing.
+- **One forever-mutated tree or flattened/merged marginals:** risks rewriting caller-held results, stale coordinates and false draw pairing. Publish replacement roots with independent subtree axes.
 
-The principal review choices are the deliberate inference return-type break and eager-context cost. The recommendation above accepts both to make the high-level lifecycle predictable; it does not alter the underlying probabilistic model.
+The API choice is intentionally small: **`inference(context, query)` completes and stores an analysis; `predict(query)` computes an independent query result.** Role/sampling keywords make inputs explicit. This replaces the previous proposal's context-only public lifecycle without changing the underlying probabilistic model.
