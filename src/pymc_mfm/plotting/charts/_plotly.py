@@ -1,0 +1,100 @@
+"""Plotly pieces shared by the charts; only plotly renderers import this module."""
+
+from __future__ import annotations
+
+from html import escape
+
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+from ._style import BAND_ALPHA, FORECAST, FORECAST_ALPHA, rgba
+
+TEMPLATE = "plotly_white"
+
+
+def figure(rows: int = 1, cols: int = 1, **options) -> go.Figure:
+    """An empty figure of ``rows`` x ``cols`` subplots."""
+    return make_subplots(rows=rows, cols=cols, **options)
+
+
+def text(value: str) -> str:
+    """``value`` safe inside plotly's HTML-like labels."""
+    return escape(value, quote=False)
+
+
+def finish(fig: go.Figure, *, title: str, caption: str | None = None, height: int) -> go.Figure:
+    """Title, optional caption line, size and the shared look."""
+    heading = text(title) if caption is None else f"{text(title)}<br><sup>{text(caption)}</sup>"
+    fig.update_layout(
+        template=TEMPLATE,
+        title={"text": heading, "x": 0.01, "xanchor": "left"},
+        height=height,
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 1, "xanchor": "right"},
+        margin={"t": 100, "l": 60, "r": 20, "b": 50},
+    )
+    return fig
+
+
+def _half_step(dates: np.ndarray) -> pd.Timedelta:
+    if len(dates) < 2:
+        return pd.Timedelta(days=0.5)
+    steps = np.diff(dates.astype("datetime64[ns]").astype(np.int64))
+    return pd.Timedelta(int(np.median(steps)) // 2, unit="ns")
+
+
+def forecast_span(fig: go.Figure, dates: np.ndarray, first: int, **where) -> None:
+    """Shade the weeks from ``dates[first]`` on: the weeks the model did not see."""
+    half = _half_step(dates)
+    fig.add_vrect(
+        x0=pd.Timestamp(dates[first]) - half,
+        x1=pd.Timestamp(dates[-1]) + half,
+        fillcolor=FORECAST,
+        opacity=FORECAST_ALPHA,
+        line_width=0,
+        layer="below",
+        **where,
+    )
+
+
+def band(
+    fig: go.Figure,
+    x,
+    low: np.ndarray,
+    high: np.ndarray,
+    *,
+    color: str,
+    name: str,
+    legendgroup: str,
+    showlegend: bool = True,
+    **where,
+) -> None:
+    """A filled band from ``low`` to ``high``; hovering it shows nothing of its own."""
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=high,
+            mode="lines",
+            line={"width": 0},
+            hoverinfo="skip",
+            showlegend=False,
+            legendgroup=legendgroup,
+        ),
+        **where,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=low,
+            mode="lines",
+            line={"width": 0},
+            fill="tonexty",
+            fillcolor=rgba(color, BAND_ALPHA),
+            hoverinfo="skip",
+            name=name,
+            showlegend=showlegend,
+            legendgroup=legendgroup,
+        ),
+        **where,
+    )
