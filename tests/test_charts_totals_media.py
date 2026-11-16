@@ -89,20 +89,19 @@ def test_totals_bin_each_channel_and_control_per_draw_total(predicted_model):
     assert "40 draws" in heading and "not causal lift" in heading
 
 
-def test_forecast_totals_of_any_component_with_truth_never_sample_context(
-    predicted_model, chart_frames
-):
+def test_forecast_totals_of_any_component_with_truth_never_resample(predicted_model, chart_frames):
     history, future = chart_frames
     rng = np.random.default_rng(0)
     weeks = pd.DatetimeIndex(pd.concat([history["date"], future["date"]]))
     truth = pd.DataFrame(
         {"baseline": rng.normal(200.0, 5.0, 30), "tv": rng.uniform(0.0, 50.0, 30)}, index=weeks
     ).iloc[::-1]  # any row order; weeks outside the window are ignored
+    context = predicted_model._context_result()
     state = torch.get_rng_state()
     fig = predicted_model.plot.contribution_totals(
         window="query", components=["baseline", "tv"], interval=0.5, bins=7, truth=truth
     )
-    assert predicted_model._context_decomposition is None
+    assert predicted_model._context_result() is context
     assert torch.equal(torch.get_rng_state(), state)
     query = ModelSource(predicted_model).window("query")
     for ax, name in zip(fig.axes, ["baseline", "tv"], strict=True):
@@ -137,9 +136,10 @@ def test_a_truth_total_needs_every_week_of_the_window(predicted_model, chart_fra
 def test_totals_check_their_arguments(predicted_model, chart_frames):
     history, _ = chart_frames
     plot = predicted_model.plot
+    state = torch.get_rng_state()
     with pytest.raises(ValueError, match="interval must be a fraction"):
         plot.contribution_totals(interval=1.5)
-    assert predicted_model._context_decomposition is None  # checked before sampling
+    assert torch.equal(torch.get_rng_state(), state)
     with pytest.raises(ValueError, match="window must be one of"):
         plot.contribution_totals(window="future")
     with pytest.raises(
@@ -154,6 +154,7 @@ def test_totals_check_their_arguments(predicted_model, chart_frames):
         plot.contribution_totals(truth=_history_truth(history, search=1.0, sales=1.0))
     with pytest.raises(ValueError, match="indexed by date"):
         plot.contribution_totals(truth=_history_truth(history, search=1.0).reset_index())
+    assert torch.equal(torch.get_rng_state(), state)
 
 
 def test_plotly_totals_draw_the_matplotlib_numbers(predicted_model, chart_frames):
@@ -208,18 +209,17 @@ def test_contribution_vs_media_plots_each_week_at_its_value(predicted_model, cha
     assert "carryover" in fig.get_suptitle()
 
 
-def test_truth_crosses_align_by_date_and_the_query_never_samples_context(
-    predicted_model, chart_frames
-):
+def test_truth_crosses_align_by_date_without_resampling(predicted_model, chart_frames):
     _, future = chart_frames
     truth = pd.DataFrame(
         {"tv": np.arange(6.0) * 10, "baseline": 1.0}, index=pd.DatetimeIndex(future["date"])
     )
+    context = predicted_model._context_result()
     state = torch.get_rng_state()
     fig = predicted_model.plot.contribution_vs_media(
         window="query", channels=["tv"], truth=truth.iloc[[3, 0, 5, 1, 4]]
     )
-    assert predicted_model._context_decomposition is None
+    assert predicted_model._context_result() is context
     assert torch.equal(torch.get_rng_state(), state)
     [ax] = fig.axes
     assert ax.get_title(loc="left") == "tv"
@@ -235,9 +235,10 @@ def test_truth_crosses_align_by_date_and_the_query_never_samples_context(
 def test_contribution_vs_media_checks_its_arguments(predicted_model, chart_frames):
     history, _ = chart_frames
     plot = predicted_model.plot
+    state = torch.get_rng_state()
     with pytest.raises(ValueError, match="interval must be a fraction"):
         plot.contribution_vs_media(interval=0)
-    assert predicted_model._context_decomposition is None  # checked before sampling
+    assert torch.equal(torch.get_rng_state(), state)
     with pytest.raises(
         ValueError, match=r"unknown channels \['baseline'\]; available: \['search', 'tv'\]"
     ):
@@ -251,12 +252,17 @@ def test_contribution_vs_media_checks_its_arguments(predicted_model, chart_frame
     )
     with pytest.raises(ValueError, match=r"truth\['tv'\] has no value in any of the 24 history"):
         plot.contribution_vs_media(truth=sundays)
+    assert torch.equal(torch.get_rng_state(), state)
 
 
 def test_a_channel_named_like_a_component_keeps_its_own_media_covariate(model, chart_frames):
     history, future = (frame.rename(columns={"tv": "baseline"}) for frame in chart_frames)
-    model.add_context(history, **{**CHART_ROLES, "channel_columns": ("search", "baseline")})
-    model.inference(future, n_samples=5)
+    model.inference(
+        history,
+        future,
+        n_samples=5,
+        **{**CHART_ROLES, "channel_columns": ("search", "baseline")},
+    )
     fig = model.plot.contribution_vs_media(window="query", channels=["channel:baseline"])
     [ax] = fig.axes
     assert ax.get_title(loc="left") == "channel:baseline"

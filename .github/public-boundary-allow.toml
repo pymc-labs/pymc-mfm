@@ -6,7 +6,14 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Fully executed synthetic-data quickstart with the pinned River-1 model after the model.plot rewrite and its renames (view=\"dist\", descriptive chart titles, outcome and media/control covariate wording, target column \"outcome\"): all 24 code cells ran top to bottom (add_context, inference, the model.plot charts, response_curves and the graph section), with 15 inline PNG plots; stderr streams (download progress, a tqdm warning naming local paths) were dropped. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
+reason = "Paired-inference migration of the reviewed synthetic-data quickstart: editable source/markdown cells now use explicit input_usage and complete inference with model.query_result, document return_idata and isolated predict, and retain every graph catalog/topology/DOT/SVG example. The 15 previously reviewed PNG outputs and unchanged numeric/text output representations are preserved; no weights were downloaded and no outputs regenerated for this source-only migration. Headless runtime acceptance uses a synthetic stand-in and native Graphviz. These exact bytes are pinned; reruns require a new review/hash in the same pull request. Malformed-image findings are never covered."
+sha256 = "5d17b5c0c1fcca5a057a18585cc04fa829844737689017a1e37a917b71976c12"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Historical reviewed synthetic-data quickstart with the pinned River-1 model, before paired inference: all 24 code cells ran top to bottom with the then-current add_context/inference workflow, model.plot charts, response_curves and graph section, with 15 inline PNG plots; stderr download/progress streams were dropped. Retain this exact historical hash for whole-PR range checks. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data. Malformed-image findings are never covered."
 sha256 = "cbd9bc9fc77b5c58ac0068b424070cf5ca198c7a5f8a52352e0c3ce261c072fc"
 max_bytes = 3000000
 

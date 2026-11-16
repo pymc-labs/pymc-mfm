@@ -9,10 +9,9 @@ from conftest import CHART_ROLES
 from pymc_mfm.inference import curves as curves_module
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.plotting.charts import _backend
+from pymc_mfm.plotting.charts import curves as curve_charts
 from pymc_mfm.plotting.charts._data import ModelSource
 from pymc_mfm.plotting.charts._style import CAVEAT
-
-pytest.importorskip("matplotlib")
 
 CHANNELS = list(CHART_ROLES["channel_columns"])
 
@@ -41,11 +40,10 @@ def recorded(monkeypatch):
 
 @pytest.fixture
 def forecast_model(model, chart_frames):
-    """``model`` after ``add_context`` and a cheap 2-draw ``inference`` on the forecast."""
+    """``model`` after cheap complete 2-draw inference on the history/forecast pair."""
     history, future = chart_frames
-    model.add_context(history, **CHART_ROLES)
     torch.manual_seed(3)
-    model.inference(future, n_samples=2)
+    model.inference(history, future, n_samples=2, **CHART_ROLES)
     return model
 
 
@@ -134,12 +132,15 @@ def test_defaults_vary_every_channel_over_every_forecast_week(predicted_model, r
     assert curves.channels == ("tv",) and curves.draws.shape == (1, 9, 2)
 
 
-def test_a_media_covariate_at_zero_in_the_weeks_gets_the_unchanged_run(predicted_model, recorded):
+def test_a_media_covariate_at_zero_in_the_weeks_gets_the_unchanged_run(
+    predicted_model, chart_frames, recorded
+):
     # tv is zero in the first forecast week: scaling it changes no input.
     curves = predicted_model.response_curves(levels=[0, 0.5, 2], weeks=1)
     assert curves.media[1] == 0
     assert len(recorded) == 4  # search at each level, then one unchanged run for tv
-    actual = predicted_model._prediction_snapshot.observations["spend"][:25]
+    history, future = chart_frames
+    actual = pd.concat([history, future.iloc[:1]], ignore_index=True)[CHANNELS].to_numpy()
     np.testing.assert_array_equal(recorded[-1]["observations"]["spend"], actual)
     unchanged = _channel_totals(recorded[-1]["result"], "tv")
     for level in range(3):
@@ -173,7 +174,6 @@ def test_scenarios_keep_the_mode_graphs_units_and_provenance_of_inference(
     model, chart_frames, recorded, mode
 ):
     history, future = chart_frames
-    model.add_context(history, **CHART_ROLES)
     options = {"n_samples": 3, "mode": mode, "units": "USD", "provenance": {"scenario": "plan"}}
     if mode == "fixed":
         layout = EdgeSlotLayout(2, model.config.n_controls, model.config.n_demand)
@@ -183,7 +183,8 @@ def test_scenarios_keep_the_mode_graphs_units_and_provenance_of_inference(
         options["graph"] = graphs
     else:
         options["router_samples"] = 7
-    query = model.inference(future, **options)
+    model.inference(history, future, **CHART_ROLES, **options)
+    query = model.query_result
     curves = model.response_curves(levels=[0, 1], weeks=1)
     # tv is zero in the first forecast week, so it reuses the unchanged run.
     assert curves.units == "USD" and curves.n_samples == 3 and len(recorded) == 2
@@ -228,32 +229,172 @@ def test_invalid_arguments_fail_before_sampling(forecast_model, options, message
     assert torch.equal(torch.get_rng_state(), state)
 
 
-def test_curves_follow_the_latest_context_and_inference(model, chart_frames):
+def test_curves_follow_the_latest_complete_inference(model, chart_frames):
     history, future = chart_frames
-    with pytest.raises(RuntimeError, match="add_context"):
-        model.plot.response_curves()
-    model.add_context(history, **CHART_ROLES)
     with pytest.raises(RuntimeError, match="inference"):
         model.response_curves()
-    model.inference(future, n_samples=2)
+    with pytest.raises(RuntimeError, match=r"inference\(history, future, \.\.\.\)"):
+        ModelSource(model).response_curves()
+    model.inference(history, future, n_samples=2, **CHART_ROLES)
+    original_tree, query = model.idata, model.query_result
     with pytest.raises(RuntimeError, match=r"model\.response_curves\(\.\.\.\) first"):
-        model.plot.response_curves()
+        ModelSource(model).response_curves()
     curves = model.response_curves(levels=[0, 1], weeks=1)
+    tree = model.idata
+    assert tree is not original_tree and "response_curves" not in original_tree.children
     with pytest.raises(ValueError, match="nonnegative"):
         model.response_curves(levels=[-1])
+    with pytest.raises(ValueError, match="search"):
+        model.inference(history, future.drop(columns="search"), n_samples=2, **CHART_ROLES)
+    assert model.idata is tree and model.query_result is query
     assert ModelSource(model).response_curves() is curves
-    model.inference(future, n_samples=2)
+    model.predict(future.iloc[:2].assign(search=1.0), n_samples=3, mode="map", units="USD")
+    assert model.idata is tree and model.query_result is query
+    assert ModelSource(model).response_curves() is curves
+    np.testing.assert_array_equal(
+        curve_charts.prepare(ModelSource(model)).mean, curves.draws.mean(axis=2)
+    )
+    model.inference(history, future.iloc[:1], n_samples=2, **CHART_ROLES)
+    assert model.idata is not tree and "response_curves" not in model.idata.children
+    assert "response_curves" in tree.children
     with pytest.raises(RuntimeError, match=r"model\.response_curves"):
-        model.plot.response_curves()
-    model.response_curves(levels=[0, 1], weeks=1)
-    model.add_context(history, **CHART_ROLES)
-    with pytest.raises(RuntimeError, match=r"model\.inference"):
-        model.plot.response_curves()
+        ModelSource(model).response_curves()
 
 
+def test_curves_and_the_complete_tree_share_the_exact_draw_bank(forecast_model):
+    import xarray as xr
+
+    base_tree = forecast_model.idata
+    query = forecast_model.query_result
+    context = forecast_model._context_result()
+    curves = forecast_model.response_curves(levels=[0, 0.5, 1, 2], weeks=2, n_samples=5)
+    tree = forecast_model.idata
+    assert tree is not base_tree and "response_curves" not in base_tree.children
+    assert forecast_model.query_result is query and forecast_model._context_result() is context
+    assert tree.attrs["inference_revision"] == base_tree.attrs["inference_revision"]
+    assert (
+        tree["response_curves"].attrs["source_inference_revision"]
+        == base_tree.attrs["inference_revision"]
+    )
+    for name in ("context", "query"):
+        xr.testing.assert_identical(tree[name], base_tree[name])
+        assert tree[f"{name}/posterior"].sizes["draw"] == 2
+    posterior = tree["response_curves/posterior"]
+    assert posterior["contribution"].dims == ("chain", "draw", "channel", "level")
+    np.testing.assert_array_equal(
+        posterior["contribution"].values[0], curves.draws.transpose(2, 0, 1)
+    )
+    assert posterior.sizes["draw"] == 5
+    np.testing.assert_array_equal(posterior["channel"], curves.channels)
+    np.testing.assert_array_equal(posterior["level"], curves.levels)
+    constants = tree["response_curves/constant_data"]
+    np.testing.assert_array_equal(constants["media"], curves.media[:, None] * curves.levels)
+    np.testing.assert_array_equal(constants["date"], curves.dates)
+    state = torch.get_rng_state()
+    displayed = curve_charts.prepare(ModelSource(forecast_model), interval=0.8)
+    low, high = np.quantile(curves.draws, [0.1, 0.9], axis=2)
+    np.testing.assert_array_equal(displayed.mean, curves.draws.mean(axis=2))
+    np.testing.assert_allclose(displayed.low, low)
+    np.testing.assert_allclose(displayed.high, high)
+    assert torch.equal(torch.get_rng_state(), state)
+    assert forecast_model.idata is tree
+
+
+def test_a_new_sweep_replaces_its_entire_subtree_without_rewriting_held_trees(forecast_model):
+    import xarray as xr
+
+    query = forecast_model.query_result
+    first = forecast_model.response_curves(levels=[0, 0.5, 1, 2], weeks=3, n_samples=5)
+    first_tree = forecast_model.idata
+    snapshot = first_tree.copy(deep=True)
+    second = forecast_model.response_curves(channels=["tv"], levels=[0, 1], weeks=1, n_samples=3)
+    tree = forecast_model.idata
+    assert tree is not first_tree and ModelSource(forecast_model).response_curves() is second
+    assert forecast_model.query_result is query
+    posterior = tree["response_curves/posterior"]
+    assert dict(posterior.sizes) == {"chain": 1, "draw": 3, "channel": 1, "level": 2}
+    np.testing.assert_array_equal(posterior["channel"], ["tv"])
+    np.testing.assert_array_equal(posterior["level"], [0, 1])
+    np.testing.assert_array_equal(
+        posterior["contribution"].values[0], second.draws.transpose(2, 0, 1)
+    )
+    np.testing.assert_array_equal(tree["response_curves/constant_data"]["date"], second.dates)
+    assert first.draws.shape == (2, 4, 5)
+    xr.testing.assert_identical(first_tree, snapshot)
+    for name in ("context", "query"):
+        xr.testing.assert_identical(tree[name], first_tree[name])
+
+
+@pytest.mark.parametrize("keep_curves", [False, True], ids=["first-sweep", "replacement"])
+@pytest.mark.parametrize("failure", ["sampling", "conversion"])
+def test_failed_sweeps_preserve_the_entire_complete_inference(
+    forecast_model, monkeypatch, keep_curves, failure
+):
+    import xarray as xr
+
+    from pymc_mfm.inference import _datatree
+
+    curves = forecast_model.response_curves(levels=[0, 1], weeks=1) if keep_curves else None
+    tree = forecast_model.idata
+    snapshot = tree.copy(deep=True)
+    query = forecast_model.query_result
+    context = forecast_model._context_result()
+    if failure == "sampling":
+        decompose = curves_module.decompose
+        calls = 0
+
+        def fail_mid_sweep(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            result = decompose(*args, **kwargs)
+            if calls == 2:
+                raise RuntimeError("curve sampling failed")
+            return result
+
+        monkeypatch.setattr(curves_module, "decompose", fail_mid_sweep)
+    else:
+
+        def fail_conversion(*args, **kwargs):
+            raise RuntimeError("curve conversion failed")
+
+        monkeypatch.setattr(_datatree, "attach_response_curves", fail_conversion)
+    with pytest.raises(RuntimeError, match=f"curve {failure} failed"):
+        forecast_model.response_curves(levels=[0, 0.5, 1, 2], weeks=2, n_samples=3)
+    assert forecast_model.idata is tree and forecast_model.query_result is query
+    assert forecast_model._context_result() is context
+    xr.testing.assert_identical(tree, snapshot)
+    if keep_curves:
+        assert ModelSource(forecast_model).response_curves() is curves
+    else:
+        assert "response_curves" not in tree.children
+        with pytest.raises(RuntimeError, match=r"model\.response_curves"):
+            ModelSource(forecast_model).response_curves()
+
+
+def test_sweeps_ignore_independent_predictions(forecast_model, chart_frames, recorded):
+    history, future = chart_frames
+    query = forecast_model.query_result
+    independent = forecast_model.predict(
+        future.iloc[:1].assign(search=1.0), n_samples=3, mode="map", units="USD"
+    )
+    assert independent is not query
+    curves = forecast_model.response_curves(levels=[1, 2], weeks=2)
+    assert curves.weeks == 2 and curves.n_samples == 2 and curves.units == "outcome"
+    np.testing.assert_array_equal(curves.media, future[CHANNELS].iloc[:2].sum())
+    np.testing.assert_array_equal(
+        recorded[0]["observations"]["spend"],
+        pd.concat([history, future.iloc[:2]], ignore_index=True)[CHANNELS],
+    )
+    assert all(call["options"]["mode"] == "model_average" for call in recorded)
+    assert forecast_model.query_result is query
+
+
+@pytest.mark.usefixtures("matplotlib_backend")
 def test_matplotlib_draws_the_frame_of_each_channel(swept):
     model, curves = swept
+    tree, state = model.idata, torch.get_rng_state()
     fig = model.plot.response_curves(interval=0.8, truth=TRUTH)
+    assert model.idata is tree and torch.equal(torch.get_rng_state(), state)
     frame = curves.to_frame(0.8)
     titles = [ax.get_title(loc="left") for ax in fig.axes]
     assert titles == ["search · media covariate total 97.5", "tv · media covariate total 87.1"]
@@ -308,6 +449,7 @@ def test_plotly_draws_the_same_numbers(swept):
     assert "varied separately over a plan of the first 2 forecast weeks;" in fig.layout.title.text
 
 
+@pytest.mark.usefixtures("matplotlib_backend")
 def test_panels_say_when_a_covariate_is_zero_and_skip_the_missing_level_1(forecast_model):
     # tv is zero in the first forecast week; level 1 is not swept, so no dot.
     forecast_model.response_curves(levels=[0, 2], weeks=1)
@@ -333,4 +475,4 @@ def test_panels_say_when_a_covariate_is_zero_and_skip_the_missing_level_1(foreca
 def test_chart_arguments_are_checked(forecast_model, options, message):
     forecast_model.response_curves(levels=[0, 1], weeks=1)
     with pytest.raises(ValueError, match=message):
-        forecast_model.plot.response_curves(**options)
+        curve_charts.prepare(ModelSource(forecast_model), **options)

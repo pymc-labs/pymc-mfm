@@ -1,8 +1,7 @@
-"""The model state charts draw: history, the latest prediction and named window draws.
+"""The completed inference charts draw: history, forecast and named window draws.
 
-:class:`ModelSource` is the one place the charts read a model. It never samples,
-except through ``MFM._context_result``, which samples the context marginal once per
-prediction and caches it for ``build_idata`` too.
+:class:`ModelSource` is the one place the charts read a model. It only reads the
+last successful paired ``MFM.inference``; it never samples or follows ``predict``.
 """
 
 from __future__ import annotations
@@ -148,7 +147,7 @@ def truth_by_week(truth: pd.DataFrame, window: Window) -> dict[str, np.ndarray]:
 
 
 class ModelSource:
-    """Read access to one model's latest ``add_context`` and ``inference``."""
+    """Read access to one model's last complete ``inference(history, future, ...)``."""
 
     __slots__ = ("_model",)
 
@@ -156,27 +155,20 @@ class ModelSource:
         self._model = model
 
     def history(self) -> _FittedContext:
-        """The context of the latest ``add_context``; raises before one."""
-        history = self._model._inference_context
-        if history is None:
-            raise RuntimeError("call model.add_context(history, ...) before plotting")
-        return history
-
-    def prediction(self) -> _PredictionSnapshot | None:
-        """The latest successful ``inference`` after the current context, or ``None``."""
-        self.history()
-        return self._model._prediction_snapshot
+        """The history of the last complete inference; raises before one."""
+        return self.require_prediction().fitted_context
 
     def require_prediction(self) -> _PredictionSnapshot:
-        prediction = self.prediction()
+        """The last complete inference's prediction; raises before one."""
+        prediction = self._model._prediction_snapshot
         if prediction is None:
             raise RuntimeError(
-                "this chart draws inference draws: call model.inference(future_data) first"
+                "call model.inference(history, future, ...) successfully before plotting"
             )
         return prediction
 
     def response_curves(self) -> ResponseCurves:
-        """The latest ``model.response_curves`` of the current prediction; raises before one."""
+        """The latest curves of the last complete inference; raises before a sweep."""
         self.require_prediction()
         curves = self._model._response_curves
         if curves is None:
@@ -184,10 +176,7 @@ class ModelSource:
         return curves
 
     def window(self, name: str) -> Window:
-        """Named draws of the ``"context"`` or ``"query"`` window.
-
-        The first context window of a prediction samples the context marginal once.
-        """
+        """Read the completed ``"context"`` or ``"query"`` marginal without sampling."""
         if name not in WINDOWS:
             raise ValueError(f"window must be one of {WINDOWS}, got {name!r}")
         prediction = self.require_prediction()

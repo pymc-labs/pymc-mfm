@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -121,6 +121,7 @@ class MFM(nn.Module):
         self._context_decomposition: DecompositionResult | None = None
         self._response_curves: ResponseCurves | None = None
         self._idata: DataTree | None = None
+        self._inference_revision = 0
 
     def structure_logits(
         self,
@@ -497,71 +498,46 @@ class MFM(nn.Module):
         """Return the complete scalar training objective."""
         return self.loss_terms(batch, weights=weights)["loss"]
 
-    def add_context(
+    def input_usage(
         self,
-        data: DataFrame,
+        context: DataFrame,
+        query: DataFrame | None = None,
         *,
         date_column: str,
         target_column: str,
         channel_columns: Sequence[str],
         control_columns: Sequence[str],
-    ) -> Self:
-        """Replace observed history and column roles without training the weights.
+    ) -> dict[str, object]:
+        """Inspect explicit context/query input volume without sampling or storing state.
 
-        Dates are sorted and must follow a regular cadence. History needs at
-        least two rows, positive outcomes, nonnegative spend and at least one
-        channel and control. Controls are padded to this model's capacity.
-        A successful call replaces context and invalidates prediction, response-curve
-        and export state; a failed call preserves the last successful state.
-        The stored history is independent of later changes to ``data``.
+        Each window reports steps and allocated/represented time-entity tokens.
+        With no query, report context only; otherwise also report the query and
+        full-request totals. Inputs follow inference's role, cadence and numeric
+        validation. Counts do not measure model capacity, memory or runtime.
         """
+        from pymc_mfm.inference._usage import _input_usage
         from pymc_mfm.inference.dataframe import _FittedContext
 
-        context = _FittedContext.from_data(
-            data,
+        fitted = _FittedContext.from_data(
+            context,
             model_config=self.config,
             date_column=date_column,
             target_column=target_column,
             channel_columns=channel_columns,
             control_columns=control_columns,
         )
-        self._inference_context = context
-        self._prediction_snapshot = None
-        self._context_decomposition = None
-        self._response_curves = None
-        self._idata = None
-        return self
-
-    def input_usage(self, data: DataFrame | None = None) -> dict[str, object]:
-        """Report input-volume counts without running the neural model.
-
-        ``context`` and, with query ``data``, ``query`` contain ``steps``,
-        ``allocated_tokens`` for all padded entity slots, and
-        ``represented_tokens`` for unmasked slots. Tokens are time/entity cells,
-        including one revenue slot per step. With query data, ``total`` contains
-        both token sums. With ``data=None``, return only ``context``; no query
-        is inferred from earlier predictions.
-
-        Query data is validated as for ``inference``. These counts measure input
-        volume, not model capacity, maximum supported length, or runtime limits.
-        """
-        from pymc_mfm.inference._usage import _input_usage
-
-        context = self._inference_context
-        if context is None:
-            raise RuntimeError("call add_context(history, ...) before input_usage(data)")
-        if data is None:
+        if query is None:
             return _input_usage(
-                context_steps=context.spend.shape[0],
-                channel_slots=context.spend.shape[1],
-                control_slots=context.controls.shape[1],
-                represented_channels=len(context.channel_columns),
-                represented_controls=int(context.control_mask.sum()),
+                context_steps=fitted.spend.shape[0],
+                channel_slots=fitted.spend.shape[1],
+                control_slots=fitted.controls.shape[1],
+                represented_channels=len(fitted.channel_columns),
+                represented_controls=int(fitted.control_mask.sum()),
             )
 
         from pymc_mfm.inference.api import _model_batch, observation_batch
 
-        observations, _ = context.observations(data)
+        observations, _ = fitted.observations(query)
         batch = observation_batch(**observations, model_config=self.config, device="cpu")
         batch = _model_batch(batch, device="cpu", dtype=next(self.parameters()).dtype)
         return _input_usage(
@@ -575,7 +551,107 @@ class MFM(nn.Module):
 
     def inference(
         self,
-        data: DataFrame,
+        context: DataFrame,
+        query: DataFrame,
+        *,
+        date_column: str,
+        target_column: str,
+        channel_columns: Sequence[str],
+        control_columns: Sequence[str],
+        n_samples: int = DEFAULT_N_SAMPLES,
+        mode: str = "model_average",
+        graph=None,
+        router_samples: int | None = None,
+        units: str = "outcome",
+        provenance: Mapping[str, object] | None = None,
+        return_idata: bool = True,
+    ) -> DataTree | None:
+        """Compute and store both marginals for an explicit history/future pair.
+
+        Context dates must have a regular cadence, with positive observed outcomes,
+        nonnegative media covariates and at least one media and control covariate.
+        Query dates start at the next context period without gaps. Inputs are
+        sorted and snapshotted; predictions never append themselves to history.
+        Query outcomes, when supplied, are kept only for analysis and charts.
+
+        Store a complete ``xarray.DataTree`` in :attr:`idata` on every successful
+        call. Return that exact tree by default; ``return_idata=False`` returns
+        ``None`` without skipping sampling, conversion or storage. Both windows
+        are separate conditional marginals, not paired full-horizon trajectories,
+        and their draws exclude observation noise.
+
+        A successful rerun replaces the entire analysis and drops response curves.
+        Failed calls preserve the last successful context, draws, tree and curves.
+        Runtime analysis state is never included in ``save_pretrained``.
+        """
+        from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
+        from pymc_mfm.inference.api import decompose
+        from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
+
+        _require_arviz()
+        fitted = _FittedContext.from_data(
+            context,
+            model_config=self.config,
+            date_column=date_column,
+            target_column=target_column,
+            channel_columns=channel_columns,
+            control_columns=control_columns,
+        )
+        result, observations, time, annotations = self._sample_query(
+            fitted,
+            query,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            units=units,
+            provenance=provenance,
+        )
+        prediction = _PredictionSnapshot(
+            fitted_context=fitted,
+            observations=observations,
+            time=time,
+            query=result,
+            # Derived result metadata is not caller provenance to replay.
+            annotations=deepcopy(annotations),
+            n_samples=result.n_samples,
+            mode=result.mode,
+            router_samples=(
+                result.provenance["inference_config"]["router_samples"]
+                if result.mode == "map"
+                else None
+            ),
+            units=result.units,
+            query_outcome=fitted.query_outcome(query),
+        )
+        context_result = decompose(
+            self,
+            observations,
+            n_samples=prediction.n_samples,
+            window="context",
+            mode=prediction.mode,
+            graph=result.graphs[:, None, :] if result.mode == "fixed" else None,
+            router_samples=prediction.router_samples,
+            channel_names=result.channel_names,
+            control_names=result.control_names,
+            time=time,
+            units=result.units,
+            provenance=prediction.annotations,
+        )
+        revision = self._inference_revision + 1
+        tree = prediction_datatree(context_result, prediction, revision=revision)
+        # Publish only the completed run: no candidate state leaks on failure.
+        self._inference_context = fitted
+        self._prediction_snapshot = prediction
+        self._context_decomposition = context_result
+        self._idata = tree
+        self._inference_revision = revision
+        self._response_curves = None
+        return tree if return_idata else None
+
+    def predict(
+        self,
+        query: DataFrame,
         *,
         n_samples: int = DEFAULT_N_SAMPLES,
         mode: str = "model_average",
@@ -584,31 +660,61 @@ class MFM(nn.Module):
         units: str = "outcome",
         provenance: Mapping[str, object] | None = None,
     ) -> DecompositionResult:
-        """Infer future conditional components using history loaded by ``add_context``.
+        """Sample query only using the last complete inference's history and roles.
 
-        Supply the configured date, channel and control columns, starting at
-        the next context period without gaps. Dates are sorted; unrelated columns
-        are ignored. The model never reads query targets: a target column, when
-        present, is kept only so ``plot`` can draw the observed query outcome
-        (values that are not finite numbers count as unobserved). Every call reuses
-        the same context and context-only scales, without appending predictions to
-        history. Returned draws use original outcome units and exclude observation
-        noise. A successful call retains its inputs and query draws for
-        ``build_idata``, ``response_curves`` and ``plot``, without sampling context or
-        converting to a DataTree, and drops the previous prediction's response curves.
-        Failed calls preserve the last successful prediction, export and curves.
-        Runtime snapshots are never included in ``save_pretrained``.
+        Return independent decomposition draws without replacing ``idata``,
+        ``query_result``, model charts or response curves. Query dates begin
+        immediately after the stored history, not after previous predictions.
+        Sampling options use their normal defaults, not the previous run's.
         """
-        from pymc_mfm.inference.api import decompose
-        from pymc_mfm.inference.dataframe import _PredictionSnapshot
-
         context = self._inference_context
         if context is None:
-            raise RuntimeError("call add_context(history, ...) before inference(future_data)")
-        observations, time = context.observations(data)
-        query_outcome = context.query_outcome(data)
-        annotations = deepcopy(dict(provenance)) if isinstance(provenance, Mapping) else provenance
-        query = decompose(
+            raise RuntimeError("call inference(context, query, ...) before predict(query)")
+        result, _, _, _ = self._sample_query(
+            context,
+            query,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            units=units,
+            provenance=provenance,
+        )
+        return result
+
+    def _sample_query(
+        self,
+        context: _FittedContext,
+        query: DataFrame,
+        *,
+        n_samples: int,
+        mode: str,
+        graph,
+        router_samples: int | None,
+        units: str,
+        provenance: Mapping[str, object] | None,
+    ) -> tuple[DecompositionResult, dict[str, np.ndarray], np.ndarray, dict[str, object] | None]:
+        """Compute query against an explicit candidate context without publishing it."""
+        from pymc_mfm.inference._artifact_schema import json_bytes
+        from pymc_mfm.inference.api import decompose
+        from pymc_mfm.inference.result import _require_json_text, _require_text
+
+        observations, time = context.observations(query)
+        if provenance is not None and not isinstance(provenance, Mapping):
+            raise ValueError("provenance must be a mapping")
+        annotations = deepcopy(dict(provenance)) if provenance is not None else None
+        if annotations is not None:
+            json_bytes(annotations)
+            _require_json_text(annotations, "provenance")
+            state_sha256 = annotations.get("state_sha256")
+            if state_sha256 is not None and not isinstance(state_sha256, str):
+                raise ValueError("provenance state_sha256 must be text")
+        if not isinstance(units, str) or not units:
+            raise ValueError("units must be a nonempty label")
+        _require_text(units, "units")
+        if "\x00" in units:
+            raise ValueError("units must not contain NUL characters")
+        result = decompose(
             self,
             observations,
             n_samples=n_samples,
@@ -621,116 +727,36 @@ class MFM(nn.Module):
             units=units,
             provenance=annotations,
         )
-        prediction = _PredictionSnapshot(
-            fitted_context=context,
-            observations=observations,
-            time=time,
-            query=query,
-            # Keep caller annotations separate from the public result metadata.
-            # Derived metadata is not valid provenance to replay on loaded models.
-            annotations=deepcopy(annotations),
-            n_samples=query.n_samples,
-            mode=query.mode,
-            router_samples=(
-                query.provenance["inference_config"]["router_samples"]
-                if query.mode == "map"
-                else None
-            ),
-            units=query.units,
-            query_outcome=query_outcome,
-        )
-        self._prediction_snapshot = prediction
-        self._context_decomposition = None
-        self._response_curves = None
-        self._idata = None
-        return query
+        return result, observations, time, annotations
 
     @property
     def idata(self) -> DataTree | None:
-        """The explicitly stored current export, or ``None``; never samples or converts."""
+        """The stored complete inference and curves, or ``None``; never samples or converts."""
         return self._idata
 
     @property
-    def plot(self) -> ModelPlots:
-        """Charts of the latest ``add_context`` and ``inference``; matplotlib or plotly.
+    def query_result(self) -> DecompositionResult | None:
+        """The exact query draws of the last complete inference, never an independent predict."""
+        prediction = self._prediction_snapshot
+        return None if prediction is None else prediction.query
 
-        Each method returns a figure of the chosen ``backend`` and imports it only
-        when it draws. Charts never sample, except that the first chart showing
-        context weeks samples the context marginal once, the same draws
-        ``build_idata`` reuses.
+    @property
+    def plot(self) -> ModelPlots:
+        """Sampling-free charts of the last complete inference and its response curves.
+
+        Each method returns a matplotlib or plotly figure and imports its backend
+        only when drawing. Independent ``predict`` calls do not change these charts.
         """
         from pymc_mfm.plotting.charts import ModelPlots
 
         return ModelPlots(self)
 
     def _context_result(self) -> DecompositionResult:
-        """The context marginal of the latest prediction, sampled on first use and cached.
-
-        ``build_idata`` and ``plot`` share these draws; successful ``add_context`` and
-        ``inference`` calls drop them.
-        """
-        prediction = self._prediction_snapshot
-        if prediction is None:
-            raise RuntimeError(
-                "call inference(future_data) successfully after add_context(history, ...) first"
-            )
-        if self._context_decomposition is None:
-            from pymc_mfm.inference.api import decompose
-
-            self._context_decomposition = decompose(
-                self,
-                prediction.observations,
-                n_samples=prediction.n_samples,
-                window="context",
-                mode=prediction.mode,
-                graph=prediction.query.graphs[:, None, :] if prediction.mode == "fixed" else None,
-                router_samples=prediction.router_samples,
-                channel_names=prediction.query.channel_names,
-                control_names=prediction.query.control_names,
-                time=prediction.time,
-                units=prediction.units,
-                provenance=prediction.annotations,
-            )
-        return self._context_decomposition
-
-    def build_idata(self, *, store: bool = False) -> DataTree:
-        """Export context and query subtrees for the latest successful prediction.
-
-        A successful ``inference`` after the current ``add_context`` is required. The
-        first build samples the missing context marginal and caches those draws;
-        query is never resampled. Context and query remain separate marginals,
-        not paired full-horizon trajectories.
-
-        By default return a fresh DataTree without changing ``idata``. With
-        ``store=True``, store and return the same object, reusing a current stored
-        export if available. Successful add_context/inference calls drop these references
-        without rewriting any earlier caller-held tree. Return-only builds still
-        retain inference state, but not their export container.
-
-        The optional ``pymc-mfm[arviz]`` dependencies are checked before context
-        sampling. Array conversion and context inference happen only on demand.
-        """
-        prediction = self._prediction_snapshot
-        if prediction is None:
-            raise RuntimeError(
-                "call inference(future_data) successfully after add_context(history, ...) "
-                "before build_idata()"
-            )
-        if store and self._idata is not None:
-            return self._idata
-
-        from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
-
-        _require_arviz()
-        # The context draws are cached before conversion: a failed export must not
-        # redraw successfully sampled context on the next build.
-        context = self._context_result()
-        tree = prediction_datatree(
-            context, prediction.query, observed=prediction.fitted_context.outcome
-        )
-        if store:
-            self._idata = tree
-        return tree
+        """Read the completed context marginal; never sample from a reader."""
+        result = self._context_decomposition
+        if result is None:
+            raise RuntimeError("call inference(context, query, ...) before reading context draws")
+        return result
 
     def response_curves(
         self,
@@ -761,16 +787,20 @@ class MFM(nn.Module):
         Draws come from PyTorch's global random generator: call ``torch.manual_seed``
         first to repeat them. Levels are sampled separately, so draws are not paired
         across levels and intervals are pointwise. These are conditional contributions,
-        not causal lift, and exclude observation noise. The result is kept for
-        ``plot.response_curves`` until a successful ``add_context`` or ``inference``;
-        a failed call keeps the previous curves.
+        not causal lift, and exclude observation noise. The result is kept in
+        ``idata`` and for ``plot.response_curves`` until the next successful
+        ``inference``. Independent ``predict`` and failed calls preserve it.
         """
+        from pymc_mfm.inference._datatree import attach_response_curves
         from pymc_mfm.inference.curves import response_curves
 
-        self._response_curves = response_curves(
+        curves = response_curves(
             self, levels=levels, channels=channels, weeks=weeks, n_samples=n_samples
         )
-        return self._response_curves
+        tree = attach_response_curves(self._idata, curves, self._prediction_snapshot)
+        self._response_curves = curves
+        self._idata = tree
+        return curves
 
     def compile_sampling(self, mode: str = "default", *, dynamic: bool | None = True) -> MFM:
         """Compile the flow velocity that sampling evaluates, for faster repeated calls.

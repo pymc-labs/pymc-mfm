@@ -5,7 +5,52 @@ tag `client-v0.1.0`; the version bump and the tag come in the tagging commit, an
 is published. These notes describe the standalone library's development capabilities and
 distribution prerequisites, not an approved or published release.
 
-## Changes
+## Current changes
+
+- **Complete paired inference and automatic idata.**
+  `model.inference(context, query, date_column=..., target_column=...,
+  channel_columns=..., control_columns=...)` samples query and context and
+  atomically stores their complete `xarray.DataTree`. The default
+  `return_idata=True` returns that exact `model.idata`; `False` returns `None`
+  while still sampling, converting and storing the complete tree. There is no
+  public `add_context` or `build_idata`, and the old `inference(query)` call is
+  removed rather than retained as an overload.
+- **Isolated prediction and exact-result helpers.** After complete inference,
+  `model.predict(query, ...)` returns an independent `DecompositionResult` using
+  the stored history/roles without replacing idata, `model.query_result`, context
+  draws, charts, curves or the inference revision. `query_result` exposes the
+  exact completed query draw bank for components, diagnostics, graph catalogs,
+  ranked topologies, DOT/SVG exports and result evidence saving; helpers do not
+  resample. Prediction never appends itself to history.
+- **Sampling-free charts and preflight.** All model charts read the last complete
+  inference, including after independent predictions; they never sample context.
+  `model.input_usage(context, query, **roles)` validates explicit inputs before
+  inference without sampling, publishing state or changing RNG. Omit query for
+  context-only counts. Response curves sample scenarios off-side and attach a
+  new curve subtree/root only on success; complete inference replaces curves.
+  Any failed complete inference or curve conversion preserves the prior run.
+- **Complete analysis schema.** Both windows include original-unit media/control
+  covariates, context observations and optional sanitized query observations.
+  Query outcomes remain display/evaluation-only, never model inputs. Window
+  provenance is canonical JSON text; root metadata records roles and a successful
+  inference revision. Curves have independent draw/level axes and separately
+  labeled source provenance. Context/query remain separate marginals, not paired
+  full-horizon trajectories. Changing a plan can also change context draws.
+- **Dependencies and migration.** `local` now includes `xarray>=2024.10` and
+  `arviz-base>=1.3,<2` for automatic in-memory trees; optional statistics,
+  rendering and explicit file export remain separate. Full inference pays for
+  both marginals and tree storage even with `return_idata=False`; historical
+  query-only timings below do not measure that full operation. README, guides,
+  generated API entries and quickstart use the paired contract. The notebook
+  preserves reviewed numeric/chart outputs and every graph analysis/export;
+  its headless acceptance uses a synthetic stand-in without downloading weights.
+  No runtime context, result, curve or idata is captured in weight bundles.
+
+## Historical development records
+
+The entries below record earlier changes, including APIs and lazy-storage behavior
+superseded by the current paired-inference contract above. They are retained as
+history, not current workflow instructions.
 
 - **`model.plot`: charts of the latest `add_context` and `inference`.** `MFM.plot` returns
   `pymc_mfm.plotting.ModelPlots`. It offers seven charts:

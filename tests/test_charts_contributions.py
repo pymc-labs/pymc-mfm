@@ -147,9 +147,7 @@ def test_a_negative_component_sits_below_zero_and_channels_on_top():
         np.testing.assert_array_equal(values, expected[name][1], err_msg=name)
 
 
-def test_components_pick_layers_keep_their_colors_and_query_never_samples_context(
-    predicted_model, chart_frames
-):
+def test_components_pick_layers_keep_their_colors_and_never_resample(predicted_model, chart_frames):
     from matplotlib.colors import to_hex
 
     _, future = chart_frames
@@ -228,8 +226,7 @@ def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
     from matplotlib.dates import date2num
 
     history, future = chart_frames
-    model.add_context(history, **CHART_ROLES)
-    model.inference(future.iloc[:1], n_samples=5)
+    model.inference(history, future.iloc[:1], n_samples=5, **CHART_ROLES)
     query = ModelSource(model).window("query")
     fig = model.plot.contributions_over_time(window="query")
     for values, edges, _ in _stack(fig):
@@ -277,8 +274,7 @@ def test_arguments_are_checked(predicted_model, chart_frames, arguments, error):
     state = torch.get_rng_state()
     with pytest.raises(ValueError, match=error):
         predicted_model.plot.contributions_over_time(**arguments)
-    if "ax" in arguments:  # backend and axes errors come before the context is sampled
-        assert torch.equal(torch.get_rng_state(), state)
+    assert torch.equal(torch.get_rng_state(), state)
 
 
 def test_plotly_draws_the_matplotlib_numbers(predicted_model, chart_frames):

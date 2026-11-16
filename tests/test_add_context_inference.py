@@ -1,13 +1,15 @@
-"""The dataframe facade retains context, not weights, and uses canonical inference."""
+"""Paired dataframe inference publishes complete analysis snapshots, never weights."""
 
 import json
-import sys
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
 import pytest
 import torch
+import xarray as xr
 from conftest import needs_arviz
+from safetensors import safe_open
 from safetensors.torch import load_file
 
 from pymc_mfm.inference.api import decompose
@@ -107,20 +109,71 @@ def _assert_same_result(actual, expected):
         assert actual.provenance[name] == expected.provenance[name], name
 
 
-def test_input_usage_inspects_context_and_horizons_without_a_prediction(model, history, future):
-    model.add_context(history, **COLUMN_ROLES)
+def _canonical_pair(model, history, future, control_names, **options):
+    """The public operation samples query first, then the independent context marginal."""
+    query = _canonical_result(model, history, future, control_names, **options)
+    context_options = {**options, "window": "context"}
+    if query.mode == "fixed":
+        context_options["graph"] = query.graphs[:, None, :]
+    context = _canonical_result(model, history, future, control_names, **context_options)
+    return query, context
+
+
+def _assert_named_posterior(posterior, result):
+    for variable, family, dimension in (
+        ("channel_contribution", "channel", "channel"),
+        ("control_contribution", "control", "control"),
+    ):
+        active = (np.array(result.component_families) == family) & result.component_mask
+        assert posterior[variable].dims == ("chain", "draw", "date", dimension)
+        np.testing.assert_array_equal(posterior[variable].values[0], result.components[..., active])
+    for component in ("baseline", "latent", "indirect:cc", "indirect:zc", "indirect:dc"):
+        variable = component.replace(":", "_")
+        assert posterior[variable].dims == ("chain", "draw", "date")
+        np.testing.assert_array_equal(
+            posterior[variable].values[0],
+            result.components[..., result.component_names.index(component)],
+        )
+    assert posterior["graph"].dims == ("chain", "draw", "edge")
+    np.testing.assert_array_equal(posterior["graph"].values[0], result.graphs[:, result.edge_mask])
+
+
+def _inject_inference_failure(monkeypatch, model, stage):
+    """Fail after real sampling, or at conversion, without inventing candidate draws."""
+    if stage == "conversion":
+        from pymc_mfm.inference import _datatree
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("conversion failed")
+
+        monkeypatch.setattr(_datatree, "prediction_datatree", fail)
+    else:
+        sample = model.sample_disentangled
+
+        def fail(*args, **kwargs):
+            result = sample(*args, **kwargs)
+            if kwargs["window"] == stage:
+                raise RuntimeError(f"{stage} sampling failed")
+            return result
+
+        monkeypatch.setattr(model, "sample_disentangled", fail)
+
+
+def test_input_usage_inspects_explicit_context_and_horizons_without_inference(
+    model, history, future
+):
     before = torch.get_rng_state()
-    context = model.input_usage()
+    context = model.input_usage(history, **COLUMN_ROLES)
     assert context == {"context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}}
-    usage = model.input_usage(future)
+    usage = model.input_usage(history, future, **COLUMN_ROLES)
     assert usage == REQUEST_USAGE
-    assert model.input_usage(future.iloc[:1]) == {
+    assert model.input_usage(history, future.iloc[:1], **COLUMN_ROLES) == {
         "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20},
         "query": {"steps": 1, "allocated_tokens": 5, "represented_tokens": 4},
         "total": {"allocated_tokens": 30, "represented_tokens": 24},
     }
     ignored_columns = future.assign(sales=["unobserved", None, -np.inf], note="not an input")
-    independent = model.input_usage(ignored_columns.iloc[::-1])
+    independent = model.input_usage(history, ignored_columns.iloc[::-1], **COLUMN_ROLES)
     assert independent == REQUEST_USAGE
     for section in independent.values():
         assert type(section) is dict
@@ -133,19 +186,17 @@ def test_input_usage_inspects_context_and_horizons_without_a_prediction(model, h
     assert context == {"context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}}
     assert independent == REQUEST_USAGE
     context["context"]["steps"] = -1
-    assert model.input_usage() == {
+    assert model.input_usage(history, **COLUMN_ROLES) == {
         "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}
     }
-    assert model.input_usage(future) == REQUEST_USAGE
-    assert model.idata is None
-    with pytest.raises(RuntimeError, match="inference"):
-        model.build_idata()
+    assert model.input_usage(history, future, **COLUMN_ROLES) == REQUEST_USAGE
+    assert model.idata is None and model.query_result is None
+    with pytest.raises(RuntimeError, match=r"inference\(context, query"):
+        model.predict(future, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
-def test_add_context_chains_and_inference_matches_decompose_with_sorted_alignment(
-    model, history, future
-):
+def test_paired_inference_matches_decompose_with_sorted_alignment(model, history, future):
     history_input = history.iloc[[3, 0, 4, 1, 2]][
         ["temperature", "date", "sales", "tv", "search"]
     ].copy()
@@ -155,16 +206,20 @@ def test_add_context_chains_and_inference_matches_decompose_with_sorted_alignmen
     history_input["unrelated"] = "private note"
     future_input["unrelated"] = None
     original_history, original_future = history_input.copy(deep=True), future_input.copy(deep=True)
-    before = torch.get_rng_state()
-    assert model.add_context(history_input, **COLUMN_ROLES) is model
-    assert torch.equal(torch.get_rng_state(), before)
 
     torch.manual_seed(701)
-    actual = model.inference(future_input, n_samples=4)
+    tree = model.inference(history_input, future_input, **COLUMN_ROLES, n_samples=4)
+    actual = model.query_result
+    after = torch.get_rng_state()
     torch.manual_seed(701)
-    expected = _canonical_result(model, history, future, actual.control_names, n_samples=4)
+    expected, context = _canonical_pair(model, history, future, actual.control_names, n_samples=4)
+    assert torch.equal(torch.get_rng_state(), after)
     _assert_same_result(actual, expected)
+    assert tree is model.idata
+    assert model.query_result is actual
     assert isinstance(actual, DecompositionResult)
+    _assert_named_posterior(tree["query"]["posterior"], expected)
+    _assert_named_posterior(tree["context"]["posterior"], context)
     assert actual.channel_names == CHANNELS
     assert actual.control_names[: len(CONTROLS)] == CONTROLS
     assert len(actual.control_names) == model.config.n_controls
@@ -174,14 +229,17 @@ def test_add_context_chains_and_inference_matches_decompose_with_sorted_alignmen
     np.testing.assert_array_equal(actual.time, future["date"].to_numpy(dtype="datetime64[ns]"))
     assert actual.time.dtype == np.dtype("datetime64[ns]")
     assert actual.window == "query" and actual.provenance["head"] == "conditional"
-    assert actual.provenance["input_usage"] == model.input_usage(future_input) == REQUEST_USAGE
+    assert (
+        actual.provenance["input_usage"]
+        == model.input_usage(history_input, future_input, **COLUMN_ROLES)
+        == REQUEST_USAGE
+    )
     pd.testing.assert_frame_equal(history_input, original_history)
     pd.testing.assert_frame_equal(future_input, original_future)
 
 
 @pytest.mark.parametrize("mode", ["fixed", "map"])
 def test_inference_preserves_graph_options_units_and_provenance(model, history, future, mode):
-    model.add_context(history, **COLUMN_ROLES)
     options = {
         "n_samples": 3,
         "mode": mode,
@@ -196,10 +254,14 @@ def test_inference_preserves_graph_options_units_and_provenance(model, history, 
     else:
         options["router_samples"] = 7
     torch.manual_seed(702)
-    actual = model.inference(future, **options)
+    tree = model.inference(history, future, **COLUMN_ROLES, **options)
+    actual = model.query_result
+    after = torch.get_rng_state()
     torch.manual_seed(702)
-    expected = _canonical_result(model, history, future, actual.control_names, **options)
+    expected, context = _canonical_pair(model, history, future, actual.control_names, **options)
+    assert torch.equal(torch.get_rng_state(), after)
     _assert_same_result(actual, expected)
+    _assert_named_posterior(tree["context"]["posterior"], context)
     assert actual.n_samples == 3 and actual.mode == mode and actual.units == "USD"
     assert actual.provenance["scenario"] == "board forecast"
     assert actual.provenance["input_usage"] == REQUEST_USAGE
@@ -211,56 +273,92 @@ def test_inference_preserves_graph_options_units_and_provenance(model, history, 
 
 
 @pytest.mark.parametrize(
-    "outcomes",
+    ("outcomes", "observed"),
     [
-        pytest.param(["not observed", None, -np.inf], id="nonnumeric"),
-        pytest.param([1e100, 1e-100, 1e200], id="finite-numeric"),
+        pytest.param(["not observed", None, -np.inf], None, id="all-unobserved"),
+        pytest.param([1e100, 1e-100, 1e200], [1e100, 1e-100, 1e200], id="finite-numeric"),
+        pytest.param(["123.5", "missing", np.inf], [123.5, np.nan, np.nan], id="partial"),
+        pytest.param(
+            pd.Series([10**400, 2.0, [1]], dtype=object),
+            [np.nan, 2.0, np.nan],
+            id="object-overflow",
+        ),
+        pytest.param([True, False, True], None, id="booleans"),
+        pytest.param([1 + 2j, 2, 3], None, id="complex"),
+        pytest.param(pd.date_range("2024-02-05", periods=3), None, id="datetime"),
     ],
 )
-def test_query_outcomes_are_ignored(model, history, future, outcomes):
-    model.add_context(history, **COLUMN_ROLES)
+def test_query_outcomes_are_observations_not_model_inputs(
+    model, history, future, outcomes, observed
+):
     torch.manual_seed(703)
-    expected = model.inference(future, n_samples=3)
-    poisoned = future.assign(sales=outcomes)
+    expected_tree = model.inference(history, future, **COLUMN_ROLES, n_samples=3)
+    expected = model.query_result
+    expected_rng = torch.get_rng_state()
+    annotated = future.assign(sales=outcomes)
     torch.manual_seed(703)
-    actual = model.inference(poisoned, n_samples=3)
+    tree = model.inference(history, annotated.iloc[::-1], **COLUMN_ROLES, n_samples=3)
+    actual = model.query_result
+    assert torch.equal(torch.get_rng_state(), expected_rng)
     _assert_same_result(actual, expected)
     assert actual.provenance == expected.provenance
     assert actual.provenance["sales_scale"] == np.quantile(history["sales"], 0.95)
+    for window in ("context", "query"):
+        xr.testing.assert_equal(tree[window]["posterior"], expected_tree[window]["posterior"])
+    if observed is None:
+        assert "observed_data" not in tree["query"].children
+    else:
+        assert tree["query"]["observed_data"]["outcome"].dims == ("date",)
+        np.testing.assert_array_equal(tree["query"]["observed_data"]["outcome"].values, observed)
+        np.testing.assert_array_equal(
+            tree["query"]["observed_data"]["date"].values,
+            future["date"].to_numpy(dtype="datetime64[ns]"),
+        )
+    # Removing targets on a later run removes the group, not just its finite values.
+    model.inference(history, future, **COLUMN_ROLES, n_samples=3)
+    assert "observed_data" not in model.idata["query"].children
 
 
-def test_history_and_role_lists_are_snapshots_and_context_replacement_is_atomic(
-    model, history, future
-):
+def test_history_and_role_lists_are_snapshots_and_replacement_is_atomic(model, history, future):
     pristine = history.copy(deep=True)
     channels, controls = list(CHANNELS), list(CONTROLS)
-    model.add_context(
+    torch.manual_seed(704)
+    stored = model.inference(
         history,
+        future,
         date_column="date",
         target_column="sales",
         channel_columns=channels,
         control_columns=controls,
+        n_samples=3,
     )
+    snapshot = stored.copy(deep=True)
+    query = model.query_result
     torch.manual_seed(704)
-    expected = model.inference(future, n_samples=3)
+    expected = _canonical_result(model, pristine, future, query.control_names, n_samples=3)
     history["date"] = "not a date"
     history["sales"] = 0.0
     history.loc[:, [*CHANNELS, *CONTROLS]] = -999.0
     channels[:] = ["missing"]
     controls.clear()
     torch.manual_seed(704)
-    _assert_same_result(model.inference(future, n_samples=3), expected)
-    assert model.input_usage(future) == REQUEST_USAGE
+    _assert_same_result(model.predict(future, n_samples=3), expected)
+    xr.testing.assert_identical(stored, snapshot)
+    assert model.idata is stored and model.query_result is query
 
     invalid_refit = pristine.rename(columns={"search": "new_search"}).assign(sales=0.0)
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.add_context(
-            invalid_refit, **{**COLUMN_ROLES, "channel_columns": ("new_search", "tv")}
+        model.inference(
+            invalid_refit,
+            future.rename(columns={"search": "new_search"}),
+            **{**COLUMN_ROLES, "channel_columns": ("new_search", "tv")},
+            n_samples=3,
         )
     assert torch.equal(torch.get_rng_state(), before)
+    assert model.idata is stored and model.query_result is query
     torch.manual_seed(704)
-    _assert_same_result(model.inference(future, n_samples=3), expected)
+    _assert_same_result(model.predict(future, n_samples=3), expected)
 
     replacement = (
         pristine.assign(
@@ -271,69 +369,139 @@ def test_history_and_role_lists_are_snapshots_and_context_replacement_is_atomic(
         .iloc[1:]
         .copy()
     )
-    assert model.add_context(replacement, **COLUMN_ROLES) is model
-    assert model.input_usage() == {
+    assert model.input_usage(replacement, **COLUMN_ROLES) == {
         "context": {"steps": 4, "allocated_tokens": 20, "represented_tokens": 16}
     }
-    assert model.input_usage(future) == {
+    assert model.input_usage(replacement, future, **COLUMN_ROLES) == {
         "context": {"steps": 4, "allocated_tokens": 20, "represented_tokens": 16},
         "query": {"steps": 3, "allocated_tokens": 15, "represented_tokens": 12},
         "total": {"allocated_tokens": 35, "represented_tokens": 28},
     }
     torch.manual_seed(704)
-    actual = model.inference(future, n_samples=3)
+    replacement_tree = model.inference(replacement, future, **COLUMN_ROLES, n_samples=3)
+    actual = model.query_result
     torch.manual_seed(704)
-    reference = _canonical_result(model, replacement, future, actual.control_names, n_samples=3)
-    _assert_same_result(actual, reference)
-    assert actual.provenance["sales_scale"] == np.quantile(replacement["sales"], 0.95)
-    assert not np.array_equal(actual.components, expected.components)
-
-
-def test_queries_are_independent_and_rebuild_relative_time_for_each_horizon(model, history, future):
-    model.add_context(history, **COLUMN_ROLES)
-    short = future.iloc[:1].copy()
-    torch.manual_seed(705)
-    expected_short = model.inference(short, n_samples=3)
-    different_query = future.assign(search=future["search"] * 4)
-    torch.manual_seed(706)
-    actual_long = model.inference(different_query, n_samples=3)
-    torch.manual_seed(706)
-    expected_long = _canonical_result(
-        model, history, different_query, actual_long.control_names, n_samples=3
+    reference, context = _canonical_pair(
+        model, replacement, future, actual.control_names, n_samples=3
     )
-    _assert_same_result(actual_long, expected_long)
+    _assert_same_result(actual, reference)
+    _assert_named_posterior(replacement_tree["context"]["posterior"], context)
+    assert actual.provenance["sales_scale"] == np.quantile(replacement["sales"], 0.95)
+    xr.testing.assert_identical(stored, snapshot)
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+def test_predict_is_query_only_and_preserves_the_complete_run_and_curves(
+    model, history, future, mode
+):
+    layout = EdgeSlotLayout(len(CHANNELS), model.config.n_controls, model.config.n_demand)
+    graph = np.zeros(layout.n_slots)
+    graph[layout.slices["cy"].start] = 1
+    model.inference(
+        history, future, **COLUMN_ROLES, n_samples=3, mode="fixed", graph=graph, units="USD"
+    )
+    query = model.query_result
     torch.manual_seed(705)
-    _assert_same_result(model.inference(short, n_samples=3), expected_short)
+    curves = model.response_curves(levels=[0, 1], channels=["search"], weeks=2)
+    stored = model.idata
+    snapshot = stored.copy(deep=True)
+    options = {"n_samples": 4}
+    if mode == "fixed":
+        options.update(mode=mode, graph=graph)
+    elif mode == "map":
+        options.update(mode=mode, router_samples=7)
+    short = future.iloc[:1].assign(search=75.0)
+    long = future.assign(search=future["search"] * 4)
+
+    for plan, seed in ((short, 706), (long, 707), (short, 706)):
+        torch.manual_seed(seed)
+        actual = model.predict(plan, **options)
+        after = torch.get_rng_state()
+        torch.manual_seed(seed)
+        expected = _canonical_result(model, history, plan, query.control_names, **options)
+        _assert_same_result(actual, expected)
+        assert torch.equal(torch.get_rng_state(), after)
+        assert actual is not query
+        assert actual.mode == mode and actual.units == "outcome" and actual.n_samples == 4
+        assert model.query_result is query and model.idata is stored
+        xr.testing.assert_identical(stored, snapshot)
+
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError):
+        model.predict(short.assign(search=-1.0), **options)
+    with pytest.raises(ValueError, match="graph"):
+        model.predict(short, n_samples=4, mode="fixed")
+    assert torch.equal(torch.get_rng_state(), before)
+    assert model.query_result is query and model.idata is stored
+    xr.testing.assert_identical(stored, snapshot)
+    # The next curve sweep must still use the stored full plan and its fixed graphs.
+    torch.manual_seed(705)
+    repeated = model.response_curves(levels=[0, 1], channels=["search"], weeks=2)
+    for name in ("draws", "media", "dates", "levels"):
+        np.testing.assert_array_equal(getattr(repeated, name), getattr(curves, name))
+    assert repeated.units == "USD" and model.query_result is query
+    xr.testing.assert_identical(stored, snapshot)
+
+
+def test_context_marginal_depends_on_the_current_query_plan_and_horizon(model, history, future):
+    layout = EdgeSlotLayout(len(CHANNELS), model.config.n_controls, model.config.n_demand)
+    graph = np.zeros(layout.n_slots)
+    graph[layout.slices["cy"].start] = 1
+    for revision, plan in enumerate(
+        (future, future.assign(search=future["search"] * 4), future.iloc[:1]), start=1
+    ):
+        torch.manual_seed(710)
+        tree = model.inference(
+            history, plan, **COLUMN_ROLES, n_samples=3, mode="fixed", graph=graph
+        )
+        query = model.query_result
+        after = torch.get_rng_state()
+        torch.manual_seed(710)
+        expected_query, expected_context = _canonical_pair(
+            model, history, plan, query.control_names, n_samples=3, mode="fixed", graph=graph
+        )
+        assert torch.equal(torch.get_rng_state(), after)
+        assert tree.attrs["inference_revision"] == revision
+        _assert_same_result(query, expected_query)
+        _assert_named_posterior(tree["context"]["posterior"], expected_context)
+        for window in ("context", "query"):
+            provenance = json.loads(tree[window].attrs["provenance"])
+            assert provenance["data_sha256"] == expected_context.provenance["data_sha256"]
+            assert provenance["input_usage"]["query"]["steps"] == len(plan)
 
 
 def test_padding_names_do_not_collide_with_real_controls(model, history, future):
-    model.add_context(history, **COLUMN_ROLES)
     torch.manual_seed(707)
-    initial = model.inference(future, n_samples=2)
+    model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    initial = model.query_result
     real_name = initial.control_names[-1]
     renamed_history = history.rename(columns={"temperature": real_name})
     renamed_future = future.rename(columns={"temperature": real_name})
-    model.add_context(renamed_history, **{**COLUMN_ROLES, "control_columns": (real_name,)})
     torch.manual_seed(707)
-    renamed = model.inference(renamed_future, n_samples=2)
+    tree = model.inference(
+        renamed_history,
+        renamed_future,
+        **{**COLUMN_ROLES, "control_columns": (real_name,)},
+        n_samples=2,
+    )
+    renamed = model.query_result
     assert renamed.control_names[0] == real_name
     assert len(set(renamed.control_names)) == model.config.n_controls
     np.testing.assert_array_equal(renamed.components, initial.components)
     np.testing.assert_array_equal(renamed.graphs, initial.graphs)
+    assert tree["query"]["posterior"]["control"].values.tolist() == [real_name]
 
 
 def test_inference_adapts_channel_count_and_full_control_capacity(model, history, future):
     history = history.assign(price=[10.0, 11.0, 9.0, 12.0, 10.0])
     future = future.assign(price=[9.0, 10.0, 11.0])
     channels, controls = ("tv",), ("price", "temperature")
-    model.add_context(
-        history,
-        **{**COLUMN_ROLES, "channel_columns": channels, "control_columns": controls},
-    )
+    roles = {**COLUMN_ROLES, "channel_columns": channels, "control_columns": controls}
     torch.manual_seed(710)
-    actual = model.inference(future, n_samples=3)
+    tree = model.inference(history, future, **roles, n_samples=3)
+    actual = model.query_result
     torch.manual_seed(710)
-    expected = _canonical_result(
+    expected, context = _canonical_pair(
         model,
         history,
         future,
@@ -343,9 +511,10 @@ def test_inference_adapts_channel_count_and_full_control_capacity(model, history
         n_samples=3,
     )
     _assert_same_result(actual, expected)
+    _assert_named_posterior(tree["context"]["posterior"], context)
     assert (
         actual.provenance["input_usage"]
-        == model.input_usage(future)
+        == model.input_usage(history, future, **roles)
         == {
             "context": {"steps": 5, "allocated_tokens": 20, "represented_tokens": 20},
             "query": {"steps": 3, "allocated_tokens": 12, "represented_tokens": 12},
@@ -355,70 +524,48 @@ def test_inference_adapts_channel_count_and_full_control_capacity(model, history
     assert actual.channel_names == channels and actual.control_names == controls
     control_axis = np.array([family == "control" for family in actual.component_families])
     np.testing.assert_array_equal(actual.component_mask[control_axis], [True, True])
+    for window in ("context", "query"):
+        assert tree[window]["constant_data"]["control"].values.tolist() == list(controls)
 
 
-def test_loaded_weights_state_and_mode_are_unchanged_and_bundles_exclude_context(
+def test_loaded_weights_trainability_and_mode_are_unchanged_by_inference(
     model, history, future, tmp_path
 ):
     loaded = from_pretrained(save_pretrained(model, tmp_path / "source"))
     before_state = {name: value.clone() for name, value in loaded.state_dict().items()}
     before_trainability = [parameter.requires_grad for parameter in loaded.parameters()]
-    before_bundle = save_pretrained(loaded, tmp_path / "before-fit")
     assert not loaded.training
-    loaded.add_context(history, **COLUMN_ROLES)
+    assert loaded.input_usage(history, future, **COLUMN_ROLES) == REQUEST_USAGE
     assert not loaded.training
     loaded.train()
-    assert loaded.add_context(history, **COLUMN_ROLES) is loaded
-    assert loaded.training
-    assert loaded.input_usage(future) == REQUEST_USAGE
     torch.manual_seed(708)
-    training_mode_result = loaded.inference(future, n_samples=3)
+    training_tree = loaded.inference(history, future, **COLUMN_ROLES, n_samples=3)
+    training_result = loaded.query_result
+    training_rng = torch.get_rng_state()
     assert loaded.training
     loaded.eval()
     torch.manual_seed(708)
-    evaluation_mode_result = loaded.inference(future, n_samples=3)
+    evaluation_tree = loaded.inference(history, future, **COLUMN_ROLES, n_samples=3)
     assert not loaded.training
-    _assert_same_result(training_mode_result, evaluation_mode_result)
+    assert torch.equal(torch.get_rng_state(), training_rng)
+    _assert_same_result(training_result, loaded.query_result)
+    xr.testing.assert_equal(training_tree, evaluation_tree)
     assert loaded.state_dict().keys() == before_state.keys()
     for name, value in loaded.state_dict().items():
         torch.testing.assert_close(value, before_state[name], rtol=0, atol=0)
     assert [parameter.requires_grad for parameter in loaded.parameters()] == before_trainability
     assert all(parameter.grad is None for parameter in loaded.parameters())
 
-    fitted_bundle = save_pretrained(loaded, tmp_path / "after-fit")
-    assert {path.name for path in fitted_bundle.iterdir()} == {
-        "config.json",
-        "manifest.json",
-        "model.safetensors",
-    }
-    assert (fitted_bundle / "config.json").read_bytes() == (
-        before_bundle / "config.json"
-    ).read_bytes()
-    saved_weights = load_file(fitted_bundle / "model.safetensors")
-    assert saved_weights.keys() == before_state.keys()
-    for name, value in saved_weights.items():
-        torch.testing.assert_close(value, before_state[name], rtol=0, atol=0)
-    restored = from_pretrained(fitted_bundle)
-    with pytest.raises(RuntimeError):
-        restored.inference(future, n_samples=2)
-    with pytest.raises(RuntimeError, match="add_context"):
-        restored.input_usage()
 
-
-def test_inference_without_context_does_not_consume_rng(model, history, future):
+def test_inference_requires_both_frames_and_explicit_roles_without_consuming_rng(
+    model, history, future
+):
     before = torch.get_rng_state()
-    with pytest.raises(RuntimeError, match="add_context"):
-        model.input_usage()
-    with pytest.raises(RuntimeError, match="add_context"):
-        model.input_usage(future)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(TypeError):
         model.inference(future, n_samples=2)
-    with pytest.raises(ValueError):
-        model.add_context(history.assign(sales=0.0), **COLUMN_ROLES)
-    with pytest.raises(RuntimeError):
-        model.inference(future, n_samples=2)
-    with pytest.raises(RuntimeError, match="add_context"):
-        model.input_usage()
+    with pytest.raises(TypeError):
+        model.inference(history, future, n_samples=2)
+    assert model.idata is None and model.query_result is None
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -439,18 +586,20 @@ def test_inference_without_context_does_not_consume_rng(model, history, future):
         ),
     ],
 )
-def test_add_context_rejects_invalid_role_schemas_before_rng_consumption(model, history, roles):
+def test_inference_rejects_invalid_role_schemas_before_rng_consumption(
+    model, history, future, roles
+):
     history = history.assign(extra_control=1.0, another_control=2.0)
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.add_context(history, **{**COLUMN_ROLES, **roles})
+        model.inference(history, future, **{**COLUMN_ROLES, **roles}, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
 @pytest.mark.parametrize(
     "problem", ["not_dataframe", "duplicate_columns", "missing_target", "one_row"]
 )
-def test_add_context_rejects_invalid_table_shapes(model, history, problem):
+def test_inference_rejects_invalid_context_table_shapes(model, history, future, problem):
     if problem == "not_dataframe":
         history = history.to_dict("list")
     elif problem == "duplicate_columns":
@@ -461,7 +610,7 @@ def test_add_context_rejects_invalid_table_shapes(model, history, problem):
         history = history.iloc[:1]
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.add_context(history, **COLUMN_ROLES)
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -469,7 +618,7 @@ def test_add_context_rejects_invalid_table_shapes(model, history, problem):
     ("column", "value"),
     [("search", -1e-50), ("sales", 0.0), ("temperature", np.inf), ("tv", 1 + 2j)],
 )
-def test_add_context_validates_raw_numeric_domains_before_inference(model, history, column, value):
+def test_inference_validates_raw_context_numeric_domains(model, history, future, column, value):
     values = history[column].to_numpy(
         dtype=complex if isinstance(value, complex) else float, copy=True
     )
@@ -477,22 +626,24 @@ def test_add_context_validates_raw_numeric_domains_before_inference(model, histo
     history[column] = values
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.add_context(history, **COLUMN_ROLES)
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
-def test_add_context_validates_canonical_representation_without_waiting_for_a_query(model, history):
+def test_preflight_and_inference_validate_canonical_context_representation(model, history, future):
     history["sales"] = [1e-300, 1e300, 1e300, 1e300, 1e300]
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.add_context(history, **COLUMN_ROLES)
+        model.input_usage(history, **COLUMN_ROLES)
+    with pytest.raises(ValueError):
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
 @pytest.mark.parametrize(
     "problem", ["missing", "invalid", "numeric", "aware", "duplicate", "irregular"]
 )
-def test_add_context_rejects_invalid_or_irregular_dates(model, history, problem):
+def test_inference_rejects_invalid_or_irregular_context_dates(model, history, future, problem):
     if problem == "invalid":
         history["date"] = ["not a date", *history["date"].dt.strftime("%Y-%m-%d").tolist()[1:]]
     elif problem == "numeric":
@@ -510,7 +661,7 @@ def test_add_context_rejects_invalid_or_irregular_dates(model, history, problem)
         history["date"] = dates
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.add_context(history, **COLUMN_ROLES)
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -521,7 +672,6 @@ def test_add_context_rejects_invalid_or_irregular_dates(model, history, problem)
 def test_inference_validates_query_schema_and_domains_before_rng_consumption(
     model, history, future, problem
 ):
-    model.add_context(history, **COLUMN_ROLES)
     if problem == "not_dataframe":
         future = future.to_dict("list")
     elif problem == "missing_channel":
@@ -536,9 +686,9 @@ def test_inference_validates_query_schema_and_domains_before_rng_consumption(
         future = future.assign(temperature="unknown")
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.input_usage(future)
+        model.input_usage(history, future, **COLUMN_ROLES)
     with pytest.raises(ValueError):
-        model.inference(future, n_samples=2)
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -549,7 +699,6 @@ def test_inference_validates_query_schema_and_domains_before_rng_consumption(
 def test_inference_rejects_dates_outside_the_immediate_regular_horizon(
     model, history, future, problem
 ):
-    model.add_context(history, **COLUMN_ROLES)
     if problem == "aware":
         future["date"] = future["date"].dt.tz_localize("UTC")
     elif problem == "overlap":
@@ -570,20 +719,20 @@ def test_inference_rejects_dates_outside_the_immediate_regular_horizon(
         future["date"] = dates
     before = torch.get_rng_state()
     with pytest.raises(ValueError):
-        model.input_usage(future)
+        model.input_usage(history, future, **COLUMN_ROLES)
     with pytest.raises(ValueError):
-        model.inference(future, n_samples=2)
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
 @pytest.mark.parametrize("column", ["search", "temperature"])
 def test_nonzero_query_inputs_cannot_use_zero_context_scales(model, history, future, column):
-    model.add_context(history.assign(**{column: 0.0}), **COLUMN_ROLES)
+    history = history.assign(**{column: 0.0})
     before = torch.get_rng_state()
     with pytest.raises(ValueError, match="zero context"):
-        model.input_usage(future)
+        model.input_usage(history, future, **COLUMN_ROLES)
     with pytest.raises(ValueError, match="zero context"):
-        model.inference(future, n_samples=2)
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -607,128 +756,125 @@ def test_calendar_and_two_row_cadences_accept_the_exact_next_single_row(
 ):
     history = history.iloc[: len(history_dates)].assign(date=history_dates)
     future = future.iloc[:1].assign(date=query_date)
-    model.add_context(history, **COLUMN_ROLES)
     torch.manual_seed(709)
-    actual = model.inference(future, n_samples=2)
+    tree = model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    actual = model.query_result
     torch.manual_seed(709)
-    expected = _canonical_result(model, history, future, actual.control_names, n_samples=2)
+    expected, context = _canonical_pair(model, history, future, actual.control_names, n_samples=2)
     _assert_same_result(actual, expected)
+    _assert_named_posterior(tree["context"]["posterior"], context)
     np.testing.assert_array_equal(actual.time, np.array([query_date], dtype="datetime64[ns]"))
 
 
-@pytest.mark.parametrize("stage", ["add_context", "inference"])
+@pytest.mark.parametrize("window", ["context", "query"])
 def test_mixed_numeric_datetime_objects_cannot_be_coerced_to_date_labels(
-    model, history, future, stage
+    model, history, future, window
 ):
     before = torch.get_rng_state()
-    if stage == "add_context":
+    if window == "context":
         history = history.iloc[:2].copy()
         history["date"] = pd.Series([0.0, pd.Timestamp("1970-01-02")], dtype=object)
-        with pytest.raises(ValueError):
-            model.add_context(history, **COLUMN_ROLES)
     else:
-        model.add_context(history, **COLUMN_ROLES)
         future["date"] = pd.Series(
             [float(future["date"].iloc[0].value), *future["date"].iloc[1:]], dtype=object
         )
-        with pytest.raises(ValueError):
-            model.inference(future, n_samples=2)
+    with pytest.raises(ValueError):
+        model.input_usage(history, future, **COLUMN_ROLES)
+    with pytest.raises(ValueError):
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
 
-@needs_arviz
-def test_input_usage_preserves_prediction_export_weights_mode_and_seeded_draws(
+def test_input_usage_preserves_complete_inference_curves_weights_mode_and_seeded_draws(
     model, history, future
 ):
-    import xarray as xr
-
     # A constant represented channel also provides the known float16 overflow case.
     history = history.assign(search=1.0)
     future = future.assign(search=1.0)
-    model.add_context(history, **COLUMN_ROLES)
     torch.manual_seed(711)
-    query = model.inference(future, n_samples=3)
-    stored = model.build_idata(store=True)
+    model.inference(history, future, **COLUMN_ROLES, n_samples=3)
+    query = model.query_result
+    model.response_curves(levels=[0, 1], channels=["search"], weeks=1, n_samples=2)
+    stored = model.idata
     original = stored.copy(deep=True)
     model.train()
     trainability = [parameter.requires_grad for parameter in model.parameters()]
 
     def assert_preserved(state, rng):
         assert model.training
-        assert model.idata is stored
+        assert model.idata is stored and model.query_result is query
         assert torch.equal(torch.get_rng_state(), rng)
         for name, value in model.state_dict().items():
             torch.testing.assert_close(value, state[name], rtol=0, atol=0)
         assert [parameter.requires_grad for parameter in model.parameters()] == trainability
         assert all(parameter.grad is None for parameter in model.parameters())
         xr.testing.assert_identical(stored, original)
-        rebuilt = model.build_idata()
-        xr.testing.assert_equal(rebuilt, original)
-        for window in ("context", "query"):
-            assert (
-                rebuilt[window].attrs["metadata_sha256"]
-                == original[window].attrs["metadata_sha256"]
-            )
-        assert model.idata is stored
-        assert torch.equal(torch.get_rng_state(), rng)
 
     state = {name: value.clone() for name, value in model.state_dict().items()}
     before = torch.get_rng_state()
-    assert model.input_usage() == {
-        "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20}
+    # Explicit preflight can inspect a different candidate without replacing the run.
+    assert model.input_usage(history.iloc[1:], **COLUMN_ROLES) == {
+        "context": {"steps": 4, "allocated_tokens": 20, "represented_tokens": 16}
     }
-    assert model.input_usage(future.iloc[:1]) == {
+    assert model.input_usage(history, future.iloc[:1], **COLUMN_ROLES) == {
         "context": {"steps": 5, "allocated_tokens": 25, "represented_tokens": 20},
         "query": {"steps": 1, "allocated_tokens": 5, "represented_tokens": 4},
         "total": {"allocated_tokens": 30, "represented_tokens": 24},
     }
     with pytest.raises(ValueError):
-        model.input_usage(future.assign(search=-1e-50))
+        model.input_usage(history, future.assign(search=-1e-50), **COLUMN_ROLES)
     assert_preserved(state, before)
     torch.manual_seed(711)
     reference = _canonical_result(model, history, future, query.control_names, n_samples=3)
     _assert_same_result(query, reference)
 
-    # The canonical float32 query is finite, but cannot be narrowed to model dtype.
-    # Inspection must reject it before touching the completed prediction or export.
+    # Inspection rejects narrowing overflow without touching the completed run.
     model.half()
     state = {name: value.clone() for name, value in model.state_dict().items()}
     before = torch.get_rng_state()
-    assert model.input_usage(future) == REQUEST_USAGE
+    assert model.input_usage(history, future, **COLUMN_ROLES) == REQUEST_USAGE
     with pytest.raises(ValueError, match="qry_spend_z.*finite model representation"):
-        model.input_usage(future.assign(search=1e100))
+        model.input_usage(history, future.assign(search=1e100), **COLUMN_ROLES)
     assert_preserved(state, before)
 
 
-@needs_arviz
 @pytest.mark.parametrize("mode", ["model_average", "map"])
-def test_idata_named_values_match_both_marginals_and_work_with_arviz(model, history, future, mode):
+def test_idata_named_values_inputs_and_provenance_match_both_marginals(
+    model, history, future, mode
+):
     import arviz_base
-    from arviz_stats import summary
 
-    model.add_context(history.iloc[::-1], **COLUMN_ROLES)
-    options = {"router_samples": 7} if mode == "map" else {}
-    query = model.inference(future.iloc[::-1], n_samples=5, mode=mode, units="USD", **options)
-    context_rng = torch.get_rng_state()
-    tree = model.build_idata()
-    with torch.random.fork_rng(devices=[]):
-        torch.set_rng_state(context_rng)
-        context = _canonical_result(
-            model,
-            history,
-            future,
-            query.control_names,
-            n_samples=5,
-            window="context",
-            mode=mode,
-            units="USD",
-            **options,
-        )
-
-    assert model.idata is None
+    annotations = {
+        "scenario": {"name": "board forecast", "versions": [1, {"approved": True}]},
+        "input_usage": {"context": {"steps": -1}},
+    }
+    options = {
+        "n_samples": 5,
+        "mode": mode,
+        "units": "USD",
+        "provenance": annotations,
+    }
+    if mode == "map":
+        options["router_samples"] = 7
+    torch.manual_seed(812)
+    tree = model.inference(history.iloc[::-1], future.iloc[::-1], **COLUMN_ROLES, **options)
+    query = model.query_result
+    after = torch.get_rng_state()
+    torch.manual_seed(812)
+    expected_query, context = _canonical_pair(
+        model, history, future, query.control_names, **options
+    )
+    assert torch.equal(torch.get_rng_state(), after)
+    _assert_same_result(query, expected_query)
+    assert model.idata is tree and model.query_result is query
     assert set(tree.children) == {"context", "query"}
-    assert "date" not in tree.coords
-    for window, result in (("context", context), ("query", query)):
+    assert len(tree.coords) == 0
+    assert tree.attrs["schema_version"] == 1
+    assert tree.attrs["inference_revision"] == 1
+    assert tree.attrs["date_column"] == "date" and tree.attrs["target_column"] == "sales"
+    assert json.loads(tree.attrs["channel_columns"]) == list(CHANNELS)
+    assert json.loads(tree.attrs["control_columns"]) == list(CONTROLS)
+    for window, result, frame in (("context", context, history), ("query", query, future)):
         subtree = tree[window]
         posterior = subtree["posterior"]
         assert set(posterior.data_vars) == {
@@ -744,28 +890,15 @@ def test_idata_named_values_match_both_marginals_and_work_with_arviz(model, hist
         np.testing.assert_array_equal(posterior["date"].values, result.time)
         assert posterior["channel"].values.tolist() == list(CHANNELS)
         assert posterior["control"].values.tolist() == list(CONTROLS)
-        for variable, family, dimension in (
-            ("channel_contribution", "channel", "channel"),
-            ("control_contribution", "control", "control"),
-        ):
-            active = np.array(result.component_families) == family
-            active &= result.component_mask
-            assert posterior[variable].dims == ("chain", "draw", "date", dimension)
-            np.testing.assert_array_equal(
-                posterior[variable].values[0], result.components[..., active]
-            )
-        for component in ("baseline", "latent", "indirect:cc", "indirect:zc", "indirect:dc"):
-            variable = component.replace(":", "_")
-            assert posterior[variable].dims == ("chain", "draw", "date")
-            np.testing.assert_array_equal(
-                posterior[variable].values[0],
-                result.components[..., result.component_names.index(component)],
-            )
-        assert posterior["graph"].dims == ("chain", "draw", "edge")
-        np.testing.assert_array_equal(
-            posterior["graph"].values[0], result.graphs[:, result.edge_mask]
-        )
+        _assert_named_posterior(posterior, result)
         constants = subtree["constant_data"]
+        assert constants["media"].dims == ("date", "channel")
+        assert constants["controls"].dims == ("date", "control")
+        np.testing.assert_array_equal(constants["date"].values, result.time)
+        np.testing.assert_array_equal(constants["media"].values, frame[list(CHANNELS)].to_numpy())
+        np.testing.assert_array_equal(
+            constants["controls"].values, frame[list(CONTROLS)].to_numpy()
+        )
         endpoints = np.array(result.provenance["edge_endpoints"])[result.edge_mask]
         np.testing.assert_array_equal(constants["edge_source"].values, endpoints[:, 0])
         np.testing.assert_array_equal(constants["edge_target"].values, endpoints[:, 1])
@@ -775,17 +908,14 @@ def test_idata_named_values_match_both_marginals_and_work_with_arviz(model, hist
             assert attrs["units"] == "USD"
             assert attrs["data_sha256"] == result.provenance["data_sha256"]
             assert attrs["mcmc_diagnostics"] == "not_applicable"
+            provenance = json.loads(attrs["provenance"])
+            assert provenance == result.provenance
+            assert provenance["scenario"] == annotations["scenario"]
+            assert provenance["input_usage"] == REQUEST_USAGE
         extracted = arviz_base.extract(subtree, var_names="channel_contribution")
         np.testing.assert_array_equal(
             extracted.sel(channel="search").values,
             posterior["channel_contribution"].sel(channel="search").values[0].T,
-        )
-        table = summary(subtree, var_names=["channel_contribution"], kind="stats", round_to="none")
-        np.testing.assert_allclose(
-            table["mean"].to_numpy(),
-            posterior["channel_contribution"].values.mean(axis=(0, 1)).ravel(),
-            rtol=1e-12,
-            atol=1e-12,
         )
     assert set(tree["context"].children) == {"posterior", "constant_data", "observed_data"}
     assert set(tree["query"].children) == {"posterior", "constant_data"}
@@ -795,138 +925,246 @@ def test_idata_named_values_match_both_marginals_and_work_with_arviz(model, hist
     )
 
 
-def test_idata_requires_successful_inference_for_the_current_context(model, history):
-    assert model.idata is None
-    before = torch.get_rng_state()
-    with pytest.raises(RuntimeError):
-        model.build_idata()
-    model.add_context(history, **COLUMN_ROLES)
-    with pytest.raises(RuntimeError):
-        model.build_idata(store=True)
-    assert model.idata is None
-    assert torch.equal(torch.get_rng_state(), before)
-
-
 @needs_arviz
-def test_idata_storage_modes_and_repeated_exports_preserve_the_draws(model, history, future):
-    import xarray as xr
+def test_idata_window_subtrees_support_optional_arviz_statistics(model, history, future):
+    from arviz_stats import summary
 
-    model.add_context(history, **COLUMN_ROLES)
-    query = model.inference(future, n_samples=4)
-    query_values = query.components.copy()
-    first = model.build_idata()
-    assert model.idata is None
+    tree = model.inference(history, future, **COLUMN_ROLES, n_samples=5)
+    for window in ("context", "query"):
+        subtree = tree[window]
+        table = summary(subtree, var_names=["channel_contribution"], kind="stats", round_to="none")
+        np.testing.assert_allclose(
+            table["mean"].to_numpy(),
+            subtree["posterior"]["channel_contribution"].values.mean(axis=(0, 1)).ravel(),
+            rtol=1e-12,
+            atol=1e-12,
+        )
+
+
+def test_return_idata_false_stores_the_same_complete_seeded_analysis(model, history, future):
     torch.manual_seed(819)
-    before = torch.get_rng_state()
-    stored = model.build_idata(store=True)
-    assert model.idata is stored
-    assert model.build_idata(store=True) is stored
-    returned = model.build_idata()
-    assert returned is not stored
-    assert model.idata is stored
-    assert torch.equal(torch.get_rng_state(), before)
-    for window in ("context", "query"):
-        xr.testing.assert_equal(first[window]["posterior"], stored[window]["posterior"])
-        xr.testing.assert_equal(returned[window]["posterior"], stored[window]["posterior"])
-    np.testing.assert_array_equal(query.components, query_values)
-
-
-@needs_arviz
-def test_new_context_and_inference_invalidate_only_model_owned_idata(model, history, future):
-    import xarray as xr
-
-    model.add_context(history, **COLUMN_ROLES)
-    first_query = model.inference(future, n_samples=3)
-    first = model.build_idata(store=True)
+    first = model.inference(
+        history,
+        future.assign(sales=[150.0, np.nan, 160.0]),
+        **COLUMN_ROLES,
+        n_samples=4,
+        return_idata=True,
+    )
+    first_query = model.query_result
     first_copy = first.copy(deep=True)
-    second_query = model.inference(future.iloc[:1].assign(search=75.0), n_samples=3)
-    assert model.idata is None
-    second = model.build_idata(store=True)
-    second_copy = second.copy(deep=True)
-    assert first_query.provenance["data_sha256"] != second_query.provenance["data_sha256"]
-    for window in ("context", "query"):
-        assert second[window].attrs["data_sha256"] == second_query.provenance["data_sha256"]
+    first_rng = torch.get_rng_state()
+    assert first is model.idata
+    assert first.attrs["inference_revision"] == 1
+
+    torch.manual_seed(819)
+    returned = model.inference(
+        history,
+        future.assign(sales=[150.0, np.nan, 160.0]),
+        **COLUMN_ROLES,
+        n_samples=4,
+        return_idata=False,
+    )
+    stored, query = model.idata, model.query_result
+    assert returned is None
+    assert stored is not None and stored is not first and query is not first_query
+    assert stored.attrs["inference_revision"] == 2
+    assert set(stored.children) == {"context", "query"}
+    assert torch.equal(torch.get_rng_state(), first_rng)
+    xr.testing.assert_equal(first, stored)
+    _assert_same_result(query, first_query)
+    assert query.provenance == first_query.provenance
+    torch.manual_seed(819)
+    expected_query, expected_context = _canonical_pair(
+        model, history, future, query.control_names, n_samples=4
+    )
+    assert torch.equal(torch.get_rng_state(), first_rng)
+    _assert_same_result(query, expected_query)
+    _assert_named_posterior(stored["context"]["posterior"], expected_context)
+    _assert_named_posterior(stored["query"]["posterior"], expected_query)
+    before = torch.get_rng_state()
+    assert model.idata is stored and model.idata is stored and model.query_result is query
+    assert torch.equal(torch.get_rng_state(), before)
     xr.testing.assert_identical(first, first_copy)
 
-    model.add_context(history.assign(sales=history["sales"] * 1.5), **COLUMN_ROLES)
-    assert model.idata is None
-    with pytest.raises(RuntimeError):
-        model.build_idata()
-    model.inference(future, n_samples=3)
-    third = model.build_idata(store=True)
-    assert third["context"].attrs["data_sha256"] != second["context"].attrs["data_sha256"]
-    xr.testing.assert_identical(first, first_copy)
-    xr.testing.assert_identical(second, second_copy)
 
+@pytest.mark.parametrize("return_idata", [True, False])
+def test_reruns_replace_complete_snapshots_and_curves_without_reusing_context(
+    model, history, future, return_idata
+):
+    first = model.inference(history, future.assign(sales=155.0), **COLUMN_ROLES, n_samples=4)
+    first_query = model.query_result
+    model.response_curves(levels=[0, 1], weeks=2, n_samples=2)
+    with_curves = model.idata
+    snapshots = [(first, first.copy(deep=True)), (with_curves, with_curves.copy(deep=True))]
+    replacement = history.iloc[1:].rename(columns={"temperature": "price"})
+    replacement = replacement.assign(sales=replacement["sales"] * 1.5)
+    short = future.iloc[:1].rename(columns={"temperature": "price"}).assign(search=75.0)
+    roles = {
+        **COLUMN_ROLES,
+        "channel_columns": ("tv", "search"),
+        "control_columns": ("price",),
+    }
+    previous_tree, previous_query = with_curves, first_query
 
-@needs_arviz
-def test_failed_context_or_inference_preserves_last_successful_idata(model, history, future):
-    import xarray as xr
-
-    model.add_context(history, **COLUMN_ROLES)
-    model.inference(future, n_samples=3)
-    stored = model.build_idata(store=True)
-
-    def assert_preserved():
-        before = torch.get_rng_state()
-        rebuilt = model.build_idata()
-        assert model.idata is stored
-        assert torch.equal(torch.get_rng_state(), before)
-        xr.testing.assert_equal(rebuilt, stored)
-        for window in ("context", "query"):
-            assert (
-                rebuilt[window].attrs["metadata_sha256"] == stored[window].attrs["metadata_sha256"]
+    # Identical successive requests still sample both marginals from their own RNG state.
+    for revision in (2, 3):
+        start = torch.get_rng_state()
+        returned = model.inference(
+            replacement,
+            short,
+            **roles,
+            n_samples=2,
+            mode="map",
+            router_samples=5,
+            units="EUR",
+            provenance={"scenario": {"name": "replacement"}},
+            return_idata=return_idata,
+        )
+        tree, query = model.idata, model.query_result
+        after = torch.get_rng_state()
+        assert returned is tree if return_idata else returned is None
+        assert tree is not previous_tree and query is not previous_query
+        assert tree.attrs["inference_revision"] == revision
+        assert set(tree.children) == {"context", "query"}
+        assert set(tree["query"].children) == {"posterior", "constant_data"}
+        assert tree["context"]["posterior"].sizes["date"] == 4
+        assert tree["query"]["posterior"].sizes["date"] == 1
+        assert tree["query"]["posterior"]["draw"].values.tolist() == [0, 1]
+        assert tree["query"]["posterior"]["channel"].values.tolist() == ["tv", "search"]
+        assert tree["query"]["posterior"]["control"].values.tolist() == ["price"]
+        with torch.random.fork_rng(devices=[]):
+            torch.set_rng_state(start)
+            expected_query, expected_context = _canonical_pair(
+                model,
+                replacement,
+                short,
+                query.control_names,
+                channel_columns=("tv", "search"),
+                control_columns=("price",),
+                n_samples=2,
+                mode="map",
+                router_samples=5,
+                units="EUR",
+                provenance={"scenario": {"name": "replacement"}},
             )
-
-    with pytest.raises(ValueError):
-        model.add_context(history.assign(sales=0.0), **COLUMN_ROLES)
-    assert_preserved()
-    with pytest.raises(ValueError):
-        model.inference(future.assign(date=future["date"] + pd.Timedelta(days=7)), n_samples=3)
-    assert_preserved()
-    # Result construction can fail after the sampler has completed.
-    with pytest.raises(TypeError):
-        model.inference(future, n_samples=3, provenance={"scenario": object()})
-    assert_preserved()
-    assert model.build_idata(store=True) is stored
+            assert torch.equal(torch.get_rng_state(), after)
+        _assert_same_result(query, expected_query)
+        _assert_named_posterior(tree["context"]["posterior"], expected_context)
+        _assert_named_posterior(tree["query"]["posterior"], expected_query)
+        for old, snapshot in snapshots:
+            xr.testing.assert_identical(old, snapshot)
+        snapshots.append((tree, tree.copy(deep=True)))
+        previous_tree, previous_query = tree, query
 
 
-@needs_arviz
-def test_idata_retains_prediction_inputs_provenance_and_each_fixed_graph(
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "context",
+        "query",
+        "roles",
+        "count",
+        "mode",
+        "graph",
+        "object_metadata",
+        "nonfinite_metadata",
+        "scalar_identity",
+    ],
+)
+def test_failed_candidate_validation_preserves_complete_run_and_curves(
+    model, history, future, problem
+):
+    model.inference(history, future, **COLUMN_ROLES, n_samples=3)
+    query = model.query_result
+    model.response_curves(levels=[0, 1], channels=["search"], weeks=1, n_samples=2)
+    stored = model.idata
+    snapshot = stored.copy(deep=True)
+    context = history.assign(sales=history["sales"] * 1.5)
+    plan = future.assign(search=75.0)
+    roles, options = dict(COLUMN_ROLES), {"n_samples": 2, "return_idata": False}
+    if problem == "context":
+        context = context.assign(sales=0.0)
+    elif problem == "query":
+        plan = plan.assign(date=plan["date"] + pd.Timedelta(days=7))
+    elif problem == "roles":
+        roles["control_columns"] = ("search",)
+    elif problem == "count":
+        options["n_samples"] = 0
+    elif problem == "mode":
+        options["mode"] = "unknown"
+    elif problem == "graph":
+        layout = EdgeSlotLayout(len(CHANNELS), model.config.n_controls, model.config.n_demand)
+        options.update(mode="fixed", graph=np.full(layout.n_slots, 0.5))
+    elif problem == "object_metadata":
+        options["provenance"] = {"scenario": {"name": object()}}
+    elif problem == "scalar_identity":
+        options["provenance"] = {"state_sha256": 1}
+    else:
+        options["provenance"] = {"scenario": {"versions": [1, np.inf]}}
+    before = torch.get_rng_state()
+    with pytest.raises((TypeError, ValueError)):
+        model.inference(context, plan, **roles, **options)
+    assert torch.equal(torch.get_rng_state(), before)
+    assert model.idata is stored and model.query_result is query
+    xr.testing.assert_identical(stored, snapshot)
+    torch.manual_seed(820)
+    predicted = model.predict(future, n_samples=2)
+    torch.manual_seed(820)
+    expected = _canonical_result(model, history, future, query.control_names, n_samples=2)
+    _assert_same_result(predicted, expected)
+    assert model.idata is stored and model.query_result is query
+
+
+def test_idata_snapshots_inputs_nested_provenance_and_each_fixed_graph(
     model, history, future, tmp_path
 ):
-    model.add_context(history, **COLUMN_ROLES)
     layout = EdgeSlotLayout(len(CHANNELS), model.config.n_controls, model.config.n_demand)
     graphs = np.zeros((3, 1, layout.n_slots))
     graphs[0, 0, layout.slices["cy"].start] = 1
     graphs[1, 0, layout.slices["cy"].start + 1] = 1
     original_graphs = graphs.copy()
-    annotations = {"scenario": {"name": "original"}}
-    query = model.inference(future, n_samples=3, mode="fixed", graph=graphs, provenance=annotations)
+    annotations = {"scenario": {"name": "original", "versions": [1, {"approved": True}]}}
+    torch.manual_seed(821)
+    tree = model.inference(
+        history,
+        future,
+        **COLUMN_ROLES,
+        n_samples=3,
+        mode="fixed",
+        graph=graphs,
+        provenance=annotations,
+    )
+    query = model.query_result
+    snapshot = tree.copy(deep=True)
     np.testing.assert_array_equal(query.graphs, original_graphs[:, 0])
-    with torch.random.fork_rng(devices=[]):
-        expected_context = _canonical_result(
-            model,
-            history,
-            future,
-            query.control_names,
-            n_samples=3,
-            window="context",
-            mode="fixed",
-            graph=original_graphs,
-            provenance={"scenario": {"name": "original"}},
-        )
+    torch.manual_seed(821)
+    expected_query, expected_context = _canonical_pair(
+        model,
+        history,
+        future,
+        query.control_names,
+        n_samples=3,
+        mode="fixed",
+        graph=original_graphs,
+        provenance=annotations,
+    )
+    _assert_same_result(query, expected_query)
+    _assert_named_posterior(tree["context"]["posterior"], expected_context)
     context_metadata = json.loads(
         (expected_context.save(tmp_path / "context") / "result.json").read_text()
     )
     metadata = json.loads((query.save(tmp_path / "query") / "result.json").read_text())
+    restored_query = DecompositionResult.load(tmp_path / "query")
+    _assert_same_result(restored_query, query)
+    assert restored_query.provenance == query.provenance
     query_dates = query.time.copy()
     graphs[:] = 1
     annotations["scenario"]["name"] = object()
+    annotations["scenario"]["versions"][1]["approved"] = False
     future["date"] = "changed after inference"
     future.loc[:, [*CHANNELS, *CONTROLS]] = -999.0
     history["sales"] = 0.0
-    tree = model.build_idata()
+    assert tree is model.idata and query is model.query_result
     assert tree["query"].attrs["metadata_sha256"] == metadata["metadata_sha256"]
     assert tree["context"].attrs["metadata_sha256"] == context_metadata["metadata_sha256"]
     np.testing.assert_array_equal(tree["query"]["posterior"]["date"].values, query_dates)
@@ -937,22 +1175,30 @@ def test_idata_retains_prediction_inputs_provenance_and_each_fixed_graph(
         )
         assert tree[window].attrs["data_sha256"] == query.provenance["data_sha256"]
         assert tree[window].attrs["graph_source"] == "supplied_hypothesis"
+        provenance = json.loads(tree[window].attrs["provenance"])
+        assert provenance["scenario"] == {
+            "name": "original",
+            "versions": [1, {"approved": True}],
+        }
+        assert provenance["input_usage"] == REQUEST_USAGE
+    xr.testing.assert_identical(tree, snapshot)
 
 
-@needs_arviz
 def test_named_idata_preserves_odd_column_names_and_zero_fixed_graphs(model, history, future):
     channels = ("baseline", "paid:検索 / social")
     controls = ("__padded_control_1__",)
     rename = dict(zip((*CHANNELS, *CONTROLS), (*channels, *controls), strict=True))
-    model.add_context(
-        history.rename(columns=rename),
-        **{**COLUMN_ROLES, "channel_columns": channels, "control_columns": controls},
-    )
     layout = EdgeSlotLayout(len(channels), model.config.n_controls, model.config.n_demand)
-    model.inference(
-        future.rename(columns=rename), n_samples=3, mode="fixed", graph=np.zeros(layout.n_slots)
+    tree = model.inference(
+        history.rename(columns=rename),
+        future.rename(columns=rename),
+        **{**COLUMN_ROLES, "channel_columns": channels, "control_columns": controls},
+        n_samples=3,
+        mode="fixed",
+        graph=np.zeros(layout.n_slots),
     )
-    tree = model.build_idata()
+    assert json.loads(tree.attrs["channel_columns"]) == list(channels)
+    assert json.loads(tree.attrs["control_columns"]) == list(controls)
     for window in ("context", "query"):
         posterior = tree[window]["posterior"]
         assert posterior["channel"].values.tolist() == list(channels)
@@ -966,63 +1212,202 @@ def test_named_idata_preserves_odd_column_names_and_zero_fixed_graphs(model, his
         np.testing.assert_array_equal(posterior["graph"].values, 0.0)
 
 
-def test_missing_idata_extra_is_reported_before_context_sampling(
-    model, history, future, monkeypatch
+@pytest.mark.parametrize("stage", ["query", "context", "conversion"])
+@pytest.mark.parametrize("populated", [False, True])
+@pytest.mark.parametrize("return_idata", [True, False])
+def test_sampling_and_conversion_failures_publish_no_partial_run(
+    model, history, future, monkeypatch, stage, populated, return_idata
 ):
-    model.add_context(history, **COLUMN_ROLES)
-    model.inference(future, n_samples=3)
-    for name in ("xarray", "arviz_base"):
-        monkeypatch.setitem(sys.modules, name, None)
+    stored = query = snapshot = None
+    if populated:
+        model.inference(history, future, **COLUMN_ROLES, n_samples=3)
+        query = model.query_result
+        model.response_curves(levels=[0, 1], channels=["search"], weeks=1, n_samples=2)
+        stored = model.idata
+        snapshot = stored.copy(deep=True)
+    context = history.assign(sales=history["sales"] * 1.5)
+    plan = future.iloc[:1].assign(search=75.0)
+    model.train()
     before = torch.get_rng_state()
-    with pytest.raises(ImportError, match=r"pymc-mfm\[arviz\]"):
-        model.build_idata(store=True)
-    assert model.idata is None
+    with torch.random.fork_rng(devices=[]):
+        if stage == "query":
+            _canonical_result(model, context, plan, None, n_samples=2)
+        else:
+            _canonical_pair(model, context, plan, None, n_samples=2)
+        expected_rng = torch.get_rng_state()
+    with monkeypatch.context() as failure:
+        _inject_inference_failure(failure, model, stage)
+        with pytest.raises(RuntimeError, match=f"{stage} .*failed"):
+            model.inference(context, plan, **COLUMN_ROLES, n_samples=2, return_idata=return_idata)
+    assert torch.equal(torch.get_rng_state(), expected_rng)
+    assert not torch.equal(before, expected_rng)
+    assert model.idata is stored and model.query_result is query
+    assert model.training
+    if populated:
+        xr.testing.assert_identical(stored, snapshot)
+        torch.manual_seed(822)
+        predicted = model.predict(future, n_samples=2)
+        torch.manual_seed(822)
+        expected = _canonical_result(model, history, future, query.control_names, n_samples=2)
+        _assert_same_result(predicted, expected)
+        assert model.idata is stored and model.query_result is query
+    else:
+        after_failure = torch.get_rng_state()
+        with pytest.raises(RuntimeError, match=r"inference\(context, query"):
+            model.predict(plan, n_samples=2)
+        assert torch.equal(torch.get_rng_state(), after_failure)
+
+    # A retry must start from scratch, not retain either unpublished candidate marginal.
+    retry_start = torch.get_rng_state()
+    returned = model.inference(
+        context, plan, **COLUMN_ROLES, n_samples=2, return_idata=return_idata
+    )
+    tree, completed = model.idata, model.query_result
+    retry_rng = torch.get_rng_state()
+    assert returned is tree if return_idata else returned is None
+    assert tree is not stored and completed is not query
+    assert tree.attrs["inference_revision"] == (2 if populated else 1)
+    assert set(tree.children) == {"context", "query"}
+    with torch.random.fork_rng(devices=[]):
+        torch.set_rng_state(retry_start)
+        expected_query, expected_context = _canonical_pair(
+            model, context, plan, completed.control_names, n_samples=2
+        )
+        assert torch.equal(torch.get_rng_state(), retry_rng)
+    _assert_same_result(completed, expected_query)
+    _assert_named_posterior(tree["context"]["posterior"], expected_context)
+    assert model.training
+    if populated:
+        xr.testing.assert_identical(stored, snapshot)
+
+
+@pytest.mark.parametrize(
+    "role", ["date_column", "target_column", "channel_columns", "control_columns"]
+)
+def test_nul_role_labels_are_rejected_before_sampling(model, history, future, role):
+    roles = dict(COLUMN_ROLES)
+    original = roles[role]
+    name = original if isinstance(original, str) else original[0]
+    invalid = name + "\x00"
+    roles[role] = invalid if isinstance(original, str) else (invalid, *original[1:])
+    context = history.rename(columns={name: invalid})
+    plan = future.rename(columns={name: invalid})
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="NUL"):
+        model.inference(context, plan, **roles, n_samples=2)
+    assert model.idata is None and model.query_result is None
     assert torch.equal(torch.get_rng_state(), before)
 
 
-@needs_arviz
-def test_failed_conversion_does_not_redraw_a_completed_context(model, history, future):
-    channel = "search\x00"
-    model.add_context(
-        history.rename(columns={"search": channel}),
-        **{**COLUMN_ROLES, "channel_columns": (channel, "tv")},
-    )
-    model.inference(future.rename(columns={"search": channel}), n_samples=3)
-    with pytest.raises(ValueError, match="NUL"):
-        model.build_idata()
-    after_context = torch.get_rng_state()
-    with pytest.raises(ValueError, match="NUL"):
-        model.build_idata()
-    assert torch.equal(torch.get_rng_state(), after_context)
-    assert model.idata is None
+def test_predict_failure_after_sampling_preserves_the_full_run_and_curves(
+    model, history, future, monkeypatch
+):
+    model.inference(history, future, **COLUMN_ROLES, n_samples=3)
+    query = model.query_result
+    model.response_curves(levels=[0, 1], channels=["search"], weeks=1, n_samples=2)
+    stored = model.idata
+    snapshot = stored.copy(deep=True)
+    plan = future.iloc[:1].assign(search=75.0)
+    torch.manual_seed(823)
+    expected = _canonical_result(model, history, plan, query.control_names, n_samples=2)
+    expected_rng = torch.get_rng_state()
+    torch.manual_seed(823)
+    with monkeypatch.context() as failure:
+        _inject_inference_failure(failure, model, "query")
+        with pytest.raises(RuntimeError, match="query sampling failed"):
+            model.predict(plan, n_samples=2)
+    assert torch.equal(torch.get_rng_state(), expected_rng)
+    assert model.query_result is query and model.idata is stored
+    xr.testing.assert_identical(stored, snapshot)
+    torch.manual_seed(823)
+    _assert_same_result(model.predict(plan, n_samples=2), expected)
+    assert model.query_result is query and model.idata is stored
 
 
-@needs_arviz
-def test_weight_bundles_exclude_prediction_and_idata_state(model, history, future, tmp_path):
+def test_weight_bundles_exclude_complete_sessions_curves_and_predictions(
+    model, history, future, tmp_path
+):
     baseline = save_pretrained(model, tmp_path / "baseline")
-    model.add_context(history, **COLUMN_ROLES)
-    model.inference(future, n_samples=3)
-    model.build_idata(store=True)
-    with_idata = save_pretrained(model, tmp_path / "with-idata")
-    assert {path.name for path in with_idata.iterdir()} == {
+    sentinel = "runtime-only-forecast-label"
+    roles = {**COLUMN_ROLES, "channel_columns": (sentinel, "tv")}
+    context = history.rename(columns={"search": sentinel})
+    plan = future.rename(columns={"search": sentinel}).assign(sales=[157.0, np.nan, 163.0])
+    model.inference(
+        context,
+        plan,
+        **roles,
+        n_samples=3,
+        provenance={"scenario": {"name": sentinel}},
+        return_idata=False,
+    )
+    query = model.query_result
+    curves = model.response_curves(levels=[0, 1], channels=[sentinel], weeks=2, n_samples=2)
+    stored = model.idata
+    assert curves.channels == (sentinel,)
+    assert stored["response_curves"]["posterior"].sizes["draw"] == 2
+    assert sentinel in stored["query"]["constant_data"]["channel"].values
+    independent = model.predict(plan.iloc[:1].assign(**{sentinel: 91.0}), n_samples=2)
+    assert independent is not query and model.query_result is query and model.idata is stored
+    with_session = save_pretrained(model, tmp_path / "with-session")
+    assert {path.name for path in with_session.iterdir()} == {
         "config.json",
         "manifest.json",
         "model.safetensors",
     }
-    assert (baseline / "config.json").read_bytes() == (with_idata / "config.json").read_bytes()
+    assert (baseline / "config.json").read_bytes() == (with_session / "config.json").read_bytes()
+    before_manifest = json.loads((baseline / "manifest.json").read_text())
+    after_manifest = json.loads((with_session / "manifest.json").read_text())
+    # Metadata key order in the safetensors container need not preserve its file digest.
+    # Compare every semantic manifest field and the actual container metadata/weights.
+    for manifest in (before_manifest, after_manifest):
+        del manifest["bundle_sha256"]
+        del manifest["files"]["model.safetensors"]["sha256"]
+    assert before_manifest == after_manifest
+    with (
+        safe_open(baseline / "model.safetensors", framework="pt") as before_file,
+        safe_open(with_session / "model.safetensors", framework="pt") as after_file,
+    ):
+        assert before_file.metadata() == after_file.metadata()
+    for name in ("config.json", "manifest.json"):
+        assert sentinel not in (with_session / name).read_text()
     before_weights = load_file(baseline / "model.safetensors")
-    after_weights = load_file(with_idata / "model.safetensors")
+    after_weights = load_file(with_session / "model.safetensors")
     assert before_weights.keys() == after_weights.keys()
     for name, value in after_weights.items():
         torch.testing.assert_close(value, before_weights[name], rtol=0, atol=0)
-    restored = from_pretrained(with_idata)
-    assert restored.idata is None
-    with pytest.raises(RuntimeError):
-        restored.build_idata()
+    restored = from_pretrained(with_session)
+    assert restored.idata is None and restored.query_result is None
+    before = torch.get_rng_state()
+    with pytest.raises(RuntimeError, match=r"inference\(context, query"):
+        restored.predict(plan, n_samples=2)
+    with pytest.raises(RuntimeError, match="inference"):
+        restored.response_curves(levels=[0, 1])
+    assert restored.input_usage(context, plan, **roles) == REQUEST_USAGE
+    assert restored.idata is None and restored.query_result is None
+    assert torch.equal(torch.get_rng_state(), before)
 
 
-@needs_arviz
-def test_loaded_recorded_model_builds_both_windows_without_replaying_derived_provenance(
+def test_independent_predictions_cannot_mutate_loaded_artifact_identity(
+    model, history, future, tmp_path
+):
+    loaded = from_pretrained(save_pretrained(model, tmp_path / "model", profile="synthetic"))
+    tree = loaded.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    query = loaded.query_result
+    original_identity = deepcopy(loaded.artifact_metadata)
+    original_provenance = deepcopy(query.provenance)
+    original_tree = tree.copy(deep=True)
+
+    prediction = loaded.predict(future, n_samples=2)
+    prediction.provenance["artifact"]["profile"] = "independent edit"
+    prediction.provenance["artifact"]["manifest"]["files"]["config.json"]["sha256"] = "f" * 64
+
+    assert loaded.artifact_metadata == original_identity
+    assert query.provenance == original_provenance
+    assert loaded.idata is tree and loaded.query_result is query
+    xr.testing.assert_identical(tree, original_tree)
+
+
+def test_loaded_recorded_model_replays_both_windows_and_curves_without_derived_provenance(
     model, history, future, tmp_path
 ):
     from test_checkpoint import _training_evaluation
@@ -1036,15 +1421,50 @@ def test_loaded_recorded_model_builds_both_windows_without_replaying_derived_pro
             provenance={"source_checkpoint_sha256": "a" * 64, "training_evaluation": recorded},
         )
     )
-    loaded.add_context(history, **COLUMN_ROLES)
-    query = loaded.inference(future, n_samples=3, provenance={"scenario": {"name": "loaded"}})
-    returned = loaded.build_idata()
-    assert loaded.idata is None
-    stored = loaded.build_idata(store=True)
-    assert loaded.idata is stored
-    assert returned is not stored
-    for tree in (returned, stored):
-        for window in ("context", "query"):
-            assert tree[window].attrs["state_sha256"] == loaded.provenance["state_sha256"]
-            assert tree[window].attrs["data_sha256"] == query.provenance["data_sha256"]
+    annotations = {"scenario": {"name": "loaded"}}
+    torch.manual_seed(824)
+    tree = loaded.inference(history, future, **COLUMN_ROLES, n_samples=3, provenance=annotations)
+    query = loaded.query_result
+    after = torch.get_rng_state()
+    torch.manual_seed(824)
+    expected_query, expected_context = _canonical_pair(
+        loaded, history, future, query.control_names, n_samples=3, provenance=annotations
+    )
+    assert torch.equal(torch.get_rng_state(), after)
+    _assert_same_result(query, expected_query)
+    _assert_named_posterior(tree["context"]["posterior"], expected_context)
+    assert loaded.idata is tree
+    for window in ("context", "query"):
+        assert tree[window].attrs["state_sha256"] == loaded.provenance["state_sha256"]
+        assert tree[window].attrs["data_sha256"] == query.provenance["data_sha256"]
+        assert json.loads(tree[window].attrs["provenance"])["scenario"] == {"name": "loaded"}
+    # Neither caller nor public-result metadata is replayable sampling configuration.
+    annotations["scenario"]["name"] = "caller edit"
+    query.provenance["scenario"]["name"] = "result edit"
+    query.provenance["inference_config"]["n_samples"] = 999
+    torch.manual_seed(825)
+    curves = loaded.response_curves(levels=[0, 1], channels=["search"], weeks=1, n_samples=2)
+    torch.manual_seed(825)
+    reference = _canonical_result(
+        loaded,
+        history,
+        future.iloc[:1],
+        query.control_names,
+        n_samples=2,
+        provenance={"scenario": {"name": "loaded"}},
+    )
+    component = reference.component_names.index("channel:search")
+    np.testing.assert_array_equal(
+        curves.draws[0, 1], reference.components[:, :, component].sum(axis=1)
+    )
+    assert loaded.query_result is query
+    assert json.loads(loaded.idata["query"].attrs["provenance"])["scenario"] == {"name": "loaded"}
+    curve_tree = loaded.idata["response_curves"]
+    assert json.loads(curve_tree.attrs["source_provenance"]) == json.loads(
+        tree["query"].attrs["provenance"]
+    )
+    assert curve_tree.attrs["source_inference_revision"] == tree.attrs["inference_revision"]
+    assert curve_tree.attrs["mode"] == "model_average"
+    assert curve_tree.attrs["units"] == "outcome"
+    assert curve_tree.attrs["n_samples"] == 2 and curve_tree.attrs["weeks"] == 1
     assert loaded.artifact_metadata["provenance"]["training_evaluation"] == recorded

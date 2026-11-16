@@ -27,7 +27,8 @@ class ResponseCurves:
     contribution summed over ``dates``, the first ``weeks`` forecast weeks, in ``units``,
     with that covariate in those weeks at ``levels[l]`` (sorted multipliers) times its
     observed values. Each run decomposes the history and a plan of just those weeks,
-    every other input as given to ``inference``. ``media`` is each covariate's observed
+    every other input as given to the last complete ``inference(history, future, ...)``.
+    ``predict`` does not change that base run. ``media`` is each covariate's observed
     total over those weeks. Each level is a separate sample: draws are not paired across
     levels.
     """
@@ -71,12 +72,11 @@ def response_curves(
     weeks: int | None = None,
     n_samples: int | None = None,
 ) -> ResponseCurves:
-    """The response curves of ``model``'s latest prediction; see ``MFM.response_curves``."""
+    """Curves of ``model``'s last complete inference; see ``MFM.response_curves``."""
     prediction = model._prediction_snapshot
     if prediction is None:
         raise RuntimeError(
-            "call inference(future_data) successfully after add_context(history, ...) "
-            "before response_curves()"
+            "call inference(history, future, ...) successfully before response_curves()"
         )
     history = prediction.fitted_context
     start = len(history.dates)
@@ -176,7 +176,7 @@ def _levels(levels: Iterable[float] | None) -> np.ndarray:
     if values.size < 2:
         raise ValueError(
             f"a curve needs at least two distinct levels, got {values.tolist()}; "
-            "use inference for one plan"
+            "use inference(history, future, ...) for one complete plan"
         )
     return values
 

@@ -5,31 +5,36 @@ description: "Use the dataframe and array interfaces to generate, export, and re
 
 ## Dataframe workflow
 
-Use the dataframe interface when dates and column names are part of the input contract. Load a model, call [add_context](../reference/model.MFM.qmd) once with history, then call [inference](../reference/model.MFM.qmd) for each independent future plan. A successful context load snapshots the history and roles; later mutations of the dataframe do not change that snapshot.
+Use the dataframe interface when dates and column names are part of the input contract. [inference(context, query, ...)](../reference/model.MFM.qmd) validates an explicit history/plan pair, samples both marginals, and returns the complete `xarray.DataTree` stored as `model.idata`. No context setter or export builder is needed.
 
 ```python
-model.add_context(
-    history,
-    date_column="week",
-    target_column="sales",
-    channel_columns=["tv", "search"],
-    control_columns=["price"],
-)
-query = model.inference(plan, n_samples=500)
+roles = {
+    "date_column": "week",
+    "target_column": "sales",
+    "channel_columns": ["tv", "search"],
+    "control_columns": ["price"],
+}
+usage = model.input_usage(history, plan, **roles)  # preflight before sampling
+idata = model.inference(history, plan, **roles, n_samples=500)
+assert idata is model.idata
+query = model.query_result  # exact query DecompositionResult for diagnostics and graph helpers
 ```
 
-`add_context` requires a pandas dataframe with at least two rows, unique timezone-naive dates, a regular cadence, strictly positive outcomes, nonnegative spend, and at least one channel and control. Date, target, channel, and control roles must be distinct. It pads controls up to the model's configured control width; it rejects more controls than that width.
+History requires a pandas dataframe with at least two rows, unique timezone-naive dates, a regular cadence, strictly positive outcomes, nonnegative spend, and at least one channel and control. Date, target, channel, and control roles must be distinct. Controls are padded up to the model's configured width; excess controls are rejected. Successful inference snapshots the inputs and role lists, so later caller mutations cannot change the completed run.
 
-`inference` needs the stored date, channel, and control columns. Physical dataframe column order does not matter, and extra columns are ignored. The model never reads a query target column: when present, it is kept only so [`model.plot`](#charts) can compare the forecast with what happened (values that are not finite numbers count as unobserved). Query rows are sorted without modifying the caller's dataframe, and their dates must begin at the next context period and continue with the stored cadence without gaps.
+The query needs the specified date, channel, and control columns. Physical dataframe column order does not matter, and extra columns are ignored. The model never reads query targets: finite outcomes are kept only for display/evaluation; invalid or nonfinite values count as unobserved. Query rows are sorted without modifying the caller's dataframe, and their dates must begin at the next context period and continue with its cadence without gaps.
 
-A prediction does not append itself to history. Reuse one context for repeated plans; another successful `add_context` atomically replaces it. Calling `inference` before context loading raises an error, while a failed context load preserves the prior successful context. Model bundles never include observed history, so add context again after loading a model.
+Each successful complete call atomically replaces the stored run and clears its curves; failed validation, sampling or tree conversion preserves the previous run. Both marginals depend on the actual context/plan pair, so changing a future plan or its horizon regenerates context draws too. Equal draw indices do not pair the two marginals.
+
+For independent query-only calculations, use `prediction = model.predict(plan, n_samples=500)` after one complete inference. It uses that run's history and roles, never appends predictions, and leaves `model.idata`, `model.query_result`, model charts and curves unchanged. Sampling settings retain their normal defaults rather than inheriting the previous call; fixed mode requires `graph=`. Before complete inference, `predict` raises a prerequisite error. Weight bundles contain none of this runtime state; run complete inference again after loading.
 
 ## Charts
 
-[`model.plot`](../reference/plotting.ModelPlots.qmd) draws the latest `add_context` and `inference`. Install `pymc-mfm[plot]` for matplotlib figures and `pymc-mfm[interactive]` for plotly ones; pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
+[`model.plot`](../reference/plotting.ModelPlots.qmd) draws the latest complete `inference`, never an intervening `predict`. Install `pymc-mfm[plot]` for matplotlib figures and `pymc-mfm[interactive]` for plotly ones; pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
 
 ```python
-query = model.inference(plan_with_outcome, n_samples=1_000)  # outcome kept for the charts only
+idata = model.inference(history, plan_with_outcome, **roles, n_samples=1_000)
+query = model.query_result  # query outcomes are kept for charts, never read by the model
 
 model.plot.inputs()  # outcome, media and control covariates by week
 model.plot.fit()  # expected vs observed outcome, with MAPE, R² and interval coverage
@@ -39,35 +44,35 @@ model.plot.shares()  # share of the expected outcome by media and control covari
 model.plot.contribution_totals(window="query")  # each component's total over the forecast
 model.plot.contribution_vs_media()  # weekly media covariate against weekly contribution
 
-model.response_curves(levels=np.linspace(0, 2, 9), weeks=8)  # reruns inference per level
+model.response_curves(levels=np.linspace(0, 2, 9), weeks=8)  # samples sweep scenarios
 model.plot.response_curves()
 
 model.plot.fit(backend="plotly")
 ```
 
-Each chart summarizes the draws once, then matplotlib or plotly draws the same numbers. Matplotlib charts return a `Figure` that notebooks show without pyplot; single-axes charts accept `ax=`. Charts never sample, except that the first chart showing context weeks samples the context marginal once; `build_idata` reuses those draws, and a `window="query"` chart never samples the context. [MFM.response_curves](../reference/model.MFM.qmd) multiplies one media covariate in the first `weeks` forecast weeks by each level and reruns inference (one shared run for level 1). It keeps the result for `plot.response_curves` until the next `add_context` or `inference`.
+Each chart summarizes the completed draws once, then matplotlib or plotly draws the same numbers. Matplotlib charts return a `Figure` that notebooks show without pyplot; single-axes charts accept `ax=`. **Model charts never sample**, including context charts. Before complete inference there is no history-only chart state. [MFM.response_curves](../reference/model.MFM.qmd) multiplies one media covariate in the first `weeks` forecast weeks by each level and samples each scenario (one shared run for level 1). It returns the curves and attaches them to a new `model.idata` root, preserving the base query result. Failed sweeps/conversion preserve the prior curves and tree. Successful complete inference replaces curves; `predict` does not.
 
 Intervals are central intervals of the draws, pointwise over weeks or levels, and exclude observation noise. Contributions are conditional on the inputs, not causal lift. For simulated data, `truth` adds known contributions: a dataframe indexed by date (by level for response curves) with one column per media or control covariate.
 
 ## Inspect input usage
 
-After `add_context`, inspect the stored history or preflight a future plan without
-running the encoder, graph router, or decoder:
+Inspect explicit history or preflight a history/plan pair without any previous
+inference and without running the encoder, graph router, or decoder:
 
 ```python
-context_usage = model.input_usage()
-usage = model.input_usage(plan)
+context_usage = model.input_usage(history, **roles)
+usage = model.input_usage(history, plan, **roles)
 
 print(usage["context"]["represented_tokens"])
 print(usage["total"]["allocated_tokens"])
 
-query = model.inference(plan, n_samples=500)
-assert query.provenance["input_usage"] == usage
+idata = model.inference(history, plan, **roles, n_samples=500)
+assert model.query_result.provenance["input_usage"] == usage
 ```
 
-Both calls require loaded context. Without a plan, the returned dictionary contains
-only `context`; it does not invent a zero-length query or a complete-request total.
-With a plan, it contains:
+Both calls require explicit history and roles, not stored model state. Without a
+plan, the returned dictionary contains only `context`; it does not invent a
+zero-length query or a complete-request total. With a plan, it contains:
 
 | Section | Fields |
 | --- | --- |
@@ -76,8 +81,8 @@ With a plan, it contains:
 | `total` | `allocated_tokens` and `represented_tokens` for the full input timeline |
 
 The records contain ordinary Python integers and can be serialized as JSON. Each
-call returns a new dictionary. Inspection leaves history, retained predictions,
-exports, model mode, and random state unchanged. A supplied plan follows inference's
+call returns a new dictionary. Inspection leaves stored context, results, idata,
+curves, model mode, and random state unchanged. A supplied plan follows inference's
 date, column, numeric-domain, context-scale, and model-dtype validation; this can
 scan and preprocess arrays, but it never samples or trains weights.
 
@@ -105,8 +110,8 @@ a percentage-used indicator.
 
 ### Recorded usage
 
-`inference` and array-level `decompose` automatically record library-computed
-`provenance["input_usage"]`. A caller annotation with that name is replaced by
+`inference`, `predict` and array-level `decompose` automatically record library-computed
+result `provenance["input_usage"]`. A caller annotation with that name is replaced by
 the computed record. Even a `window="context"` result records the full
 context-plus-query encoder input, not just its selected output rows.
 
@@ -121,20 +126,22 @@ can encode differently for a different query horizon.
 
 ## Context and query snapshots
 
-Install `pymc-mfm[arviz]` to export the two window marginals after a successful context load and prediction. [MFM.build_idata](../reference/model.MFM.qmd) returns an `xarray.DataTree`; passing `store=True` also exposes that same tree through the passive `model.idata` property.
+The `[local]` extra includes complete in-memory `xarray.DataTree` construction. Complete inference stores the tree automatically; `return_idata=True` (the default) returns that exact object. `False` suppresses only the return, not sampling, conversion or storage:
 
 ```python
-idata = model.build_idata()
-
-stored = model.build_idata(store=True)
-assert model.idata is stored
+idata = model.idata  # passive read of the completed run, including any attached curves
 
 scenario = plan.assign(search=lambda frame: frame["search"] * 1.2)
-model.inference(scenario, n_samples=500)
-idata_scenario = model.build_idata()
+idata_scenario = model.inference(history, scenario, **roles, n_samples=500)
+assert idata_scenario is model.idata
+
+returned = model.inference(history, plan, **roles, n_samples=500, return_idata=False)
+assert returned is None
+assert model.idata is not None  # both marginals are complete
+# idata and idata_scenario remain unchanged snapshots.
 ```
 
-The tree has separate `context` and `query` subtrees. Each has `posterior` and `constant_data`; known context outcomes appear at `context/observed_data/outcome(date)`. Query outcomes are neither read nor invented.
+The tree has separate `context` and `query` subtrees, each with `posterior` and `constant_data`. Original-unit inputs are `media(date, channel)` and `controls(date, control)`. Context outcomes appear at `context/observed_data/outcome(date)`. If any finite query outcome is supplied, `query/observed_data/outcome(date)` stores it with NaN for unobserved dates; otherwise that observation group is absent.
 
 | Posterior variable | Dimensions |
 | --- | --- |
@@ -144,7 +151,11 @@ The tree has separate `context` and `query` subtrees. Each has `posterior` and `
 | `indirect_cc`, `indirect_zc`, `indirect_dc` | `chain, draw, date` |
 | `graph` | `chain, draw, edge` |
 
-`date` preserves sorted dates; `channel` and `control` preserve the caller-supplied role order. Padded slots are absent from this DataTree. The tree has `chain=1`, and `draw` retains amortized uncertainty. A first build samples and caches the context marginal without resampling the query; later builds reuse both current draw sets. `store=False` avoids retaining a `DataTree`, not the inference state used for a later export.
+`date` preserves sorted dates; `channel` and `control` preserve the caller-supplied role order. Padded slots are absent. The tree has `chain=1`, and `draw` retains amortized uncertainty. The root has a schema version and `inference_revision`, incremented only on successful complete inference. Every complete call samples query then context, constructs the tree, and publishes all state together; there is no deferred context sampling or partial tree. Earlier caller-held trees are not rewritten.
+
+Window `attrs["provenance"]` contains the complete canonical result provenance as JSON text; use `json.loads(...)` or `model.query_result.provenance`. Curves occupy `/response_curves/posterior/contribution(chain, draw, channel, level)` and `/response_curves/constant_data`, with media totals and actual sweep dates. Their draw count and axes are independent; source provenance is separately labeled rather than pretending every sweep has the base input identity.
+
+The `[arviz]` extra adds statistics: summarize a window subtree, for example `arviz_stats.summary(model.idata["query"], var_names=["channel_contribution"], kind="stats")`, not the convenience root. File export remains explicit and needs `[draws]`: `model.idata.to_netcdf("analysis.nc", engine="h5netcdf")`. Trees may contain sensitive inputs and labels; review before sharing. Neither a saved tree nor result evidence restores a runnable model session.
 
 ::: {.callout-note}
 ## Do not join snapshots
@@ -182,7 +193,7 @@ All series are rescaled with context statistics. A nonzero query value in a colu
 
 ## Results and graph modes
 
-[inference](../reference/model.MFM.qmd) and `decompose` return a [DecompositionResult](../reference/inference.DecompositionResult.qmd).
+`model.query_result`, query-only [predict](../reference/model.MFM.qmd) and `decompose` expose a [DecompositionResult](../reference/inference.DecompositionResult.qmd). Complete `inference` returns the stored tree (or `None` with `return_idata=False`), not this result.
 
 | Field | Shape | Content |
 | --- | --- | --- |
@@ -198,11 +209,12 @@ Save one result independently of its model:
 ```python
 from pymc_mfm import DecompositionResult
 
+result = model.query_result  # reuse the exact completed query draw bank
 result.save("results/query")
 restored = DecompositionResult.load("results/query")
 ```
 
-Saved results retain dates and can be reloaded without the model. With `pymc-mfm[diagnostics]`, use `result.plot.reconstruction(observed=...)` or `result.diagnostics(truth=...)`. With `pymc-mfm[arviz]`, call `result.to_datatree()` for the generic result export.
+Saved results retain dates and can be reloaded without the model. With `pymc-mfm[diagnostics]`, use `result.plot.reconstruction(observed=...)` or `result.diagnostics(truth=...)`. `result.to_datatree()` retains the generic standalone-result schema, distinct from the named complete-model tree.
 
 ## Inspect sampled graphs
 
@@ -237,7 +249,7 @@ Creating the optional inspector also requires Graphviz; opening its saved HTML
 does not. Writing DOT remains dependency-free, and a saved file can be rendered
 with `dot -Tsvg graph-rank-0.dot -o graph-rank-0.svg`. See
 [graph_to_dot](../reference/plotting.graph_to_dot.qmd) and the
-[fully executed quickstart](examples/river_1_quickstart.ipynb) for export and
+[quickstart with preserved reviewed outputs](examples/river_1_quickstart.ipynb) for export and
 all-rank examples.
 
 The Average may combine edges never sampled together. Frequencies are not effect

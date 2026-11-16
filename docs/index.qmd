@@ -133,13 +133,15 @@ css:
   <div class="mfm-cell__main">
     <div class="mfm-cell__box">
       <span class="mfm-cell__bar" aria-hidden="true"></span>
-<pre class="mfm-cell__code"><code><span class="v">model</span> <span class="o">=</span> <span class="f">from_pretrained</span>(<span class="s">"pymc-labs/mfm"</span>, <span class="p">profile</span><span class="o">=</span><span class="s">"river-1"</span>).<span class="f">add_context</span>(
-    <span class="v">df</span>[:<span class="n">-13</span>],
+<pre class="mfm-cell__code"><code><span class="v">model</span> <span class="o">=</span> <span class="f">from_pretrained</span>(<span class="s">"pymc-labs/mfm"</span>, <span class="p">profile</span><span class="o">=</span><span class="s">"river-1"</span>)
+<span class="v">history</span>, <span class="v">future</span> <span class="o">=</span> <span class="v">df</span>[:<span class="n">-13</span>], <span class="v">df</span>[<span class="n">-13</span>:]
+<span class="v">roles</span> <span class="o">=</span> <span class="f">dict</span>(
     <span class="p">date_column</span><span class="o">=</span><span class="s">"week"</span>,
     <span class="p">target_column</span><span class="o">=</span><span class="s">"sales"</span>,
     <span class="p">channel_columns</span><span class="o">=</span>[<span class="s">"tv"</span>, <span class="s">"search"</span>, <span class="s">"social"</span>],
     <span class="p">control_columns</span><span class="o">=</span>[<span class="s">"promo"</span>],
-)</code></pre>
+)
+<span class="v">usage</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">input_usage</span>(<span class="v">history</span>, <span class="v">future</span>, <span class="o">**</span><span class="v">roles</span>)  <span class="c"># no sampling</span></code></pre>
       <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
   </div>
@@ -150,7 +152,8 @@ css:
   <div class="mfm-cell__main">
     <div class="mfm-cell__box">
       <span class="mfm-cell__bar" aria-hidden="true"></span>
-<pre class="mfm-cell__code"><code><span class="v">query</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">inference</span>(<span class="v">df</span>[<span class="n">-13</span>:], <span class="p">n_samples</span><span class="o">=</span><span class="n">1_000</span>)
+<pre class="mfm-cell__code"><code><span class="v">idata</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">inference</span>(<span class="v">history</span>, <span class="v">future</span>, <span class="o">**</span><span class="v">roles</span>, <span class="p">n_samples</span><span class="o">=</span><span class="n">1_000</span>)
+<span class="v">query</span> <span class="o">=</span> <span class="v">model</span>.<span class="v">query_result</span>  <span class="c"># exact query draws for diagnostics and graphs</span>
 <span class="v">query</span>.<span class="v">components</span>.<span class="v">shape</span>  <span class="c"># draws, weeks, components</span></code></pre>
       <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>
@@ -163,7 +166,7 @@ css:
   <div class="mfm-cell__main">
     <div class="mfm-cell__box">
       <span class="mfm-cell__bar" aria-hidden="true"></span>
-<pre class="mfm-cell__code"><code><span class="v">idata</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">build_idata</span>()  <span class="c"># ArviZ DataTree with context and query windows</span>
+<pre class="mfm-cell__code"><code><span class="k">assert</span> <span class="v">idata</span> <span class="k">is</span> <span class="v">model</span>.<span class="v">idata</span>  <span class="c"># complete context and query windows, stored automatically</span>
 <span class="v">idata</span>[<span class="s">"query"</span>][<span class="s">"posterior"</span>]</code></pre>
       <span class="mfm-cell__status" aria-hidden="true"></span>
     </div>

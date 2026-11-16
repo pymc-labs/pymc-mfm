@@ -12,7 +12,7 @@ from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM
 
 GENERATOR_EDGE_TYPES = ["cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz"]
-#: Skips a test unless the ``arviz`` extra (xarray, arviz-base, arviz-stats) is installed.
+#: Skips optional statistics checks unless the ``arviz`` extra is installed.
 needs_arviz = pytest.mark.skipif(
     any(find_spec(name) is None for name in ("xarray", "arviz_base", "arviz_stats")),
     reason="needs the pymc-mfm[arviz] extra",
@@ -152,12 +152,17 @@ def chart_frames():
 
 @pytest.fixture
 def predicted_model(model, chart_frames):
-    """``model`` after ``add_context`` on the history and 40-draw ``inference`` on the rest."""
+    """``model`` after complete 40-draw ``inference`` on the history/forecast pair."""
     history, future = chart_frames
-    model.add_context(history, **CHART_ROLES)
     torch.manual_seed(3)
-    model.inference(future, n_samples=40)
+    model.inference(history, future, n_samples=40, **CHART_ROLES)
     return model
+
+
+@pytest.fixture
+def matplotlib_backend():
+    """Require optional matplotlib only for tests that actually render with it."""
+    pytest.importorskip("matplotlib")
 
 
 @pytest.fixture
