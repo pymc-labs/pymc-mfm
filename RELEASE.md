@@ -7,6 +7,17 @@ distribution prerequisites, not an approved or published release.
 
 ## Changes
 
+- **A saved result loads without PyTorch, and the `arviz` extra no longer installs it.**
+  `DecompositionResult.load`, `save` and `to_datatree` run on NumPy, so a base install with
+  `draws` (or `arviz`) can read, write and export a saved result. `pymc_mfm.inference`,
+  `pymc_mfm.diagnostics` and `pymc_mfm.training` now load their names on first use, so
+  importing them imports no PyTorch. A name that needs PyTorch, such as
+  `pymc_mfm.inference.decompose`, raises an `ImportError` with the same
+  `pip install "pymc-mfm[local]"` hint as `pymc_mfm.decompose`; any other missing module keeps
+  its own error. `pymc-mfm[arviz]` now adds only `arviz-stats` with `xarray`; running the model
+  still needs `local`. The light CI job runs a NumPy-only save/load round trip, and the
+  arviz-only wheel check proves PyTorch is absent.
+
 - **Client (for `client-v0.1.0`): repeat-safe `analyze`, resumable `wait`.** An identical `analyze`,
   `explore` or `Analysis.again` call, also from a new process, returns the same analysis,
   because the `Idempotency-Key` comes from the request content. New `fresh=True` on

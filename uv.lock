@@ -2841,8 +2841,6 @@ dependencies = [
 [package.optional-dependencies]
 arviz = [
     { name = "arviz-stats", extra = ["xarray"] },
-    { name = "safetensors" },
-    { name = "torch" },
 ]
 client = [
     { name = "h5netcdf" },
@@ -2926,7 +2924,6 @@ requires-dist = [
     { name = "pymc-generator", marker = "extra == 'generation'", git = "https://github.com/pymc-labs/pymc-generator.git?rev=main" },
     { name = "pymc-marketing", marker = "extra == 'examples'", specifier = ">=1.1,<2" },
     { name = "pymc-mfm", extras = ["draws", "plot"], marker = "extra == 'client'" },
-    { name = "pymc-mfm", extras = ["local"], marker = "extra == 'arviz'" },
     { name = "pymc-mfm", extras = ["local"], marker = "extra == 'diagnostics'" },
     { name = "pymc-mfm", extras = ["local"], marker = "extra == 'examples'" },
     { name = "pymc-mfm", extras = ["local"], marker = "extra == 'generation'" },

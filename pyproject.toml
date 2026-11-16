@@ -42,8 +42,8 @@ diagnostics = [
     "scikit-learn>=1.6",
     "arviz-stats>=1.3,<2",
 ]
+# `to_datatree` runs on NumPy, so this extra needs no PyTorch.
 arviz = [
-    "pymc-mfm[local]",
     "arviz-stats[xarray]>=1.3,<2",
 ]
 hub = [

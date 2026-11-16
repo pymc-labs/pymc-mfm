@@ -11,6 +11,8 @@ from importlib import import_module
 from importlib.metadata import version
 from typing import TYPE_CHECKING
 
+from ._lazy import import_local
+
 if TYPE_CHECKING:
     from .inference import (
         DecompositionResult,
@@ -50,8 +52,6 @@ __all__ = [
     "list_profiles",
 ]
 
-_LOCAL_DEPENDENCIES = ("torch", "safetensors")
-
 
 def __getattr__(name: str):
     if name == "client":  # torch-free; `import pymc_mfm` then `pymc_mfm.client` works
@@ -59,18 +59,7 @@ def __getattr__(name: str):
     module_name = _LOCAL_EXPORTS.get(name)
     if module_name is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    try:
-        value = getattr(import_module(module_name), name)
-    except ModuleNotFoundError as error:
-        # Only a missing PyTorch dependency becomes the install hint. Any other
-        # missing module is a real bug and keeps its own error.
-        if (error.name or "").partition(".")[0] not in _LOCAL_DEPENDENCIES:
-            raise
-        raise ImportError(
-            f"pymc_mfm.{name} runs the model in this process and needs PyTorch. "
-            'Install it with: pip install "pymc-mfm[local]". '
-            "To call a hosted service without PyTorch, use pymc_mfm.client."
-        ) from error
+    value = import_local(module_name, name, f"pymc_mfm.{name}")
     globals()[name] = value
     return value
 

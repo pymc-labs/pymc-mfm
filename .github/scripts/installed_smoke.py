@@ -232,23 +232,36 @@ assert all(
         "-c",
         """
 import importlib.util
+import sys
 import arviz_stats
 from pymc_mfm import DecompositionResult
+# The arviz extra needs no PyTorch: it is absent, and loading and exporting never import it.
+assert importlib.util.find_spec("torch") is None
 trees = {}
 for window in ("query", "context"):
     result = DecompositionResult.load(f"base-inference/{window}")
+    replay = DecompositionResult.load(result.save(f"arviz-resave-{window}"))
+    assert replay.window == result.window
+    assert (replay.components == result.components).all()
     trees[window] = tree = result.to_datatree()
     expected = result.components.shape[1] * result.component_mask.sum() + result.edge_mask.sum()
     assert len(arviz_stats.summary(tree, kind="stats")) == expected, window
 assert trees["query"].attrs["window"] != trees["context"].attrs["window"]
 assert importlib.util.find_spec("matplotlib") is None
+assert "torch" not in sys.modules
+try:
+    from pymc_mfm import decompose
+except ImportError as exc:
+    assert 'pip install "pymc-mfm[local]"' in str(exc), exc
+else:
+    raise AssertionError("pymc_mfm.decompose ran without PyTorch")
 """,
         cwd=out,
         env=env,
     )
     print(
         "Installed sdist workflow, base wheel inference, diagnostics-only replay and "
-        "arviz-only DataTree export passed."
+        "arviz-only (no PyTorch) DataTree export and save/load passed."
     )
 
 

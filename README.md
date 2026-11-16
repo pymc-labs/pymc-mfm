@@ -34,12 +34,12 @@ safetensors, which load local models and run inference in your process. Names su
 | `hub` | `local`, and loading from and publishing to the Hugging Face Hub |
 | `training` | `local`, MLflow tracking and the diagnostics recorded during training |
 | `diagnostics` | `local`, and diagnostics, plots and HTML reports for results |
-| `arviz` | `local`, and export of results as an ArviZ `DataTree` |
+| `arviz` | `arviz-stats` and `xarray`, to export a saved result as an ArviZ `DataTree`; no PyTorch (running the model still needs `local`) |
 | `generation` | `local`, and `pymc-generator`, to simulate corpora and read `.npz` corpora |
 | `examples` | `local`, and `pymc-marketing`, for the example notebook |
 
 Every extra that runs the model includes `local`, so installing `pymc-mfm[hub]` still
-installs PyTorch.
+installs PyTorch. `draws`, `plot`, `client` and `arviz` do not.
 
 ## Decompose a time series
 

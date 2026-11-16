@@ -548,7 +548,7 @@ class TrainingPlots:
         return panels.plot_records(records, metric_names=names, header=self._header(), ax=ax)
 
     def _evaluation(self, names, metric, window, heads, legs, ax) -> Figure:
-        from pymc_mfm.training.evaluation import metric_units
+        from pymc_mfm.training._metric_tables import metric_units
 
         records = self._series("evaluation", names)
         last = records["records"][-1]

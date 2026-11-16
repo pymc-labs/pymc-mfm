@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 
 import numpy as np
-import torch
 
 from pymc_mfm.data.features import moment_features
 
@@ -16,6 +15,8 @@ def observation_identity(batch, world=0) -> str:
     Raw tensor bytes preserve dtypes without depending on NumPy's support for
     bfloat16. Inference and evaluator capture use the same single-world identity.
     """
+    import torch  # imported on use: the encoders below need only NumPy
+
     digest = hashlib.sha256()
     for key in sorted(batch):
         if key.startswith("g_") or "targets" in key:
