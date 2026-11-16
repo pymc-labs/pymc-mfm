@@ -31,10 +31,11 @@ jobs:
       MPLBACKEND: Agg
       HF_HUB_OFFLINE: "1"
       MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: "false"
-      # Two xdist workers use the two vCPUs of a runner. One math thread each avoids
-      # oversubscribing them.
-      OMP_NUM_THREADS: "1"
-      MKL_NUM_THREADS: "1"
+      # The fast lane's two xdist workers use the two vCPUs of a runner, one math thread
+      # each. The slow lane runs serially on both threads: its notebook tests are single
+      # long processes that took over 120 s when they shared the CPUs.
+      OMP_NUM_THREADS: ${{ matrix.lane == 'slow' && '2' || '1' }}
+      MKL_NUM_THREADS: ${{ matrix.lane == 'slow' && '2' || '1' }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -60,7 +61,7 @@ jobs:
       # only the slow tests.
       - name: Exercise local contracts without publication credentials
         run: >-
-          uv run --no-sync pytest -q -n 2 --dist worksteal -m "${{ matrix.lane == 'slow' && 'slow' || 'not slow' }}"
+          uv run --no-sync pytest -q ${{ matrix.lane == 'slow' && '-m slow' || '-n 2 --dist worksteal -m "not slow"' }}
           --durations=25 --junitxml=junit/contracts-${{ matrix.installation }}-${{ matrix.lane }}.xml
           --timeout=120
       - name: Upload test timings
