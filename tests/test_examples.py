@@ -14,6 +14,8 @@ import pytest
 import torch
 from test_graph_dot import native_dot, native_topology, svg_topology
 
+from pymc_mfm.plotting.charts._data import IdataReader
+
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 NOTEBOOK = EXAMPLES / "dev" / "diagnostics.ipynb"
 QUICKSTART = EXAMPLES / "river_1_quickstart.ipynb"
@@ -51,7 +53,7 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
     assert {"attribution", "window_totals", "cumulative", "temporal", "reliability"} <= rendered
 
 
-def assert_complete_quickstart_tree(model, tree, history, future, roles, n_samples):
+def assert_complete_quickstart_tree(model, context_result, tree, history, future, roles, n_samples):
     """Compare both named windows with their completed draws and original inputs."""
     assert set(tree.children) == {"context", "query"}
     assert not tree.coords
@@ -67,7 +69,7 @@ def assert_complete_quickstart_tree(model, tree, history, future, roles, n_sampl
         "indirect:dc": "indirect_dc",
     }
     for window, result, frame in (
-        ("context", model._context_decomposition, history),
+        ("context", context_result, history),
         ("query", model.query_result, future),
     ):
         assert result.n_samples == n_samples
@@ -134,6 +136,14 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
         )
         return MFM(config).eval()
 
+    contexts = []
+    sample_context = MFM._sample_context
+
+    def capture_context(self, prediction):
+        contexts.append(sample_context(self, prediction))
+        return contexts[-1]
+
+    monkeypatch.setattr(MFM, "_sample_context", capture_context)
     monkeypatch.setattr("tempfile.TemporaryDirectory", CapturedWorkspace)
     monkeypatch.setattr(pymc_mfm, "from_pretrained", stand_in)
     monkeypatch.setenv("MPLBACKEND", "Agg")
@@ -146,8 +156,10 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
     assert context == int(0.8 * n_weeks)
     model, query, base_tree = namespace["model"], namespace["query"], namespace["idata"]
     assert model.query_result is query
+    [context_result] = contexts
     assert_complete_quickstart_tree(
         model,
+        context_result,
         base_tree,
         namespace["history"],
         namespace["future"],
@@ -156,14 +168,14 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
     )
     assert query.provenance["input_usage"] == namespace["usage"]
     for result, weeks in (
-        (model._context_decomposition, context),
+        (context_result, context),
         (query, n_weeks - context),
     ):
         assert result.components.shape[:2] == (1_000, weeks)
         assert np.isfinite(result.components).all()
     curves = namespace["curves"]
     assert curves.draws.shape == (2, 41, 1_000) and curves.weeks == 8
-    assert model._response_curves is curves
+    np.testing.assert_array_equal(IdataReader(model.idata).response_curves().draws, curves.draws)
     assert model.idata is not base_tree
     assert set(model.idata.children) == {"context", "query", "response_curves"}
     assert model.idata.attrs["inference_revision"] == base_tree.attrs["inference_revision"] == 1

@@ -10,12 +10,12 @@ import numpy as np
 from pymc_mfm.plotting.panels import COLORS, _single, _title
 
 from ._backend import check, draw
-from ._data import interval_quantiles, summarize
+from ._data import interval_quantiles, summarize, window_weeks
 from ._mpl import percent_axis
 from ._style import CAVEAT, caption, percent, rgba, series_colors
 
 if TYPE_CHECKING:
-    from ._data import ModelSource, Window
+    from ._data import IdataReader, Window
 
 SHARES = ("mean", "total")
 VIEWS = ("bars", "dist")
@@ -151,9 +151,7 @@ def prepare_window(
     """
     drivers = [index for index, family in enumerate(data.families) if family in _DRIVERS]
     shares, left_out_draws, left_out_draw_weeks = _per_draw(data, drivers, share)
-    count = len(data.dates)
-    weeks = f"{count} {'history' if data.name == 'context' else 'forecast'} week"
-    weeks += "" if count == 1 else "s"
+    weeks = window_weeks(data)
     if not len(shares):
         expected = "total expected" if share == "total" else "expected"
         raise ValueError(
@@ -206,7 +204,7 @@ def prepare_window(
 
 
 def prepare(
-    source: ModelSource,
+    source: IdataReader,
     *,
     share: str = "mean",
     window: str = "context",
@@ -370,7 +368,7 @@ def _plotly(data: Shares) -> Any:
 
 
 def shares(
-    source: ModelSource,
+    source: IdataReader,
     *,
     share: str = "mean",
     window: str = "context",

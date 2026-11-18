@@ -15,7 +15,7 @@ from ._mpl import compact_axis, forecast_span, time_positions
 from ._style import ACTUAL, BAND_ALPHA, EXPECTED, caption, percent, rgba
 
 if TYPE_CHECKING:
-    from ._data import ModelSource, Window
+    from ._data import IdataReader, Window
 
 _GROUPS = {"context": "History (context)", "query": "Forecast (query)"}
 _CARD_FACE, _CARD_EDGE, _CARD_LABEL = "#f6f6f6", "#d9d9d9", "#555555"
@@ -115,7 +115,7 @@ def _score(
 
 
 def prepare(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str | None = None,
     interval: float = 0.9,
@@ -340,7 +340,7 @@ def _plotly(data: Fit) -> Any:
 
 
 def fit(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str | None = None,
     interval: float = 0.9,

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         save_pretrained,
     )
     from .model import MFM, ModelConfig
+    from .plotting.charts import Plots, set_backend
 
 __version__ = version("pymc-mfm")
 
@@ -40,6 +41,12 @@ _LOCAL_EXPORTS = {
     "list_profiles": "pymc_mfm.inference.hub",
 }
 
+#: Public name -> module that defines it. These read a model tree and need no PyTorch.
+_LIGHT_EXPORTS = {
+    "Plots": "pymc_mfm.plotting.charts",
+    "set_backend": "pymc_mfm.plotting.charts",
+}
+
 __all__ = [
     "MFM",
     "ModelConfig",
@@ -50,9 +57,11 @@ __all__ = [
     "from_pretrained",
     "push_to_hub",
     "list_profiles",
+    "Plots",
+    "set_backend",
 ]
 
-_lazy_getattr, __dir__ = lazy_exports(__name__, _LOCAL_EXPORTS, globals())
+_lazy_getattr, __dir__ = lazy_exports(__name__, {**_LOCAL_EXPORTS, **_LIGHT_EXPORTS}, globals())
 
 
 def __getattr__(name: str):

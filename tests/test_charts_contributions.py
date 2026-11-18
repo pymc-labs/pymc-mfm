@@ -1,7 +1,5 @@
 """``model.plot.contributions_over_time``: stacked weekly means and per-component panels."""
 
-from types import SimpleNamespace
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -9,7 +7,7 @@ import torch
 from conftest import CHART_ROLES
 
 from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import ModelSource, Window, summarize
+from pymc_mfm.plotting.charts._data import IdataReader, Window, summarize
 from pymc_mfm.plotting.charts._style import COLORS
 from pymc_mfm.plotting.charts.contributions import contributions_over_time
 
@@ -28,7 +26,7 @@ def matplotlib_default(monkeypatch):
 
 
 class _Source:
-    """Serves hand-made windows where a chart reads ``ModelSource``."""
+    """Serves hand-made windows where a chart reads ``IdataReader``."""
 
     def __init__(self, *windows: Window):
         self._windows = windows
@@ -36,8 +34,8 @@ class _Source:
     def windows(self, window):
         return self._windows
 
-    def history(self):
-        return SimpleNamespace(dates=self._windows[0].dates)
+    def window(self, name):
+        return self._windows[0]
 
 
 def _window(means: dict[str, list[float]], families: tuple[str, ...]) -> Window:
@@ -95,7 +93,7 @@ def test_stack_piles_positive_means_up_and_negative_means_down(predicted_model, 
     ax = fig.axes[0]
     assert ax.get_legend_handles_labels()[1] == [*ORDER, "Observed outcome", "Forecast weeks"]
     drawn = _stack(fig)
-    windows = ModelSource(predicted_model).windows(None)
+    windows = IdataReader(predicted_model.idata).windows(None)
     assert len(drawn) == len(windows) * len(ORDER)
     for number, window in enumerate(windows):
         layers = drawn[number * len(ORDER) : (number + 1) * len(ORDER)]
@@ -158,7 +156,7 @@ def test_components_pick_layers_keep_their_colors_and_never_resample(predicted_m
     ax = fig.axes[0]
     handles, labels = ax.get_legend_handles_labels()
     assert labels == ["baseline", "search", "tv", "Observed outcome"]
-    query = ModelSource(predicted_model).window("query")
+    query = IdataReader(predicted_model.idata).window("query")
     names = ("baseline", "search", "tv")
     for (values, _, baseline), (lower, upper) in zip(
         _stack(fig), _expected_stack(query, names), strict=True
@@ -192,7 +190,7 @@ def test_panels_draw_each_components_mean_and_interval_with_truth(predicted_mode
     panels = fig.axes[: len(ORDER)]
     assert [ax.get_title(loc="left") for ax in panels] == list(ORDER)
     assert not any(ax.get_visible() for ax in fig.axes[len(ORDER) :])
-    windows = ModelSource(predicted_model).windows(None)
+    windows = IdataReader(predicted_model.idata).windows(None)
     for ax, name in zip(panels, ORDER, strict=True):
         for number, window in enumerate(windows):
             mean, low, high = summarize(window.contribution(name), 0.8)
@@ -227,7 +225,7 @@ def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
 
     history, future = chart_frames
     model.inference(history, future.iloc[:1], n_samples=5, **CHART_ROLES)
-    query = ModelSource(model).window("query")
+    query = IdataReader(model.idata).window("query")
     fig = model.plot.contributions_over_time(window="query")
     for values, edges, _ in _stack(fig):
         assert values.shape == (1,)
@@ -289,7 +287,7 @@ def test_plotly_draws_the_matplotlib_numbers(predicted_model, chart_frames):
     assert [fig.data[index].name for index in tops[: len(ORDER)]] == list(ORDER)
     assert not any(fig.data[index].showlegend for index in tops[len(ORDER) :])
     hovers = [trace for trace in fig.data if trace.mode == "markers"]
-    windows = ModelSource(predicted_model).windows(None)
+    windows = IdataReader(predicted_model.idata).windows(None)
     means = [window.contribution(name).mean(0) for window in windows for name in ORDER]
     for index, hover, mean, (values, edges, baseline) in zip(
         tops, hovers, means, layers, strict=True

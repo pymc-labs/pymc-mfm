@@ -19,7 +19,7 @@ from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, percent, rgba, series_c
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ._data import ModelSource, Window
+    from ._data import IdataReader, Window
 
 #: Component families from the bottom of the stack up: channels end on top.
 FAMILY_ORDER = ("baseline", "latent", "indirect", "control", "channel")
@@ -145,7 +145,7 @@ def _truth(
 
 
 def prepare(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str | None = None,
     components: Sequence[str] | None = None,
@@ -185,7 +185,7 @@ def prepare(
     )
     dates = np.concatenate([part.dates for part in windows])
     # The windows share the edge between them, so their stacks meet where forecasts start.
-    edges = _edges(dates, source.history().dates)
+    edges = _edges(dates, source.window("context").dates)
     segments, start = [], 0
     for part in windows:
         stop = start + len(part.dates)
@@ -508,7 +508,7 @@ def _plotly(data: Contributions) -> Any:
 
 
 def contributions_over_time(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str | None = None,
     components: Sequence[str] | None = None,

@@ -6,15 +6,15 @@ from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
-BACKENDS = ("matplotlib", "plotly")
+_BACKENDS = ("matplotlib", "plotly")
 #: Backend -> (module that must import, extra that installs it).
 _REQUIREMENTS = {"matplotlib": ("matplotlib", "plot"), "plotly": ("plotly", "interactive")}
 _DEFAULT = {"backend": "matplotlib"}
 
 
 def _checked(backend: object) -> str:
-    if backend not in BACKENDS:
-        raise ValueError(f"backend must be one of {BACKENDS}, got {backend!r}")
+    if backend not in _BACKENDS:
+        raise ValueError(f"backend must be one of {_BACKENDS}, got {backend!r}")
     return backend
 
 

@@ -14,7 +14,7 @@ from ._mpl import compact_axis, figure, forecast_span, time_positions
 from ._style import ACTUAL
 
 if TYPE_CHECKING:
-    from ._data import ModelSource
+    from ._data import IdataReader
 
 _ROLE_COLORS = {"outcome": ACTUAL, "channel": COLORS["channel"], "control": COLORS["control"]}
 _ROLE_LABELS = {"channel": "media covariate", "control": "control covariate"}
@@ -39,29 +39,23 @@ class Inputs:
     title: str
 
 
-def prepare(source: ModelSource, *, title: str | None = None) -> Inputs:
+def prepare(source: IdataReader, *, title: str | None = None) -> Inputs:
     """The history and forecast weeks of the last complete paired ``inference``.
 
     Forecast-week outcomes come from the target column given to ``inference`` (NaN
     where it had none); the model never read them.
     """
-    prediction = source.require_prediction()
-    history = prediction.fitted_context
-    length = len(history.dates)
-    dates = prediction.time
-    media = prediction.observations["spend"]
-    controls = prediction.observations["controls"]
-    query = prediction.query_outcome
-    future = np.full(len(dates) - length, np.nan) if query is None else query
-    outcome = np.concatenate((history.outcome, future))
-    channels, controls_named = history.channel_columns, history.control_columns
+    data = source.covariates()
     series = (
-        ("outcome", "outcome", outcome),
-        *((name, "channel", media[:, index]) for index, name in enumerate(channels)),
-        *((name, "control", controls[:, index]) for index, name in enumerate(controls_named)),
+        ("outcome", "outcome", data.outcome),
+        *((name, "channel", data.media[:, index]) for index, name in enumerate(data.channels)),
+        *(
+            (name, "control", data.controls[:, index])
+            for index, name in enumerate(data.control_names)
+        ),
     )
     title = title or "Model inputs: outcome, media and control covariates"
-    return Inputs(dates, length, series, title)
+    return Inputs(data.dates, data.first_query, series, title)
 
 
 def _matplotlib(data: Inputs) -> Any:
@@ -110,7 +104,7 @@ def _plotly(data: Inputs) -> Any:
     return plotting.finish(fig, title=data.title, caption=_SPAN_NOTE, height=110 * rows + 50)
 
 
-def inputs(source: ModelSource, *, backend: str | None = None, title: str | None = None) -> Any:
+def inputs(source: IdataReader, *, backend: str | None = None, title: str | None = None) -> Any:
     check(backend)
     data = prepare(source, title=title)
     return draw(data, backend=backend, matplotlib=_matplotlib, plotly=_plotly)

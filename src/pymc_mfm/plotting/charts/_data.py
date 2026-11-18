@@ -1,11 +1,12 @@
 """The completed inference charts draw: history, forecast and named window draws.
 
-:class:`ModelSource` is the one place the charts read a model. It only reads the
-last successful paired ``MFM.inference``; it never samples or follows ``predict``.
+:class:`IdataReader` is the one place the charts read a model tree (``MFM.idata``, or
+one saved and opened again). It reads only the tree; it never samples.
 """
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -14,11 +15,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from pymc_mfm.inference.curves import ResponseCurves
+
 if TYPE_CHECKING:
-    from pymc_mfm.inference.curves import ResponseCurves
-    from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
-    from pymc_mfm.inference.result import DecompositionResult
-    from pymc_mfm.model.model import MFM
+    from xarray import Dataset, DataTree
 
 WINDOWS = ("context", "query")
 
@@ -58,31 +58,38 @@ class Window:
         return self.draws[:, :, self.components.index(name)]
 
 
-def display_names(result: DecompositionResult) -> tuple[np.ndarray, tuple[str, ...]]:
-    """Indices and display names of the active components of ``result``.
+@dataclass(frozen=True, slots=True)
+class Covariates:
+    """Inputs by week over history then forecast: what the inputs chart draws.
 
-    Channels and controls drop their family prefix. A name that would then appear
-    twice (a channel named ``baseline``, say) keeps its full component name, until
-    every name is unique; full component names are unique, so this ends.
+    ``outcome`` is NaN where unobserved; ``media`` and ``controls`` have one column per
+    name in ``channels`` and ``control_names``; ``first_query`` is the first forecast week.
     """
-    channels, controls = iter(result.channel_names), iter(result.control_names)
-    plain = []
-    for name, family in zip(result.component_names, result.component_families, strict=True):
-        if family == "channel":
-            plain.append(next(channels))
-        elif family == "control":
-            plain.append(next(controls))
-        else:
-            plain.append(name)
-    active = np.flatnonzero(result.component_mask)
-    names = {index: plain[index] for index in active}
+
+    dates: np.ndarray
+    first_query: int
+    outcome: np.ndarray
+    channels: tuple[str, ...]
+    media: np.ndarray
+    control_names: tuple[str, ...]
+    controls: np.ndarray
+
+
+def unique_names(plain: Sequence[str], full: Sequence[str]) -> tuple[str, ...]:
+    """Display names: ``plain`` names, with ``full`` where one repeats, until all are unique.
+
+    ``full`` must hold no repeat, or no display names are unique: that raises ``ValueError``.
+    """
+    if len(set(full)) != len(full):
+        raise ValueError(f"component names must be unique, got {list(full)}")
+    names = dict(enumerate(plain))
     while True:
         counts = Counter(names.values())
         repeated = [index for index, name in names.items() if counts[name] > 1]
         if not repeated:
-            return active, tuple(names.values())
+            return tuple(names.values())
         for index in repeated:
-            names[index] = result.component_names[index]
+            names[index] = full[index]
 
 
 def interval_quantiles(interval: float) -> tuple[float, float]:
@@ -146,61 +153,125 @@ def truth_by_week(truth: pd.DataFrame, window: Window) -> dict[str, np.ndarray]:
     }
 
 
-class ModelSource:
-    """Read access to one model's last complete ``inference(history, future, ...)``."""
+class IdataReader:
+    """Read access to a model tree: ``/context``, ``/query`` and ``/response_curves``.
 
-    __slots__ = ("_model",)
+    ``idata`` is ``None`` before the first inference; every read then raises.
+    """
 
-    def __init__(self, model: MFM):
-        self._model = model
+    __slots__ = ("_idata",)
 
-    def history(self) -> _FittedContext:
-        """The history of the last complete inference; raises before one."""
-        return self.require_prediction().fitted_context
+    def __init__(self, idata: DataTree | None):
+        self._idata = idata
 
-    def require_prediction(self) -> _PredictionSnapshot:
-        """The last complete inference's prediction; raises before one."""
-        prediction = self._model._prediction_snapshot
-        if prediction is None:
+    def _tree(self) -> DataTree:
+        """The tree, checked: raises before an inference or for a tree that is not a model's."""
+        if self._idata is None:
             raise RuntimeError(
                 "call model.inference(history, future, ...) successfully before plotting"
             )
-        return prediction
+        missing = [name for name in WINDOWS if name not in self._idata.children]
+        if missing:
+            raise ValueError(f"not a model tree: no {missing} group; expected /context and /query")
+        return self._idata
+
+    def _group(self, *path: str) -> Dataset:
+        return self._tree()["/" + "/".join(path)].to_dataset(inherit=False)
+
+    def _names(self, key: str) -> tuple[str, ...]:
+        return tuple(json.loads(self._tree().attrs[key]))
+
+    def _observed(self, name: str) -> np.ndarray | None:
+        if "observed_data" not in self._tree()[name].children:
+            return None
+        return self._group(name, "observed_data")["outcome"].to_numpy()
+
+    def _covariate(self, window: str, variable: str, dim: str, key: str) -> np.ndarray:
+        """``variable`` of ``window`` as ``[date, name]``, columns in the order of ``key``."""
+        stored = self._group(window, "constant_data")[variable]
+        return stored.transpose("date", dim).sel({dim: list(self._names(key))}).to_numpy()
+
+    def covariates(self) -> Covariates:
+        """History then forecast inputs of the last complete inference."""
+        parts = [self._group(name, "constant_data") for name in WINDOWS]
+        outcomes = [
+            np.full(len(part["date"]), np.nan) if observed is None else observed
+            for part, observed in zip(parts, map(self._observed, WINDOWS), strict=True)
+        ]
+        return Covariates(
+            dates=np.concatenate([part["date"].to_numpy() for part in parts]),
+            first_query=len(parts[0]["date"]),
+            outcome=np.concatenate(outcomes),
+            channels=self._names("channel_columns"),
+            media=np.concatenate(
+                [self._covariate(name, "media", "channel", "channel_columns") for name in WINDOWS]
+            ),
+            control_names=self._names("control_columns"),
+            controls=np.concatenate(
+                [
+                    self._covariate(name, "controls", "control", "control_columns")
+                    for name in WINDOWS
+                ]
+            ),
+        )
 
     def response_curves(self) -> ResponseCurves:
         """The latest curves of the last complete inference; raises before a sweep."""
-        self.require_prediction()
-        curves = self._model._response_curves
-        if curves is None:
+        tree = self._tree()
+        if "response_curves" not in tree.children:
             raise RuntimeError("call model.response_curves(...) first")
-        return curves
+        posterior = self._group("response_curves", "posterior")["contribution"]
+        constants = self._group("response_curves", "constant_data")
+        attrs = tree["response_curves"].attrs
+        levels = posterior["level"].to_numpy()
+        channels = posterior["channel"].to_numpy()
+        # The tree holds each channel's observed total times the level: undo it at level 1,
+        # or at the top level when the sweep has no level 1.
+        ones = np.flatnonzero(levels == 1.0)
+        pick = ones[0] if ones.size else int(np.argmax(levels))
+        return ResponseCurves(
+            channels=tuple(str(name) for name in channels),
+            levels=levels,
+            media=constants["media"]
+            .transpose("channel", "level")
+            .sel(channel=channels)
+            .isel(level=pick)
+            .to_numpy()
+            / levels[pick],
+            draws=posterior.isel(chain=0).transpose("channel", "level", "draw").to_numpy(),
+            weeks=int(attrs["weeks"]),
+            dates=constants["date"].to_numpy(),
+            units=str(attrs["units"]),
+            n_samples=int(attrs["n_samples"]),
+        )
 
     def window(self, name: str) -> Window:
-        """Read the completed ``"context"`` or ``"query"`` marginal without sampling."""
+        """Read the stored ``"context"`` or ``"query"`` marginal."""
         if name not in WINDOWS:
             raise ValueError(f"window must be one of {WINDOWS}, got {name!r}")
-        prediction = self.require_prediction()
-        history = prediction.fitted_context
-        length = len(history.dates)
-        if name == "context":
-            result = self._model._context_result()
-            dates, outcome, media = history.dates, history.outcome, history.spend
-        else:
-            result = prediction.query
-            dates = prediction.time[length:]
-            outcome = prediction.query_outcome
-            media = prediction.observations["spend"][length:]
-        active, names = display_names(result)
+        posterior = self._group(name, "posterior")
+        constants = self._group(name, "constant_data")
+        full = [str(label) for label in constants["component"].to_numpy()]
+        families = tuple(str(label) for label in constants["component_family"].to_numpy())
+        plain, columns = [], []
+        for label, family in zip(full, families, strict=True):
+            if family in ("channel", "control"):
+                plain.append(label.removeprefix(f"{family}:"))
+                variable = posterior[f"{family}_contribution"].isel(chain=0)
+                columns.append(variable.sel({family: plain[-1]}))
+            else:
+                plain.append(label)
+                columns.append(posterior[label.replace(":", "_")].isel(chain=0))
         return Window(
             name=name,
-            dates=dates,
-            components=names,
-            families=tuple(result.component_families[index] for index in active),
-            draws=result.components[:, :, active],
-            outcome=outcome,
-            channels=history.channel_columns,
-            media=media,
-            units=result.units,
+            dates=posterior["date"].to_numpy(),
+            components=unique_names(plain, full),
+            families=families,
+            draws=np.stack([column.transpose("draw", "date").to_numpy() for column in columns], 2),
+            outcome=self._observed(name),
+            channels=self._names("channel_columns"),
+            media=self._covariate(name, "media", "channel", "channel_columns"),
+            units=str(posterior.attrs["units"]),
         )
 
     def windows(self, window: str | None) -> tuple[Window, ...]:

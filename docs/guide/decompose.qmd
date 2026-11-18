@@ -30,7 +30,7 @@ For independent query-only calculations, use `prediction = model.predict(plan, n
 
 ## Charts
 
-[`model.plot`](../reference/plotting.ModelPlots.qmd) draws the latest complete `inference`, never an intervening `predict`. Install `pymc-mfm[plot]` for matplotlib figures and `pymc-mfm[interactive]` for plotly ones; pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
+[`model.plot`](../reference/plotting.Plots.qmd) draws the latest complete `inference`, never an intervening `predict`. Install `pymc-mfm[plot]` for matplotlib figures and `pymc-mfm[interactive]` for plotly ones; pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
 
 ```python
 idata = model.inference(history, plan_with_outcome, **roles, n_samples=1_000)
