@@ -10,9 +10,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from pymc_mfm.inference.api import decompose
-from pymc_mfm.model.flow import _sample_count
-
 if TYPE_CHECKING:
     from pymc_mfm.inference.dataframe import _PredictionSnapshot
     from pymc_mfm.inference.result import DecompositionResult
@@ -73,6 +70,8 @@ def response_curves(
     n_samples: int | None = None,
 ) -> ResponseCurves:
     """Curves of ``model``'s last complete inference; see ``MFM.response_curves``."""
+    from pymc_mfm.inference.api import decompose
+
     prediction = model._prediction_snapshot
     if prediction is None:
         raise RuntimeError(
@@ -195,6 +194,8 @@ def _weeks(weeks: int | None, available: int) -> int:
 def _sample_size(n_samples: int | None, prediction: _PredictionSnapshot) -> int:
     if n_samples is None:
         return prediction.n_samples
+    from pymc_mfm.model.flow import _sample_count
+
     count = _sample_count(n_samples)
     if prediction.mode == "fixed" and count != prediction.n_samples:
         raise ValueError(

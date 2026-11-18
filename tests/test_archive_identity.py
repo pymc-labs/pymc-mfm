@@ -11,7 +11,8 @@ import torch
 from conftest import make_synthetic_corpus
 
 from pymc_mfm.inference import from_pretrained, save_pretrained
-from pymc_mfm.inference._artifact_schema import SHA256_PATTERN, digest_bytes, json_bytes
+from pymc_mfm.inference._artifact_schema import SHA256_PATTERN
+from pymc_mfm.inference._digest import digest_bytes, json_bytes
 from pymc_mfm.training import archive_identity, evaluate_rows
 from pymc_mfm.training._provenance import corpus_identity, export_lineage, verified_prior_sha256
 from pymc_mfm.training.archive import _corpus_records, _model_identity, _sidecar_seed

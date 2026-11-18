@@ -20,12 +20,12 @@ from ._artifact_schema import (
     BUNDLE_FILES,
     RECORDED_OUTPUTS_FILE,
     _check_private_metadata,
-    json_bytes,
     parse_json,
     recorded_outputs_bytes,
     recorded_outputs_metadata,
     validate_profile,
 )
+from ._digest import json_bytes
 from .checkpoint import _load_local, _read_manifest, save_pretrained
 
 if TYPE_CHECKING:

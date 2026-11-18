@@ -38,7 +38,7 @@ from pymc_mfm.diagnostics import (
     strata_summary,
 )
 from pymc_mfm.diagnostics import archive as archive_module
-from pymc_mfm.inference._artifact_schema import digest_bytes, json_bytes
+from pymc_mfm.inference._digest import digest_bytes, json_bytes
 from pymc_mfm.inference.api import decompose
 from pymc_mfm.inference.result import DecompositionResult
 from pymc_mfm.model.config import ModelConfig
