@@ -16,7 +16,8 @@ from pathlib import Path
 
 import torch
 
-from pymc_mfm import decompose, from_pretrained
+from pymc_mfm import from_pretrained
+from pymc_mfm.inference import decompose
 
 
 def main() -> None:

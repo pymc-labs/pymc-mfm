@@ -667,7 +667,7 @@ pip install "pymc-mfm[training] @ git+https://github.com/pymc-labs/pymc-mfm.git"
 ```
 
 ```python
-from pymc_mfm import ModelConfig
+from pymc_mfm.model import ModelConfig
 from pymc_mfm.training import TrainingConfig, train
 
 result = train(
@@ -718,7 +718,8 @@ Checkpoints hold no optimizer state, so a run cannot be resumed.
 A model folder holds `config.json`, `model.safetensors` and `manifest.json`.
 
 ```python
-from pymc_mfm import from_pretrained, save_pretrained
+from pymc_mfm import from_pretrained
+from pymc_mfm.inference import save_pretrained
 from pymc_mfm.training import load_checkpoint
 
 model = from_pretrained("runs/my-model/model", device="cpu")  # final model

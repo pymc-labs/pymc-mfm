@@ -177,8 +177,7 @@ Use [observation_batch](../reference/inference.observation_batch.qmd) to constru
 | `latent_mask` | `[J]` | Optional binary mask; defaults to all represented |
 
 ```python
-from pymc_mfm import decompose
-from pymc_mfm.inference import observation_batch
+from pymc_mfm.inference import decompose, observation_batch
 
 batch = observation_batch(
     spend=spend,
@@ -207,7 +206,7 @@ Components exclude observation noise. Choose `mode="model_average"` to sample gr
 Save one result independently of its model:
 
 ```python
-from pymc_mfm import DecompositionResult
+from pymc_mfm.inference import DecompositionResult
 
 result = model.query_result  # reuse the exact completed query draw bank
 result.save("results/query")

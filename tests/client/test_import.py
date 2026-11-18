@@ -34,7 +34,7 @@ def test_local_names_explain_the_extra_when_torch_is_missing():
         sys.modules["torch"] = None  # makes "import torch" fail, as in a light install
         sys.modules["safetensors"] = None
         import pymc_mfm
-        for name in ("decompose", "MFM", "from_pretrained"):
+        for name in ("MFM", "from_pretrained"):
             try:
                 getattr(pymc_mfm, name)
             except ImportError as error:
@@ -57,7 +57,7 @@ def test_dir_lists_the_lazy_names():
     result = run(
         """
         import pymc_mfm
-        assert {"MFM", "decompose", "from_pretrained"} <= set(dir(pymc_mfm))
+        assert {"MFM", "from_pretrained"} <= set(dir(pymc_mfm))
         """
     )
     assert result.returncode == 0, result.stderr
@@ -110,13 +110,68 @@ def test_top_level_exports_and_the_light_names_load_without_torch():
         import pymc_mfm
         from pymc_mfm.plotting import charts
         assert pymc_mfm.__all__ == [
-            "MFM", "ModelConfig", "DecompositionResult", "decompose", "observation_batch",
-            "save_pretrained", "from_pretrained", "push_to_hub", "list_profiles",
-            "Plots", "set_backend", "save_idata", "load_idata", "validate_idata",
+            "MFM", "from_pretrained", "list_profiles", "Plots", "set_backend",
+            "save_idata", "load_idata", "validate_idata",
         ], pymc_mfm.__all__
         assert pymc_mfm.Plots is charts.Plots
         assert pymc_mfm.set_backend is charts.set_backend
         assert {"Plots", "set_backend"} <= set(dir(pymc_mfm))
+        """
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+DEPRECATED = {
+    "ModelConfig": ("pymc_mfm.model", "pymc_mfm.model.ModelConfig"),
+    "DecompositionResult": ("pymc_mfm.inference", "pymc_mfm.inference.DecompositionResult"),
+    "decompose": ("pymc_mfm.inference", "pymc_mfm.inference.decompose"),
+    "observation_batch": ("pymc_mfm.inference", "pymc_mfm.inference.observation_batch"),
+    "save_pretrained": ("pymc_mfm.inference", "pymc_mfm.inference.save_pretrained"),
+    "push_to_hub": ("pymc_mfm.inference", "pymc_mfm.inference.push_to_hub"),
+}
+
+
+@pytest.mark.parametrize("name", DEPRECATED)
+def test_deprecated_top_level_names_warn_and_return_the_subpackage_object(name):
+    if name != "DecompositionResult":  # the others load PyTorch; see the no-torch test below
+        pytest.importorskip("torch")
+    module, replacement = DEPRECATED[name]
+    result = run(
+        f"""
+        import importlib, warnings
+        import pymc_mfm
+        assert {name!r} not in dir(pymc_mfm) and {name!r} not in pymc_mfm.__all__
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from pymc_mfm import {name}
+        found = [w for w in caught if w.category is DeprecationWarning]
+        assert len(found) == 1, [str(w.message) for w in found]
+        assert {replacement!r} in str(found[0].message), found[0].message
+        assert found[0].filename == "<string>", found[0].filename  # the caller, not pymc_mfm
+        assert {name} is getattr(importlib.import_module({module!r}), {name!r})
+        assert {name!r} not in dir(pymc_mfm)
+        """
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+@pytest.mark.parametrize("name", [name for name in DEPRECATED if name != "DecompositionResult"])
+def test_deprecated_top_level_names_explain_the_extra_when_torch_is_missing(name):
+    result = run(
+        f"""
+        import sys, warnings
+        sys.modules["torch"] = None
+        sys.modules["safetensors"] = None
+        import pymc_mfm
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                pymc_mfm.{name}
+            except ImportError as error:
+                assert 'pip install "pymc-mfm[local]"' in str(error), error
+            else:
+                raise SystemExit("{name} loaded without torch")
+        assert any(w.category is DeprecationWarning for w in caught), caught
         """
     )
     assert result.returncode == 0, result.stderr + result.stdout

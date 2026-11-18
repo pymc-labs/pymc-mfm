@@ -114,7 +114,9 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
     if shutil.which("dot") is None:
         pytest.skip("The quickstart's native SVG export requires Graphviz")
     import pymc_mfm
-    from pymc_mfm import MFM, DecompositionResult, ModelConfig
+    from pymc_mfm import MFM
+    from pymc_mfm.inference import DecompositionResult
+    from pymc_mfm.model import ModelConfig
 
     requests = []
     exports = {}

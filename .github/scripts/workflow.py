@@ -17,7 +17,7 @@ import numpy as np
 import torch
 from mlflow import MlflowClient
 
-from pymc_mfm import DecompositionResult, decompose, from_pretrained
+from pymc_mfm import from_pretrained
 from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.data.profiles import PROFILE_A
 from pymc_mfm.data.recipes import (
@@ -28,6 +28,7 @@ from pymc_mfm.data.recipes import (
     provenance,
 )
 from pymc_mfm.diagnostics import build_report, render_report
+from pymc_mfm.inference import DecompositionResult, decompose
 from pymc_mfm.training import TrackingConfig, TrainingConfig, load_checkpoint, train
 
 

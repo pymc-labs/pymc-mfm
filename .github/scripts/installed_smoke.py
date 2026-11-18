@@ -271,7 +271,7 @@ print(p)
         "-c",
         """
 import sys
-from pymc_mfm import DecompositionResult
+from pymc_mfm.inference import DecompositionResult
 for window in ("context", "query"):
     result = DecompositionResult.load(f"local-inference/{window}")
     tree = result.to_datatree()
@@ -290,7 +290,7 @@ assert "arviz_stats" not in sys.modules
         "-c",
         """
 import importlib.util
-from pymc_mfm import DecompositionResult
+from pymc_mfm.inference import DecompositionResult
 from pymc_mfm.diagnostics import build_report, render_report
 assert all(
     importlib.util.find_spec(name) is None
@@ -320,7 +320,7 @@ assert tree["posterior"]["components"].sizes["draw"] == result.n_samples
         """
 import importlib.util
 import arviz_stats
-from pymc_mfm import DecompositionResult
+from pymc_mfm.inference import DecompositionResult
 trees = {}
 for window in ("query", "context"):
     result = DecompositionResult.load(f"local-inference/{window}")
