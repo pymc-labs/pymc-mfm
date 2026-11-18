@@ -1468,3 +1468,176 @@ def test_loaded_recorded_model_replays_both_windows_and_curves_without_derived_p
     assert curve_tree.attrs["units"] == "outcome"
     assert curve_tree.attrs["n_samples"] == 2 and curve_tree.attrs["weeks"] == 1
     assert loaded.artifact_metadata["provenance"]["training_evaluation"] == recorded
+
+
+def _seeding_options(model, mode):
+    options = {"n_samples": 3, "mode": mode}
+    layout = EdgeSlotLayout(len(CHANNELS), model.config.n_controls, model.config.n_demand)
+    graph = np.zeros(layout.n_slots)
+    graph[layout.slices["cy"].start] = 1
+    if mode == "fixed":
+        options["graph"] = graph
+    elif mode == "map":
+        options["router_samples"] = 5
+    return options
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+def test_a_seed_equals_manual_seed_before_the_call(model, history, future, mode):
+    options = _seeding_options(model, mode)
+    torch.manual_seed(0)
+    expected = model.inference(history, future, **COLUMN_ROLES, **options)
+    expected_state = torch.get_rng_state()
+    torch.manual_seed(99)
+    seeded = model.inference(history, future, **COLUMN_ROLES, **options, random_seed=0)
+    assert torch.equal(torch.get_rng_state(), expected_state)
+    xr.testing.assert_equal(seeded["context"], expected["context"])
+    xr.testing.assert_equal(seeded["query"], expected["query"])
+    torch.manual_seed(99)
+    predicted = model.predict(future, **options, random_seed=0)
+    predicted_state = torch.get_rng_state()
+    torch.manual_seed(0)
+    _assert_same_result(model.predict(future, **options), predicted)
+    assert torch.equal(torch.get_rng_state(), predicted_state)
+
+
+def test_a_seed_repeats_inference_and_predict_draws(model, history, future):
+    first = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=11)
+    first_predicted = model.predict(future, n_samples=4, random_seed=12)
+    second = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=11)
+    xr.testing.assert_equal(first, second)
+    _assert_same_result(model.predict(future, n_samples=4, random_seed=12), first_predicted)
+    other = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=13)
+    with pytest.raises(AssertionError):
+        xr.testing.assert_equal(other["query"], first["query"])
+
+
+def test_no_seed_keeps_the_callers_generator(model, history, future):
+    torch.manual_seed(3)
+    unseeded = model.inference(history, future, **COLUMN_ROLES, n_samples=4)
+    after = torch.get_rng_state()
+    seeded = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=3)
+    xr.testing.assert_equal(unseeded["query"], seeded["query"])
+    assert torch.equal(torch.get_rng_state(), after)
+
+
+def test_a_failed_seeded_call_does_not_restore_the_generator(model, history, future, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("context sampling failed")
+
+    monkeypatch.setattr(model, "_sample_context", fail)
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(RuntimeError, match="context sampling failed"):
+        model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=7)
+    after = torch.get_rng_state()
+    assert not torch.equal(after, before)
+    torch.manual_seed(7)
+    assert not torch.equal(torch.get_rng_state(), after)
+
+
+def _inactive_node_graph():
+    """A fixed graph with an edge on the second control slot, which the data leaves padded."""
+    layout = EdgeSlotLayout(len(CHANNELS), 2, 2)
+    graph = np.zeros(layout.n_slots)
+    graph[layout.slices["zb"].start + 1] = 1
+    return graph
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param({"mode": "bogus"}, id="mode"),
+        pytest.param({"mode": "fixed"}, id="missing-graph"),
+        pytest.param({"graph": np.zeros(3)}, id="graph-without-fixed"),
+        pytest.param({"mode": "fixed", "graph": np.zeros(3)}, id="graph-wrong-shape"),
+        pytest.param({"mode": "fixed", "graph": _inactive_node_graph()}, id="graph-inactive-node"),
+        pytest.param({"n_samples": 0}, id="n_samples"),
+        pytest.param({"units": ""}, id="units"),
+        pytest.param({"provenance": "text"}, id="provenance"),
+    ],
+)
+def test_an_invalid_argument_with_a_seed_leaves_the_generator_unchanged(
+    model, history, future, options
+):
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError):
+        model.inference(
+            history, future, **COLUMN_ROLES, **{"n_samples": 2, **options}, random_seed=7
+        )
+    assert torch.equal(torch.get_rng_state(), before)
+    assert model.idata is None
+
+
+@pytest.mark.parametrize("seed", [-1, 2**31, True, 1.5])
+def test_invalid_seeds_fail_before_sampling(model, history, future, seed):
+    model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="random_seed"):
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2, random_seed=seed)
+    with pytest.raises(ValueError, match="random_seed"):
+        model.predict(future, n_samples=2, random_seed=seed)
+    with pytest.raises(ValueError, match="random_seed"):
+        model.response_curves(n_samples=2, random_seed=seed)
+    assert torch.equal(torch.get_rng_state(), before)
+    assert model.idata.attrs["inference_revision"] == 1
+
+
+def test_the_root_records_the_seed_and_earlier_trees_keep_theirs(model, history, future):
+    first = model.inference(history, future, **COLUMN_ROLES, n_samples=2, random_seed=5)
+    second = model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    third = model.inference(history, future, **COLUMN_ROLES, n_samples=2, random_seed=0)
+    assert first.attrs["random_seed"] == 5
+    assert "random_seed" not in second.attrs
+    assert third.attrs["random_seed"] == 0
+    assert first.attrs["random_seed"] == 5
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param({"units": ""}, id="empty-units"),
+        pytest.param({"units": "\ud800"}, id="surrogate-units"),
+        pytest.param({"provenance": {"bad": float("nan")}}, id="nan-provenance"),
+        pytest.param({"provenance": {"bad": "\ud800"}}, id="surrogate-provenance"),
+    ],
+)
+def test_decompose_checks_units_and_provenance_before_seeding(model, history, future, options):
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError):
+        _canonical_result(
+            model, history, future, ("temperature", "pad"), n_samples=2, random_seed=7, **options
+        )
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        pytest.param(("temperature",), id="too-few"),
+        pytest.param(("pad", "pad"), id="repeated"),
+        pytest.param((1, 2), id="not-strings"),
+    ],
+)
+def test_decompose_checks_entity_names_before_seeding(model, history, future, names):
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="names"):
+        _canonical_result(model, history, future, names, n_samples=2, random_seed=7)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+def test_decompose_accepts_any_provenance_mapping(model, history, future):
+    from types import MappingProxyType
+
+    result = _canonical_result(
+        model,
+        history,
+        future,
+        ("temperature", "pad"),
+        n_samples=2,
+        provenance=MappingProxyType({"scenario": "plan"}),
+    )
+    assert result.provenance["scenario"] == "plan"

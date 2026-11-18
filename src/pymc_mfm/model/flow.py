@@ -124,6 +124,22 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     return int(value)
 
 
+def _random_seed(value: object) -> int | None:
+    """Validate a seed: ``None`` or an integer from 0 to 2**31-1, never a bool or a float."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Integral) or not 0 <= value < 2**31:
+        raise ValueError("random_seed must be None or an integer from 0 to 2**31-1")
+    return int(value)
+
+
+def _seed_sampling(seed: int | None) -> None:
+    """Seed PyTorch's global generator for the draws that follow; ``None`` leaves it as is."""
+    seed = _random_seed(seed)
+    if seed is not None:
+        torch.manual_seed(seed)
+
+
 def _sample_rows(kernels: bool) -> int:
     """State rows per sampling velocity evaluation, for a transport that runs the fused GPU
     kernels (``kernels``) or PyTorch operations."""

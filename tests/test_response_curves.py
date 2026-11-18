@@ -190,6 +190,82 @@ def test_a_seed_repeats_the_draws(forecast_model):
     np.testing.assert_array_equal(first.draws, second.draws)
 
 
+def test_random_seed_repeats_the_draws_and_is_recorded_in_the_curve_attrs(forecast_model):
+    options = {"levels": [0, 1], "weeks": 1, "n_samples": 4}
+    first = forecast_model.response_curves(**options, random_seed=5)
+    held = forecast_model.idata
+    second = forecast_model.response_curves(**options, random_seed=5)
+    np.testing.assert_array_equal(first.draws, second.draws)
+    assert held["response_curves"].attrs["random_seed"] == 5
+    forecast_model.response_curves(**options, random_seed=9)
+    assert forecast_model.idata["response_curves"].attrs["random_seed"] == 9
+    assert held["response_curves"].attrs["random_seed"] == 5
+    forecast_model.response_curves(**options)
+    assert "random_seed" not in forecast_model.idata["response_curves"].attrs
+    assert "random_seed" not in forecast_model.idata.attrs
+
+
+def test_no_seed_keeps_the_callers_generator(forecast_model):
+    options = {"levels": [0, 1], "weeks": 1, "n_samples": 4}
+    torch.manual_seed(3)
+    unseeded = forecast_model.response_curves(**options)
+    seeded = forecast_model.response_curves(**options, random_seed=3)
+    np.testing.assert_array_equal(unseeded.draws, seeded.draws)
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+def test_a_seed_equals_manual_seed_before_the_sweep(model, chart_frames, mode):
+    history, future = chart_frames
+    inference = {"n_samples": 3, "mode": mode}
+    if mode == "fixed":
+        layout = EdgeSlotLayout(2, model.config.n_controls, model.config.n_demand)
+        graphs = np.zeros((3, 1, layout.n_slots))
+        graphs[:, 0, layout.slices["cy"].start] = 1
+        inference["graph"] = graphs
+    elif mode == "map":
+        inference["router_samples"] = 5
+    model.inference(history, future, **CHART_ROLES, **inference)
+    forecast_model = model
+    options = {"levels": [0, 1, 2], "weeks": 1, "n_samples": 3}
+    torch.manual_seed(0)
+    expected = forecast_model.response_curves(**options)
+    expected_state = torch.get_rng_state()
+    torch.manual_seed(99)
+    seeded = forecast_model.response_curves(**options, random_seed=0)
+    assert torch.equal(torch.get_rng_state(), expected_state)
+    np.testing.assert_array_equal(seeded.draws, expected.draws)
+
+
+def test_a_failed_seeded_sweep_does_not_restore_the_generator(forecast_model, monkeypatch):
+    decompose = api_module.decompose
+    calls = []
+
+    def fail_second(*args, **kwargs):
+        calls.append(kwargs["random_seed"])
+        if len(calls) == 2:
+            raise RuntimeError("sampling failed")
+        return decompose(*args, **kwargs)
+
+    monkeypatch.setattr(api_module, "decompose", fail_second)
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(RuntimeError, match="sampling failed"):
+        forecast_model.response_curves(levels=[0, 1, 2], weeks=1, n_samples=4, random_seed=7)
+    after = torch.get_rng_state()
+    assert calls == [7, None]
+    assert not torch.equal(after, before)
+    torch.manual_seed(7)
+    assert not torch.equal(torch.get_rng_state(), after)
+
+
+@pytest.mark.parametrize("seed", [-1, 2**31, True, 1.5])
+def test_invalid_seeds_fail_before_sampling(forecast_model, seed):
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="random_seed"):
+        forecast_model.response_curves(levels=[0, 1], random_seed=seed)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
 @pytest.mark.parametrize("mode", ["fixed", "map"])
 def test_scenarios_keep_the_mode_graphs_units_and_provenance_of_inference(
     model, chart_frames, recorded, mode

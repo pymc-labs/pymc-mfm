@@ -47,7 +47,6 @@ installs PyTorch.
 ```python
 import numpy as np
 import pandas as pd
-import torch
 
 from pymc_mfm import from_pretrained
 
@@ -75,8 +74,7 @@ roles = {
 }
 # Preflight explicit inputs before sampling; no previous inference is required.
 usage = model.input_usage(history, future, **roles)
-torch.manual_seed(0)
-idata = model.inference(history, future, **roles, n_samples=500)
+idata = model.inference(history, future, **roles, n_samples=500, random_seed=0)
 assert idata is model.idata
 query = model.query_result  # exact query draw bank for components, diagnostics and graphs
 

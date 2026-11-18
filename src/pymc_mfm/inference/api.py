@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import replace
@@ -14,8 +15,11 @@ from pymc_mfm.data.observations import encode_observations, observation_identity
 from pymc_mfm.inference._time import _validate_time
 from pymc_mfm.inference.result import (
     DecompositionResult,
+    _entity_names,
     _input_summary,
     _numpy,
+    _require_json_text,
+    _require_text,
     result_from_batch,
 )
 from pymc_mfm.model.config import ModelConfig
@@ -128,6 +132,7 @@ def decompose(
     time=None,
     units: str = "outcome",
     provenance=None,
+    random_seed: int | None = None,
 ) -> DecompositionResult:
     """Sample aligned conditional evidence from observed inputs or an encoded batch.
 
@@ -136,7 +141,7 @@ def decompose(
     Fixed graphs are supplied hypotheses; modal graphs are empirical router modes,
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
-    context/query posterior. The caller controls the PyTorch random seed;
+    context/query posterior. ``random_seed`` seeds the PyTorch global generator;
     ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
@@ -213,10 +218,23 @@ def decompose(
     if provenance is not None:
         if not isinstance(provenance, Mapping):
             raise ValueError("provenance must be a mapping")
+        # The result checks these too, after sampling; a seeded call must fail before it.
+        checked = dict(provenance)
+        json.dumps(checked, allow_nan=False)
+        _require_json_text(checked, "provenance")
         for key, value in provenance.items():
             if key in identity and identity[key] is not None and identity[key] != value:
                 raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
         identity.update(provenance)
+    if not isinstance(units, str) or not units:
+        raise ValueError("units must be a nonempty label")
+    _require_text(units, "units")
+    _entity_names(
+        batch["active_c_mask"].shape[-1],
+        batch["active_m_mask"].shape[-1],
+        channel_names,
+        control_names,
+    )
     _drop_recorded_evaluation(identity, getattr(model, "provenance", {}).get("training_evaluation"))
     # Result annotations must not expose mutable loaded-model identity by reference.
     identity = deepcopy(identity)
@@ -236,6 +254,7 @@ def decompose(
             graph=graph,
             router_samples=router_samples,
             window=window,
+            random_seed=random_seed,
         )
     finally:
         if switch_modes:
