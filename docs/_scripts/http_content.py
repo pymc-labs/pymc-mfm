@@ -608,4 +608,4 @@ ERROR_BODY = (
     '{\n  "error": {\n    "code": "...",\n    "message": "...",\n    "field": "..."\n  }\n}'
 )
 REFUSAL_BODY = '{\n  "error": {\n    "code": "steps_removed",\n    "message": "...",\n    "field": "scenarios[0].steps"\n  }\n}'
-ENV_BLOCK = 'export MFM_API_URL="<from the Console>"\nexport MFM_API_KEY="<your key>"'
+ENV_BLOCK = 'export MFM_API_URL="<your service URL>"\nexport MFM_API_KEY="<your key>"'

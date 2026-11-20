@@ -251,8 +251,8 @@ def overview_page(routes: list[Route]) -> str:
 
 def authentication_page() -> str:
     head = (
-        "Every request carries a key. Create a key in the Console. "
-        "The Console also shows the base URL of the service.\n\n"
+        "Every request carries a key. "
+        "Your invitation tells you how to get your service URL and your key.\n\n"
     )
     text = (
         "## Set the base URL and the key\n\n"
