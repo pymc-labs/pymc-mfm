@@ -301,6 +301,20 @@ class IdataReader:
             n_samples=int(attrs["n_samples"]),
         )
 
+    def curve_media(self) -> np.ndarray:
+        """The stored spend ``[channel, level]`` of the curves, by label, in curve order."""
+        posterior = self._group("response_curves", "posterior")["contribution"]
+        path = "/response_curves/constant_data"
+        stored = self._group("response_curves", "constant_data")["media"]
+        stored = stored.transpose("channel", "level")
+        stored = _select(
+            path,
+            _select(path, stored, "channel", posterior["channel"].to_numpy()),
+            "level",
+            posterior["level"].to_numpy(),
+        )
+        return stored.to_numpy()
+
     def _parts(self, name: str) -> _Parts:
         """A window's draw columns, labels and covariates, aligned by label and not stacked."""
         if name not in WINDOWS:
@@ -330,9 +344,37 @@ class IdataReader:
                 if variable not in posterior:
                     raise ValueError(f"{path}: no variable {variable!r} for component {label!r}")
                 columns.append(posterior[variable].isel(chain=0))
+        # Scalar contributions (``baseline``, ``latent``, ``indirect_*``); the ``channel`` and
+        # ``control`` variables are checked by role below, and ``graph`` is no contribution.
+        described = {label.replace(":", "_") for label in full}
+        undescribed = [
+            str(variable)
+            for variable in posterior.data_vars
+            if str(variable).split("_")[0] in FAMILIES
+            and str(variable).split("_")[0] not in ("channel", "control")
+            and variable not in described
+        ]
+        if undescribed:
+            raise ValueError(
+                f"{path}: no descriptor in /{name}/constant_data for {undescribed}; "
+                f"its descriptors are {full}"
+            )
         columns = [column.transpose("draw", "date") for column in columns]
         if len({column.shape for column in columns}) > 1:
             raise ValueError(f"{path}: component draws differ in shape")
+        roles = {
+            "channel": self._names("channel_columns"),
+            "control": self._names("control_columns"),
+        }
+        for family, named in roles.items():
+            described = [n for n, f in zip(plain, families, strict=True) if f == family]
+            absent = [label for label in named if label not in described]
+            unknown = [label for label in described if label not in named]
+            if absent or unknown:
+                raise ValueError(
+                    f"/{name}/constant_data: {family} descriptors {described} do not match "
+                    f"the {family} columns {list(named)}: missing {absent}, unknown {unknown}"
+                )
         channels = [n for n, family in zip(plain, families, strict=True) if family == "channel"]
         return _Parts(
             dates=dates,

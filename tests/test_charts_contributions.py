@@ -265,21 +265,40 @@ def test_a_stack_of_seconds_resolution_dates_still_draws_whole_weeks(model, char
         np.testing.assert_array_equal(got.edges, want.edges)
 
 
-def test_a_query_only_stack_reads_only_the_context_dates(predicted_model, monkeypatch):
-    calls = []
-    real = IdataReader.window
+def _with_unread_context_draws(tree):
+    """``tree`` whose context posterior variables are lazy and raise when read."""
+    import xarray as xr
+    from test_plots_idata import _rebuilt
+    from xarray.core import indexing
 
-    def spy(self, name):
-        calls.append(name)
-        return real(self, name)
+    class Lazy(xr.backends.BackendArray):
+        """A lazy array that raises when anything reads its values."""
 
-    monkeypatch.setattr(IdataReader, "window", spy)
-    source = IdataReader(predicted_model.idata)
-    contributions.prepare(source, window="query")
-    assert calls == ["query"]
-    calls.clear()
-    contributions.prepare(source)
-    assert calls == ["context", "query"]
+        def __init__(self, like):
+            self.shape, self.dtype = like.shape, like.dtype
+
+        def __getitem__(self, key):
+            raise AssertionError("a context posterior draw array was read")
+
+    def stand_in(data):
+        draws = {}
+        for name, variable in data.data_vars.items():
+            lazy = indexing.LazilyIndexedArray(Lazy(variable))
+            draws[name] = xr.Variable(variable.dims, lazy)
+        return data.assign(draws)
+
+    return _rebuilt(tree, {"/context/posterior": stand_in})
+
+
+def test_a_query_only_stack_reads_no_context_draw_array(predicted_model):
+    tree = _with_unread_context_draws(predicted_model.idata)
+    with pytest.raises(AssertionError, match="context posterior draw"):
+        IdataReader(tree).window("context")
+    drawn = contributions.prepare(IdataReader(tree), window="query")
+    expected = contributions.prepare(IdataReader(predicted_model.idata), window="query")
+    assert len(drawn.segments) == 1
+    np.testing.assert_array_equal(drawn.segments[0].mean, expected.segments[0].mean)
+    np.testing.assert_array_equal(drawn.segments[0].edges, expected.segments[0].edges)
 
 
 def test_the_context_dates_come_from_the_dates_coordinate_alone(predicted_model):

@@ -81,7 +81,7 @@ def prepare(
             for name, total in zip(names, totals, strict=True)
         ),
         levels=curves.levels,
-        media=totals[:, None] * curves.levels,
+        media=source.curve_media()[rows],
         mean=mean,
         low=low,
         high=high,

@@ -306,6 +306,42 @@ def test_charts_of_a_reordered_tree_draw_the_numbers_of_their_labels(reordered, 
     swept_totals = future.iloc[:2][list(returned.channels)].sum().to_numpy()
     np.testing.assert_allclose(curves.media[order], swept_totals, rtol=1e-12)
     np.testing.assert_allclose(curves.media[order], returned.media, rtol=1e-12)
+    # The stored amounts were reversed over channels and levels: read them back by label.
+    amounts = source.curve_media()
+    np.testing.assert_allclose(
+        amounts[order], returned.media[:, None] * returned.levels, rtol=1e-12
+    )
+
+
+def test_a_saved_and_reopened_reordered_tree_draws_the_raw_arrays_by_label(
+    reordered, netcdf, tmp_path
+):
+    """Plotted means equal the original tree's raw arrays, picked by label with xarray."""
+    from pymc_mfm.plotting.charts import contributions, media
+
+    _, returned, tree, changed = reordered
+    source = IdataReader(_saved(changed, tmp_path))
+
+    def raw(window, family, label):
+        group = tree[f"/{window}/posterior"].to_dataset(inherit=False)
+        return group[f"{family}_contribution"].sel({family: label}).mean(("chain", "draw"))
+
+    for window in ("context", "query"):
+        for panel in media.prepare(source, window=window).channels:
+            np.testing.assert_allclose(panel.mean, raw(window, "channel", panel.name), rtol=1e-12)
+    drawn = contributions.prepare(source)
+    for position, name in enumerate(drawn.components):
+        family = {"search": "channel", "tv": "channel", "temperature": "control"}.get(name)
+        if family is None:
+            continue
+        for segment, window in zip(drawn.segments, ("context", "query"), strict=True):
+            np.testing.assert_allclose(
+                segment.mean[position], raw(window, family, name), rtol=1e-12, err_msg=name
+            )
+    curves = source.response_curves()
+    for row, channel in enumerate(curves.channels):
+        want = returned.draws[returned.channels.index(channel)]
+        np.testing.assert_array_equal(curves.draws[row], want)
 
 
 @pytest.mark.usefixtures("matplotlib_backend")
@@ -382,7 +418,8 @@ def test_windows_with_other_component_names_raise(predicted_model):
         "/query/constant_data",
         lambda data: data.isel(component=slice(1, None)),
     )
-    with pytest.raises(ValueError, match=r"query.*components"):
+    # The reader refuses the window before the stack compares component names.
+    with pytest.raises(ValueError, match=r"/query/posterior.*no descriptor.*'baseline'"):
         contributions.prepare(IdataReader(changed))
 
 
@@ -650,3 +687,149 @@ def test_the_curve_baseline_is_finite_when_the_swept_total_overflows(model, char
     assert (
         curves.media[curves.channels.index("tv")] == returned.media[returned.channels.index("tv")]
     )
+
+
+def _with_stored_amounts(tree, flip):
+    """``tree`` whose curve media holds a distinct amount per channel and level.
+
+    The amount of channel ``k`` at level ``l`` is ``1000 * (k + 1) + 7 * l + 0.5``, by the
+    labels the tree stored them with. ``flip`` re-stores the group in reverse order.
+    Returns the tree and ``{(channel, level): amount}``.
+    """
+    group = tree["/response_curves/constant_data"].to_dataset(inherit=False)
+    channels, levels = group["channel"].to_numpy(), group["level"].to_numpy()
+    grid = 1000.0 * (np.arange(len(channels))[:, None] + 1) + 7.0 * np.arange(len(levels)) + 0.5
+    amounts = {
+        (str(channel), float(level)): grid[row, column]
+        for row, channel in enumerate(channels)
+        for column, level in enumerate(levels)
+    }
+
+    def store(data):
+        data = data.assign(media=(("channel", "level"), grid))
+        return _reversed(channel=1, level=1)(data) if flip else data
+
+    return _rebuilt(tree, {"/response_curves/constant_data": store}), amounts
+
+
+@pytest.mark.parametrize("flip", [False, True], ids=["stored-order", "reversed-order"])
+def test_the_curve_amounts_are_the_stored_media_by_channel_and_level(predicted_model, flip):
+    """The chart data and the Plotly hover show the stored amounts, not total times level."""
+    pytest.importorskip("plotly")
+    from pymc_mfm.plotting.charts import curves as curve_chart
+
+    predicted_model.response_curves(levels=[0, 0.5, 2], weeks=2, n_samples=4)
+    changed, amounts = _with_stored_amounts(predicted_model.idata, flip)
+    data = curve_chart.prepare(IdataReader(changed))
+    for row, channel in enumerate(data.channels):
+        for column, level in enumerate(data.levels):
+            assert data.media[row, column] == amounts[(channel, float(level))]
+    fig = Plots(changed).response_curves(backend="plotly")
+    hovers = [trace.customdata for trace in fig.data if trace.name == "Mean"]
+    assert len(hovers) == len(data.channels)
+    for row, hover in enumerate(hovers):
+        np.testing.assert_array_equal(hover[:, 0], data.media[row])
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        pytest.param(
+            lambda data: data.assign_coords(
+                channel=[name.upper() for name in data["channel"].to_numpy()]
+            ),
+            r"/response_curves/constant_data: channel labels \['SEARCH', 'TV'\] do not hold",
+            id="channel-labels",
+        ),
+        pytest.param(
+            lambda data: data.assign_coords(level=data["level"].to_numpy() + 0.25),
+            r"/response_curves/constant_data: level labels .* do not hold",
+            id="level-labels",
+        ),
+    ],
+)
+def test_curve_media_labels_that_do_not_match_the_curves_raise(predicted_model, change, message):
+    predicted_model.response_curves(levels=[0, 0.5, 2], weeks=2, n_samples=4)
+    changed = _edit(predicted_model.idata, "/response_curves/constant_data", change)
+    with pytest.raises(ValueError, match=message):
+        Plots(changed).response_curves()
+
+
+def _drop_tv(data):
+    keep = data["component"].to_numpy() != "channel:tv"
+    assert not keep.all()
+    return data.isel(component=keep)
+
+
+@pytest.fixture
+def without_tv(predicted_model):
+    """The tree with the ``channel:tv`` descriptor deleted from both windows; draws stay."""
+
+    changed = _rebuilt(
+        predicted_model.idata,
+        {"/context/constant_data": _drop_tv, "/query/constant_data": _drop_tv},
+    )
+    return predicted_model.idata, changed
+
+
+def test_a_missing_component_descriptor_raises_instead_of_dropping_a_contribution(without_tv):
+    tree, changed = without_tv
+    # The channels contribute different amounts, so a dropped one would change the fit.
+    context = IdataReader(tree).window("context")
+    assert not np.allclose(context.contribution("tv"), context.contribution("search"))
+    for name in ("context", "query"):
+        with pytest.raises(ValueError, match=rf"/{name}/constant_data.*channel.*'tv'"):
+            IdataReader(changed).check_window(name)
+        with pytest.raises(ValueError, match=rf"/{name}/constant_data.*channel.*'tv'"):
+            IdataReader(changed).window(name)
+    # A window that alone lacks a descriptor fails in the reader, not later when stacking.
+    for name in ("context", "query"):
+        one = _rebuilt(tree, {f"/{name}/constant_data": _drop_tv})
+        with pytest.raises(ValueError, match=rf"/{name}/constant_data.*channel.*'tv'"):
+            Plots(one).contributions_over_time()
+    for chart in ("fit", "shares", "contribution_totals", "contributions_over_time"):
+        with pytest.raises(ValueError, match=r"/context/constant_data.*channel.*'tv'"):
+            getattr(Plots(changed), chart)()
+
+
+def test_a_descriptor_for_a_channel_the_tree_does_not_name_raises(predicted_model):
+    changed = _edit(
+        predicted_model.idata,
+        "/context/constant_data",
+        lambda data: data.assign_coords(
+            component=[
+                "channel:ghost" if label == "channel:tv" else label
+                for label in data["component"].to_numpy()
+            ]
+        ),
+    )
+    with pytest.raises(ValueError, match=r"/context/.*'ghost'"):
+        IdataReader(changed).check_window("context")
+
+
+@pytest.mark.parametrize("label", ["baseline", "indirect:cc"])
+@pytest.mark.parametrize("window", ["context", "query"])
+def test_a_posterior_contribution_without_a_descriptor_raises(predicted_model, label, window):
+    """A baseline or indirect draw that no descriptor names would be left out of the sum."""
+    variable = label.replace(":", "_")
+    assert variable in predicted_model.idata[f"/{window}/posterior"].to_dataset(inherit=False)
+
+    def drop(data):
+        return data.isel(component=data["component"].to_numpy() != label)
+
+    changed = _edit(predicted_model.idata, f"/{window}/constant_data", drop)
+    pattern = rf"/{window}/posterior.*no descriptor.*'{variable}'"
+    with pytest.raises(ValueError, match=pattern):
+        IdataReader(changed).check_window(window)
+    with pytest.raises(ValueError, match=pattern):
+        Plots(changed).fit()
+
+
+def test_a_descriptor_without_posterior_draws_raises(predicted_model):
+    changed = _edit(
+        predicted_model.idata,
+        "/query/posterior",
+        lambda data: data.drop_vars("baseline"),
+    )
+    with pytest.raises(ValueError, match=r"/query/posterior: no variable 'baseline'"):
+        IdataReader(changed).check_window("query")
