@@ -578,6 +578,18 @@ def test_validate_gives_the_reader_message_for_a_label_the_draws_lack(tree):
         validate_idata(tree)
 
 
+def test_validate_refuses_a_window_that_lacks_a_channel_component(tree):
+    def drop(data):
+        keep = [str(label) != "channel:tv" for label in data["component"].to_numpy()]
+        return data.isel(component=keep)
+
+    _edit(tree, "query/constant_data", drop)
+    with pytest.raises(
+        ValueError, match=r"^/query/constant_data: channel descriptors .* missing \['tv'\]"
+    ):
+        validate_idata(tree)
+
+
 def _all_groups(tree, window, change):
     for group in ("posterior", "constant_data", "observed_data"):
         _edit(tree, f"{window}/{group}", change)
