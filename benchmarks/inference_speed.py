@@ -43,7 +43,8 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 import pymc_mfm  # noqa: E402
-from pymc_mfm import decompose, from_pretrained  # noqa: E402
+from pymc_mfm import from_pretrained  # noqa: E402
+from pymc_mfm.inference import decompose  # noqa: E402
 
 REPOSITORY = "pymc-labs/mfm"
 PROFILE = "river-1"

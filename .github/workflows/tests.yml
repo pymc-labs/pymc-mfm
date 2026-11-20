@@ -57,6 +57,10 @@ jobs:
         run: |
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
+      # Static check of the deprecated top-level names; it only reads tests/typing.
+      - name: Check static types of the deprecated top-level names
+        if: matrix.installation == 'base' && matrix.lane == 'fast'
+        run: uv run --no-sync pyright tests/typing
       # Each lane selects its marker expression explicitly; plain pytest runs all tests.
       - name: Exercise local contracts without publication credentials
         run: >-

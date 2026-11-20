@@ -177,8 +177,7 @@ Use [observation_batch](../reference/inference.observation_batch.qmd) to constru
 | `latent_mask` | `[J]` | Optional binary mask; defaults to all represented |
 
 ```python
-from pymc_mfm import decompose
-from pymc_mfm.inference import observation_batch
+from pymc_mfm.inference import decompose, observation_batch
 
 batch = observation_batch(
     spend=spend,
@@ -207,7 +206,7 @@ Components exclude observation noise. Choose `mode="model_average"` to sample gr
 Save one result independently of its model:
 
 ```python
-from pymc_mfm import DecompositionResult
+from pymc_mfm.inference import DecompositionResult
 
 result = model.query_result  # reuse the exact completed query draw bank
 result.save("results/query")
@@ -264,7 +263,7 @@ them before sharing.
 For a long-running process, opt into `torch.compile` on the sampler and warm representative requests before serving them. [warm_up_sampling](../reference/inference.warm_up_sampling.qmd) compiles supported input shapes without waiting for the first request.
 
 ```python
-from pymc_mfm.inference import warm_up_sampling
+from pymc_mfm.inference import decompose, warm_up_sampling
 
 model.compile_sampling()
 warm_up_sampling(model, channels=range(1, 11))

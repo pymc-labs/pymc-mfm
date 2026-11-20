@@ -337,7 +337,7 @@ def test_saved_boolean_time_labels_select_the_original_evidence_rows(tmp_path, l
     result = replace(
         original, time=np.array(labels), components=original.components[:, : len(labels)]
     )
-    result = pymc_mfm.DecompositionResult.load(result.save(tmp_path / "result"))
+    result = pymc_mfm.inference.DecompositionResult.load(result.save(tmp_path / "result"))
     truth = aligned_truth(result)
     observations = np.arange(len(labels)) + 10
     tree = result.to_datatree(truth=truth, observed=observations)
@@ -447,7 +447,9 @@ import numpy as np
 import torch
 
 import pymc_mfm.diagnostics
-from pymc_mfm import MFM, DecompositionResult, ModelConfig, decompose
+from pymc_mfm import MFM
+from pymc_mfm.inference import DecompositionResult, decompose
+from pymc_mfm.model import ModelConfig
 
 torch.manual_seed(0)
 config = ModelConfig(
@@ -511,7 +513,9 @@ class MissingAnalysisExtras:
 
 sys.meta_path.insert(0, MissingAnalysisExtras())
 
-from pymc_mfm import MFM, DecompositionResult, ModelConfig
+from pymc_mfm import MFM
+from pymc_mfm.inference import DecompositionResult
+from pymc_mfm.model import ModelConfig
 
 torch.manual_seed(0)
 model = MFM(ModelConfig(

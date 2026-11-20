@@ -349,7 +349,9 @@ def test_decompose_and_diagnostics_import_no_matplotlib_until_a_figure_is_drawn(
 import sys
 import numpy as np
 import torch
-from pymc_mfm import MFM, ModelConfig, decompose
+from pymc_mfm import MFM
+from pymc_mfm.inference import decompose
+from pymc_mfm.model import ModelConfig
 
 torch.manual_seed(0)
 config = ModelConfig(

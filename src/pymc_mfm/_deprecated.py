@@ -10,7 +10,11 @@ if TYPE_CHECKING:
 
 
 def deprecated_names(
-    module: str, names: Mapping[str, tuple[str, Callable[[], Any]]], namespace: dict[str, Any]
+    module: str,
+    names: Mapping[str, tuple[str, Callable[[], Any]]],
+    namespace: dict[str, Any],
+    *,
+    stacklevel: int = 2,
 ) -> Callable[[str], Any]:
     """A module ``__getattr__`` that warns once for each old name in ``names``.
 
@@ -18,6 +22,18 @@ def deprecated_names(
     loads the object to return. ``namespace`` is the module's ``globals()``: the loaded
     object is stored there, so a name warns once per process. Any other name raises
     ``AttributeError``.
+
+    Warning contract:
+
+    - A name warns on first access in a process. After a successful load it sits in
+      ``namespace``, so later accesses are silent, even if warning filters change.
+    - Python's default filters hide ``DeprecationWarning`` outside ``__main__``. A first
+      access that a filter hid is not reported again after the filter changes.
+    - A load that raises (for example, PyTorch is missing) is not cached. The next access
+      warns again and raises the same error, including the ``[local]`` install hint.
+
+    Pass ``stacklevel=3`` when a module ``__getattr__`` calls the
+    returned function, so the warning names the caller's line.
     """
 
     def __getattr__(name: str) -> Any:
@@ -25,7 +41,9 @@ def deprecated_names(
             raise AttributeError(f"module {module!r} has no attribute {name!r}")
         replacement, load = names[name]
         warnings.warn(
-            f"{module}.{name} is deprecated: {replacement}", DeprecationWarning, stacklevel=2
+            f"{module}.{name} is deprecated: {replacement}",
+            DeprecationWarning,
+            stacklevel=stacklevel,
         )
         namespace[name] = value = load()
         return value
