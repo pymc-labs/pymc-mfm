@@ -55,7 +55,7 @@ results = analysis.table
 
 `plan` is the baseline for the weeks after the history. A [scenario](../reference/client.scenario.qmd) is a named budget change against it: one multiplier per channel that changes. A number from 0 to 5 multiplies the channel's spend in the window, and [amount](../reference/client.amount.qmd) sets the channel's total spend in the window, keeping its weekly pattern; a channel with no spend in the window gets the amount split evenly over its weeks. Channels left out keep their spend. Scenarios do not change spend timing or control values. [grid](../reference/client.grid.qmd) expands channel multipliers into one scenario for every combination, and [curve](../reference/client.curve.qmd) requests spend-level response curves.
 
-The window is `decision_weeks=(i, j)` of a plan, 1-based and inclusive (default: the whole plan). Omit `draws` and `seed` to use the service defaults.
+The window is `decision_weeks=(i, j)` of a plan, 1-based and inclusive (default: the whole plan). Omit `draws` and `seed` to use the service defaults. `draws` is the number of posterior samples per plan. The local Python library calls the same number `n_samples`.
 
 ## Run a backtest
 

@@ -32,9 +32,10 @@ The service is a research preview. It may change, pause or reset at any time, so
 
 The script below needs no data of yours. Step 1 makes a synthetic weekly history of 104 weeks, with two channels and one control, and uploads it. The script then starts an analysis of an 8-week plan with two budget scenarios, waits for it, and prints one row per plan. Everything after step 1 reads the names and values it sets, so you can replace step 1 with your own data (see [Use your own data](#use-your-own-data)). The data is synthetic, so the numbers show the API flow and say nothing about real marketing.
 
-The two scenarios are `all_80` (every channel at 80% of its planned spend) and `tv_to_search`. A scenario changes the budget of the plan. A number multiplies the spend of a channel over the plan weeks. `{"amount": X}` sets the total spend of a channel over the plan weeks to `X`. A channel you leave out keeps its spend. The plan itself is the baseline, with the id `baseline`.
+The two scenarios are `all_80` (every channel at 80% of its planned spend) and `tv_to_search`. A scenario changes the budget of the plan. A number multiplies the spend of a channel over the plan weeks. `{"amount": X}` sets the total spend of a channel over the plan weeks to `X`. A channel you leave out keeps its spend. The plan itself is the baseline, with the id `baseline`. This `baseline` plan is not the `baseline` component in the result table, which is the model's baseline contribution to the outcome.
 
 ```python
+import json
 import os
 import sys
 import time
@@ -211,13 +212,20 @@ if no_numbers:
 for name, text in result["labels"].items():
     print(f"{name}: {text}")
 outcome[columns].to_csv("first_result.csv", index=False)
-print("Saved", os.path.abspath("first_result.csv"))
+export = call("GET", f"/v1/analyses/{analysis_id}/export")
+with open("first_result.json", "w") as handle:
+    json.dump(export, handle, indent=2)
+print("Saved", os.path.abspath("first_result.csv"), "and", os.path.abspath("first_result.json"))
 print("Result page (needs a console sign-in):", started["url"])
 ```
 
-The script prints a table with one `outcome` row for the `baseline` plan and one for each scenario, and saves it as `first_result.csv` in the current folder. `mean`, `p05` and `p95` are totals over the forecast, and `mean_difference` is the paired change against the baseline. The service gives no interval for a difference between scenarios. Read the printed `labels` before you compare plans. The [HTTP API overview](../api/index.qmd) and the [result page](../api/analyses-result.qmd) list every field.
+The script prints a table with one `outcome` row for the `baseline` plan and one for each scenario, and saves it as `first_result.csv` in the current folder. `mean`, `p05` and `p95` are totals over the forecast, and `mean_difference` is the paired change against the baseline. `window_mean` is the mean over draws of the total over the scenario window. Here the window is the whole plan, so it matches `mean`. The service gives no interval for a difference between scenarios. The difference between two plans is River's expected outcome under the changed plan. It is not measured causal lift. Read the printed `labels` before you compare plans. The [HTTP API overview](../api/index.qmd) and the [result page](../api/analyses-result.qmd) list every field.
 
-The last line prints the `url` of the analysis, the address of the result page on the service's console. It opens only after you sign in to the console, and your API key does not sign you in. If it prints `None`, the service has no console address. Your `first_result.csv` and the printed table hold the same numbers.
+The last line prints the `url` of the analysis, the address of the result page on the service's console. It opens only after you sign in to the console, and your API key does not sign you in. If it prints `None`, the service has no console address. Your `first_result.csv` and the printed table hold the same numbers. The script also saves `first_result.json` beside the CSV. It is the export of the analysis. It keeps the request, the units, the seed, the number of draws and the model revision with the numbers, so the result stays readable after the service deletes it.
+
+### How far to trust the first result
+
+River is pretrained, so no MCMC (Markov chain Monte Carlo sampling) runs on your data. The `r_hat` and ESS (effective sample size) checks do not apply. The draws approximate a posterior under the assumptions of the simulator that made River's training data. The intervals leave out weekly noise. River is tested on simulated data only, so do not use it alone for budget decisions. Read the [Limits](../models/river-1/index.qmd#limits) of River first. To check River on your own data, run a [backtest](http-api.qmd#run-a-backtest): it forecasts weeks that you already know and scores the forecast against them.
 
 If the answer to a create call is lost, for example when the connection drops, the script stops and says the request may or may not have reached the service. It prints the two `Idempotency-Key` values before it sends each create call. Paste them into `DATASET_KEY` and `ANALYSIS_KEY` at the top and run the script again. The service then does not start the work twice.
 
@@ -238,10 +246,13 @@ history = pd.read_csv("history.csv", parse_dates=[DATE]).sort_values(DATE, ignor
 assert (history[DATE].diff().dropna() == pd.Timedelta(days=7)).all(), "dates must be 7 days apart"
 assert (history[OUTCOME] > 0).all(), "the outcome must be greater than zero"
 PLAN_WEEKS = 8  # the number of weeks to plan, starting the week after the history
+history = history.tail(208 - PLAN_WEEKS)  # keep the most recent weeks: history plus plan may not exceed 208
 plan_spend = {"tv": 8_000.0, "search": 6_000.0}  # planned spend per week, for each channel
 plan_controls = {"holiday": 0.0}  # the value per week, for each control
 # ---- YOUR DATA: end ----
 ```
+
+The `tail` line keeps the most recent weeks, so a longer history does not break the limit of 208 weeks (`too_long`). It leaves a shorter history unchanged.
 
 Set `plan_spend` for every channel and `plan_controls` for every control, with the same names as in the history (`name_mismatch`). The script uses each value for every plan week. The scenario `all_80` uses your channel names. The `tv_to_search` example runs only when your channels include `tv` and `search`. Edit or delete it, and add your own scenarios in the same form.
 
@@ -279,7 +290,7 @@ Every error body is `{"error": {"code", "message", "request_id", "field"?}}`. Th
 | `410 gone` | The data or analysis was deleted or has expired. | Upload and run again. Do not retry the same id. |
 | `500 internal_error`, `503 busy`, `503 unavailable`, `503 maintenance` | The service failed or is busy. | Wait `Retry-After` seconds and send the same call again. If a `500` persists, reply to your invitation and quote the `request_id`. |
 
-A failed analysis is not an HTTP error. The status call answers `200` with `status` `failed`. Repeat a create call only with the same `Idempotency-Key` and body: the service then does not start the work twice.
+A failed analysis is not an HTTP error. The status call answers `200` with `status` `failed`. Repeat a create call with the same `Idempotency-Key` and body only after a lost reply: the service then does not start the work twice. The same key and body after a failed analysis return that failed analysis. To run it again, send it with a new `Idempotency-Key`.
 
 ### How long the service keeps your data
 
