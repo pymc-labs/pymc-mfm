@@ -11,17 +11,9 @@ import numpy as np
 from pymc_mfm.plotting.panels import COLORS, _suptitle
 
 from ._backend import draw
-from ._data import interval_quantiles, summarize
-from ._mpl import compact_axis, figure
-from ._style import ACTUAL, CAVEAT, caption, rgba
-from .totals import (
-    checked_names,
-    figure_legend,
-    panel_grid,
-    subplot_specs,
-    truth_by_week,
-    window_weeks,
-)
+from ._data import checked_names, interval_quantiles, summarize, truth_by_week, window_weeks
+from ._mpl import compact_axis, figure, figure_legend
+from ._style import ACTUAL, CAVEAT, caption, panel_grid, rgba
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -165,7 +157,7 @@ def _plotly(data: ContributionVsSpend) -> Any:
     fig = plotting.figure(
         rows,
         columns,
-        specs=subplot_specs(count),
+        specs=plotting.subplot_specs(count),
         shared_yaxes="all",
         subplot_titles=[plotting.text(channel.name) for channel in data.channels],
         horizontal_spacing=0.06,

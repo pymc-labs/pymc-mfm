@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from . import contributions as _contributions
 from . import curves as _curves
 from . import fit as _fit
 from . import inputs as _inputs
@@ -219,4 +220,47 @@ class ModelPlots:
             truth=truth,
             backend=backend,
             title=title,
+        )
+
+    def contributions_over_time(
+        self,
+        *,
+        window: str | None = None,
+        components: Sequence[str] | None = None,
+        stacked: bool = True,
+        interval: float = 0.9,
+        truth: pd.DataFrame | None = None,
+        backend: str | None = None,
+        title: str | None = None,
+        ax: Any = None,
+    ) -> Any:
+        """What each component contributed to the outcome, week by week.
+
+        Components are drawn from the bottom of the stack up: baseline, latent,
+        indirect, controls, then channels on top. ``stacked=True`` stacks each
+        component's weekly mean over draws, positive means up from zero and negative
+        means down, with the observed outcome as a line where it was given. Percentile
+        intervals do not add up, so the stack shows none and ``interval`` is unused.
+        ``stacked=False`` draws one panel per component, three to a row, sharing the
+        dates: its weekly mean and central ``interval``, with ``truth`` dashed.
+
+        Needs ``inference``. ``window`` is ``"context"`` or ``"query"`` for one window,
+        or ``None`` for both, the forecast weeks shaded; ``"query"`` never samples the
+        context. ``components`` are display names (``"baseline"``, a channel or
+        control, ``"latent"``, ``"indirect:cc"``...), all active components by
+        default. ``truth`` (``stacked=False`` only) holds known contributions, from a
+        simulation say: a DataFrame indexed by date with one column per display name;
+        weeks it lacks are gaps. ``interval`` is a fraction between 0 and 1; ``ax``
+        draws the stacked chart into existing matplotlib axes.
+        """
+        return _contributions.contributions_over_time(
+            self._source,
+            window=window,
+            components=components,
+            stacked=stacked,
+            interval=interval,
+            truth=truth,
+            backend=backend,
+            title=title,
+            ax=ax,
         )

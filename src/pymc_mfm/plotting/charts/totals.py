@@ -1,12 +1,7 @@
-"""How much each component adds over a window, draw by draw (``model.plot.contribution_totals``).
-
-Also the helpers it shares with :mod:`.spend`: named-component checks, ``truth`` by
-week and the two-column panel grid.
-"""
+"""How much each component adds over a window, draw by draw (``model.plot.contribution_totals``)."""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -16,9 +11,9 @@ import numpy as np
 from pymc_mfm.plotting.panels import COLORS, _suptitle
 
 from ._backend import draw
-from ._data import interval_quantiles, summarize
-from ._mpl import compact_axis, figure
-from ._style import ACTUAL, CAVEAT, caption, rgba
+from ._data import checked_names, interval_quantiles, summarize, truth_by_week, window_weeks
+from ._mpl import compact_axis, figure, figure_legend
+from ._style import ACTUAL, CAVEAT, caption, panel_grid, rgba
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -60,81 +55,6 @@ class Totals:
     interval: float
     n_samples: int
     title: str
-
-
-def window_weeks(window: Window) -> str:
-    """``"24 history weeks"`` or ``"1 forecast week"``: the weeks ``window`` spans."""
-    count = len(window.dates)
-    kind = "history" if window.name == "context" else "forecast"
-    return f"{count} {kind} week{'' if count == 1 else 's'}"
-
-
-def checked_names(names: Sequence[str], available: Sequence[str], role: str) -> tuple[str, ...]:
-    """``names`` as a tuple, each one of ``available``; ``role`` names them in errors."""
-    if isinstance(names, str):
-        raise ValueError(f"{role} must be a sequence of names, not a string")
-    names = tuple(names)
-    if not names:
-        raise ValueError(f"{role} must name at least one of {list(available)}")
-    unknown = [name for name in names if name not in available]
-    if unknown:
-        raise ValueError(f"unknown {role} {unknown}; available: {list(available)}")
-    return names
-
-
-def truth_by_week(truth: pd.DataFrame, window: Window) -> dict[str, np.ndarray]:
-    """Each column of ``truth`` on the weeks of ``window``: NaN where it has no value.
-
-    ``truth`` holds known contributions, from a simulation say: a DataFrame indexed
-    by date with one column per component display name. Its other weeks are ignored.
-    """
-    import pandas as pd
-
-    if not isinstance(truth, pd.DataFrame) or not isinstance(truth.index, pd.DatetimeIndex):
-        raise ValueError("truth must be a pandas DataFrame indexed by date (a DatetimeIndex)")
-    if not truth.columns.is_unique:
-        raise ValueError("truth columns must be unique")
-    unknown = [column for column in truth.columns if column not in window.components]
-    if unknown:
-        raise ValueError(
-            f"truth columns {unknown} are not components; components: {list(window.components)}"
-        )
-    weekly = truth.reindex(window.dates)
-    return {
-        column: weekly[column].to_numpy(dtype=np.float64, na_value=np.nan)
-        for column in weekly.columns
-    }
-
-
-def panel_grid(count: int) -> tuple[int, int]:
-    """Rows and columns of ``count`` panels, two to a row."""
-    columns = min(2, count)
-    return math.ceil(count / columns), columns
-
-
-def subplot_specs(count: int) -> list[list[dict | None]]:
-    """Plotly ``specs`` of :func:`panel_grid`: no axes in a cell past the last panel."""
-    rows, columns = panel_grid(count)
-    return [
-        [{} if row * columns + column < count else None for column in range(columns)]
-        for row in range(rows)
-    ]
-
-
-def figure_legend(fig, axes) -> None:
-    """One legend below the panels of ``fig``: each label once, as first drawn."""
-    entries = {}
-    for ax in axes:
-        for handle, label in zip(*ax.get_legend_handles_labels(), strict=True):
-            entries.setdefault(label, handle)
-    fig.legend(
-        list(entries.values()),
-        list(entries),
-        loc="outside lower center",
-        ncols=len(entries),
-        frameon=False,
-        fontsize=9,
-    )
 
 
 def _truth_total(weekly: dict[str, np.ndarray], name: str, window: Window) -> float | None:
@@ -249,7 +169,7 @@ def _plotly(data: Totals) -> Any:
     fig = plotting.figure(
         rows,
         columns,
-        specs=subplot_specs(count),
+        specs=plotting.subplot_specs(count),
         subplot_titles=[plotting.text(total.name) for total in data.totals],
         horizontal_spacing=0.08,
         vertical_spacing=0.36 / rows,

@@ -8,10 +8,12 @@ prediction and caches it for ``build_idata`` too.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 if TYPE_CHECKING:
     from pymc_mfm.inference.curves import ResponseCurves
@@ -96,6 +98,48 @@ def summarize(
     low, high = interval_quantiles(interval)
     bounds = np.quantile(values, [low, high], axis=axis)
     return values.mean(axis=axis), bounds[0], bounds[1]
+
+
+def window_weeks(window: Window) -> str:
+    """``"24 history weeks"`` or ``"1 forecast week"``: the weeks ``window`` spans."""
+    count = len(window.dates)
+    kind = "history" if window.name == "context" else "forecast"
+    return f"{count} {kind} week{'' if count == 1 else 's'}"
+
+
+def checked_names(names: Sequence[str], available: Sequence[str], role: str) -> tuple[str, ...]:
+    """``names`` as a tuple, each one of ``available``; ``role`` names them in errors."""
+    if isinstance(names, str):
+        raise ValueError(f"{role} must be a sequence of names, not a string")
+    names = tuple(names)
+    if not names:
+        raise ValueError(f"{role} must name at least one of {list(available)}")
+    unknown = [name for name in names if name not in available]
+    if unknown:
+        raise ValueError(f"unknown {role} {unknown}; available: {list(available)}")
+    return names
+
+
+def truth_by_week(truth: pd.DataFrame, window: Window) -> dict[str, np.ndarray]:
+    """Each column of ``truth`` on the weeks of ``window``: NaN where it has no value.
+
+    ``truth`` holds known contributions, from a simulation say: a DataFrame indexed
+    by date with one column per component display name. Its other weeks are ignored.
+    """
+    if not isinstance(truth, pd.DataFrame) or not isinstance(truth.index, pd.DatetimeIndex):
+        raise ValueError("truth must be a pandas DataFrame indexed by date (a DatetimeIndex)")
+    if not truth.columns.is_unique:
+        raise ValueError("truth columns must be unique")
+    unknown = [column for column in truth.columns if column not in window.components]
+    if unknown:
+        raise ValueError(
+            f"truth columns {unknown} are not components; components: {list(window.components)}"
+        )
+    weekly = truth.reindex(window.dates)
+    return {
+        column: weekly[column].to_numpy(dtype=np.float64, na_value=np.nan)
+        for column in weekly.columns
+    }
 
 
 class ModelSource:

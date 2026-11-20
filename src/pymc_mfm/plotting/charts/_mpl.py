@@ -31,7 +31,8 @@ def _half_step(positions: np.ndarray) -> float:
 
 
 def forecast_span(ax, positions: np.ndarray, first: int, *, label: str | None = "Forecast weeks"):
-    """Shade the weeks from ``positions[first]`` on: the weeks the model did not see."""
+    """Shade, behind everything drawn, the weeks from ``positions[first]`` on: the weeks
+    the model did not see."""
     half = _half_step(positions)
     ax.axvspan(
         positions[first] - half,
@@ -40,6 +41,7 @@ def forecast_span(ax, positions: np.ndarray, first: int, *, label: str | None = 
         alpha=FORECAST_ALPHA,
         linewidth=0,
         label=label,
+        zorder=0,
     )
 
 
@@ -55,3 +57,19 @@ def percent_axis(axis) -> None:
     from matplotlib.ticker import PercentFormatter
 
     axis.set_major_formatter(PercentFormatter(1.0, decimals=0))
+
+
+def figure_legend(fig, axes) -> None:
+    """One legend below the panels of ``fig``: each label once, as first drawn."""
+    entries = {}
+    for ax in axes:
+        for handle, label in zip(*ax.get_legend_handles_labels(), strict=True):
+            entries.setdefault(label, handle)
+    fig.legend(
+        list(entries.values()),
+        list(entries),
+        loc="outside lower center",
+        ncols=len(entries),
+        frameon=False,
+        fontsize=9,
+    )
