@@ -114,7 +114,7 @@ def curl_data(body: str) -> str:
 STATUS_RECORD = """{
   "analysis_id": "an_123", "dataset_id": "ds_123",
   "status": "running",
-  "runs_total": 7, "runs_done": 3, "runs_failed": 0, "runs_cancelled": 0,
+  "runs_total": 6, "runs_done": 3, "runs_failed": 0, "runs_cancelled": 0,
   "estimate_seconds": 40,
   "name": "Spend scenarios", "url": null,
   "expires_at": "2026-11-16T09:30:00Z",
@@ -149,7 +149,7 @@ EXPORT_RECORD = """{
 LIST_ANALYSES_RECORD = """{
   "analyses": [
     {"analysis_id": "an_123", "dataset_id": "ds_123", "name": "Spend scenarios", "url": null,
-     "status": "done", "runs_total": 7, "runs_done": 7, "runs_failed": 0,
+     "status": "done", "runs_total": 6, "runs_done": 6, "runs_failed": 0,
      "created_at": "2026-11-09T09:40:00Z", "expires_at": "2026-11-16T09:30:00Z"}
   ]
 }"""
@@ -289,7 +289,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
             ),
         ),
         response='{\n  "analysis_id": "an_123",\n  "dataset_id": "ds_123",\n  "name": "Spend scenarios",\n  "url": null,\n'
-        '  "runs_total": 7,\n  "estimate_seconds": 40,\n  "expires_at": "2026-11-16T09:30:00Z",\n'
+        '  "runs_total": 6,\n  "estimate_seconds": 40,\n  "expires_at": "2026-11-16T09:30:00Z",\n'
         '  "warnings": [],\n  "warning_details": []\n}',
         response_text='`url` is `null` when the service has no site address. A repeat with the same `Idempotency-Key` and body answers `202` again with the header `Idempotent-Replayed: true`. With `"preview": true` the answer is `200` with the expanded plans, and nothing is stored.',
         curl=(

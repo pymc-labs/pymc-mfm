@@ -193,8 +193,8 @@ The service also refuses negative spend and unknown series names.
 Every code of a `422`, by where it arises. Read `error.field` for the part of the request at fault.
 
 - Any create call: `invalid_json`, `nonfinite`, `body_too_complex`, `invalid_idempotency_key`, `unknown_field`, `missing_field`, `invalid_type`, `invalid_value`, `value_out_of_range`, `too_long`, `too_short`, `storage_quota`.
-- Dataset upload: `invalid_date`, `dates_not_weekly`, `length_mismatch`, `invalid_observations`, `nonpositive_outcome`, `negative_spend`, `channel_count`, `control_count`, `controls_required`, `duplicate_name`, `reserved_name`, `invalid_name`, `invalid_outcome_name`, `invalid_currency`.
-- Analysis request: `dataset_required`, `history_with_context`, `plan_with_context`, `history_all_zero`, `dates_not_contiguous`, `name_mismatch`, `draws_out_of_range`, `seed_out_of_range`, `invalid_weeks`, `too_many_plans`, `too_many_requested_plans`.
+- Dataset upload: `invalid_date`, `dates_not_weekly`, `length_mismatch`, `nonpositive_outcome`, `negative_spend`, `channel_count`, `control_count`, `controls_required`, `duplicate_name`, `reserved_name`, `invalid_name`, `invalid_outcome_name`, `invalid_currency`.
+- Analysis request: `invalid_observations` (from the dry run of the model), `dataset_required`, `history_with_context`, `plan_with_context`, `history_all_zero`, `dates_not_contiguous`, `name_mismatch`, `draws_out_of_range`, `seed_out_of_range`, `invalid_weeks`, `too_many_plans`, `too_many_requested_plans`.
 - Scenarios and curves: `invalid_scenario`, `steps_removed`, `scenario_plan_removed`, `invalid_id`, `reserved_id`, `duplicate_id`, `unknown_name`.
 - Backtest weeks and series: `invalid_window`, `context_too_short`, `series_required`, `unknown_series`, `duplicate_series`.
 - Lists and result options: `invalid_limit`, `invalid_cursor`, `invalid_input`.
@@ -247,7 +247,7 @@ Error bodies look like `{"error": {"code", "message", "request_id", "field"?}}`.
   `401 unauthorized`: bad key; stop and tell the user.
 - `422`: read `error.code`, `error.field` and `error.message`. Fix the request (see "Refusals"). Nothing
   started. Do not loop on a `422`.
-- A failed plan is not an HTTP error: the status call answers `200`, and the export and the result carry `failure_code` for that plan.
+- A failed plan is not an HTTP error: the status call answers `200`, and the export carries `failure_code` for that plan; its result rows have `status` `failed` and no numbers.
   To send a failed analysis again, use a new `Idempotency-Key` (Python client: `fresh=True`): the same key returns the failed analysis.
   `worker_stopped`: the service stopped the run; send the analysis again. `plan_outside_limits`: change the plan.
   `data_unusable`: the model refused the input values; check the history and plan values. `cancelled`: the run was cancelled;
