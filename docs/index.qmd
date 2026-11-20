@@ -47,7 +47,7 @@ css:
     <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
   </header>
 
-  <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, decomposes the last 13 weeks into 1,000 posterior draws, exports an ArviZ DataTree, summarises each channel's total contribution, and plots its distribution, the weekly contributions with 90% intervals and the stacked mean decomposition. Synthetic data; the outputs come from River 1.0.">
+  <figure class="mfm-stage mfm-reveal" aria-label="A Jupyter notebook in a code editor. It reads weekly sales with pandas, loads River 1.0, forecasts the contributions of the last 13 weeks from spend as 1,000 posterior draws, exports an ArviZ DataTree, summarises each channel's total contribution, and plots its distribution, the weekly contributions with 90% intervals and the stacked mean decomposition. Synthetic data; the outputs come from River 1.0.">
     <div class="mfm-stage__bg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="mfm-grain" aria-hidden="true"></div>
 
@@ -153,6 +153,8 @@ css:
     <div class="mfm-cell__box">
       <span class="mfm-cell__bar" aria-hidden="true"></span>
 <pre class="mfm-cell__code"><code><span class="v">idata</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">inference</span>(<span class="v">history</span>, <span class="v">future</span>, <span class="o">**</span><span class="v">roles</span>, <span class="p">n_samples</span><span class="o">=</span><span class="n">1_000</span>)
+<span class="c"># River does not read the query weeks' sales. It forecasts their contributions from spend.</span>
+<span class="c"># For the weeks with sales, read idata["context"].</span>
 <span class="v">query</span> <span class="o">=</span> <span class="v">model</span>.<span class="v">query_result</span>  <span class="c"># exact query draws for diagnostics and graphs</span>
 <span class="v">query</span>.<span class="v">components</span>.<span class="v">shape</span>  <span class="c"># draws, weeks, components</span></code></pre>
       <span class="mfm-cell__status" aria-hidden="true"></span>

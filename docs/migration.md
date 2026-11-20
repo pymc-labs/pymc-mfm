@@ -14,6 +14,9 @@ The six `pymc_mfm.<name>` rows in the table warn on first access in a process. O
 | `pymc_mfm.observation_batch` | `pymc_mfm.inference.observation_batch` |
 | `pymc_mfm.save_pretrained` | `pymc_mfm.inference.save_pretrained` |
 | `pymc_mfm.push_to_hub` | `pymc_mfm.inference.push_to_hub` |
+| `model.add_context(history, ...)` | Removed, with no warning. Pass the history to `model.inference(context, query, date_column=..., target_column=..., channel_columns=..., control_columns=...)`. |
+| `model.build_idata()` | Removed, with no warning. `model.inference(...)` builds the tree and stores it as `model.idata`. It also returns the tree unless you pass `return_idata=False`. |
+| `model.inference(query)` | Removed, with no warning. Use `model.inference(context, query, date_column=..., target_column=..., channel_columns=..., control_columns=...)`. |
 
 ## What else changes
 

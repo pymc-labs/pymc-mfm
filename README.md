@@ -110,6 +110,8 @@ without modifying the dataframe. Queries must start at the next context period
 and follow its cadence without gaps. Calendar frequency is inferred when
 possible; two-row histories use their fixed interval.
 
+River 1 was trained on weekly data with 75 to 207 context weeks, 1 to 10 channels and 1 to 10 controls. The library does not warn outside this range.
+
 Each successful complete call atomically replaces the stored run and clears its
 response curves; failures preserve the previous complete run. Changing a future
 plan or its horizon can change context draws too, so every full call samples both
@@ -185,13 +187,15 @@ and 150 query weeks. A full paired inference additionally samples context and
 constructs/stores its tree; these timings do not measure that complete operation.
 Memory also grows with draws: CPU sampling holds every draw's noise
 for every task at once, so split a large `predict_batch` into smaller batches or lower
-`n_samples`. For a quick look, pass a smaller count; for numbers you report, keep the
-default or raise it and seed the call:
+`n_samples`. For numbers you report, keep the default (2,000 draws) or raise it, and seed
+the call. For a quick look, pass a smaller count:
 
 ```python
-prediction = model.predict(
-    future, n_samples=200
-)  # independent quick look; stored analysis unchanged
+# For numbers you report: default draws, seeded
+prediction = model.predict(future, random_seed=0)
+
+# Exploration only: fewer draws, so estimates are rougher
+quick = model.predict(future, n_samples=200)  # independent; stored analysis unchanged
 ```
 
 ### Context and query snapshots
