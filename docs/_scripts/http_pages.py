@@ -906,8 +906,9 @@ def errors_page(refusals: list[tuple[str, str]], code_groups: list[tuple[str, st
         + "## Refusal codes\n\nEvery code of a `422`, by where it arises.\n\n"
         + definition_list(code_groups, "mfm-errors")
         + "## Failed plans\n\nA failed plan is not an HTTP error. The status call answers `200`. "
-        "The export and the result give `failure_code` for that plan.\n\n"
-        + definition_list(list(content.FAILURE_ROWS), "mfm-errors")
+        "The export and the result give `failure_code` for that plan. To send a failed analysis "
+        "again, use a new `Idempotency-Key` (Python client: `fresh=True`). The same key returns "
+        "the failed analysis.\n\n" + definition_list(list(content.FAILURE_ROWS), "mfm-errors")
     )
     panel = code_panel(
         [

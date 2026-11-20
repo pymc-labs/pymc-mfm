@@ -248,6 +248,7 @@ Error bodies look like `{"error": {"code", "message", "request_id", "field"?}}`.
 - `422`: read `error.code`, `error.field` and `error.message`. Fix the request (see "Refusals"). Nothing
   started. Do not loop on a `422`.
 - A failed plan is not an HTTP error: the status call answers `200`, and the export and the result carry `failure_code` for that plan.
+  To send a failed analysis again, use a new `Idempotency-Key` (Python client: `fresh=True`): the same key returns the failed analysis.
   `worker_stopped`: the service stopped the run; send the analysis again. `plan_outside_limits`: change the plan.
   `data_unusable`: the model refused the input values; check the history and plan values. `cancelled`: the run was cancelled;
   start it again if you still want it. `unknown`: no reason is given; send it again, and quote `request_id` if it fails again.

@@ -4418,7 +4418,7 @@
                 "type": "null"
               }
             ],
-            "description": "Why this plan has no result; `null` when it did not fail. `worker_stopped`: the service stopped the run, so send the analysis again. `plan_outside_limits`: the plan is outside what the model accepts, so change the plan. `data_unusable`: the model refused the input values, so check the history and plan values. `cancelled`: the run was cancelled, so start it again if you still want it. `unknown`: the service gives no reason, so send it again, and if it fails again quote the `request_id`."
+            "description": "Why this plan has no result; `null` when it did not fail. `worker_stopped`: the service stopped the run, so send the analysis again. `plan_outside_limits`: the plan is outside what the model accepts, so change the plan. `data_unusable`: the model refused the input values, so check the history and plan values. `cancelled`: the run was cancelled, so start it again if you still want it. `unknown`: the service gives no reason, so send it again, and if it fails again quote the `request_id`. To send a failed analysis again, use a new `Idempotency-Key`: the same key returns the failed analysis."
           },
           "inputs": {
             "anyOf": [
