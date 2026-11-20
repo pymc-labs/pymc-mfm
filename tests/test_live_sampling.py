@@ -238,6 +238,63 @@ def test_gpu_decodes_a_graph_that_turns_every_entity_off(model, batch, device):
     torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
 
 
+@pytest.mark.parametrize("uniform", [False, True])
+def test_host_noise_from_a_generator_equals_the_global_stream_and_leaves_it_alone(uniform):
+    # The GPU path draws noise on the host, directly or on the prefetch worker.
+    shapes = [(1, 6, 3, 5), (1, 2, 3, 5)]
+
+    def chunks(**kwargs):
+        return [flow._draw_host_noise(shape, torch.float32, uniform, **kwargs) for shape in shapes]
+
+    def flat(drawn):
+        return [part.values.reshape(-1) for pair in drawn for part in pair]
+
+    torch.manual_seed(8)
+    expected = flat(chunks())
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    direct = flat(chunks(generator=torch.Generator().manual_seed(8)))
+    assert torch.equal(torch.get_rng_state(), before)
+    assert all(map(torch.equal, direct, expected))
+
+
+def test_prefetched_noise_from_a_generator_leaves_the_global_stream_alone():
+    shapes = [(1, 6, 3, 5), (1, 2, 3, 5)]
+    prefetch = flow._NoisePrefetch()
+    try:
+        torch.manual_seed(1)
+        before = torch.get_rng_state()
+        seeded = list(prefetch.request(shapes, torch.float32, torch.Generator().manual_seed(8)))
+        assert torch.equal(torch.get_rng_state(), before)
+        replay = list(prefetch.request(shapes, torch.float32, torch.Generator().manual_seed(8)))
+    finally:
+        prefetch.close()
+    for pair, other in zip(seeded, replay, strict=True):
+        assert all(torch.equal(a.values, b.values) for a, b in zip(pair, other, strict=True))
+
+
+@pytest.mark.parametrize("device", GPUS)
+@pytest.mark.parametrize("window", ["query", "context"])
+def test_a_seeded_gpu_call_draws_the_cpu_stream_and_leaves_the_global_state(
+    model, batch, device, window
+):
+    # Not run where no GPU exists: the seeded noise is drawn on the host with the call's
+    # CPU generator, so the GPU agrees with the CPU up to round-off and no global state moves.
+    cpu, cpu_graphs = model.sample_disentangled(batch, 19, window=window, random_seed=41)
+    gpu_model = copy.deepcopy(model).to(device)
+    torch.manual_seed(5)
+    before = torch.get_rng_state()
+    gpu, gpu_graphs = gpu_model.sample_disentangled(
+        {key: value.to(device) for key, value in batch.items()},
+        19,
+        window=window,
+        random_seed=41,
+    )
+    assert torch.equal(torch.get_rng_state(), before)
+    assert torch.equal(gpu_graphs.cpu(), cpu_graphs)
+    torch.testing.assert_close(gpu.cpu(), cpu, rtol=1e-4, atol=1e-5)
+
+
 @pytest.mark.skipif(not APPLE_GPU, reason=NO_APPLE_GPU)
 def test_apple_gpu_attention_kernels_match_masked_attention(monkeypatch):
     # 16-wide heads run the Metal kernels. 70 weeks span three runs of 32 causal keys;

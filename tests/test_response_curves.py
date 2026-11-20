@@ -205,12 +205,16 @@ def test_random_seed_repeats_the_draws_and_is_recorded_in_the_curve_attrs(foreca
     assert "random_seed" not in forecast_model.idata.attrs
 
 
-def test_no_seed_keeps_the_callers_generator(forecast_model):
+def test_no_seed_draws_from_and_advances_the_callers_generator(forecast_model):
     options = {"levels": [0, 1], "weeks": 1, "n_samples": 4}
     torch.manual_seed(3)
+    before = torch.get_rng_state()
     unseeded = forecast_model.response_curves(**options)
+    after = torch.get_rng_state()
+    assert not torch.equal(after, before)
     seeded = forecast_model.response_curves(**options, random_seed=3)
     np.testing.assert_array_equal(unseeded.draws, seeded.draws)
+    assert torch.equal(torch.get_rng_state(), after)
 
 
 @pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
@@ -229,20 +233,20 @@ def test_a_seed_equals_manual_seed_before_the_sweep(model, chart_frames, mode):
     options = {"levels": [0, 1, 2], "weeks": 1, "n_samples": 3}
     torch.manual_seed(0)
     expected = forecast_model.response_curves(**options)
-    expected_state = torch.get_rng_state()
     torch.manual_seed(99)
+    caller_state = torch.get_rng_state()
     seeded = forecast_model.response_curves(**options, random_seed=0)
-    assert torch.equal(torch.get_rng_state(), expected_state)
+    assert torch.equal(torch.get_rng_state(), caller_state)
     np.testing.assert_array_equal(seeded.draws, expected.draws)
 
 
-def test_a_failed_seeded_sweep_does_not_restore_the_generator(forecast_model, monkeypatch):
+def test_a_failed_seeded_sweep_leaves_the_generator_unchanged(forecast_model, monkeypatch):
     decompose = api_module.decompose
-    calls = []
+    generators = []
 
     def fail_second(*args, **kwargs):
-        calls.append(kwargs["random_seed"])
-        if len(calls) == 2:
+        generators.append(kwargs["_generator"])
+        if len(generators) == 2:
             raise RuntimeError("sampling failed")
         return decompose(*args, **kwargs)
 
@@ -251,11 +255,23 @@ def test_a_failed_seeded_sweep_does_not_restore_the_generator(forecast_model, mo
     before = torch.get_rng_state()
     with pytest.raises(RuntimeError, match="sampling failed"):
         forecast_model.response_curves(levels=[0, 1, 2], weeks=1, n_samples=4, random_seed=7)
-    after = torch.get_rng_state()
-    assert calls == [7, None]
-    assert not torch.equal(after, before)
-    torch.manual_seed(7)
-    assert not torch.equal(torch.get_rng_state(), after)
+    assert torch.equal(torch.get_rng_state(), before)
+    # Every run of the sweep draws from the one generator that the seed started.
+    assert generators[0] is generators[1] and generators[0] is not None
+
+
+def test_a_seeded_sweep_ignores_global_torch_use_between_runs(forecast_model, monkeypatch):
+    options = {"levels": [0, 1, 2], "weeks": 1, "n_samples": 4, "random_seed": 5}
+    isolated = forecast_model.response_curves(**options)
+    decompose = api_module.decompose
+
+    def disturb(*args, **kwargs):
+        torch.manual_seed(123)
+        torch.rand(5)
+        return decompose(*args, **kwargs)
+
+    monkeypatch.setattr(api_module, "decompose", disturb)
+    np.testing.assert_array_equal(forecast_model.response_curves(**options).draws, isolated.draws)
 
 
 @pytest.mark.parametrize("seed", [-1, 2**31, True, 1.5])

@@ -141,8 +141,8 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
     contexts = []
     sample_context = MFM._sample_context
 
-    def capture_context(self, prediction):
-        contexts.append(sample_context(self, prediction))
+    def capture_context(self, prediction, *args):
+        contexts.append(sample_context(self, prediction, *args))
         return contexts[-1]
 
     monkeypatch.setattr(MFM, "_sample_context", capture_context)

@@ -72,7 +72,7 @@ def response_curves(
 ) -> ResponseCurves:
     """Curves of ``model``'s last complete inference; see ``MFM.response_curves``."""
     from pymc_mfm.inference.api import decompose
-    from pymc_mfm.model.flow import _random_seed
+    from pymc_mfm.model.flow import _sampling_generator
 
     prediction = model._prediction_snapshot
     if prediction is None:
@@ -85,7 +85,8 @@ def response_curves(
     names = select_channels(channels, history.channel_columns)
     weeks = _weeks(weeks, len(prediction.time) - start)
     n_samples = _sample_size(n_samples, prediction)
-    seed = _random_seed(random_seed)
+    # One generator serves every run, so each run continues the stream of the one before.
+    generator = _sampling_generator(random_seed, next(model.parameters()).device)
     stop = start + weeks
     observations = {
         **prediction.observations,
@@ -95,9 +96,7 @@ def response_curves(
     graph = prediction.query.graphs[:, None, :] if prediction.mode == "fixed" else None
 
     def sample(spend: np.ndarray) -> DecompositionResult:
-        # Only the first run seeds the generator; the later runs continue its stream.
-        nonlocal seed
-        result = decompose(
+        return decompose(
             model,
             {**observations, "spend": spend},
             n_samples=n_samples,
@@ -110,10 +109,8 @@ def response_curves(
             time=prediction.time[:stop],
             units=prediction.units,
             provenance=prediction.annotations,
-            random_seed=seed,
+            _generator=generator,
         )
-        seed = None
-        return result
 
     actual = observations["spend"]
     columns = [history.channel_columns.index(name) for name in names]

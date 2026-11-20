@@ -23,7 +23,7 @@ from pymc_mfm.inference.result import (
     result_from_batch,
 )
 from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.flow import DEFAULT_N_SAMPLES
+from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, _random_seed
 from pymc_mfm.model.model import MFM
 
 
@@ -133,6 +133,7 @@ def decompose(
     units: str = "outcome",
     provenance=None,
     random_seed: int | None = None,
+    _generator: torch.Generator | None = None,
 ) -> DecompositionResult:
     """Sample aligned conditional evidence from observed inputs or an encoded batch.
 
@@ -141,10 +142,18 @@ def decompose(
     Fixed graphs are supplied hypotheses; modal graphs are empirical router modes,
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
-    context/query posterior. ``random_seed`` seeds the PyTorch global generator;
-    ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
+    context/query posterior. ``random_seed`` replays the same random numbers: the call
+    draws from its own generator and does not change PyTorch's global random state.
+    On CPU the outputs match exactly; on a GPU they match closely, not bit for bit.
+    With ``None`` the call draws from the global generator and advances it. The result
+    does not record the seed; only the ``MFM.inference`` tree does, and there the context
+    window continues the query window's stream. ``_generator`` is for ``MFM`` calls that
+    share one stream across calls. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000)
+    conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
+    # Before any module mode change: a bad seed must leave the model as it was.
+    random_seed = _random_seed(random_seed)
     if not isinstance(observations, Mapping):
         raise ValueError("observations must be a mapping")
     parameter = next(model.parameters())
@@ -229,7 +238,8 @@ def decompose(
     if not isinstance(units, str) or not units:
         raise ValueError("units must be a nonempty label")
     _require_text(units, "units")
-    _entity_names(
+    # Bind the checked tuples: a one-shot iterator is empty after this check.
+    channel_names, control_names = _entity_names(
         batch["active_c_mask"].shape[-1],
         batch["active_m_mask"].shape[-1],
         channel_names,
@@ -255,6 +265,7 @@ def decompose(
             router_samples=router_samples,
             window=window,
             random_seed=random_seed,
+            generator=_generator,
         )
     finally:
         if switch_modes:
