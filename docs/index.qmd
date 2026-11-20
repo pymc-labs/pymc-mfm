@@ -287,7 +287,7 @@ css:
       <code class="mfm-install__cmd">pip install "pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git"</code>
       <button class="mfm-copy" type="button" data-copy="pip install &quot;pymc-mfm[hub,arviz,plot] @ git+https://github.com/pymc-labs/pymc-mfm.git&quot;" aria-label="Copy install command"></button>
     </div>
-    <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. <a href="guide/examples/river_1_quickstart.html">See the full quickstart <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a></p>
+    <p class="mfm-show__note">Synthetic data; every output comes from River 1.0. This install needs access to the private repository and to the River weights, which are shared by invitation. Invited testers can use the hosted River API over HTTP instead, with no install: <a href="guide/index.html#hosted-api">see Get started</a>. <a href="guide/examples/river_1_quickstart.html">See the full quickstart <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a></p>
   </div>
 </section>
 

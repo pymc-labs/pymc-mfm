@@ -407,9 +407,11 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 ## Call the River API
 
-`pymc_mfm.client` is an HTTP client for the River API v3.1. It needs no PyTorch.
-Give it the service URL and an API key as arguments or in `MFM_API_URL` and
-`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots. It needs Python 3.13
+`pymc_mfm.client` is an HTTP client for the hosted River API (routes under `/v1`). It needs no PyTorch.
+Access to the hosted service is by invitation: your invitation tells you how to get your
+service URL and your key. Without repository access, call the API over plain HTTP: see
+[Get started](docs/guide/index.qmd). Give the client the service URL and an API key as
+arguments or in `MFM_API_URL` and `MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots. It needs Python 3.13
 or newer and read access to the repository on GitHub; `uv` can fetch Python 3.13:
 
 ```bash
@@ -427,7 +429,7 @@ import pandas as pd
 
 from pymc_mfm.client import Client, amount, curve, grid, scenario
 
-client = Client("https://api.example.com")  # key from MFM_API_KEY
+client = Client()  # reads MFM_API_URL and MFM_API_KEY
 
 # `history` is a weekly DataFrame; `plan` has the forecast weeks of the same columns.
 dataset = client.datasets.create(

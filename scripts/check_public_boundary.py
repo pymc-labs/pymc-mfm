@@ -92,6 +92,16 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
     ("OpenAI key", re.compile(_NO_WORD_BEFORE + rb"sk-[A-Za-z0-9_-]{32,}")),
     ("Modal token", re.compile(_NO_WORD_BEFORE + rb"(?:ak|as)-[A-Za-z0-9]{20,}")),
     ("Slack token", re.compile(_NO_WORD_BEFORE + rb"xox[abprs]-[A-Za-z0-9-]{10,}")),
+    # Service hostnames: any pymc-labs.com host except www, and hosts on the platforms that
+    # serve apps and previews. Public docs must not name one.
+    (
+        "service hostname",
+        re.compile(
+            rb"(?<![A-Za-z0-9_.@-])(?!www\.)(?:[A-Za-z0-9-]+\.)+"
+            rb"(?:pymc-labs\.com|fly\.dev|run\.app|workers\.dev|modal\.run)(?![A-Za-z0-9-])",
+            re.IGNORECASE,
+        ),
+    ),
 )
 PRIVATE_PATH_PATTERN = re.compile(rb"\.private" + rb"/[^\s]")
 BASE64_LINE_PATTERN = re.compile(rb"[A-Za-z0-9+/]+={0,2}")

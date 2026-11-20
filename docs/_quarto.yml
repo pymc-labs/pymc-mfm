@@ -42,22 +42,21 @@ website:
   page-navigation: true
   back-to-top-navigation: false
   # A magnifier button ("/" or Ctrl/Cmd+K opens it) for Quarto's search sheet. site.css shows
-  # it only on Guide and API pages, next to the dark-mode button and Open Console.
+  # it only on Guide and API pages, next to the dark-mode button and the access link.
   # assets/js/search.js adds the result path lines and the empty-results message.
   search:
     location: navbar
     type: overlay
     keyboard-shortcut: ["/"]
-  # Share image for every page. Link previews need a full URL; it points at the staging
-  # host until there is a production address (site-url is not served yet).
+  # Share image for every page. Quarto turns this path into a full URL with site-url.
   open-graph:
-    image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+    image: assets/img/social/mfm-social.jpg
     image-width: 1200
     image-height: 630
     image-alt: "PyMC MFM: Train once, decompose many."
   twitter-card:
     card-style: summary_large_image
-    image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+    image: assets/img/social/mfm-social.jpg
     image-width: 1200
     image-height: 630
     image-alt: "PyMC MFM: Train once, decompose many."
@@ -100,10 +99,10 @@ website:
       - text: GitHub
         icon: github
         href: https://github.com/pymc-labs/pymc-mfm
-      # The hosted Console's sign-in page, at /sign-in/ on the same host as the site (the host root is the
-      # landing page; docs/_scripts/mount.py lays the site out that way).
-      - text: "Open Console"
-        href: https://mfm-staging.pymc-labs.com/sign-in/
+      # Access is by invitation. This link goes to the page that says how it works. site.js marks
+      # the last link of this list as the action button, so keep one link here.
+      - text: "Get access"
+        href: guide/index.qmd#hosted-api
   sidebar:
     - id: guide
       title: Guide

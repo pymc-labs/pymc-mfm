@@ -1,7 +1,7 @@
 /* Shared behaviour for every page. Each init* function below sets up one piece of site chrome
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
-     initConsoleButton marks the "Open Console" navbar link with data-mfm="console" (site.css draws it)
+     initConsoleButton marks the last right-hand navbar link with data-mfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
@@ -96,7 +96,7 @@
     });
   }
 
-  /* The right-hand navbar list holds one link, the hosted Console. The hook is this attribute,
+  /* The right-hand navbar list holds one link, the access page. The hook is this attribute,
      never the link's address, so the address can change without touching the styles. On wide
      screens site.css shows the icon alone; the label stays for screen readers, and as a tooltip. */
   function initConsoleButton() {
@@ -104,7 +104,7 @@
     const link = links[links.length - 1];
     if (!link) return;
     link.dataset.mfm = "console";
-    link.title = "Open Console";
+    link.title = link.textContent.trim();
   }
 
   /* Navbar text links to another host get .is-external (site.css adds an ArrowUpRight). By host,

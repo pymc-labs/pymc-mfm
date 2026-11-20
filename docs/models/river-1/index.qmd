@@ -5,10 +5,10 @@ subtitle: "PyMC Labs' first Marketing Foundational Model"
 # share image (`image` below is the Models tile, not a share image).
 summary: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 open-graph:
-  image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+  image: /assets/img/social/mfm-social.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 twitter-card:
-  image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+  image: /assets/img/social/mfm-social.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 date: 2026-11-07
 author: "PyMC Labs"
@@ -248,6 +248,11 @@ covering it.
   1 to 10 channels as trained.
 
 ## Get River {#get}
+
+Access is by invitation. The River weights are private and the repository needs read
+access, so you can run the steps below only if you have both. If you are a pilot tester
+with no weights, use the hosted River API instead: see
+[Use the hosted River API](../../guide/index.qmd#hosted-api).
 
 River ships as the profile `river-1` of the Hugging Face repository `pymc-labs/mfm`,
 currently private to the PyMC Labs organisation. Log in with `hf auth login` (or set

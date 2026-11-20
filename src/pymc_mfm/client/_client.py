@@ -36,7 +36,7 @@ LIST_COLUMNS = (
 
 
 class Client:
-    """Client for the River API v3.1.
+    """Client for the hosted River API (routes under ``/v1``).
 
     ``base_url`` and ``api_key`` default to the environment variables ``MFM_API_URL`` and
     ``MFM_API_KEY``. Requests retry on 429, 502, 503, 504 and connection errors, up to

@@ -5,11 +5,11 @@ description: "Use the torch-free HTTP client to upload a history, run River API 
 
 ## Before you start
 
-This page uses the Python library, which needs read access to the GitHub repository (see [Get started](index.qmd#use-the-python-library)). To call the hosted service with only `requests` and `pandas`, follow [Use the hosted River API](index.qmd#hosted-api). In both cases PyMC Labs emails you the service URL and a personal API key. Set them as `MFM_API_URL` and `MFM_API_KEY`; do not write them into code or files.
+This page uses the Python library, which needs read access to the GitHub repository (see [Get started](index.qmd#use-the-python-library)). To call the hosted service with only `requests` and `pandas`, follow [Use the hosted River API](index.qmd#hosted-api). In both cases your invitation tells you how to get your service URL and your key. Set them as `MFM_API_URL` and `MFM_API_KEY`; do not write them into code or files.
 
 ## Create a client
 
-[pymc_mfm.client](../reference/client.Client.qmd) is the torch-free HTTP client for River API v3.1. It works with the light base install; install `pymc-mfm[client]` to read per-draw files and create client plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
+[pymc_mfm.client](../reference/client.Client.qmd) is the torch-free HTTP client for the hosted River API (routes under `/v1`). It works with the light base install; install `pymc-mfm[client]` to read per-draw files and create client plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
 
 ```python
 from pymc_mfm.client import Client
