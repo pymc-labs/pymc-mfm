@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
     from pymc_mfm.inference.result import DecompositionResult
+    from pymc_mfm.plotting.charts import ModelPlots
 
 
 def _move_together(tensors: Sequence[Tensor], device: torch.device) -> list[Tensor]:
@@ -583,14 +584,16 @@ class MFM(nn.Module):
         """Infer future conditional components using history loaded by ``add_context``.
 
         Supply the configured date, channel and control columns, starting at
-        the next context period without gaps. Dates are sorted; query targets
-        and unrelated columns are ignored. Every call reuses the same context
-        and context-only scales, without appending predictions to history.
-        Returned draws use original outcome units and exclude observation noise.
-        A successful call retains its inputs and query draws for ``build_idata``,
-        without sampling context or converting to a DataTree. Failed calls
-        preserve the last successful prediction and export. Runtime snapshots
-        are never included in ``save_pretrained``.
+        the next context period without gaps. Dates are sorted; unrelated columns
+        are ignored. The model never reads query targets: a target column, when
+        present, is kept only so ``plot`` can draw the observed query outcome
+        (values that are not finite numbers count as unobserved). Every call reuses
+        the same context and context-only scales, without appending predictions to
+        history. Returned draws use original outcome units and exclude observation
+        noise. A successful call retains its inputs and query draws for
+        ``build_idata`` and ``plot``, without sampling context or converting to a
+        DataTree. Failed calls preserve the last successful prediction and export.
+        Runtime snapshots are never included in ``save_pretrained``.
         """
         from pymc_mfm.inference.api import decompose
         from pymc_mfm.inference.dataframe import _PredictionSnapshot
@@ -599,6 +602,7 @@ class MFM(nn.Module):
         if context is None:
             raise RuntimeError("call add_context(history, ...) before inference(future_data)")
         observations, time = context.observations(data)
+        query_outcome = context.query_outcome(data)
         annotations = deepcopy(dict(provenance)) if isinstance(provenance, Mapping) else provenance
         query = decompose(
             self,
@@ -629,6 +633,7 @@ class MFM(nn.Module):
                 else None
             ),
             units=query.units,
+            query_outcome=query_outcome,
         )
         self._prediction_snapshot = prediction
         self._context_decomposition = None
@@ -639,6 +644,49 @@ class MFM(nn.Module):
     def idata(self) -> DataTree | None:
         """The explicitly stored current export, or ``None``; never samples or converts."""
         return self._idata
+
+    @property
+    def plot(self) -> ModelPlots:
+        """Charts of the latest ``add_context`` and ``inference``; matplotlib or plotly.
+
+        Each method returns a figure of the chosen ``backend`` and imports it only
+        when it draws. Charts never sample, except that the first chart showing
+        context weeks samples the context marginal once, the same draws
+        ``build_idata`` reuses.
+        """
+        from pymc_mfm.plotting.charts import ModelPlots
+
+        return ModelPlots(self)
+
+    def _context_result(self) -> DecompositionResult:
+        """The context marginal of the latest prediction, sampled on first use and cached.
+
+        ``build_idata`` and ``plot`` share these draws; successful ``add_context`` and
+        ``inference`` calls drop them.
+        """
+        prediction = self._prediction_snapshot
+        if prediction is None:
+            raise RuntimeError(
+                "call inference(future_data) successfully after add_context(history, ...) first"
+            )
+        if self._context_decomposition is None:
+            from pymc_mfm.inference.api import decompose
+
+            self._context_decomposition = decompose(
+                self,
+                prediction.observations,
+                n_samples=prediction.n_samples,
+                window="context",
+                mode=prediction.mode,
+                graph=prediction.query.graphs[:, None, :] if prediction.mode == "fixed" else None,
+                router_samples=prediction.router_samples,
+                channel_names=prediction.query.channel_names,
+                control_names=prediction.query.control_names,
+                time=prediction.time,
+                units=prediction.units,
+                provenance=prediction.annotations,
+            )
+        return self._context_decomposition
 
     def build_idata(self, *, store: bool = False) -> DataTree:
         """Export context and query subtrees for the latest successful prediction.
@@ -667,28 +715,11 @@ class MFM(nn.Module):
             return self._idata
 
         from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
-        from pymc_mfm.inference.api import decompose
 
         _require_arviz()
-        context = self._context_decomposition
-        if context is None:
-            context = decompose(
-                self,
-                prediction.observations,
-                n_samples=prediction.n_samples,
-                window="context",
-                mode=prediction.mode,
-                graph=prediction.query.graphs[:, None, :] if prediction.mode == "fixed" else None,
-                router_samples=prediction.router_samples,
-                channel_names=prediction.query.channel_names,
-                control_names=prediction.query.control_names,
-                time=prediction.time,
-                units=prediction.units,
-                provenance=prediction.annotations,
-            )
-            # Cache inference before conversion: a failed export must not redraw
-            # successfully sampled context on the next build.
-            self._context_decomposition = context
+        # The context draws are cached before conversion: a failed export must not
+        # redraw successfully sampled context on the next build.
+        context = self._context_result()
         tree = prediction_datatree(
             context, prediction.query, observed=prediction.fitted_context.outcome
         )

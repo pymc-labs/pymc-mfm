@@ -28,6 +28,10 @@ draws = [
 plot = [
     "matplotlib>=3.9",
 ]
+# Interactive figures of `MFM.plot` (`backend="plotly"`).
+interactive = [
+    "plotly>=6,<7",
+]
 client = [
     "pymc-mfm[draws,plot]",
 ]

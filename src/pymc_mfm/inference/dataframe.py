@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_complex_dtype, is_numeric_dtype
+from pandas.api.types import (
+    is_bool_dtype,
+    is_complex_dtype,
+    is_datetime64_any_dtype,
+    is_numeric_dtype,
+    is_timedelta64_dtype,
+)
 
 from pymc_mfm.data.observations import encode_observations
 from pymc_mfm.model.config import ModelConfig
@@ -199,6 +205,38 @@ class _FittedContext:
             "control_mask": self.control_mask,
         }, np.concatenate((self.dates, dates.to_numpy(dtype="datetime64[ns]")))
 
+    def query_outcome(self, data: pd.DataFrame) -> np.ndarray | None:
+        """Observed query outcomes in date order, for figures only; never model input.
+
+        ``None`` when ``data`` has no target column or none of its values is a finite
+        number. Other entries that are not finite numbers become NaN (unobserved), so
+        the column never fails or changes inference. Call after ``observations``,
+        which validates the dates.
+        """
+        if self.target_column not in data.columns:
+            return None
+        frame, _ = _ordered_frame(data, (self.date_column,), self.date_column)
+        column = frame[self.target_column]
+        if is_datetime64_any_dtype(column.dtype) or is_timedelta64_dtype(column.dtype):
+            return None
+        if not is_numeric_dtype(column.dtype):
+            try:  # objects that are not numbers (lists, mappings) cannot be coerced
+                column = pd.to_numeric(column, errors="coerce")
+            except (TypeError, ValueError):
+                return None
+        if (
+            not is_numeric_dtype(column.dtype)
+            or is_complex_dtype(column.dtype)
+            or is_bool_dtype(column.dtype)
+        ):
+            return None
+        values = column.to_numpy(dtype=np.float64, na_value=np.nan, copy=True)
+        values[~np.isfinite(values)] = np.nan
+        if np.isnan(values).all():
+            return None
+        values.setflags(write=False)
+        return values
+
 
 @dataclass(frozen=True, slots=True)
 class _PredictionSnapshot:
@@ -213,6 +251,8 @@ class _PredictionSnapshot:
     mode: str
     router_samples: int | None
     units: str
+    #: Observed query outcomes for figures (NaN where unobserved), or ``None``.
+    query_outcome: np.ndarray | None = None
 
     def __post_init__(self):
         # Reuse the observation arrays already owned by the dataframe adapter,

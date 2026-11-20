@@ -3,6 +3,7 @@
 from importlib.util import find_spec
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 
@@ -122,6 +123,46 @@ def model():
             n_demand=2,
         )
     ).eval()
+
+
+#: Column roles of :func:`chart_frames`: two channels and one control.
+CHART_ROLES = {
+    "date_column": "date",
+    "target_column": "sales",
+    "channel_columns": ("search", "tv"),
+    "control_columns": ("temperature",),
+}
+
+
+@pytest.fixture
+def chart_frames():
+    """24 history weeks and 6 forecast weeks with observed sales, for ``model.plot``."""
+    rng = np.random.default_rng(5)
+    weeks = 30
+    search = rng.uniform(10.0, 60.0, weeks)
+    tv = np.where(rng.random(weeks) > 0.4, rng.uniform(20.0, 90.0, weeks), 0.0)
+    temperature = rng.normal(0.0, 3.0, weeks)
+    sales = 200.0 + 0.8 * search + 0.5 * tv + 2.0 * temperature + rng.normal(0.0, 5.0, weeks)
+    frame = pd.DataFrame(
+        {
+            "date": pd.date_range("2024-01-01", periods=weeks, freq="W-MON"),
+            "sales": sales,
+            "search": search,
+            "tv": tv,
+            "temperature": temperature,
+        }
+    )
+    return frame.iloc[:24].reset_index(drop=True), frame.iloc[24:].reset_index(drop=True)
+
+
+@pytest.fixture
+def predicted_model(model, chart_frames):
+    """``model`` after ``add_context`` on the history and 40-draw ``inference`` on the rest."""
+    history, future = chart_frames
+    model.add_context(history, **CHART_ROLES)
+    torch.manual_seed(3)
+    model.inference(future, n_samples=40)
+    return model
 
 
 @pytest.fixture
