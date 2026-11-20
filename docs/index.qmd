@@ -29,7 +29,7 @@ css:
          glitches into "Bayesian" and back (landing.js). -->
     <div class="mfm-hero__name" data-mfm="name">
       <h1 id="mfm-hero-title" class="mfm-hero__title" aria-label="PyMC MFM"><span class="mfm-hero__word mfm-glitch" data-mfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mfm-hero__word" aria-hidden="true">MFM</span></h1>
-      <p class="mfm-hero__line">Marketing foundation models by PyMC&nbsp;Labs.<br>Train once, decompose many.</p>
+      <p class="mfm-hero__line">Marketing foundational models by PyMC&nbsp;Labs.<br>Train once, decompose many.</p>
     </div>
     <div class="mfm-hero__actions">
       <a class="mfm-btn mfm-btn--primary" href="guide/index.html">Get started <svg class="mfm-btn__arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>

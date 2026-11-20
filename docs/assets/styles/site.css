@@ -1320,6 +1320,8 @@ div.sourceCode {
   border: 0;
   border-radius: var(--mfm-r-card);
   background: var(--mfm-code-bg);
+  /* Only the code body scrolls; the language label and Copy stay on the wrapper. */
+  overflow: visible;
 }
 
 div.sourceCode.mfm-code {
@@ -1340,7 +1342,8 @@ main pre {
 div.sourceCode pre.sourceCode {
   position: static;
   padding: 0.25rem 1.1rem 1.1rem;
-  overflow-x: auto;
+  /* Quarto sets overflow: visible !important on pre.sourceCode. */
+  overflow-x: auto !important;
   white-space: pre;
   background: none;
 }
