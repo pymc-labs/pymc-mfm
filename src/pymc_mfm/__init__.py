@@ -16,9 +16,17 @@ from ._deprecated import deprecated_names
 from ._lazy import lazy_exports
 
 if TYPE_CHECKING:
+    # The `X as X` imports keep editor types for the six deprecated names (see
+    # `_DEPRECATED_EXPORTS`); ruff reads that form as a re-export. Remove them with the shims.
     from .idata import load_idata, save_idata, validate_idata
     from .inference import from_pretrained, list_profiles
+    from .inference.api import decompose as decompose
+    from .inference.api import observation_batch as observation_batch
+    from .inference.checkpoint import save_pretrained as save_pretrained
+    from .inference.hub import push_to_hub as push_to_hub
+    from .inference.result import DecompositionResult as DecompositionResult
     from .model import MFM
+    from .model import ModelConfig as ModelConfig
     from .plotting.charts import Plots, set_backend
 
 __version__ = version("pymc-mfm")

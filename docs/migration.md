@@ -2,6 +2,8 @@
 
 Each deprecated name keeps working as a call and warns with a `DeprecationWarning` until it is removed. `ModelPlots` is now a function: calls to `ModelPlots(model)` keep working and return the live accessor of `model.idata`, but `isinstance` checks and subclassing do not.
 
+The six top-level names in the table warn on first access in a process. A name that loaded stays silent after that, even if you enable warnings later. Python hides `DeprecationWarning` by default, except for code in `__main__`: run with `python -W default` or `pytest` to see it from a library. A load that fails, for example without PyTorch, is not cached, so the next access warns again and raises the same `ImportError` with the `pymc-mfm[local]` hint.
+
 | Old | New |
 | --- | --- |
 | `pymc_mfm.plotting.ModelPlots(model)`, `pymc_mfm.plotting.charts.ModelPlots(model)` | `model.plot`, or `pymc_mfm.Plots(model.idata)` for a snapshot of one run. `ModelPlots` is now a function, so `isinstance(x, ModelPlots)` no longer works; test for `pymc_mfm.Plots`. |
@@ -15,7 +17,7 @@ Each deprecated name keeps working as a call and warns with a `DeprecationWarnin
 
 ## What else changes
 
-- `from pymc_mfm import *` no longer brings the six research names above. Import them from their subpackages.
+- `from pymc_mfm import *` and `dir(pymc_mfm)` no longer list the six research names above. A script that relies on a star import for them now gets `NameError`, with no warning. `pymc_mfm.decompose` and `from pymc_mfm import decompose` still work and warn. Import the names from their subpackages. A star import needs the `[local]` extra, because `__all__` includes `MFM`.
 - Charts read the model tree (`model.idata`), not private model state. The same charts draw from a tree saved to a file and opened again with xarray.
 - `model.plot` is live: it follows the latest `inference`. `Plots(idata)` draws the tree it was given and does not change.
 - Charts read the model tree instead of the model's stored results. Figures match earlier versions.

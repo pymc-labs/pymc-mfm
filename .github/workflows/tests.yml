@@ -49,6 +49,10 @@ jobs:
         run: |
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
+      # Static check of the deprecated top-level names; it only reads tests/typing.
+      - name: Check static types of the deprecated top-level names
+        if: matrix.installation == 'base'
+        run: uv run --no-sync pyright tests/typing
       - name: Exercise local contracts without publication credentials
         run: uv run --no-sync pytest -q --durations=25 --junitxml=junit/contracts-${{ matrix.installation }}.xml --timeout=120
       - name: Plant ignored local files the build must leave out

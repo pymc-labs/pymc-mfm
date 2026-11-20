@@ -263,7 +263,7 @@ them before sharing.
 For a long-running process, opt into `torch.compile` on the sampler and warm representative requests before serving them. [warm_up_sampling](../reference/inference.warm_up_sampling.qmd) compiles supported input shapes without waiting for the first request.
 
 ```python
-from pymc_mfm.inference import warm_up_sampling
+from pymc_mfm.inference import decompose, warm_up_sampling
 
 model.compile_sampling()
 warm_up_sampling(model, channels=range(1, 11))

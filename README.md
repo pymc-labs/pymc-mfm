@@ -267,7 +267,7 @@ Lower-level `result.to_datatree()` and archive exports retain their generic
 
 ### Lower-level array inputs
 
-`decompose(model, observations, window="query", ...)` remains available for
+`pymc_mfm.inference.decompose(model, observations, window="query", ...)` remains available for
 array/tensor callers; `window="context"` selects the observed window instead.
 It requires the explicit padded observation mapping below.
 `model.predict_batch(batch, ...)` is the separate tensor-level joint sampler.
@@ -395,6 +395,9 @@ training, conversion or installed compiler; the first CUDA call in a process com
 kernels (see below):
 
 ```python
+from pymc_mfm import from_pretrained
+from pymc_mfm.inference import decompose
+
 model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")  # Apple silicon
 model = from_pretrained("pymc-labs/mfm", profile="river-1", device="cuda")  # NVIDIA GPU
 result = decompose(model, observations, n_samples=1000)  # independent array-level query draws
@@ -468,7 +471,8 @@ compiled calls ran about 1.4 times as fast as eager calls on four test inputs; t
 compilation took 20–30 s.
 
 ```python
-from pymc_mfm.inference import warm_up_sampling
+from pymc_mfm import from_pretrained
+from pymc_mfm.inference import decompose, warm_up_sampling
 
 model = from_pretrained("pymc-labs/mfm", profile="river-1").to("cuda")
 model.compile_sampling()  # opt-in; sampling stays eager until this call
@@ -754,7 +758,7 @@ model = from_pretrained(
 - `cache_dir=` sets the download folder; `local_files_only=True` loads from the
   cache without network access.
 - `model.provenance["hub_revision"]` records the commit that was loaded.
-- `push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
+- `pymc_mfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
   a model and returns the commit id. New repositories are private.
 
 [`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a

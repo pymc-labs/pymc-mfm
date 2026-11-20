@@ -175,3 +175,91 @@ def test_deprecated_top_level_names_explain_the_extra_when_torch_is_missing(name
         """
     )
     assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_star_import_skips_the_six_deprecated_names_without_a_warning():
+    pytest.importorskip("torch")
+    result = run(
+        f"""
+        import warnings
+        import pymc_mfm
+        namespace = {{}}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            exec("from pymc_mfm import *", namespace)
+        assert not caught, [str(w.message) for w in caught]
+        names = set(namespace) - {{"__builtins__"}}
+        assert names == set(pymc_mfm.__all__), names
+        for name in {sorted(DEPRECATED)!r}:
+            assert name not in namespace and name not in dir(pymc_mfm), name
+            try:
+                exec(name, namespace)
+            except NameError:
+                pass
+            else:
+                raise SystemExit(f"{{name}} was in the star import")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            pymc_mfm.decompose
+        assert [w.category for w in caught] == [DeprecationWarning], caught
+        """
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_star_import_without_torch_explains_the_extra():
+    result = run(
+        """
+        import sys
+        sys.modules["torch"] = None
+        sys.modules["safetensors"] = None
+        try:
+            exec("from pymc_mfm import *", {})
+        except ImportError as error:
+            assert 'pip install "pymc-mfm[local]"' in str(error), error
+        else:
+            raise SystemExit("star import worked without torch")
+        """
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_a_name_that_loaded_stays_silent_after_the_warning_filter_changes():
+    result = run(
+        """
+        import warnings
+        import pymc_mfm
+        with warnings.catch_warnings(record=True) as hidden:
+            warnings.simplefilter("ignore")
+            pymc_mfm.DecompositionResult  # the first access warns, and a filter hides it
+        assert not hidden, hidden
+        with warnings.catch_warnings(record=True) as later:
+            warnings.simplefilter("always")
+            pymc_mfm.DecompositionResult
+            from pymc_mfm import DecompositionResult
+        assert not later, [str(w.message) for w in later]
+        """
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+
+def test_a_failed_load_is_not_cached_and_warns_again():
+    result = run(
+        """
+        import sys, warnings
+        sys.modules["torch"] = None
+        sys.modules["safetensors"] = None
+        import pymc_mfm
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            for _ in range(2):
+                try:
+                    pymc_mfm.decompose
+                except ImportError as error:
+                    assert 'pip install "pymc-mfm[local]"' in str(error), error
+                else:
+                    raise SystemExit("decompose loaded without torch")
+        assert [w.category for w in caught] == [DeprecationWarning] * 2, caught
+        """
+    )
+    assert result.returncode == 0, result.stderr + result.stdout

@@ -21,7 +21,18 @@ def deprecated_names(
     ``names`` maps an old name to the text that says what to use now and a function that
     loads the object to return. ``namespace`` is the module's ``globals()``: the loaded
     object is stored there, so a name warns once per process. Any other name raises
-    ``AttributeError``. Pass ``stacklevel=3`` when a module ``__getattr__`` calls the
+    ``AttributeError``.
+
+    Warning contract:
+
+    - A name warns on first access in a process. After a successful load it sits in
+      ``namespace``, so later accesses are silent, even if warning filters change.
+    - Python's default filters hide ``DeprecationWarning`` outside ``__main__``. A first
+      access that a filter hid is not reported again after the filter changes.
+    - A load that raises (for example, PyTorch is missing) is not cached. The next access
+      warns again and raises the same error, including the ``[local]`` install hint.
+
+    Pass ``stacklevel=3`` when a module ``__getattr__`` calls the
     returned function, so the warning names the caller's line.
     """
 
