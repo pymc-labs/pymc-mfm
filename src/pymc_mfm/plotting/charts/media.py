@@ -74,7 +74,7 @@ def prepare(
     """
     interval_quantiles(interval)
     data = source.window(window)
-    # Channel components come in the order of the media covariate columns.
+    # The reader gives one media column per channel component, in component order.
     names = tuple(
         name
         for name, family in zip(data.components, data.families, strict=True)

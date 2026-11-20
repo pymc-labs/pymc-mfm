@@ -1,6 +1,6 @@
 # Migrating from earlier versions
 
-Each deprecated name keeps working and warns with a `DeprecationWarning` until it is removed.
+Each deprecated name keeps working as a call and warns with a `DeprecationWarning` until it is removed. `ModelPlots` is now a function: calls to `ModelPlots(model)` keep working and return the live accessor of `model.idata`, but `isinstance` checks and subclassing do not.
 
 | Old | New |
 | --- | --- |
@@ -11,4 +11,4 @@ Each deprecated name keeps working and warns with a `DeprecationWarning` until i
 
 - Charts read the model tree (`model.idata`), not private model state. The same charts draw from a tree saved to a file and opened again with xarray.
 - `model.plot` is live: it follows the latest `inference`. `Plots(idata)` draws the tree it was given and does not change.
-- Chart numbers come from the tree's float64 values, not float32 draws, so figures differ from earlier versions by rounding only.
+- Charts read the model tree instead of the model's stored results. Figures match earlier versions.

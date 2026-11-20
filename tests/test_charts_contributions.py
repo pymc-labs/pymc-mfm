@@ -6,7 +6,7 @@ import pytest
 import torch
 from conftest import CHART_ROLES
 
-from pymc_mfm.plotting.charts import _backend
+from pymc_mfm.plotting.charts import _backend, contributions
 from pymc_mfm.plotting.charts._data import IdataReader, Window, summarize
 from pymc_mfm.plotting.charts._style import COLORS
 from pymc_mfm.plotting.charts.contributions import contributions_over_time
@@ -235,6 +235,58 @@ def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
     [bar] = panels.axes[0].collections
     np.testing.assert_allclose(bar.get_segments()[0][:, 1], [low[0], high[0]])
     np.testing.assert_allclose(panels.axes[0].lines[0].get_ydata(), mean)
+
+
+def _in_seconds(tree):
+    """``tree`` with every date coordinate held at one-second resolution."""
+    from test_plots_idata import _rebuilt
+
+    def seconds(data):
+        return data.assign_coords(date=data["date"].to_numpy().astype("datetime64[s]"))
+
+    paths = [node.path for node in tree.subtree if "date" in node.to_dataset(inherit=False).coords]
+    return _rebuilt(tree, {path: seconds for path in paths})
+
+
+@pytest.mark.parametrize("window", [None, "query"])
+def test_a_stack_of_seconds_resolution_dates_still_draws_whole_weeks(model, chart_frames, window):
+    history, future = chart_frames
+    model.inference(history, future.iloc[:1], n_samples=5, **CHART_ROLES)
+    tree = _in_seconds(model.idata)
+    source = IdataReader(tree)
+    assert source.window("query").dates.dtype == np.dtype("datetime64[s]")
+    drawn = contributions.prepare(source, window=window)
+    week = np.timedelta64(7, "D")
+    for segment in drawn.segments:
+        gaps = np.diff(segment.edges)
+        assert (gaps == week).all()
+    expected = contributions.prepare(IdataReader(model.idata), window=window)
+    for got, want in zip(drawn.segments, expected.segments, strict=True):
+        np.testing.assert_array_equal(got.edges, want.edges)
+
+
+def test_a_query_only_stack_reads_only_the_context_dates(predicted_model, monkeypatch):
+    calls = []
+    real = IdataReader.window
+
+    def spy(self, name):
+        calls.append(name)
+        return real(self, name)
+
+    monkeypatch.setattr(IdataReader, "window", spy)
+    source = IdataReader(predicted_model.idata)
+    contributions.prepare(source, window="query")
+    assert calls == ["query"]
+    calls.clear()
+    contributions.prepare(source)
+    assert calls == ["context", "query"]
+
+
+def test_the_context_dates_come_from_the_dates_coordinate_alone(predicted_model):
+    source = IdataReader(predicted_model.idata)
+    np.testing.assert_array_equal(source.dates("context"), source.window("context").dates)
+    with pytest.raises(ValueError, match="window must be one of"):
+        source.dates("both")
 
 
 @pytest.mark.parametrize(

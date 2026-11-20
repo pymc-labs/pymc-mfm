@@ -18,9 +18,11 @@ import pandas as pd
 from pymc_mfm.inference.curves import ResponseCurves
 
 if TYPE_CHECKING:
-    from xarray import Dataset, DataTree
+    from xarray import DataArray, Dataset, DataTree
 
 WINDOWS = ("context", "query")
+#: Component families from the bottom of a stack up: channels end on top.
+FAMILIES = ("baseline", "latent", "indirect", "control", "channel")
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +33,7 @@ class Window:
     display names (``"tv"``, not ``"channel:tv"``) and ``families`` their component
     families. ``outcome`` is the observed outcome by week (NaN where unobserved), or
     ``None`` when none was supplied. ``media`` holds the raw weekly media covariates,
-    one column per name in ``channels``.
+    one column per name in ``channels``: the channel components, in component order.
     """
 
     name: str
@@ -153,6 +155,48 @@ def truth_by_week(truth: pd.DataFrame, window: Window) -> dict[str, np.ndarray]:
     }
 
 
+def _show(labels: Sequence) -> list[str]:
+    return [str(label) for label in np.asarray(labels)]
+
+
+def _select(path: str, data: DataArray, dim: str, wanted: Sequence) -> DataArray:
+    """``data`` at the ``dim`` labels ``wanted``, in that order.
+
+    Raises ``ValueError`` naming ``path`` and the labels if a label is absent or repeated.
+    """
+    stored = data[dim].to_numpy()
+    if len(np.unique(stored)) != len(stored):
+        raise ValueError(f"{path}: {dim} labels must be unique, got {_show(stored)}")
+    missing = ~np.isin(np.asarray(wanted), stored)
+    if missing.any():
+        raise ValueError(
+            f"{path}: {dim} labels {_show(stored)} do not hold "
+            f"{_show(np.asarray(wanted)[missing])}; expected {_show(wanted)}"
+        )
+    return data.sel({dim: list(wanted)})
+
+
+def _one_chain(path: str, data: Dataset | DataArray) -> None:
+    """Raise ``ValueError`` unless ``data`` has a chain axis of size 1: the charts read chain 0."""
+    chains = data.sizes.get("chain")
+    if chains != 1:
+        raise ValueError(f"{path}: charts read a tree with one chain, got {chains}")
+
+
+@dataclass(frozen=True, slots=True)
+class _Parts:
+    """What :meth:`IdataReader.window` reads before it stacks the draws."""
+
+    dates: np.ndarray
+    components: tuple[str, ...]
+    families: tuple[str, ...]
+    columns: list[DataArray]
+    outcome: np.ndarray | None
+    channels: tuple[str, ...]
+    media: np.ndarray
+    units: str
+
+
 class IdataReader:
     """Read access to a model tree: ``/context``, ``/query`` and ``/response_curves``.
 
@@ -181,36 +225,51 @@ class IdataReader:
     def _names(self, key: str) -> tuple[str, ...]:
         return tuple(json.loads(self._tree().attrs[key]))
 
-    def _observed(self, name: str) -> np.ndarray | None:
+    def _observed(self, name: str, dates: np.ndarray) -> np.ndarray | None:
+        """The observed outcome at ``dates`` (by label), or ``None`` without an outcome."""
         if "observed_data" not in self._tree()[name].children:
             return None
-        return self._group(name, "observed_data")["outcome"].to_numpy()
+        outcome = self._group(name, "observed_data")["outcome"]
+        return _select(f"/{name}/observed_data", outcome, "date", dates).to_numpy()
 
-    def _covariate(self, window: str, variable: str, dim: str, key: str) -> np.ndarray:
-        """``variable`` of ``window`` as ``[date, name]``, columns in the order of ``key``."""
-        stored = self._group(window, "constant_data")[variable]
-        return stored.transpose("date", dim).sel({dim: list(self._names(key))}).to_numpy()
+    def _covariate(
+        self, window: str, variable: str, dim: str, names: Sequence[str], dates: np.ndarray
+    ) -> np.ndarray:
+        """``variable`` of ``window`` as ``[date, name]`` at ``dates`` and ``names``, by label."""
+        path = f"/{window}/constant_data"
+        stored = self._group(window, "constant_data")[variable].transpose("date", dim)
+        return _select(path, _select(path, stored, "date", dates), dim, names).to_numpy()
+
+    def dates(self, name: str) -> np.ndarray:
+        """The weeks of the ``"context"`` or ``"query"`` window; reads no draws."""
+        if name not in WINDOWS:
+            raise ValueError(f"window must be one of {WINDOWS}, got {name!r}")
+        return self._group(name, "posterior")["date"].to_numpy()
 
     def covariates(self) -> Covariates:
         """History then forecast inputs of the last complete inference."""
-        parts = [self._group(name, "constant_data") for name in WINDOWS]
-        outcomes = [
-            np.full(len(part["date"]), np.nan) if observed is None else observed
-            for part, observed in zip(parts, map(self._observed, WINDOWS), strict=True)
-        ]
+        channels, controls = self._names("channel_columns"), self._names("control_columns")
+        weeks = [self.dates(name) for name in WINDOWS]
+        outcomes = []
+        for name, dates in zip(WINDOWS, weeks, strict=True):
+            observed = self._observed(name, dates)
+            outcomes.append(np.full(len(dates), np.nan) if observed is None else observed)
         return Covariates(
-            dates=np.concatenate([part["date"].to_numpy() for part in parts]),
-            first_query=len(parts[0]["date"]),
+            dates=np.concatenate(weeks),
+            first_query=len(weeks[0]),
             outcome=np.concatenate(outcomes),
-            channels=self._names("channel_columns"),
+            channels=channels,
             media=np.concatenate(
-                [self._covariate(name, "media", "channel", "channel_columns") for name in WINDOWS]
+                [
+                    self._covariate(name, "media", "channel", channels, dates)
+                    for name, dates in zip(WINDOWS, weeks, strict=True)
+                ]
             ),
-            control_names=self._names("control_columns"),
+            control_names=controls,
             controls=np.concatenate(
                 [
-                    self._covariate(name, "controls", "control", "control_columns")
-                    for name in WINDOWS
+                    self._covariate(name, "controls", "control", controls, dates)
+                    for name, dates in zip(WINDOWS, weeks, strict=True)
                 ]
             ),
         )
@@ -221,57 +280,88 @@ class IdataReader:
         if "response_curves" not in tree.children:
             raise RuntimeError("call model.response_curves(...) first")
         posterior = self._group("response_curves", "posterior")["contribution"]
+        _one_chain("/response_curves/posterior", posterior)
         constants = self._group("response_curves", "constant_data")
         attrs = tree["response_curves"].attrs
-        levels = posterior["level"].to_numpy()
         channels = posterior["channel"].to_numpy()
-        # The tree holds each channel's observed total times the level: undo it at level 1,
-        # or at the top level when the sweep has no level 1.
-        ones = np.flatnonzero(levels == 1.0)
-        pick = ones[0] if ones.size else int(np.argmax(levels))
+        dates = constants["date"].to_numpy()
+        # Each channel's observed total over the swept weeks, from the media the forecast
+        # window stores. The curves' own stored media is that total times each level.
+        path = "/query/constant_data"
+        media = self._group("query", "constant_data")["media"]
+        media = _select(path, _select(path, media, "date", dates), "channel", channels)
         return ResponseCurves(
             channels=tuple(str(name) for name in channels),
-            levels=levels,
-            media=constants["media"]
-            .transpose("channel", "level")
-            .sel(channel=channels)
-            .isel(level=pick)
-            .to_numpy()
-            / levels[pick],
+            levels=posterior["level"].to_numpy(),
+            media=media.sum("date").to_numpy(),
             draws=posterior.isel(chain=0).transpose("channel", "level", "draw").to_numpy(),
             weeks=int(attrs["weeks"]),
-            dates=constants["date"].to_numpy(),
+            dates=dates,
             units=str(attrs["units"]),
             n_samples=int(attrs["n_samples"]),
         )
 
-    def window(self, name: str) -> Window:
-        """Read the stored ``"context"`` or ``"query"`` marginal."""
+    def _parts(self, name: str) -> _Parts:
+        """A window's draw columns, labels and covariates, aligned by label and not stacked."""
         if name not in WINDOWS:
             raise ValueError(f"window must be one of {WINDOWS}, got {name!r}")
+        path = f"/{name}/posterior"
         posterior = self._group(name, "posterior")
         constants = self._group(name, "constant_data")
+        _one_chain(path, posterior)
+        dates = posterior["date"].to_numpy()
         full = [str(label) for label in constants["component"].to_numpy()]
         families = tuple(str(label) for label in constants["component_family"].to_numpy())
+        unknown = [family for family in dict.fromkeys(families) if family not in FAMILIES]
+        if unknown:
+            raise ValueError(
+                f"/{name}/constant_data: unknown component family {unknown[0]!r}; "
+                f"expected one of {list(FAMILIES)}"
+            )
         plain, columns = [], []
         for label, family in zip(full, families, strict=True):
             if family in ("channel", "control"):
                 plain.append(label.removeprefix(f"{family}:"))
                 variable = posterior[f"{family}_contribution"].isel(chain=0)
-                columns.append(variable.sel({family: plain[-1]}))
+                columns.append(_select(path, variable, family, plain[-1:]).isel({family: 0}))
             else:
                 plain.append(label)
-                columns.append(posterior[label.replace(":", "_")].isel(chain=0))
-        return Window(
-            name=name,
-            dates=posterior["date"].to_numpy(),
+                variable = label.replace(":", "_")
+                if variable not in posterior:
+                    raise ValueError(f"{path}: no variable {variable!r} for component {label!r}")
+                columns.append(posterior[variable].isel(chain=0))
+        columns = [column.transpose("draw", "date") for column in columns]
+        if len({column.shape for column in columns}) > 1:
+            raise ValueError(f"{path}: component draws differ in shape")
+        channels = [n for n, family in zip(plain, families, strict=True) if family == "channel"]
+        return _Parts(
+            dates=dates,
             components=unique_names(plain, full),
             families=families,
-            draws=np.stack([column.transpose("draw", "date").to_numpy() for column in columns], 2),
-            outcome=self._observed(name),
-            channels=self._names("channel_columns"),
-            media=self._covariate(name, "media", "channel", "channel_columns"),
+            columns=columns,
+            outcome=self._observed(name, dates),
+            channels=tuple(channels),
+            media=self._covariate(name, "media", "channel", channels, dates),
             units=str(posterior.attrs["units"]),
+        )
+
+    def check_window(self, name: str) -> None:
+        """Raise ``ValueError`` unless ``name``'s labels and columns line up; stacks no draws."""
+        self._parts(name)
+
+    def window(self, name: str) -> Window:
+        """Read the stored ``"context"`` or ``"query"`` marginal."""
+        parts = self._parts(name)
+        return Window(
+            name=name,
+            dates=parts.dates,
+            components=parts.components,
+            families=parts.families,
+            draws=np.stack([column.to_numpy() for column in parts.columns], 2),
+            outcome=parts.outcome,
+            channels=parts.channels,
+            media=parts.media,
+            units=parts.units,
         )
 
     def windows(self, window: str | None) -> tuple[Window, ...]:

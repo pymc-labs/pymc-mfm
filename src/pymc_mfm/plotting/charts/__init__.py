@@ -27,7 +27,7 @@ def ModelPlots(model: MFM) -> Plots:  # noqa: N802
         DeprecationWarning,
         stacklevel=2,
     )
-    return model.plot
+    return Plots._live(lambda: model.idata)
 
 
 __getattr__ = deprecated_names(
