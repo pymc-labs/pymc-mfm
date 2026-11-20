@@ -20,9 +20,34 @@ query = model.inference(plan, n_samples=500)
 
 `add_context` requires a pandas dataframe with at least two rows, unique timezone-naive dates, a regular cadence, strictly positive outcomes, nonnegative spend, and at least one channel and control. Date, target, channel, and control roles must be distinct. It pads controls up to the model's configured control width; it rejects more controls than that width.
 
-`inference` needs the stored date, channel, and control columns. Physical dataframe column order does not matter. Extra columns and a query target column are ignored. Query rows are sorted without modifying the caller's dataframe, and their dates must begin at the next context period and continue with the stored cadence without gaps.
+`inference` needs the stored date, channel, and control columns. Physical dataframe column order does not matter, and extra columns are ignored. The model never reads a query target column: when present, it is kept only so [`model.plot`](#charts) can compare the forecast with what happened (values that are not finite numbers count as unobserved). Query rows are sorted without modifying the caller's dataframe, and their dates must begin at the next context period and continue with the stored cadence without gaps.
 
 A prediction does not append itself to history. Reuse one context for repeated plans; another successful `add_context` atomically replaces it. Calling `inference` before context loading raises an error, while a failed context load preserves the prior successful context. Model bundles never include observed history, so add context again after loading a model.
+
+## Charts
+
+[`model.plot`](../reference/plotting.ModelPlots.qmd) draws the latest `add_context` and `inference`. Install `pymc-mfm[plot]` for matplotlib figures and `pymc-mfm[interactive]` for plotly ones; pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
+
+```python
+query = model.inference(plan_with_outcome, n_samples=1_000)  # outcome kept for the charts only
+
+model.plot.inputs()  # outcome, media and control covariates by week
+model.plot.fit()  # expected vs observed outcome, with MAPE, R² and interval coverage
+model.plot.contributions_over_time()  # stacked weekly means of every component
+model.plot.contributions_over_time(stacked=False, truth=truth)  # one panel per component
+model.plot.shares()  # share of the expected outcome by media and control covariate; view="dist" for densities
+model.plot.contribution_totals(window="query")  # each component's total over the forecast
+model.plot.contribution_vs_media()  # weekly media covariate against weekly contribution
+
+model.response_curves(levels=np.linspace(0, 2, 9), weeks=8)  # reruns inference per level
+model.plot.response_curves()
+
+model.plot.fit(backend="plotly")
+```
+
+Each chart summarizes the draws once, then matplotlib or plotly draws the same numbers. Matplotlib charts return a `Figure` that notebooks show without pyplot; single-axes charts accept `ax=`. Charts never sample, except that the first chart showing context weeks samples the context marginal once; `build_idata` reuses those draws, and a `window="query"` chart never samples the context. [MFM.response_curves](../reference/model.MFM.qmd) multiplies one media covariate in the first `weeks` forecast weeks by each level and reruns inference (one shared run for level 1). It keeps the result for `plot.response_curves` until the next `add_context` or `inference`.
+
+Intervals are central intervals of the draws, pointwise over weeks or levels, and exclude observation noise. Contributions are conditional on the inputs, not causal lift. For simulated data, `truth` adds known contributions: a dataframe indexed by date (by level for response curves) with one column per media or control covariate.
 
 ## Inspect input usage
 

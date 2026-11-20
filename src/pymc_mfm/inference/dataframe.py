@@ -220,10 +220,12 @@ class _FittedContext:
         if is_datetime64_any_dtype(column.dtype) or is_timedelta64_dtype(column.dtype):
             return None
         if not is_numeric_dtype(column.dtype):
-            try:  # objects that are not numbers (lists, mappings) cannot be coerced
+            try:
                 column = pd.to_numeric(column, errors="coerce")
-            except (TypeError, ValueError):
-                return None
+            except (TypeError, ValueError, OverflowError):
+                # pandas refuses some object columns whole (an int past float64, a list):
+                # convert entry by entry instead, each failure unobserved.
+                column = column.map(_number).astype(np.float64)
         if (
             not is_numeric_dtype(column.dtype)
             or is_complex_dtype(column.dtype)
@@ -236,6 +238,14 @@ class _FittedContext:
             return None
         values.setflags(write=False)
         return values
+
+
+def _number(value: object) -> float:
+    """``value`` as a float, or NaN when it is not a number float64 can hold."""
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return np.nan
 
 
 @dataclass(frozen=True, slots=True)

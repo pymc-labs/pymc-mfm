@@ -1,4 +1,4 @@
-"""What each component contributed, week by week (``model.plot.contributions_over_time``)."""
+"""Weekly contribution of each component (``model.plot.contributions_over_time``)."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ import numpy as np
 
 from pymc_mfm.plotting.panels import COLORS, _single, _suptitle, _title
 
-from ._backend import draw
+from ._backend import check, draw
 from ._data import checked_names, interval_quantiles, summarize, truth_by_week
 from ._mpl import compact_axis, figure, forecast_span, time_positions
-from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, rgba, series_colors
+from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, percent, rgba, series_colors
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -68,7 +68,6 @@ class Contributions:
     first_query: int | None
     outcome: np.ndarray | None
     truth: tuple[np.ndarray | None, ...]
-    target: str
     interval: float
     title: str
     caption: tuple[str, ...]
@@ -122,14 +121,27 @@ def _outcome(windows: tuple[Window, ...]) -> np.ndarray | None:
 def _truth(
     truth: pd.DataFrame | None, windows: tuple[Window, ...], names: tuple[str, ...]
 ) -> tuple[np.ndarray | None, ...]:
-    """Each component's ``truth`` over every drawn week (NaN where it has none), or ``None``."""
+    """Each component's ``truth`` over every drawn week (NaN where it has none), or ``None``.
+
+    A drawn component's truth with no value on any drawn date raises: its dates (a
+    Sunday instead of a Monday, say) would otherwise draw nothing without a word.
+    """
     if truth is None:
         return (None,) * len(names)
     weekly = [truth_by_week(truth, part) for part in windows]
-    return tuple(
-        np.concatenate([part[name] for part in weekly]) if name in weekly[0] else None
-        for name in names
-    )
+    drawn = []
+    for name in names:
+        if name not in weekly[0]:
+            drawn.append(None)
+            continue
+        values = np.concatenate([part[name] for part in weekly])
+        if np.isnan(values).all():
+            raise ValueError(
+                f"truth[{name!r}] has no value on any drawn date; "
+                "index it by the dates of the data given to the model"
+            )
+        drawn.append(values)
+    return tuple(drawn)
 
 
 def prepare(
@@ -197,9 +209,8 @@ def prepare(
         first_query=len(first.dates) if len(windows) > 1 else None,
         outcome=_outcome(windows) if stacked else None,
         truth=_truth(truth, windows, names),
-        target=first.target,
         interval=interval,
-        title=title or f"What each component contributed to {first.target}, week by week",
+        title=title or "Weekly contributions to the expected outcome",
         caption=lines,
     )
 
@@ -231,11 +242,11 @@ def _matplotlib_stack(data: Contributions, ax) -> Any:
             linewidth=1.1,
             marker="o",
             markersize=2.5,
-            label=f"Actual {data.target}",
+            label="Observed outcome",
         )
     if data.first_query is not None:
         forecast_span(ax, positions, data.first_query)
-    ax.set_ylabel(data.target, fontsize=9)
+    ax.set_ylabel("outcome", fontsize=9)
     compact_axis(ax.yaxis)
     ax.grid(axis="y", alpha=0.15)
     ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1), frameon=False)
@@ -249,7 +260,7 @@ def _matplotlib_panels(data: Contributions) -> Any:
     rows = math.ceil(count / columns)
     # Each row's panels, plus room for the title lines and the legend.
     fig, axes = figure(rows, columns, width=11, row_height=2.2 + 1.4 / rows, sharex=True)
-    band, truth_label = f"{data.interval:.0%} interval", "Truth"
+    band, truth_label = f"{percent(data.interval)} interval", "Truth"
     for index, (ax, name, color, truth) in enumerate(
         zip(axes.flat, data.components, data.colors, data.truth)
     ):
@@ -313,11 +324,6 @@ def _matplotlib_panels(data: Contributions) -> Any:
 def _matplotlib(data: Contributions, ax=None) -> Any:
     if data.stacked:
         return _matplotlib_stack(data, ax)
-    if ax is not None:
-        raise ValueError(
-            f"stacked=False draws {len(data.components)} panels, one per component; "
-            "ax= draws only the single-axes stacked chart"
-        )
     return _matplotlib_panels(data)
 
 
@@ -361,7 +367,7 @@ def _plotly_stack(fig, data: Contributions) -> None:
                 )
             )
     if data.outcome is not None:
-        actual = plotting.text(f"Actual {data.target}")
+        actual = "Observed outcome"
         fig.add_trace(
             go.Scatter(
                 x=data.dates,
@@ -379,7 +385,7 @@ def _plotly_stack(fig, data: Contributions) -> None:
         plotting.forecast_span(
             fig, data.dates, data.first_query, name="Forecast weeks", showlegend=True
         )
-    fig.update_yaxes(title_text=plotting.text(data.target))
+    fig.update_yaxes(title_text="outcome")
 
 
 def _plotly_panels(fig, data: Contributions, columns: int) -> None:
@@ -387,7 +393,7 @@ def _plotly_panels(fig, data: Contributions, columns: int) -> None:
 
     from . import _plotly as plotting
 
-    band = f"{data.interval:.0%} interval"
+    band = f"{percent(data.interval)} interval"
     truth_shown = False
     for index, (name, color, truth) in enumerate(
         zip(data.components, data.colors, data.truth, strict=True)
@@ -513,6 +519,12 @@ def contributions_over_time(
     title: str | None = None,
     ax: Any = None,
 ) -> Any:
+    check(backend, ax)
+    if ax is not None and not stacked:
+        raise ValueError(
+            "stacked=False draws one panel per component; ax= draws only the single-axes "
+            "stacked chart"
+        )
     data = prepare(
         source,
         window=window,

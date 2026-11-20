@@ -1,4 +1,4 @@
-"""``model.plot.contribution_totals`` and ``model.plot.contribution_vs_spend``."""
+"""``model.plot.contribution_totals`` and ``model.plot.contribution_vs_media``."""
 
 import numpy as np
 import pandas as pd
@@ -82,10 +82,10 @@ def test_totals_bin_each_channel_and_control_per_draw_total(predicted_model):
         mean, low, high = _summary(totals)
         assert _lines(ax) == {"-": pytest.approx(mean)}
         np.testing.assert_allclose(_span(ax), (low, high))
-        assert ax.get_xlabel() == "Total over 24 history weeks (sales)"
+        assert ax.get_xlabel() == "Total over 24 history weeks (outcome)"
     assert [ax.get_ylabel() for ax in panels] == ["Draws", "", "Draws"]
     heading = fig.get_suptitle()
-    assert heading.startswith("How much does each component add over the 24 history weeks?")
+    assert heading.startswith("Total contribution over the 24 history weeks, by component")
     assert "40 draws" in heading and "not causal lift" in heading
 
 
@@ -116,7 +116,7 @@ def test_forecast_totals_of_any_component_with_truth_never_sample_context(
         np.testing.assert_allclose(_span(ax), (low, high))
         true_total = truth.loc[future["date"], name].sum()
         assert _lines(ax) == {"-": pytest.approx(mean), "--": pytest.approx(true_total)}
-        assert ax.get_xlabel() == "Total over 6 forecast weeks (sales)"
+        assert ax.get_xlabel() == "Total over 6 forecast weeks (outcome)"
 
 
 def test_a_truth_total_needs_every_week_of_the_window(predicted_model, chart_frames):
@@ -186,9 +186,9 @@ def test_plotly_totals_draw_the_matplotlib_numbers(predicted_model, chart_frames
     assert "not causal lift" in fig.layout.title.text
 
 
-def test_contribution_vs_spend_plots_each_week_at_its_spend(predicted_model, chart_frames):
+def test_contribution_vs_media_plots_each_week_at_its_value(predicted_model, chart_frames):
     history, _ = chart_frames
-    fig = predicted_model.plot.contribution_vs_spend()
+    fig = predicted_model.plot.contribution_vs_media()
     context = ModelSource(predicted_model).window("context")
     assert [ax.get_title(loc="left") for ax in fig.axes] == ["search", "tv"]
     for ax in fig.axes:
@@ -201,10 +201,10 @@ def test_contribution_vs_spend_plots_each_week_at_its_spend(predicted_model, cha
         np.testing.assert_array_equal(x, history[name])
         np.testing.assert_allclose(bottom, low)
         np.testing.assert_allclose(top, high)
-        assert ax.get_xlabel() == "Weekly spend"
+        assert ax.get_xlabel() == "Media covariate (weekly value)"
     search, tv = fig.axes
     assert search.get_shared_y_axes().joined(search, tv)
-    assert (search.get_ylabel(), tv.get_ylabel()) == ("Weekly contribution (sales)", "")
+    assert (search.get_ylabel(), tv.get_ylabel()) == ("Weekly contribution (outcome)", "")
     assert "carryover" in fig.get_suptitle()
 
 
@@ -216,7 +216,7 @@ def test_truth_crosses_align_by_date_and_the_query_never_samples_context(
         {"tv": np.arange(6.0) * 10, "baseline": 1.0}, index=pd.DatetimeIndex(future["date"])
     )
     state = torch.get_rng_state()
-    fig = predicted_model.plot.contribution_vs_spend(
+    fig = predicted_model.plot.contribution_vs_media(
         window="query", channels=["tv"], truth=truth.iloc[[3, 0, 5, 1, 4]]
     )
     assert predicted_model._context_decomposition is None
@@ -232,32 +232,32 @@ def test_truth_crosses_align_by_date_and_the_query_never_samples_context(
     np.testing.assert_allclose(_points(ax, "Mean")[:, 1], query.contribution("tv").mean(axis=0))
 
 
-def test_contribution_vs_spend_checks_its_arguments(predicted_model, chart_frames):
+def test_contribution_vs_media_checks_its_arguments(predicted_model, chart_frames):
     history, _ = chart_frames
     plot = predicted_model.plot
     with pytest.raises(ValueError, match="interval must be a fraction"):
-        plot.contribution_vs_spend(interval=0)
+        plot.contribution_vs_media(interval=0)
     assert predicted_model._context_decomposition is None  # checked before sampling
     with pytest.raises(
         ValueError, match=r"unknown channels \['baseline'\]; available: \['search', 'tv'\]"
     ):
-        plot.contribution_vs_spend(channels=["baseline"])
+        plot.contribution_vs_media(channels=["baseline"])
     with pytest.raises(ValueError, match="not a string"):
-        plot.contribution_vs_spend(channels="tv")
+        plot.contribution_vs_media(channels="tv")
     with pytest.raises(ValueError, match=r"truth columns \['radio'\] are not components"):
-        plot.contribution_vs_spend(truth=_history_truth(history, radio=1.0))
+        plot.contribution_vs_media(truth=_history_truth(history, radio=1.0))
     sundays = pd.DataFrame(
         {"tv": 1.0}, index=pd.DatetimeIndex(history["date"]) - pd.Timedelta(days=1)
     )
     with pytest.raises(ValueError, match=r"truth\['tv'\] has no value in any of the 24 history"):
-        plot.contribution_vs_spend(truth=sundays)
+        plot.contribution_vs_media(truth=sundays)
 
 
-def test_a_channel_named_like_a_component_keeps_its_own_spend(model, chart_frames):
+def test_a_channel_named_like_a_component_keeps_its_own_media_covariate(model, chart_frames):
     history, future = (frame.rename(columns={"tv": "baseline"}) for frame in chart_frames)
     model.add_context(history, **{**CHART_ROLES, "channel_columns": ("search", "baseline")})
     model.inference(future, n_samples=5)
-    fig = model.plot.contribution_vs_spend(window="query", channels=["channel:baseline"])
+    fig = model.plot.contribution_vs_media(window="query", channels=["channel:baseline"])
     [ax] = fig.axes
     assert ax.get_title(loc="left") == "channel:baseline"
     points = _points(ax, "Mean")
@@ -266,12 +266,12 @@ def test_a_channel_named_like_a_component_keeps_its_own_spend(model, chart_frame
     np.testing.assert_allclose(points[:, 1], query.contribution("channel:baseline").mean(axis=0))
 
 
-def test_plotly_contribution_vs_spend_draws_the_matplotlib_numbers(predicted_model, chart_frames):
+def test_plotly_contribution_vs_media_draws_the_matplotlib_numbers(predicted_model, chart_frames):
     pytest.importorskip("plotly")
     history, _ = chart_frames
     truth = _history_truth(history, search=np.linspace(5.0, 40.0, 24))
-    drawn = predicted_model.plot.contribution_vs_spend(truth=truth).axes
-    fig = predicted_model.plot.contribution_vs_spend(truth=truth, backend="plotly")
+    drawn = predicted_model.plot.contribution_vs_media(truth=truth).axes
+    fig = predicted_model.plot.contribution_vs_media(truth=truth, backend="plotly")
     means = [trace for trace in fig.data if trace.name == "Mean and 90% interval"]
     [crosses] = [trace for trace in fig.data if trace.name == "Truth"]
     for ax, trace in zip(drawn, means, strict=True):

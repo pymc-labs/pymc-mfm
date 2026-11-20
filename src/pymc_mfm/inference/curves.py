@@ -1,4 +1,4 @@
-"""Response curves: each channel's contribution as its spend in the forecast weeks scales."""
+"""Response curves: each media covariate's contribution as its level in the forecast scales."""
 
 from __future__ import annotations
 
@@ -21,30 +21,30 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ResponseCurves:
-    """Each channel's contribution over the first forecast weeks, by spend level.
+    """Each media covariate's contribution over the first forecast weeks, by level.
 
-    ``draws[k, l]`` are the ``n_samples`` draws of channel ``channels[k]``'s contribution
-    summed over ``dates``, the first ``weeks`` forecast weeks, in ``units``, with that
-    channel's spend in those weeks at ``levels[l]`` (sorted multipliers) times its actual
-    spend and every other input as given to ``inference``. ``spend`` is each channel's
-    actual spend summed over those weeks. Each level is a separate sample: draws are not
-    paired across levels.
+    ``draws[k, l]`` are the ``n_samples`` draws of media covariate ``channels[k]``'s
+    contribution summed over ``dates``, the first ``weeks`` forecast weeks, in ``units``,
+    with that covariate in those weeks at ``levels[l]`` (sorted multipliers) times its
+    observed values. Each run decomposes the history and a plan of just those weeks,
+    every other input as given to ``inference``. ``media`` is each covariate's observed
+    total over those weeks. Each level is a separate sample: draws are not paired across
+    levels.
     """
 
     channels: tuple[str, ...]
     levels: np.ndarray
-    spend: np.ndarray
+    media: np.ndarray
     draws: np.ndarray
     weeks: int
     dates: np.ndarray
-    target: str
     units: str
     n_samples: int
 
     def to_frame(self, interval: float = 0.9) -> pd.DataFrame:
-        """One row per channel and level: the mean and central ``interval`` of its draws.
+        """One row per media covariate and level: the mean and central ``interval`` of its draws.
 
-        Columns: ``channel``, ``level``, ``spend`` (the level times the actual spend),
+        Columns: ``channel``, ``level``, ``media`` (the level times the observed total),
         ``mean``, ``low`` and ``high``.
         """
         # The charts summarize with the same function, so they draw exactly these numbers.
@@ -55,7 +55,7 @@ class ResponseCurves:
             {
                 "channel": np.repeat(self.channels, len(self.levels)),
                 "level": np.tile(self.levels, len(self.channels)),
-                "spend": (self.spend[:, None] * self.levels).ravel(),
+                "media": (self.media[:, None] * self.levels).ravel(),
                 "mean": mean.ravel(),
                 "low": low.ravel(),
                 "high": high.ravel(),
@@ -114,8 +114,12 @@ def response_curves(
     reference = sample(actual) if 1.0 in levels else None
     draws = np.empty((len(names), len(levels), n_samples))
     for row, (name, column) in enumerate(zip(names, columns, strict=True)):
+        # Scaling a zero media covariate changes no input: its curve is the unchanged run.
+        idle = not actual[start:, column].any()
+        if idle and reference is None:
+            reference = sample(actual)
         for index, level in enumerate(levels):
-            if level == 1.0:
+            if level == 1.0 or idle:
                 result = reference
             else:
                 scenario = actual.copy()
@@ -123,17 +127,16 @@ def response_curves(
                 result = sample(scenario)
             component = result.component_names.index(f"channel:{name}")
             draws[row, index] = result.components[:, :, component].sum(axis=1)
-    spend = actual[start:, columns].sum(axis=0)
-    for array in (levels, spend, draws):
+    media = actual[start:, columns].sum(axis=0)
+    for array in (levels, media, draws):
         array.setflags(write=False)
     return ResponseCurves(
         channels=names,
         levels=levels,
-        spend=spend,
+        media=media,
         draws=draws,
         weeks=weeks,
         dates=prediction.time[start:stop],
-        target=history.target_column,
         units=prediction.units,
         n_samples=n_samples,
     )
@@ -160,16 +163,22 @@ def select_channels(channels: Iterable[str] | None, available: tuple[str, ...]) 
 
 
 def _levels(levels: Iterable[float] | None) -> np.ndarray:
-    """Sorted distinct spend multipliers; 0, 0.25, ..., 2 when ``None``."""
+    """Sorted distinct multipliers, at least two; 0, 0.25, ..., 2 when ``None``."""
     if levels is None:
         return np.linspace(0.0, 2.0, 9)
     values = np.asarray(levels)
     if values.ndim != 1 or values.size == 0 or values.dtype.kind not in "iuf":
-        raise ValueError("levels must be a nonempty sequence of spend multipliers, e.g. [0, 1, 2]")
+        raise ValueError("levels must be a nonempty sequence of multipliers, e.g. [0, 1, 2]")
     values = values.astype(np.float64)
     if not np.isfinite(values).all() or (values < 0).any():
         raise ValueError(f"levels must be finite and nonnegative, got {values.tolist()}")
-    return np.unique(values)
+    values = np.unique(values)
+    if values.size < 2:
+        raise ValueError(
+            f"a curve needs at least two distinct levels, got {values.tolist()}; "
+            "use inference for one plan"
+        )
+    return values
 
 
 def _weeks(weeks: int | None, available: int) -> int:

@@ -42,8 +42,7 @@ def _window(name, start, expected, outcome):
         draws=expected[:, :, None],
         outcome=None if outcome is None else np.asarray(outcome, dtype=float),
         channels=(),
-        spend=np.zeros((weeks, 0)),
-        target="sales",
+        media=np.zeros((weeks, 0)),
         units="outcome",
     )
 
@@ -86,7 +85,7 @@ def _by_hand(y, draws, interval):
     )
 
 
-def test_fit_draws_each_window_apart_over_the_observed_sales(predicted_model, chart_frames):
+def test_fit_draws_each_window_apart_over_the_observed_outcome(predicted_model, chart_frames):
     history, future = chart_frames
     fig = predicted_model.plot.fit(interval=0.8)
     ax = fig.axes[0]
@@ -107,7 +106,7 @@ def test_fit_draws_each_window_apart_over_the_observed_sales(predicted_model, ch
     left, right = span.get_x(), span.get_x() + span.get_width()
     assert positions[23] < left < positions[24] and right > positions[-1]
     legend = [text.get_text() for text in ax.get_legend().get_texts()]
-    assert legend == ["80% interval", "Expected", "Actual sales", "Forecast weeks"]
+    assert legend == ["80% interval", "Expected", "Observed outcome", "Forecast weeks"]
     assert "80% pointwise intervals over 40 draws" in fig.get_suptitle()
 
 
@@ -128,7 +127,7 @@ def test_fit_scores_each_observed_window_on_its_card(predicted_model):
             f"{mape:.1%} ± {mape_sd:.1%}",
             "R²",
             f"{r2:.2f} ± {r2_sd:.2f}",
-            "Inside 80% interval",
+            "Coverage of the 80% interval",
             f"{inside / weeks:.0%} ({inside} of {weeks})",
         ]
 
@@ -156,14 +155,14 @@ def test_scores_leave_out_unobserved_weeks_and_undefined_metrics():
         "Forecast (query), 2 weeks",
         "MAPE",
         "0.0% ± 10.0%",
-        "Inside 50% interval",
+        "Coverage of the 50% interval",
         "100% (2 of 2)",
     ]
     # One observed week is too few to score.
     assert prepare(_Source(_window("query", "2024-01-29", [[4, 6]], [5, np.nan]))).scores == ()
 
 
-def test_forecast_weeks_without_sales_are_neither_drawn_nor_scored(model, chart_frames):
+def test_forecast_weeks_without_an_outcome_are_neither_drawn_nor_scored(model, chart_frames):
     history, future = chart_frames
     model.add_context(history, **CHART_ROLES)
     model.inference(future.drop(columns="sales"), n_samples=5)

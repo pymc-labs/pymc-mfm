@@ -12,6 +12,35 @@ distribution prerequisites, not an approved or published release.
   cases by default, including focused file and node selections. The README documents
   explicit fast and slow commands and the all-extras setup for the slow and full suites.
 
+- **`model.plot`: charts of the latest `add_context` and `inference`.** `MFM.plot` returns
+  `pymc_mfm.plotting.ModelPlots`. It offers seven charts:
+  - `inputs`: outcome, media covariates and control covariates by week.
+  - `fit`: expected against observed outcome, with MAPE, R² and empirical interval coverage.
+  - `contributions_over_time`: stacked weekly means, or one panel per component.
+  - `shares`: each media and control covariate's share of the expected outcome, as bars with
+    intervals or (`view="dist"`) kernel densities.
+  - `contribution_totals`: window totals over draws.
+  - `contribution_vs_media`: weekly media covariate against its contribution.
+  - `response_curves`: contribution by media covariate level.
+
+  Each chart computes its numbers once and draws them with matplotlib (the `plot` extra,
+  default) or plotly (new `interactive` extra, `plotly>=6,<7`). Choose with `backend=` or
+  `pymc_mfm.plotting.set_backend`. Matplotlib charts are pyplot-free figures;
+  single-axes charts take `ax=`. `truth=` overlays known contributions for simulated data.
+  - **Sampling:** charts never sample, except that the first chart showing context weeks
+    samples the context marginal once. `build_idata` now reuses those draws (new
+    `MFM._context_result`), and a `window="query"` chart never samples the context.
+  - **Query targets:** `MFM.inference` keeps a target column of its data for the charts
+    only. The model never reads it and draws are unchanged; values that are not finite
+    numbers count as unobserved.
+  - **Response curves:** new `MFM.response_curves(levels=, channels=, weeks=, n_samples=)`
+    reruns inference with one media covariate in the first `weeks` forecast weeks
+    multiplied by each level, one shared run for level 1. It returns
+    `pymc_mfm.inference.curves.ResponseCurves` (`to_frame(interval)`) and keeps it for
+    `plot.response_curves` until the next `add_context` or `inference`.
+  - **Quickstart:** `examples/river_1_quickstart.ipynb` now uses `add_context`/`inference`
+    and `model.plot` in place of about 120 lines of hand-written matplotlib.
+
 - **Default sampling is 2,000 draws.** `DEFAULT_N_SAMPLES` rises from 32 to 2,000, so
   `decompose`, `MFM.inference`, `MFM.predict_batch`, `MFM.sample_context`,
   `MFM.sample_disentangled`, `MFM.sample` and the flow head's `sample` draw 2,000 samples

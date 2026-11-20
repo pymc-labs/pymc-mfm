@@ -44,6 +44,19 @@ def require(backend: str) -> None:
         ) from error
 
 
+def check(backend: str | None, ax: Any = None) -> str:
+    """The backend a chart will draw with, checked before it reads or samples anything.
+
+    Refuses ``ax=`` (matplotlib axes) with plotly and imports the backend's library,
+    raising ``ImportError`` naming its extra when it is missing.
+    """
+    name = resolve(backend)
+    if name == "plotly" and ax is not None:
+        raise ValueError("ax= draws into matplotlib axes; it does not apply to backend='plotly'")
+    require(name)
+    return name
+
+
 def draw(
     prepared: Any,
     *,
@@ -54,13 +67,10 @@ def draw(
 ) -> Any:
     """Draw ``prepared`` numbers with the chosen backend's renderer.
 
-    ``ax`` (matplotlib axes) goes to the matplotlib renderer of a single-axes chart;
-    the plotly backend refuses it.
+    ``ax`` (matplotlib axes) goes to the matplotlib renderer of a single-axes chart.
+    Charts call :func:`check` before they prepare, so a bad backend fails first.
     """
-    name = resolve(backend)
-    if name == "plotly" and ax is not None:
-        raise ValueError("ax= draws into matplotlib axes; it does not apply to backend='plotly'")
-    require(name)
+    name = check(backend, ax)
     if name == "plotly":
         return plotly(prepared)
     return matplotlib(prepared) if ax is None else matplotlib(prepared, ax=ax)

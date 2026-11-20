@@ -52,8 +52,7 @@ def _window(means: dict[str, list[float]], families: tuple[str, ...]) -> Window:
         draws=np.stack((mean - 1, mean + 1)),
         outcome=None,
         channels=("search",),
-        spend=np.zeros((weeks, 1)),
-        target="sales",
+        media=np.zeros((weeks, 1)),
         units="outcome",
     )
 
@@ -94,7 +93,7 @@ def test_stack_piles_positive_means_up_and_negative_means_down(predicted_model, 
     history, future = chart_frames
     fig = predicted_model.plot.contributions_over_time()
     ax = fig.axes[0]
-    assert ax.get_legend_handles_labels()[1] == [*ORDER, "Actual sales", "Forecast weeks"]
+    assert ax.get_legend_handles_labels()[1] == [*ORDER, "Observed outcome", "Forecast weeks"]
     drawn = _stack(fig)
     windows = ModelSource(predicted_model).windows(None)
     assert len(drawn) == len(windows) * len(ORDER)
@@ -160,7 +159,7 @@ def test_components_pick_layers_keep_their_colors_and_query_never_samples_contex
     assert torch.equal(torch.get_rng_state(), state)
     ax = fig.axes[0]
     handles, labels = ax.get_legend_handles_labels()
-    assert labels == ["baseline", "search", "tv", "Actual sales"]
+    assert labels == ["baseline", "search", "tv", "Observed outcome"]
     query = ModelSource(predicted_model).window("query")
     names = ("baseline", "search", "tv")
     for (values, _, baseline), (lower, upper) in zip(
@@ -256,8 +255,13 @@ def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
         pytest.param(
             {"stacked": False, "truth": "radio"}, r"truth columns \['radio'\] are not components"
         ),
+        pytest.param(
+            {"stacked": False, "truth": "sundays"},
+            r"truth\['tv'\] has no value on any drawn date",
+            id="truth-on-other-dates",
+        ),
         pytest.param({"backend": "plotly", "ax": "axes"}, "does not apply to backend='plotly'"),
-        pytest.param({"stacked": False, "ax": "axes"}, "draws 8 panels, one per component"),
+        pytest.param({"stacked": False, "ax": "axes"}, "draws one panel per component; ax="),
     ],
 )
 def test_arguments_are_checked(predicted_model, chart_frames, arguments, error):
@@ -266,11 +270,15 @@ def test_arguments_are_checked(predicted_model, chart_frames, arguments, error):
     dates = pd.DatetimeIndex(chart_frames[0]["date"])
     frames = {"frame": {"tv": 1.0}, "radio": {"tv": 1.0, "radio": 2.0}}
     if isinstance(arguments.get("truth"), str):
-        arguments["truth"] = pd.DataFrame(frames[arguments["truth"]], index=dates)
+        index = dates - pd.Timedelta(days=1) if arguments["truth"] == "sundays" else dates
+        arguments["truth"] = pd.DataFrame(frames.get(arguments["truth"], {"tv": 1.0}), index=index)
     if arguments.get("ax") == "axes":
         arguments["ax"] = Figure().subplots()
+    state = torch.get_rng_state()
     with pytest.raises(ValueError, match=error):
         predicted_model.plot.contributions_over_time(**arguments)
+    if "ax" in arguments:  # backend and axes errors come before the context is sampled
+        assert torch.equal(torch.get_rng_state(), state)
 
 
 def test_plotly_draws_the_matplotlib_numbers(predicted_model, chart_frames):
@@ -296,7 +304,7 @@ def test_plotly_draws_the_matplotlib_numbers(predicted_model, chart_frames):
         np.testing.assert_array_equal(bottom.y, np.append(baseline, baseline[-1]))
         np.testing.assert_allclose(date2num(pd.to_datetime(top.x).to_numpy()), edges)
         np.testing.assert_allclose(hover.customdata, mean, rtol=1e-12, atol=1e-9)
-    [actual] = [trace for trace in fig.data if trace.name == "Actual sales"]
+    [actual] = [trace for trace in fig.data if trace.name == "Observed outcome"]
     np.testing.assert_array_equal(actual.y, np.concatenate([history["sales"], future["sales"]]))
     [span] = [shape for shape in fig.layout.shapes if shape.name == "Forecast weeks"]
     assert pd.Timestamp(span.x0) == future["date"].iloc[0] - WEEK / 2

@@ -15,7 +15,7 @@ pytest.importorskip("matplotlib")
 
 COMPONENTS = ("baseline", "search", "tv", "temperature", "price")
 FAMILIES = ("baseline", "channel", "channel", "control", "control")
-#: 3 draws x 2 weeks of COMPONENTS; a week's expected sales are its row sum. Draw 1's
+#: 3 draws x 2 weeks of COMPONENTS; a week's expected outcome is its row sum. Draw 1's
 #: second week expects -100, so its two weeks total 0.
 DRAWS = np.array(
     [
@@ -41,7 +41,7 @@ MEAN_SHARES = [  # contribution / expected, averaged over the weeks that expect 
         (2 / 100 + 10 / 500) / 2,
     ],
 ]
-TOTAL_SHARES = [  # the weeks' contribution / their expected sales; draw 1 totals 0
+TOTAL_SHARES = [  # the weeks' contribution / their expected outcome; draw 1 totals 0
     [70 / 300, 30 / 300, 24 / 300, 6 / 300],
     [200 / 600, 60 / 600, 48 / 600, 12 / 600],
 ]
@@ -54,7 +54,7 @@ def matplotlib_default(monkeypatch):
 
 
 def _window(draws, components=COMPONENTS, families=FAMILIES):
-    """A hand-made history window of ``draws`` ``[sample, week, component]`` of sales."""
+    """A hand-made history window of ``draws`` ``[sample, week, component]`` of the outcome."""
     weeks = draws.shape[1]
     channels = tuple(
         name for name, family in zip(components, families, strict=True) if family == "channel"
@@ -67,8 +67,7 @@ def _window(draws, components=COMPONENTS, families=FAMILIES):
         draws=draws,
         outcome=None,
         channels=channels,
-        spend=np.zeros((weeks, len(channels))),
-        target="sales",
+        media=np.zeros((weeks, len(channels))),
         units="outcome",
     )
 
@@ -117,16 +116,16 @@ def _bars(ax, window, per_draw, interval):
             "mean",
             MEAN_SHARES,
             (0, 1),
-            "1 of 6 draw-weeks left out: expected sales ≤ 0",
-            "Average of each week's share of expected sales, over 2 history weeks",
+            "1 of 6 draw-weeks left out: expected outcome ≤ 0",
+            "Average of each week's share of the expected outcome, over 2 history weeks",
             id="mean",
         ),
         pytest.param(
             "total",
             TOTAL_SHARES,
             (1, 0),
-            "1 of 3 draws left out: total expected sales ≤ 0",
-            "Share of expected sales over the 2 history weeks",
+            "1 of 3 draws left out: total expected outcome ≤ 0",
+            "Share of the expected outcome over the 2 history weeks",
             id="total",
         ),
     ],
@@ -144,22 +143,22 @@ def test_shares_of_a_hand_made_window(share, per_draw, left_out, note, xlabel):
     assert data.xlabel == xlabel
 
 
-def test_a_draw_without_a_week_expecting_sales_is_left_out():
+def test_a_draw_without_a_week_expecting_a_positive_outcome_is_left_out():
     draws = DRAWS.copy()
     draws[1, 0, 0] = -60  # draw 1's first week now expects 0
     data = prepare_window(_window(draws), share="mean", view="bars", interval=0.9)
     np.testing.assert_allclose(data.shares, [MEAN_SHARES[0], MEAN_SHARES[2]])
     assert (data.left_out_draws, data.left_out_draw_weeks) == (1, 2)
     assert data.caption[2:] == (
-        "2 of 6 draw-weeks left out: expected sales ≤ 0",
-        "1 of 3 draws left out: expected sales ≤ 0 in every week",
+        "2 of 6 draw-weeks left out: expected outcome ≤ 0",
+        "1 of 3 draws left out: expected outcome ≤ 0 in every week",
     )
     for share in ("mean", "total"):
         with pytest.raises(ValueError, match="no share is defined"):
             prepare_window(_window(-np.abs(DRAWS)), share=share, view="bars", interval=0.9)
 
 
-def test_spread_densities_peak_at_one_where_normal_shares_center():
+def test_dist_densities_peak_at_one_where_normal_shares_center():
     # Normal quantiles as draws: their kernel density peaks at their mean.
     probabilities = (np.arange(2000) + 0.5) / 2000
     search = np.array([NormalDist(0.3, 0.05).inv_cdf(p) for p in probabilities])
@@ -171,7 +170,7 @@ def test_spread_densities_peak_at_one_where_normal_shares_center():
         components=("baseline", "search", "temperature", "price"),
         families=("baseline", "channel", "control", "control"),
     )
-    data = prepare_window(window, share="total", view="spread", interval=0.9)
+    data = prepare_window(window, share="total", view="dist", interval=0.9)
     assert data.names == ("search", "temperature", "price")  # component order
     assert data.colors == tuple(series_colors(data.names).values())
     np.testing.assert_allclose(data.shares, np.stack([search, temperature, price], axis=-1))
@@ -183,7 +182,7 @@ def test_spread_densities_peak_at_one_where_normal_shares_center():
     reach = 3 * search.std(ddof=1) * 2000**-0.2
     assert data.grid.shape == (GRID_POINTS,)
     np.testing.assert_allclose(data.grid[[0, -1]], [temperature[0] - reach, search[-1] + reach])
-    assert "Densities scaled to equal height" in data.caption
+    assert "Kernel densities, each scaled to a peak of 1" in data.caption
 
 
 def test_default_bars_are_mean_shares_of_the_history_weeks(predicted_model):
@@ -194,8 +193,8 @@ def test_default_bars_are_mean_shares_of_the_history_weeks(predicted_model):
     assert expected[0][0] >= expected[0][1]  # each family largest first
     np.testing.assert_allclose(drawn[0], expected[0])
     np.testing.assert_allclose(drawn[1], expected[1])
-    assert (
-        ax.get_xlabel() == "Average of each week's share of expected sales, over 24 history weeks"
+    assert ax.get_xlabel() == (
+        "Average of each week's share of the expected outcome, over 24 history weeks"
     )
 
 
@@ -211,8 +210,9 @@ def test_query_total_shares_never_sample_the_context(predicted_model):
     labels, drawn, expected = _bars(ax, query, _total_shares(query), 0.9)
     np.testing.assert_allclose(drawn[0], expected[0])
     np.testing.assert_allclose(drawn[1], expected[1])
-    assert ax.get_xlabel() == "Share of expected sales over the 6 forecast weeks"
-    assert ax.get_title().startswith("How does each driver contribute to sales?\n")
+    assert ax.get_xlabel() == "Share of the expected outcome over the 6 forecast weeks"
+    title = "Share of the expected outcome by media and control covariate\n"
+    assert ax.get_title().startswith(title)
 
 
 def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
@@ -220,7 +220,7 @@ def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
     data = prepare(ModelSource(predicted_model), window="query", interval=0.8)
     ax = predicted_model.plot.shares(window="query", interval=0.8).axes[0]
     fig = predicted_model.plot.shares(window="query", interval=0.8, backend="plotly")
-    assert [trace.name for trace in fig.data] == ["channels", "controls"]
+    assert [trace.name for trace in fig.data] == ["media covariates", "control covariates"]
     assert all(trace.orientation == "h" for trace in fig.data)
     assert list(fig.layout.yaxis.ticktext) == list(data.names)
     assert [label.get_text() for label in ax.get_yticklabels()] == list(data.names)
@@ -244,11 +244,11 @@ def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
     assert "80% interval" in fig.data[0].hovertemplate
 
 
-def test_spread_draws_the_same_densities_in_both_backends(predicted_model):
+def test_dist_draws_the_same_densities_in_both_backends(predicted_model):
     pytest.importorskip("plotly")
-    data = prepare(ModelSource(predicted_model), window="query", view="spread")
-    ax = predicted_model.plot.shares(window="query", view="spread").axes[0]
-    fig = predicted_model.plot.shares(window="query", view="spread", backend="plotly")
+    data = prepare(ModelSource(predicted_model), window="query", view="dist")
+    ax = predicted_model.plot.shares(window="query", view="dist").axes[0]
+    fig = predicted_model.plot.shares(window="query", view="dist", backend="plotly")
     assert data.names == ("search", "tv", "temperature")
     assert [line.get_label() for line in ax.lines] == [trace.name for trace in fig.data]
     assert [trace.name for trace in fig.data] == list(data.names)
@@ -263,7 +263,7 @@ def test_spread_draws_the_same_densities_in_both_backends(predicted_model):
         np.testing.assert_array_equal(trace.y, density)
         assert line.get_color() == trace.line.color == color
         assert trace.fill == "tozeroy"
-    assert "Densities scaled to equal height" in fig.layout.title.text
+    assert "Kernel densities, each scaled to a peak of 1" in fig.layout.title.text
 
 
 @pytest.mark.parametrize(

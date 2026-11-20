@@ -3,6 +3,7 @@
 import sys
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from conftest import CHART_ROLES, needs_arviz
@@ -10,6 +11,7 @@ from conftest import CHART_ROLES, needs_arviz
 from pymc_mfm.plotting import set_backend
 from pymc_mfm.plotting.charts import _backend
 from pymc_mfm.plotting.charts._data import ModelSource
+from pymc_mfm.plotting.charts._style import compact
 
 pytest.importorskip("matplotlib")
 
@@ -35,11 +37,17 @@ def test_charts_need_context_and_draws_need_inference(model, chart_frames):
         ModelSource(model).window("query")
 
 
-def test_inputs_show_history_forecast_weeks_and_observed_sales(predicted_model, chart_frames):
+def test_inputs_show_history_forecast_weeks_and_observed_outcome(predicted_model, chart_frames):
     history, future = chart_frames
     fig = predicted_model.plot.inputs()
     titles = [ax.get_title(loc="left") for ax in fig.axes]
-    assert titles == ["sales (outcome)", "search (spend)", "tv (spend)", "temperature (control)"]
+    # The target column is called "sales"; charts call it the outcome.
+    assert titles == [
+        "outcome",
+        "search (media covariate)",
+        "tv (media covariate)",
+        "temperature (control covariate)",
+    ]
     both = [history, future]
     np.testing.assert_array_equal(_line(fig, 0), np.concatenate([f["sales"] for f in both]))
     np.testing.assert_array_equal(_line(fig, 2), np.concatenate([f["tv"] for f in both]))
@@ -57,13 +65,21 @@ def test_inputs_show_history_forecast_weeks_and_observed_sales(predicted_model, 
         pytest.param(None, [np.nan] * 6, id="no-target-column"),
         pytest.param(["not observed", None, -np.inf] * 2, [np.nan] * 6, id="nothing-numeric"),
         pytest.param(["1.5", "x", 3, np.inf, 4.0, None], [1.5, np.nan, 3, np.nan, 4, np.nan]),
+        pytest.param(
+            [10**400, 2.0, "3", None, [1], 5],
+            [np.nan, 2, 3, np.nan, np.nan, 5],
+            id="int-past-float64",
+        ),
     ],
 )
-def test_forecast_sales_are_kept_for_charts_without_changing_inference(
+def test_forecast_outcomes_are_kept_for_charts_without_changing_inference(
     model, chart_frames, sales, expected
 ):
     history, future = chart_frames
-    future = future.drop(columns="sales") if sales is None else future.assign(sales=sales)
+    if sales is None:
+        future = future.drop(columns="sales")
+    else:  # an object column, as a frame read from mixed sources would hold
+        future = future.assign(sales=pd.Series(sales, index=future.index, dtype=object))
     model.add_context(history, **CHART_ROLES)
     torch.manual_seed(3)
     draws = model.inference(future, n_samples=5).components
@@ -76,7 +92,7 @@ def test_forecast_sales_are_kept_for_charts_without_changing_inference(
     np.testing.assert_array_equal(_line(model.plot.inputs(), 0)[24:], expected)
 
 
-def test_forecast_sales_follow_the_sorted_dates(model, chart_frames):
+def test_forecast_outcomes_follow_the_sorted_dates(model, chart_frames):
     history, future = chart_frames
     model.add_context(history, **CHART_ROLES)
     model.inference(future.iloc[::-1], n_samples=5)
@@ -91,7 +107,7 @@ def test_windows_name_components_and_align_inputs(predicted_model, chart_frames)
     assert query.components[3] == "temperature" and "__padded_control_1__" not in query.components
     assert query.draws.shape == (40, 6, len(query.components))
     np.testing.assert_array_equal(query.outcome, future["sales"])
-    np.testing.assert_array_equal(query.spend, future[["search", "tv"]])
+    np.testing.assert_array_equal(query.media, future[["search", "tv"]])
     np.testing.assert_array_equal(query.dates, future["date"].to_numpy())
     np.testing.assert_allclose(
         query.expected, predicted_model._prediction_snapshot.query.components.sum(2)
@@ -101,14 +117,35 @@ def test_windows_name_components_and_align_inputs(predicted_model, chart_frames)
     assert context.draws.shape[:2] == (40, 24)
 
 
-def test_a_channel_named_like_a_component_keeps_its_family_prefix(model, chart_frames):
-    history, future = (frame.rename(columns={"tv": "baseline"}) for frame in chart_frames)
-    roles = {**CHART_ROLES, "channel_columns": ("search", "baseline")}
+def test_names_like_other_components_keep_full_names_and_their_own_draws(model, chart_frames):
+    renamed = {"tv": "baseline", "temperature": "channel:baseline"}
+    history, future = (frame.rename(columns=renamed) for frame in chart_frames)
+    roles = {
+        **CHART_ROLES,
+        "channel_columns": ("search", "baseline"),
+        "control_columns": ("channel:baseline",),
+    }
     model.add_context(history, **roles)
-    model.inference(future, n_samples=5)
-    names = ModelSource(model).window("query").components
-    assert names[:3] == ("baseline", "search", "channel:baseline")
-    assert len(set(names)) == len(names)
+    result = model.inference(future, n_samples=5)
+    window = ModelSource(model).window("query")
+    assert window.components[:4] == (
+        "baseline",
+        "search",
+        "channel:baseline",
+        "control:channel:baseline",
+    )
+    assert len(set(window.components)) == len(window.components)
+    for name in ("channel:baseline", "control:channel:baseline"):
+        index = result.component_names.index(name)
+        np.testing.assert_array_equal(window.contribution(name), result.components[..., index])
+
+
+@pytest.mark.parametrize(
+    ("value", "label"),
+    [(950, "950"), (999.5, "1k"), (12_500, "12.5k"), (999_999, "1M"), (-1_234.5, "-1.23k")],
+)
+def test_compact_labels_round_before_choosing_the_unit(value, label):
+    assert compact(value) == label
 
 
 def test_context_draws_are_sampled_once_and_shared_with_build_idata(predicted_model):
@@ -151,7 +188,7 @@ def test_plotly_inputs_match_matplotlib(predicted_model, chart_frames):
     set_backend("plotly")
     fig = predicted_model.plot.inputs()
     assert isinstance(fig, go.Figure)
-    assert [trace.name for trace in fig.data] == ["sales", "search", "tv", "temperature"]
+    assert [trace.name for trace in fig.data] == ["outcome", "search", "tv", "temperature"]
     np.testing.assert_array_equal(
         fig.data[0].y, np.concatenate([history["sales"], future["sales"]])
     )

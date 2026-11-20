@@ -167,11 +167,29 @@ quartodoc:
             - inference
             - build_idata
             - idata
+            - plot
+            - response_curves
             - compile_sampling
             - disable_compiled_sampling
             - sampling_status
             - predict_batch
         - model.ModelConfig
+    - title: Charts
+      desc: Matplotlib or plotly charts of a model's latest context and inference.
+      contents:
+        - name: plotting.ModelPlots
+          members:
+            - inputs
+            - fit
+            - contributions_over_time
+            - shares
+            - contribution_totals
+            - contribution_vs_media
+            - response_curves
+        - plotting.set_backend
+        - name: inference.curves.ResponseCurves
+          members:
+            - to_frame
     - title: Inference
       desc: Array-level decomposition, results and warm-up for long-running processes.
       contents:

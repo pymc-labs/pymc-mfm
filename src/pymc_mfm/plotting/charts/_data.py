@@ -31,8 +31,8 @@ class Window:
     ``draws`` is ``[sample, week, component]`` in outcome units; ``components`` are
     display names (``"tv"``, not ``"channel:tv"``) and ``families`` their component
     families. ``outcome`` is the observed outcome by week (NaN where unobserved), or
-    ``None`` when none was supplied. ``spend`` is raw weekly spend, one column per
-    name in ``channels``.
+    ``None`` when none was supplied. ``media`` holds the raw weekly media covariates,
+    one column per name in ``channels``.
     """
 
     name: str
@@ -42,8 +42,7 @@ class Window:
     draws: np.ndarray
     outcome: np.ndarray | None
     channels: tuple[str, ...]
-    spend: np.ndarray
-    target: str
+    media: np.ndarray
     units: str
 
     @property
@@ -64,7 +63,8 @@ def display_names(result: DecompositionResult) -> tuple[np.ndarray, tuple[str, .
     """Indices and display names of the active components of ``result``.
 
     Channels and controls drop their family prefix. A name that would then appear
-    twice (a channel named ``baseline``, say) keeps its full component name.
+    twice (a channel named ``baseline``, say) keeps its full component name, until
+    every name is unique; full component names are unique, so this ends.
     """
     channels, controls = iter(result.channel_names), iter(result.control_names)
     plain = []
@@ -76,12 +76,14 @@ def display_names(result: DecompositionResult) -> tuple[np.ndarray, tuple[str, .
         else:
             plain.append(name)
     active = np.flatnonzero(result.component_mask)
-    counts = Counter(plain[index] for index in active)
-    names = tuple(
-        plain[index] if counts[plain[index]] == 1 else result.component_names[index]
-        for index in active
-    )
-    return active, names
+    names = {index: plain[index] for index in active}
+    while True:
+        counts = Counter(names.values())
+        repeated = [index for index, name in names.items() if counts[name] > 1]
+        if not repeated:
+            return active, tuple(names.values())
+        for index in repeated:
+            names[index] = result.component_names[index]
 
 
 def interval_quantiles(interval: float) -> tuple[float, float]:
@@ -108,7 +110,7 @@ def window_weeks(window: Window) -> str:
 
 
 def checked_names(names: Sequence[str], available: Sequence[str], role: str) -> tuple[str, ...]:
-    """``names`` as a tuple, each one of ``available``; ``role`` names them in errors."""
+    """``names`` as a tuple, each one of ``available`` once; ``role`` names them in errors."""
     if isinstance(names, str):
         raise ValueError(f"{role} must be a sequence of names, not a string")
     names = tuple(names)
@@ -117,6 +119,9 @@ def checked_names(names: Sequence[str], available: Sequence[str], role: str) -> 
     unknown = [name for name in names if name not in available]
     if unknown:
         raise ValueError(f"unknown {role} {unknown}; available: {list(available)}")
+    repeated = [name for name, count in Counter(names).items() if count > 1]
+    if repeated:
+        raise ValueError(f"{role} repeat {repeated}; name each once")
     return names
 
 
@@ -172,7 +177,7 @@ class ModelSource:
 
     def response_curves(self) -> ResponseCurves:
         """The latest ``model.response_curves`` of the current prediction; raises before one."""
-        self.history()
+        self.require_prediction()
         curves = self._model._response_curves
         if curves is None:
             raise RuntimeError("call model.response_curves(...) first")
@@ -190,12 +195,12 @@ class ModelSource:
         length = len(history.dates)
         if name == "context":
             result = self._model._context_result()
-            dates, outcome, spend = history.dates, history.outcome, history.spend
+            dates, outcome, media = history.dates, history.outcome, history.spend
         else:
             result = prediction.query
             dates = prediction.time[length:]
             outcome = prediction.query_outcome
-            spend = prediction.observations["spend"][length:]
+            media = prediction.observations["spend"][length:]
         active, names = display_names(result)
         return Window(
             name=name,
@@ -205,8 +210,7 @@ class ModelSource:
             draws=result.components[:, :, active],
             outcome=outcome,
             channels=history.channel_columns,
-            spend=spend,
-            target=history.target_column,
+            media=media,
             units=result.units,
         )
 
