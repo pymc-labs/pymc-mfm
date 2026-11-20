@@ -590,19 +590,32 @@ def host_size(shape: tuple[int, ...], dtype: torch.dtype, uniform: bool) -> int:
 
 
 def draw_host(
-    shape: tuple[int, ...], dtype: torch.dtype, uniform: bool, out: Tensor | None = None
+    shape: tuple[int, ...],
+    dtype: torch.dtype,
+    uniform: bool,
+    out: Tensor | None = None,
+    generator: torch.Generator | None = None,
 ) -> HostNoise:
     """Consume the CPU generator exactly as ``torch.randn(shape, dtype=dtype)`` does.
 
     ``uniform`` (from :func:`uniform_normals`) draws only the uniforms, about 3.5 times
     faster on the CPU, for the GPU to transform. ``out`` optionally receives the values:
     a contiguous 1-D host tensor of :func:`host_size` elements and the drawn dtype.
+    ``generator`` is a CPU generator to draw from; ``None`` uses the global one.
     """
     if uniform and dtype == torch.float32 and math.prod(shape) >= 16:
         size = host_size(shape, dtype, uniform)
-        values = torch.rand(size) if out is None else out.uniform_()
+        values = (
+            torch.rand(size, generator=generator)
+            if out is None
+            else out.uniform_(generator=generator)
+        )
         return HostNoise(values, tuple(shape), True)
-    values = torch.randn(shape, dtype=dtype) if out is None else out.normal_()
+    values = (
+        torch.randn(shape, dtype=dtype, generator=generator)
+        if out is None
+        else out.normal_(generator=generator)
+    )
     return HostNoise(values, tuple(shape), False)
 
 

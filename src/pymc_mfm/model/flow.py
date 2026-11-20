@@ -123,6 +123,29 @@ def _sample_count(value: object, name: str = "n_samples") -> int:
     return int(value)
 
 
+def _random_seed(value: object) -> int | None:
+    """Validate a seed: ``None`` or an integer from 0 to 2**31-1, never a bool or a float."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Integral) or not 0 <= value < 2**31:
+        raise ValueError("random_seed must be None or an integer from 0 to 2**31-1")
+    return int(value)
+
+
+def _sampling_generator(seed: int | None, device: torch.device) -> torch.Generator | None:
+    """A generator for one call's draws, seeded with ``seed``; ``None`` for no seed.
+
+    The generator lives on the device that draws the base noise for ``device`` (see
+    :func:`_noise_device`) and is private to the call, so a seeded call never reads or
+    changes PyTorch's global generators. With ``None`` the draws use the global CPU
+    generator and advance it.
+    """
+    seed = _random_seed(seed)
+    if seed is None:
+        return None
+    return torch.Generator(device=_noise_device(device)).manual_seed(seed)
+
+
 def _sample_rows(kernels: bool) -> int:
     """State rows per sampling velocity evaluation, for a transport that runs the fused GPU
     kernels (``kernels``) or PyTorch operations."""
@@ -279,16 +302,18 @@ def _draw_host_noise(
     dtype: torch.dtype,
     uniform: bool,
     out: tuple[Tensor, Tensor] | None = None,
+    generator: torch.Generator | None = None,
 ) -> tuple[_metal.HostNoise, _metal.HostNoise]:
     """:meth:`JointFlowHead._draw_noise` drawn on the host for the GPU to finish.
 
     White noise, then the rank-four latents; see :func:`_metal.draw_host`. ``out``
-    optionally holds the two flat host tensors that receive them.
+    optionally holds the two flat host tensors that receive them. ``generator`` is a
+    CPU generator; ``None`` draws from the global one.
     """
     white, z = (None, None) if out is None else out
     return (
-        _metal.draw_host(shape, dtype, uniform, white),
-        _metal.draw_host(_latent_shape(shape), dtype, uniform, z),
+        _metal.draw_host(shape, dtype, uniform, white, generator),
+        _metal.draw_host(_latent_shape(shape), dtype, uniform, z, generator),
     )
 
 
@@ -315,7 +340,8 @@ class _NoisePrefetch:
     GPU sampling draws its noise on the CPU (see :func:`_noise_device`). Requesting the
     chunks as soon as their shapes are known overlaps the generator with GPU work. One
     worker draws the requests in submission order, so the noise equals drawing it inline,
-    provided nothing else draws random numbers until :meth:`close` returns. A request's
+    provided nothing else draws from the same generator until :meth:`close` returns: the
+    global one, or the call's own ``generator`` passed to :meth:`request`. A request's
     chunks land end to end in one buffer per kind, which the GPU copy reads directly;
     ``pin`` (for CUDA) page-locks those buffers so the copy does not wait.
     """
@@ -326,7 +352,12 @@ class _NoisePrefetch:
         # Decided here: the check runs GPU work, which stays on the calling thread.
         self._uniform = _metal.uniform_normals()
 
-    def request(self, shapes: list[tuple[int, ...]], dtype: torch.dtype) -> _NoiseRequest:
+    def request(
+        self,
+        shapes: list[tuple[int, ...]],
+        dtype: torch.dtype,
+        generator: torch.Generator | None = None,
+    ) -> _NoiseRequest:
         sizes = [
             (
                 _metal.host_size(tuple(shape), dtype, self._uniform),
@@ -343,7 +374,9 @@ class _NoisePrefetch:
         for shape, (white_size, z_size) in zip(shapes, sizes, strict=True):
             out = (white[white_start : white_start + white_size], z[z_start : z_start + z_size])
             chunks.append(
-                self._worker.submit(_draw_host_noise, tuple(shape), dtype, self._uniform, out)
+                self._worker.submit(
+                    _draw_host_noise, tuple(shape), dtype, self._uniform, out, generator
+                )
             )
             white_start += white_size
             z_start += z_size
@@ -764,11 +797,23 @@ class JointFlowHead(nn.Module):
 
     @staticmethod
     def _draw_noise(
-        shape: tuple[int, ...], *, device: torch.device, dtype: torch.dtype
+        shape: tuple[int, ...],
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+        generator: torch.Generator | None = None,
     ) -> tuple[Tensor, Tensor]:
-        """The random part of :meth:`_base_noise`: white noise, then rank-four latents."""
-        white = torch.randn(shape, device=device, dtype=dtype)
-        z = torch.randn((*shape[:-2], shape[-1], _TRAJECTORY_RANK), device=device, dtype=dtype)
+        """The random part of :meth:`_base_noise`: white noise, then rank-four latents.
+
+        ``generator`` must live on ``device``; ``None`` draws from the global generator.
+        """
+        white = torch.randn(shape, device=device, dtype=dtype, generator=generator)
+        z = torch.randn(
+            (*shape[:-2], shape[-1], _TRAJECTORY_RANK),
+            device=device,
+            dtype=dtype,
+            generator=generator,
+        )
         return white, z
 
     def _mix_noise(self, white: Tensor, z: Tensor, weekly_repr: Tensor) -> tuple[Tensor, Tensor]:
@@ -1023,6 +1068,7 @@ class JointFlowHead(nn.Module):
         *,
         noise: _NoiseRequest | None = None,
         graph_only: bool = False,
+        generator: torch.Generator | None = None,
     ) -> Tensor:
         """Draw decomposition trajectories and, for the router, full graph states.
 
@@ -1030,6 +1076,8 @@ class JointFlowHead(nn.Module):
         draws base noise in chunks of ``_FLOW_SAMPLE_CHUNK`` draws; seeded draws
         depend on that chunking but not on how draws are batched for transport.
         ``noise`` optionally supplies those chunks, prefetched for :meth:`noise_shapes`.
+        ``generator`` (see :func:`_sampling_generator`) supplies the base noise instead of
+        PyTorch's global generator; it is ignored when ``noise`` is given.
         With ``graph_only`` only the graph coordinates are draws: the decomposition
         coordinates skip work no graph coordinate depends on (their final Euler step on
         the GPU, the support rules), so they are left unfinished.
@@ -1050,7 +1098,8 @@ class JointFlowHead(nn.Module):
             raise ValueError("prefetched noise does not match the sampled draws")
         if noise_device == device:
             drawn = [
-                self._draw_noise(shape, device=device, dtype=weekly_repr.dtype) for shape in shapes
+                self._draw_noise(shape, device=device, dtype=weekly_repr.dtype, generator=generator)
+                for shape in shapes
             ]
             x, trajectory_latent = self._mix_noise(
                 torch.cat([white for white, _ in drawn]),
@@ -1064,7 +1113,10 @@ class JointFlowHead(nn.Module):
         else:
             if noise is None:
                 uniform = _metal.uniform_normals()
-                chunks = (_draw_host_noise(shape, weekly_repr.dtype, uniform) for shape in shapes)
+                chunks = (
+                    _draw_host_noise(shape, weekly_repr.dtype, uniform, None, generator)
+                    for shape in shapes
+                )
             else:
                 chunks = iter(noise)
             draws = _OrderedNoise(self, chunks, weekly_repr)

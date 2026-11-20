@@ -47,7 +47,6 @@ installs PyTorch.
 ```python
 import numpy as np
 import pandas as pd
-import torch
 
 from pymc_mfm import from_pretrained
 
@@ -75,14 +74,25 @@ roles = {
 }
 # Preflight explicit inputs before sampling; no previous inference is required.
 usage = model.input_usage(history, future, **roles)
-torch.manual_seed(0)
-idata = model.inference(history, future, **roles, n_samples=500)
+idata = model.inference(history, future, **roles, n_samples=500, random_seed=0)
 assert idata is model.idata
 query = model.query_result  # exact query draw bank for components, diagnostics and graphs
 
 query.components.shape  # (500, 24, D): [draw, week, component]
 query.component_names  # ('baseline', 'channel:search', 'channel:social', ..., 'indirect:dc')
 ```
+
+`random_seed` replays the same random numbers: the same seed and inputs give the same
+draws. The outputs agree up to floating-point round-off. They can differ slightly
+across devices, thread counts, and compiled or eager runs. On a CPU with the
+same thread count, a repeat gives the same result. A seeded call uses its own generator
+and does not draw from or seed PyTorch's global random state, so other models and `torch`
+calls cannot disturb it. After `compile_sampling()`, PyTorch itself saves and restores the global state while it compiles, which can undo global draws that another thread makes in that time. In `inference` the context window
+continues the query window's stream. The model tree (`idata`) records the seed; the result
+of `predict` or `decompose` does not, so keep the seed yourself if you save one. Without
+`random_seed`, a call draws from PyTorch's global generator and advances it, so
+`torch.manual_seed` before the call still sets the draws and each call gives new ones.
+`predict` and `response_curves` take the same keyword.
 
 `inference` snapshots the explicit history, query and column roles and samples both
 windows before returning their complete `xarray.DataTree`. It stores that same tree
@@ -417,8 +427,9 @@ or `--device cuda`):
 - GPU sampling draws its base noise with PyTorch's CPU generator, so a seeded call draws
   the same samples on CPU, Apple and NVIDIA GPUs up to float32 round-off (identical graphs
   on these inputs on an Apple M3 Max and NVIDIA T4, A10G, L4, A100 and H100). The noise is
-  drawn on a worker thread while the GPU runs; do not draw random numbers from other
-  threads during a call. CUDA sampling used to draw with the CUDA generator.
+  drawn on a worker thread while the GPU runs; without `random_seed`, do not draw random
+  numbers from other threads during a call. A seeded call draws from its own generator.
+  CUDA sampling used to draw with the CUDA generator.
 - Each Euler step runs one kernel per coordinate network that computes its first layer,
   its hidden product and its output without writing activations to memory: Metal on Apple
   GPUs; CUDA C++ on NVIDIA GPUs, compiled by NVRTC, which PyTorch's CUDA wheels include
@@ -485,9 +496,11 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
   up with worlds, draw counts and modes like the ones you serve. `compiles` counts
   every compilation, so a later increase shows an input the warm-up did not cover.
 - Compiled draws follow the eager distribution; they agree with eager draws up to
-  float round-off but are not bit-identical. With a fixed seed, serialized calls on one
-  device repeat their draws, including a call that compiles. Sampling uses PyTorch's
-  process-wide random generator, so run warm-up before other threads sample.
+  float round-off but are not bit-identical. With a fixed seed, a call replays the same
+  random numbers, including a call that compiles. Without a seed, sampling uses PyTorch's
+  process-wide random generator, so run warm-up before other threads sample. While it
+  compiles, PyTorch saves and restores that generator's state, so global draws that another
+  thread makes in that time can repeat.
 - PyTorch's compile cache (`TORCHINDUCTOR_CACHE_DIR`) lets a restarted process reuse
   earlier compilations. A compiler failure warns, returns the model to eager sampling and
   shows in `sampling_status.fallback`. `model.disable_compiled_sampling()` switches it off.

@@ -12,7 +12,7 @@ from conftest import needs_arviz
 from safetensors import safe_open
 from safetensors.torch import load_file
 
-from pymc_mfm.inference.api import decompose
+from pymc_mfm.inference.api import _decompose, decompose, observation_batch
 from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.inference.hub import from_pretrained
 from pymc_mfm.inference.result import DecompositionResult
@@ -66,6 +66,8 @@ def _canonical_result(
     *,
     channel_columns=CHANNELS,
     control_columns=CONTROLS,
+    channel_names=None,
+    latent_mask=None,
     **kwargs,
 ):
     """Build the reference independently of the dataframe adapter, including padding."""
@@ -81,9 +83,11 @@ def _canonical_result(
             "context_outcome": history["sales"].to_numpy(dtype=np.float64),
             "channel_mask": np.ones(len(channel_columns), dtype=bool),
             "control_mask": np.arange(model.config.n_controls) < len(control_columns),
-            "latent_mask": np.ones(model.config.n_demand, dtype=bool),
+            "latent_mask": np.ones(model.config.n_demand, dtype=bool)
+            if latent_mask is None
+            else latent_mask,
         },
-        channel_names=channel_columns,
+        channel_names=channel_columns if channel_names is None else channel_names,
         control_names=control_names,
         time=pd.to_datetime(combined["date"]).to_numpy(dtype="datetime64[ns]"),
         **kwargs,
@@ -1468,3 +1472,383 @@ def test_loaded_recorded_model_replays_both_windows_and_curves_without_derived_p
     assert curve_tree.attrs["units"] == "outcome"
     assert curve_tree.attrs["n_samples"] == 2 and curve_tree.attrs["weeks"] == 1
     assert loaded.artifact_metadata["provenance"]["training_evaluation"] == recorded
+
+
+def _seeding_options(model, mode):
+    options = {"n_samples": 3, "mode": mode}
+    layout = EdgeSlotLayout(len(CHANNELS), model.config.n_controls, model.config.n_demand)
+    graph = np.zeros(layout.n_slots)
+    graph[layout.slices["cy"].start] = 1
+    if mode == "fixed":
+        options["graph"] = graph
+    elif mode == "map":
+        options["router_samples"] = 5
+    return options
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+def test_a_seed_equals_manual_seed_before_the_call(model, history, future, mode):
+    options = _seeding_options(model, mode)
+    torch.manual_seed(0)
+    expected = model.inference(history, future, **COLUMN_ROLES, **options)
+    torch.manual_seed(99)
+    caller_state = torch.get_rng_state()
+    seeded = model.inference(history, future, **COLUMN_ROLES, **options, random_seed=0)
+    # The seeded call draws the stream of manual_seed(0) from its own generator.
+    assert torch.equal(torch.get_rng_state(), caller_state)
+    xr.testing.assert_equal(seeded["context"], expected["context"])
+    xr.testing.assert_equal(seeded["query"], expected["query"])
+    predicted = model.predict(future, **options, random_seed=0)
+    assert torch.equal(torch.get_rng_state(), caller_state)
+    torch.manual_seed(0)
+    _assert_same_result(model.predict(future, **options), predicted)
+
+
+def test_a_seed_repeats_inference_and_predict_draws(model, history, future):
+    first = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=11)
+    first_predicted = model.predict(future, n_samples=4, random_seed=12)
+    second = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=11)
+    xr.testing.assert_equal(first, second)
+    _assert_same_result(model.predict(future, n_samples=4, random_seed=12), first_predicted)
+    other = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=13)
+    with pytest.raises(AssertionError):
+        xr.testing.assert_equal(other["query"], first["query"])
+
+
+def test_no_seed_draws_from_and_advances_the_callers_generator(model, history, future):
+    torch.manual_seed(3)
+    before = torch.get_rng_state()
+    unseeded = model.inference(history, future, **COLUMN_ROLES, n_samples=4)
+    after = torch.get_rng_state()
+    assert not torch.equal(after, before)
+    seeded = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=3)
+    xr.testing.assert_equal(unseeded["query"], seeded["query"])
+    assert torch.equal(torch.get_rng_state(), after)
+    # Without a seed a second call continues the stream and draws new numbers.
+    again = model.inference(history, future, **COLUMN_ROLES, n_samples=4)
+    with pytest.raises(AssertionError):
+        xr.testing.assert_equal(again["query"], unseeded["query"])
+
+
+def test_a_failed_seeded_call_leaves_the_generator_unchanged(model, history, future, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("context sampling failed")
+
+    monkeypatch.setattr(model, "_sample_context", fail)
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(RuntimeError, match="context sampling failed"):
+        model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=7)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+def _second_model():
+    from pymc_mfm.model.config import ModelConfig
+    from pymc_mfm.model.model import MFM
+
+    torch.manual_seed(77)
+    config = ModelConfig(
+        d_model=8, n_layers=1, n_heads=2, d_ff=16, flow_hidden=16, n_controls=2, n_demand=2
+    )
+    return MFM(config).eval()
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map"])
+def test_a_seeded_call_ignores_other_models_and_global_torch_use(
+    model, history, future, monkeypatch, mode
+):
+    options = {"n_samples": 3, "mode": mode, "random_seed": 7}
+    model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    isolated = model.predict(future, **options)
+    other = _second_model()
+    other.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    head = type(model.head)
+    draw_noise = head._draw_noise
+    interleaved = []
+
+    def interleave(*args, **kwargs):
+        # Everything a second caller can do to the global state, between seed and draws.
+        if not interleaved:
+            interleaved.append(True)
+            other.predict(future, n_samples=2, random_seed=99)
+            other.predict(future, n_samples=2)
+            torch.manual_seed(5)
+            torch.rand(3)
+        return draw_noise(*args, **kwargs)
+
+    monkeypatch.setattr(head, "_draw_noise", staticmethod(interleave))
+    replayed = model.predict(future, **options)
+    assert interleaved
+    _assert_same_result(replayed, isolated)
+
+
+def test_a_seeded_call_leaves_the_global_generator_state_unchanged(model, history, future):
+    torch.manual_seed(4)
+    before = torch.get_rng_state()
+    model.inference(history, future, **COLUMN_ROLES, n_samples=3, random_seed=1)
+    model.predict(future, n_samples=3, random_seed=1)
+    model.response_curves(levels=[0, 2], weeks=1, n_samples=2, random_seed=1)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+def _inactive_node_graph():
+    """A fixed graph with an edge on the second control slot, which the data leaves padded."""
+    layout = EdgeSlotLayout(len(CHANNELS), 2, 2)
+    graph = np.zeros(layout.n_slots)
+    graph[layout.slices["zb"].start + 1] = 1
+    return graph
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param({"mode": "bogus"}, id="mode"),
+        pytest.param({"mode": "fixed"}, id="missing-graph"),
+        pytest.param({"graph": np.zeros(3)}, id="graph-without-fixed"),
+        pytest.param({"mode": "fixed", "graph": np.zeros(3)}, id="graph-wrong-shape"),
+        pytest.param({"mode": "fixed", "graph": _inactive_node_graph()}, id="graph-inactive-node"),
+        pytest.param({"n_samples": 0}, id="n_samples"),
+        pytest.param({"units": ""}, id="units"),
+        pytest.param({"provenance": "text"}, id="provenance"),
+    ],
+)
+def test_an_invalid_argument_with_a_seed_leaves_the_generator_unchanged(
+    model, history, future, options
+):
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError):
+        model.inference(
+            history, future, **COLUMN_ROLES, **{"n_samples": 2, **options}, random_seed=7
+        )
+    assert torch.equal(torch.get_rng_state(), before)
+    assert model.idata is None
+
+
+@pytest.mark.parametrize("seed", [None, 7])
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+def test_a_request_with_no_active_demand_entity_changes_no_random_state(
+    model, history, future, mode, seed
+):
+    options = _seeding_options(model, mode)
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="no active demand entities"):
+        _canonical_result(
+            model,
+            history,
+            future,
+            ("temperature", "pad"),
+            latent_mask=np.zeros(model.config.n_demand, dtype=bool),
+            random_seed=seed,
+            **options,
+        )
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+def test_the_public_decompose_signature_has_no_private_parameters():
+    import inspect
+
+    names = list(inspect.signature(decompose).parameters)
+    assert names[-1] == "random_seed" and not [name for name in names if name.startswith("_")]
+
+
+def _raw_world(model):
+    steps = 8
+    rng = np.random.default_rng(0)
+    return {
+        "spend": rng.uniform(1.0, 5.0, (steps, 2)),
+        "controls": rng.uniform(0.0, 1.0, (steps, model.config.n_controls)),
+        "context_outcome": np.arange(5.0) + 100.0,
+    }
+
+
+def _encoded_world(model, case):
+    """An encoded batch that the model must reject, or the raw inputs when that is the way in."""
+    raw = _raw_world(model)
+    if case == "raw-no-media":
+        # observation_batch refuses this itself (api.py), before any model code runs.
+        return {**raw, "channel_mask": np.zeros(2, dtype=bool)}
+    batch = observation_batch(**raw, model_config=model.config)
+    if case == "encoded-no-latent":
+        batch["active_j_mask"] = torch.zeros_like(batch["active_j_mask"])
+    else:
+        batch["active_c_mask"] = torch.zeros_like(batch["active_c_mask"])
+    return batch
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("encoded-no-latent", "no active demand entities"),
+        ("encoded-no-media", "no active media channels"),
+        ("raw-no-media", "at least one represented entity"),
+    ],
+)
+def test_a_rejected_encoded_or_media_request_draws_nothing(model, mode, case, message):
+    options = _seeding_options(model, mode)
+    observations = _encoded_world(model, case)
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    for seed in (None, 7):
+        with pytest.raises(ValueError, match=message):
+            decompose(model, observations, random_seed=seed, **options)
+    assert torch.equal(torch.get_rng_state(), before)
+    # A seeded call owns its generator, so a shared one shows whether anything drew.
+    generator = torch.Generator().manual_seed(3)
+    state = generator.get_state()
+    with pytest.raises(ValueError, match=message):
+        _decompose(model, observations, generator=generator, **options)
+    assert torch.equal(generator.get_state(), state)
+
+
+def test_the_seed_is_in_the_tree_and_not_in_saved_evidence_or_its_digest(
+    model, history, future, tmp_path
+):
+    tree = model.inference(history, future, **COLUMN_ROLES, n_samples=3, random_seed=7)
+    saved = {}
+    for name, result in {
+        "predict7": model.predict(future, n_samples=3, random_seed=7),
+        "predict8": model.predict(future, n_samples=3, random_seed=8),
+        "unseeded": model.predict(future, n_samples=3),
+        "query": model.query_result,
+    }.items():
+        text = (result.save(tmp_path / name) / "result.json").read_text()
+        saved[name] = json.loads(text)
+        assert "random_seed" not in text
+        assert DecompositionResult.load(tmp_path / name).provenance == result.provenance
+    # The seed changes the draws and nothing in the metadata, so the digest is the same.
+    assert saved["predict7"]["metadata_sha256"] == saved["predict8"]["metadata_sha256"]
+    assert saved["predict7"]["metadata"] == saved["unseeded"]["metadata"]
+    assert saved["predict7"]["arrays_sha256"] != saved["predict8"]["arrays_sha256"]
+    # The tree records the seed; its window digests are those of the saved evidence.
+    assert tree.attrs["random_seed"] == 7
+    assert tree["query"].attrs["metadata_sha256"] == saved["query"]["metadata_sha256"]
+    assert "random_seed" not in tree["query"].attrs and "random_seed" not in tree["context"].attrs
+
+
+def test_a_rejected_request_starts_no_noise_prefetch(model, history, future, monkeypatch):
+    # Force the GPU path's prefetch on the CPU: noise is "drawn elsewhere" than the device.
+    from pymc_mfm.model import flow
+    from pymc_mfm.model import model as model_module
+
+    requests = []
+    request = flow._NoisePrefetch.request
+    monkeypatch.setattr(
+        flow._NoisePrefetch,
+        "request",
+        lambda self, *args: requests.append(args) or request(self, *args),
+    )
+    monkeypatch.setattr(model_module, "_noise_device", lambda device: torch.device("meta"))
+    for seed in (None, 7):
+        with pytest.raises(ValueError, match="no active demand entities"):
+            _canonical_result(
+                model,
+                history,
+                future,
+                ("temperature", "pad"),
+                latent_mask=np.zeros(model.config.n_demand, dtype=bool),
+                random_seed=seed,
+            )
+    assert requests == []
+
+
+def test_an_invalid_seed_leaves_every_module_mode_alone(model, history, future):
+    model.encoder.train()
+    modes = [module.training for module in model.modules()]
+    with pytest.raises(ValueError, match="random_seed"):
+        _canonical_result(model, history, future, ("temperature", "pad"), random_seed=-1)
+    assert [module.training for module in model.modules()] == modes
+
+
+@pytest.mark.parametrize("seed", [-1, 2**31, True, 1.5])
+def test_invalid_seeds_fail_before_sampling(model, history, future, seed):
+    model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="random_seed"):
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2, random_seed=seed)
+    with pytest.raises(ValueError, match="random_seed"):
+        model.predict(future, n_samples=2, random_seed=seed)
+    with pytest.raises(ValueError, match="random_seed"):
+        model.response_curves(n_samples=2, random_seed=seed)
+    assert torch.equal(torch.get_rng_state(), before)
+    assert model.idata.attrs["inference_revision"] == 1
+
+
+def test_the_root_records_the_seed_and_earlier_trees_keep_theirs(model, history, future):
+    first = model.inference(history, future, **COLUMN_ROLES, n_samples=2, random_seed=5)
+    second = model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    third = model.inference(history, future, **COLUMN_ROLES, n_samples=2, random_seed=0)
+    assert first.attrs["random_seed"] == 5
+    assert "random_seed" not in second.attrs
+    assert third.attrs["random_seed"] == 0
+    assert first.attrs["random_seed"] == 5
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param({"units": ""}, id="empty-units"),
+        pytest.param({"units": "\ud800"}, id="surrogate-units"),
+        pytest.param({"provenance": {"bad": float("nan")}}, id="nan-provenance"),
+        pytest.param({"provenance": {"bad": "\ud800"}}, id="surrogate-provenance"),
+    ],
+)
+def test_decompose_checks_units_and_provenance_before_seeding(model, history, future, options):
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError):
+        _canonical_result(
+            model, history, future, ("temperature", "pad"), n_samples=2, random_seed=7, **options
+        )
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        pytest.param(("temperature",), id="too-few"),
+        pytest.param(("pad", "pad"), id="repeated"),
+        pytest.param((1, 2), id="not-strings"),
+    ],
+)
+def test_decompose_checks_entity_names_before_seeding(model, history, future, names):
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="names"):
+        _canonical_result(model, history, future, names, n_samples=2, random_seed=7)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+@pytest.mark.parametrize("seed", [None, 7])
+def test_decompose_accepts_one_shot_name_iterators(model, history, future, seed):
+    names = ("temperature", "pad")
+    torch.manual_seed(2)
+    expected = _canonical_result(model, history, future, names, n_samples=2, random_seed=seed)
+    torch.manual_seed(2)
+    result = _canonical_result(
+        model,
+        history,
+        future,
+        iter(names),
+        channel_names=(name for name in CHANNELS),
+        n_samples=2,
+        random_seed=seed,
+    )
+    _assert_same_result(result, expected)
+    assert result.channel_names == CHANNELS and result.control_names == names
+
+
+def test_decompose_accepts_any_provenance_mapping(model, history, future):
+    from types import MappingProxyType
+
+    result = _canonical_result(
+        model,
+        history,
+        future,
+        ("temperature", "pad"),
+        n_samples=2,
+        provenance=MappingProxyType({"scenario": "plan"}),
+    )
+    assert result.provenance["scenario"] == "plan"

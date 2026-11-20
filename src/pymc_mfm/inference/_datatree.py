@@ -261,12 +261,14 @@ def prediction_datatree(
     prediction_snapshot: _PredictionSnapshot,
     *,
     revision: int,
+    random_seed: int | None = None,
 ) -> DataTree:
     """Build a complete model tree from the two completed, separately sampled marginals.
 
     Covariates and observations retain their original units. Query observations are
     already sanitized by the dataframe adapter and never participate in inference.
     Every window owns its axes; matching draw indices do not imply paired draws.
+    The root records ``random_seed`` when it is not ``None``.
     """
     xr, arviz_base = _require_arviz()
     history = prediction_snapshot.fitted_context
@@ -323,19 +325,25 @@ def prediction_datatree(
             "target_column": history.target_column,
             "channel_columns": json_bytes(history.channel_columns).decode("utf-8"),
             "control_columns": json_bytes(history.control_columns).decode("utf-8"),
+            **({} if random_seed is None else {"random_seed": random_seed}),
             **_NOTES,
         },
     )
 
 
 def attach_response_curves(
-    tree: DataTree, curves: ResponseCurves, prediction: _PredictionSnapshot
+    tree: DataTree,
+    curves: ResponseCurves,
+    prediction: _PredictionSnapshot,
+    *,
+    random_seed: int | None = None,
 ) -> DataTree:
     """Replace the entire curve subtree in a new root, retaining immutable draw buffers.
 
     Reconstruct nodes from datasets, never from live tree nodes. Shallow dataset copies
     retain the numeric buffers, while recursive metadata copies isolate mutable attrs
-    and encodings on every dataset, coordinate and data variable.
+    and encodings on every dataset, coordinate and data variable. The curve attrs
+    record ``random_seed`` when it is not ``None``.
     """
     xr, arviz_base = _require_arviz()
     attrs = {
@@ -350,6 +358,7 @@ def attach_response_curves(
             "levels are separate marginals: draws are not paired across levels; "
             "the unchanged reference may be reused across channels and zero-media levels"
         ),
+        **({} if random_seed is None else {"random_seed": random_seed}),
         **_NOTES,
     }
     if prediction.mode == "model_average":

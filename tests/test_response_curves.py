@@ -28,7 +28,7 @@ def matplotlib_default(monkeypatch):
 def recorded(monkeypatch):
     """Each ``decompose`` call of ``response_curves``: its inputs, options and result."""
     calls = []
-    decompose = api_module.decompose
+    decompose = api_module._decompose
 
     def record(model, observations, **options):
         result = decompose(model, observations, **options)
@@ -36,7 +36,7 @@ def recorded(monkeypatch):
         calls.append({"observations": inputs, "options": options, "result": result})
         return result
 
-    monkeypatch.setattr(api_module, "decompose", record)
+    monkeypatch.setattr(api_module, "_decompose", record)
     return calls
 
 
@@ -188,6 +188,98 @@ def test_a_seed_repeats_the_draws(forecast_model):
     torch.manual_seed(5)
     second = forecast_model.response_curves(levels=[0, 1], weeks=1, n_samples=4)
     np.testing.assert_array_equal(first.draws, second.draws)
+
+
+def test_random_seed_repeats_the_draws_and_is_recorded_in_the_curve_attrs(forecast_model):
+    options = {"levels": [0, 1], "weeks": 1, "n_samples": 4}
+    first = forecast_model.response_curves(**options, random_seed=5)
+    held = forecast_model.idata
+    second = forecast_model.response_curves(**options, random_seed=5)
+    np.testing.assert_array_equal(first.draws, second.draws)
+    assert held["response_curves"].attrs["random_seed"] == 5
+    forecast_model.response_curves(**options, random_seed=9)
+    assert forecast_model.idata["response_curves"].attrs["random_seed"] == 9
+    assert held["response_curves"].attrs["random_seed"] == 5
+    forecast_model.response_curves(**options)
+    assert "random_seed" not in forecast_model.idata["response_curves"].attrs
+    assert "random_seed" not in forecast_model.idata.attrs
+
+
+def test_no_seed_draws_from_and_advances_the_callers_generator(forecast_model):
+    options = {"levels": [0, 1], "weeks": 1, "n_samples": 4}
+    torch.manual_seed(3)
+    before = torch.get_rng_state()
+    unseeded = forecast_model.response_curves(**options)
+    after = torch.get_rng_state()
+    assert not torch.equal(after, before)
+    seeded = forecast_model.response_curves(**options, random_seed=3)
+    np.testing.assert_array_equal(unseeded.draws, seeded.draws)
+    assert torch.equal(torch.get_rng_state(), after)
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+def test_a_seed_equals_manual_seed_before_the_sweep(model, chart_frames, mode):
+    history, future = chart_frames
+    inference = {"n_samples": 3, "mode": mode}
+    if mode == "fixed":
+        layout = EdgeSlotLayout(2, model.config.n_controls, model.config.n_demand)
+        graphs = np.zeros((3, 1, layout.n_slots))
+        graphs[:, 0, layout.slices["cy"].start] = 1
+        inference["graph"] = graphs
+    elif mode == "map":
+        inference["router_samples"] = 5
+    model.inference(history, future, **CHART_ROLES, **inference)
+    forecast_model = model
+    options = {"levels": [0, 1, 2], "weeks": 1, "n_samples": 3}
+    torch.manual_seed(0)
+    expected = forecast_model.response_curves(**options)
+    torch.manual_seed(99)
+    caller_state = torch.get_rng_state()
+    seeded = forecast_model.response_curves(**options, random_seed=0)
+    assert torch.equal(torch.get_rng_state(), caller_state)
+    np.testing.assert_array_equal(seeded.draws, expected.draws)
+
+
+def test_a_failed_seeded_sweep_leaves_the_generator_unchanged(forecast_model, monkeypatch):
+    decompose = api_module._decompose
+    generators = []
+
+    def fail_second(*args, **kwargs):
+        generators.append(kwargs["generator"])
+        if len(generators) == 2:
+            raise RuntimeError("sampling failed")
+        return decompose(*args, **kwargs)
+
+    monkeypatch.setattr(api_module, "_decompose", fail_second)
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    with pytest.raises(RuntimeError, match="sampling failed"):
+        forecast_model.response_curves(levels=[0, 1, 2], weeks=1, n_samples=4, random_seed=7)
+    assert torch.equal(torch.get_rng_state(), before)
+    # Every run of the sweep draws from the one generator that the seed started.
+    assert generators[0] is generators[1] and generators[0] is not None
+
+
+def test_a_seeded_sweep_ignores_global_torch_use_between_runs(forecast_model, monkeypatch):
+    options = {"levels": [0, 1, 2], "weeks": 1, "n_samples": 4, "random_seed": 5}
+    isolated = forecast_model.response_curves(**options)
+    decompose = api_module._decompose
+
+    def disturb(*args, **kwargs):
+        torch.manual_seed(123)
+        torch.rand(5)
+        return decompose(*args, **kwargs)
+
+    monkeypatch.setattr(api_module, "_decompose", disturb)
+    np.testing.assert_array_equal(forecast_model.response_curves(**options).draws, isolated.draws)
+
+
+@pytest.mark.parametrize("seed", [-1, 2**31, True, 1.5])
+def test_invalid_seeds_fail_before_sampling(forecast_model, seed):
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match="random_seed"):
+        forecast_model.response_curves(levels=[0, 1], random_seed=seed)
+    assert torch.equal(torch.get_rng_state(), before)
 
 
 @pytest.mark.parametrize("mode", ["fixed", "map"])
@@ -363,7 +455,7 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
     snapshot = tree.copy(deep=True)
     query = forecast_model.query_result
     if failure == "sampling":
-        decompose = api_module.decompose
+        decompose = api_module._decompose
         calls = 0
 
         def fail_mid_sweep(*args, **kwargs):
@@ -374,7 +466,7 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
                 raise RuntimeError("curve sampling failed")
             return result
 
-        monkeypatch.setattr(api_module, "decompose", fail_mid_sweep)
+        monkeypatch.setattr(api_module, "_decompose", fail_mid_sweep)
     else:
 
         def fail_conversion(*args, **kwargs):

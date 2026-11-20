@@ -282,6 +282,141 @@ def test_validate_accepts_numpy_integer_attributes(tree):
     validate_idata(tree)
 
 
+_SEED_PLACES = ("/", "response_curves", "response_curves/posterior")
+_MAX_SEED = 2**31 - 1
+
+
+@pytest.fixture
+def seeded(model, chart_frames):
+    """A tree from a seeded inference (root seed 11) and seeded curves (seed 12)."""
+    history, future = chart_frames
+    model.inference(history, future, n_samples=4, random_seed=11, **CHART_ROLES)
+    model.response_curves(levels=[0, 1, 2], weeks=2, n_samples=3, random_seed=12)
+    return model.idata
+
+
+def _node(tree, place):
+    return tree if place == "/" else tree[place]
+
+
+def test_validate_accepts_a_tree_that_records_no_seed(tree):
+    for place in _SEED_PLACES:
+        assert "random_seed" not in _node(tree, place).attrs
+    validate_idata(tree)
+
+
+@pytest.mark.parametrize("place", _SEED_PLACES)
+@pytest.mark.parametrize(
+    "value", ["not-an-integer", "7", 7.0, True, None, -1, _MAX_SEED + 1, np.float64(7.0)]
+)
+def test_validate_rejects_a_malformed_recorded_seed_naming_the_path(seeded, place, value):
+    _node(seeded, place).attrs["random_seed"] = value
+    with pytest.raises(ValueError, match=rf"^/{place.strip('/')}: .*'random_seed'.*integer"):
+        validate_idata(seeded)
+
+
+@pytest.mark.parametrize("value", [0, 1, _MAX_SEED, np.int64(5)])
+def test_validate_accepts_a_seed_in_range_including_the_ends(seeded, value):
+    for place in _SEED_PLACES:
+        _node(seeded, place).attrs["random_seed"] = value
+    validate_idata(seeded)
+
+
+def test_validate_rejects_curve_seeds_that_disagree(seeded):
+    seeded["response_curves/posterior"].attrs["random_seed"] = 13
+    with pytest.raises(
+        ValueError, match=r"^/response_curves/posterior: .*random_seed.* is 13 .*records 12"
+    ):
+        validate_idata(seeded)
+    del seeded["response_curves/posterior"].attrs["random_seed"]
+    with pytest.raises(ValueError, match=r"^/response_curves/posterior: .*random_seed"):
+        validate_idata(seeded)
+
+
+def test_validate_accepts_curves_that_record_no_seed_under_a_seeded_root(seeded):
+    for place in ("response_curves", "response_curves/posterior"):
+        del seeded[place].attrs["random_seed"]
+    validate_idata(seeded)
+
+
+@pytest.mark.usefixtures("files")
+def test_a_seeded_tree_saves_loads_and_validates_with_its_seeds(seeded, tmp_path):
+    validate_idata(seeded)
+    assert seeded.attrs["random_seed"] == 11
+    assert seeded["response_curves"].attrs["random_seed"] == 12
+    save_idata(seeded, tmp_path / "seeded.nc")
+    loaded = load_idata(tmp_path / "seeded.nc")
+    validate_idata(loaded)
+    assert loaded.attrs["random_seed"] == 11
+    for place in ("response_curves", "response_curves/posterior"):
+        assert loaded[place].attrs["random_seed"] == 12
+
+
+@pytest.mark.usefixtures("files")
+def test_save_refuses_a_malformed_seed(seeded, tmp_path):
+    seeded.attrs["random_seed"] = "not-an-integer"
+    with pytest.raises(ValueError, match=r"^/: .*'random_seed'"):
+        save_idata(seeded, tmp_path / "bad.nc")
+    assert not (tmp_path / "bad.nc").exists()
+    seeded.attrs["random_seed"] = 11
+    seeded["response_curves"].attrs["random_seed"] = -1  # the probe: curve posterior says 12
+    with pytest.raises(ValueError, match=r"^/response_curves: .*'random_seed'"):
+        save_idata(seeded, tmp_path / "bad.nc")
+    assert not (tmp_path / "bad.nc").exists()
+
+
+@pytest.mark.parametrize(
+    ("group", "value", "message"),
+    [
+        ("/", "not-an-integer", r"^/: .*'random_seed'"),
+        ("/response_curves", -1, r"^/response_curves: .*'random_seed'"),
+        ("/response_curves/posterior", 13, r"^/response_curves/posterior: .*random_seed"),
+    ],
+)
+@pytest.mark.usefixtures("files")
+def test_load_refuses_a_file_that_holds_a_malformed_seed_and_closes_it(
+    seeded, tmp_path, group, value, message
+):
+    import h5py
+
+    path = tmp_path / "seeded.nc"
+    save_idata(seeded, path)  # a valid file; the seed is changed behind save's check
+    with h5py.File(path, "r+") as file:
+        file[group].attrs["random_seed"] = value
+    with pytest.raises(ValueError, match=message):
+        load_idata(path)
+    with h5py.File(path, "r+"):  # fails while the loader still holds the file
+        pass
+
+
+@pytest.mark.usefixtures("files")
+def test_a_seeded_file_validates_with_torch_blocked(seeded, tmp_path):
+    save_idata(seeded, tmp_path / "seeded.nc")
+    # The ends of the seed range; the curve group and its posterior must agree.
+    seeded.attrs["random_seed"] = 0
+    for place in ("response_curves", "response_curves/posterior"):
+        seeded[place].attrs["random_seed"] = _MAX_SEED
+    save_idata(seeded, tmp_path / "ends.nc")
+    run = _run(
+        """
+        import sys
+
+        sys.modules["torch"] = None
+        from pymc_mfm import load_idata, validate_idata
+
+        for path, root, curves in ((sys.argv[1], 11, 12), (sys.argv[2], 0, 2**31 - 1)):
+            tree = load_idata(path)
+            validate_idata(tree)
+            assert tree.attrs["random_seed"] == root
+            for place in ("response_curves", "response_curves/posterior"):
+                assert tree[place].attrs["random_seed"] == curves
+        """,
+        str(tmp_path / "seeded.nc"),
+        str(tmp_path / "ends.nc"),
+    )
+    assert run.returncode == 0, run.stderr
+
+
 @pytest.mark.usefixtures("files")
 def test_save_never_overwrites_and_leaves_no_temporary_file(tree, tmp_path):
     path = tmp_path / "tree.nc"

@@ -7,6 +7,13 @@
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
 reason = "Paired-inference migration of the reviewed synthetic-data quickstart: editable source/markdown cells now use explicit input_usage and complete inference with model.query_result, document return_idata and isolated predict, and retain every graph catalog/topology/DOT/SVG example. The 15 previously reviewed PNG outputs and unchanged numeric/text output representations are preserved; no weights were downloaded and no outputs regenerated for this source-only migration. Headless runtime acceptance uses a synthetic stand-in and native Graphviz. These exact bytes are pinned; reruns require a new review/hash in the same pull request. Malformed-image findings are never covered."
+sha256 = "e18759ab22e7753cf803617d10e10d83d259a14e13da37a5fdc1b5865a589b3b"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed paired-inference quickstart before random_seed replaced torch.manual_seed in its source cells. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
 sha256 = "5d17b5c0c1fcca5a057a18585cc04fa829844737689017a1e37a917b71976c12"
 max_bytes = 3000000
 
