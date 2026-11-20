@@ -7,7 +7,7 @@ import torch
 from conftest import CHART_ROLES
 
 from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import ModelSource
+from pymc_mfm.plotting.charts._data import IdataReader
 
 pytest.importorskip("matplotlib")
 
@@ -69,7 +69,7 @@ def _history_truth(history, **columns):
 
 def test_totals_bin_each_channel_and_control_per_draw_total(predicted_model):
     fig = predicted_model.plot.contribution_totals()
-    context = ModelSource(predicted_model).window("context")
+    context = IdataReader(predicted_model.idata).window("context")
     panels = _panels(fig)
     assert [ax.get_title(loc="left") for ax in panels] == ["search", "tv", "temperature"]
     for ax in panels:
@@ -96,14 +96,14 @@ def test_forecast_totals_of_any_component_with_truth_never_resample(predicted_mo
     truth = pd.DataFrame(
         {"baseline": rng.normal(200.0, 5.0, 30), "tv": rng.uniform(0.0, 50.0, 30)}, index=weeks
     ).iloc[::-1]  # any row order; weeks outside the window are ignored
-    context = predicted_model._context_result()
+    tree = predicted_model.idata
     state = torch.get_rng_state()
     fig = predicted_model.plot.contribution_totals(
         window="query", components=["baseline", "tv"], interval=0.5, bins=7, truth=truth
     )
-    assert predicted_model._context_result() is context
+    assert predicted_model.idata is tree
     assert torch.equal(torch.get_rng_state(), state)
-    query = ModelSource(predicted_model).window("query")
+    query = IdataReader(predicted_model.idata).window("query")
     for ax, name in zip(fig.axes, ["baseline", "tv"], strict=True):
         assert ax.get_title(loc="left") == name
         totals = query.contribution(name).sum(axis=1)
@@ -190,7 +190,7 @@ def test_plotly_totals_draw_the_matplotlib_numbers(predicted_model, chart_frames
 def test_contribution_vs_media_plots_each_week_at_its_value(predicted_model, chart_frames):
     history, _ = chart_frames
     fig = predicted_model.plot.contribution_vs_media()
-    context = ModelSource(predicted_model).window("context")
+    context = IdataReader(predicted_model.idata).window("context")
     assert [ax.get_title(loc="left") for ax in fig.axes] == ["search", "tv"]
     for ax in fig.axes:
         name = ax.get_title(loc="left")
@@ -214,12 +214,12 @@ def test_truth_crosses_align_by_date_without_resampling(predicted_model, chart_f
     truth = pd.DataFrame(
         {"tv": np.arange(6.0) * 10, "baseline": 1.0}, index=pd.DatetimeIndex(future["date"])
     )
-    context = predicted_model._context_result()
+    tree = predicted_model.idata
     state = torch.get_rng_state()
     fig = predicted_model.plot.contribution_vs_media(
         window="query", channels=["tv"], truth=truth.iloc[[3, 0, 5, 1, 4]]
     )
-    assert predicted_model._context_result() is context
+    assert predicted_model.idata is tree
     assert torch.equal(torch.get_rng_state(), state)
     [ax] = fig.axes
     assert ax.get_title(loc="left") == "tv"
@@ -228,7 +228,7 @@ def test_truth_crosses_align_by_date_without_resampling(predicted_model, chart_f
     crosses = _points(ax, "Truth")
     np.testing.assert_array_equal(crosses[:, 1], expected)
     np.testing.assert_array_equal(crosses[:, 0], np.where(np.isnan(expected), np.nan, future["tv"]))
-    query = ModelSource(predicted_model).window("query")
+    query = IdataReader(predicted_model.idata).window("query")
     np.testing.assert_allclose(_points(ax, "Mean")[:, 1], query.contribution("tv").mean(axis=0))
 
 
@@ -268,7 +268,7 @@ def test_a_channel_named_like_a_component_keeps_its_own_media_covariate(model, c
     assert ax.get_title(loc="left") == "channel:baseline"
     points = _points(ax, "Mean")
     np.testing.assert_array_equal(points[:, 0], future["baseline"])
-    query = ModelSource(model).window("query")
+    query = IdataReader(model.idata).window("query")
     np.testing.assert_allclose(points[:, 1], query.contribution("channel:baseline").mean(axis=0))
 
 

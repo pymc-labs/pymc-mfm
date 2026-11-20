@@ -6,7 +6,7 @@ import torch
 from conftest import CHART_ROLES
 
 from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import ModelSource, Window, summarize
+from pymc_mfm.plotting.charts._data import IdataReader, Window, summarize
 from pymc_mfm.plotting.charts.fit import fit, prepare
 
 pytest.importorskip("matplotlib")
@@ -94,7 +94,7 @@ def test_fit_draws_each_window_apart_over_the_observed_outcome(predicted_model, 
     np.testing.assert_array_equal(
         actual.get_ydata(), np.concatenate([history["sales"], future["sales"]])
     )
-    source = ModelSource(predicted_model)
+    source = IdataReader(predicted_model.idata)
     weeks = {"context": slice(0, 24), "query": slice(24, 30)}
     for line, band, name in zip(means, ax.collections, weeks, strict=True):
         mean, low, high = summarize(source.window(name).expected, 0.8)
@@ -111,7 +111,7 @@ def test_fit_draws_each_window_apart_over_the_observed_outcome(predicted_model, 
 
 
 def test_fit_scores_each_observed_window_on_its_card(predicted_model):
-    source = ModelSource(predicted_model)
+    source = IdataReader(predicted_model.idata)
     data = prepare(source, interval=0.8)
     cards = _cards(predicted_model.plot.fit(interval=0.8))
     for score, card, name in zip(data.scores, cards, _LABELS, strict=True):
@@ -182,7 +182,7 @@ def test_fit_reads_both_completed_windows_without_sampling(predicted_model, char
     assert torch.equal(torch.get_rng_state(), state)
     ax = fig.axes[0]
     line, actual = ax.lines
-    mean, low, high = summarize(ModelSource(predicted_model).window("query").expected, 0.9)
+    mean, low, high = summarize(IdataReader(predicted_model.idata).window("query").expected, 0.9)
     np.testing.assert_allclose(line.get_ydata(), mean)
     np.testing.assert_allclose(_band(ax.collections[0], actual.get_xdata()), (low, high))
     np.testing.assert_array_equal(actual.get_ydata(), future["sales"])

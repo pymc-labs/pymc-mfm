@@ -19,7 +19,7 @@ from pymc_mfm.plotting.charts import (
     shares,
     totals,
 )
-from pymc_mfm.plotting.charts._data import ModelSource
+from pymc_mfm.plotting.charts._data import IdataReader
 from pymc_mfm.plotting.charts._style import compact
 
 
@@ -48,7 +48,7 @@ def _line(fig, row=0):
 def test_charts_need_complete_inference(model, prepare):
     state = torch.get_rng_state()
     with pytest.raises(RuntimeError, match=r"inference\(history, future, \.\.\.\)"):
-        prepare(ModelSource(model))
+        prepare(IdataReader(model.idata))
     assert torch.equal(torch.get_rng_state(), state)
     assert model.idata is None and model.query_result is None
 
@@ -105,20 +105,22 @@ def test_forecast_outcomes_are_kept_for_charts_without_changing_inference(
         model.predict(future.drop(columns="sales", errors="ignore"), n_samples=5).components,
         draws,
     )
-    np.testing.assert_array_equal(inputs.prepare(ModelSource(model)).series[0][2][24:], expected)
+    np.testing.assert_array_equal(
+        inputs.prepare(IdataReader(model.idata)).series[0][2][24:], expected
+    )
 
 
 def test_forecast_outcomes_follow_the_sorted_dates(model, chart_frames):
     history, future = chart_frames
     model.inference(history, future.iloc[::-1], n_samples=5, **CHART_ROLES)
     np.testing.assert_array_equal(
-        inputs.prepare(ModelSource(model)).series[0][2][24:], future["sales"]
+        inputs.prepare(IdataReader(model.idata)).series[0][2][24:], future["sales"]
     )
 
 
 def test_windows_name_components_and_align_inputs(predicted_model, chart_frames):
     history, future = chart_frames
-    source = ModelSource(predicted_model)
+    source = IdataReader(predicted_model.idata)
     query = source.window("query")
     assert query.components[:3] == ("baseline", "search", "tv")
     assert query.components[3] == "temperature" and "__padded_control_1__" not in query.components
@@ -142,7 +144,7 @@ def test_names_like_other_components_keep_full_names_and_their_own_draws(model, 
     }
     model.inference(history, future, n_samples=5, **roles)
     result = model.query_result
-    window = ModelSource(model).window("query")
+    window = IdataReader(model.idata).window("query")
     assert window.components[:4] == (
         "baseline",
         "search",
@@ -164,7 +166,7 @@ def test_compact_labels_round_before_choosing_the_unit(value, label):
 
 
 def test_chart_readers_never_sample_and_match_the_complete_tree(predicted_model, monkeypatch):
-    source = ModelSource(predicted_model)
+    source = IdataReader(predicted_model.idata)
     tree = predicted_model.idata
     query = predicted_model.query_result
     state = torch.get_rng_state()
@@ -202,7 +204,7 @@ def test_chart_readers_never_sample_and_match_the_complete_tree(predicted_model,
 
 def test_chart_readers_stay_on_complete_inference_after_predict(predicted_model, chart_frames):
     _, future = chart_frames
-    source = ModelSource(predicted_model)
+    source = IdataReader(predicted_model.idata)
     tree = predicted_model.idata
     query = predicted_model.query_result
     before = source.windows(None)

@@ -144,7 +144,7 @@ model.plot.fit(backend="plotly")  # interactive: hover, zoom, click a legend ent
 | `response_curves()` | The latest `model.response_curves(...)`: contribution by media covariate level, observed level marked | `channels`, `truth` |
 
 Every chart takes `backend=` (`"matplotlib"` or `"plotly"`; set a session default with
-`pymc_mfm.plotting.set_backend`), `title=` and, where it summarizes draws, `interval=`
+`pymc_mfm.set_backend`), `title=` and, where it summarizes draws, `interval=`
 (default 0.9). Charts with one axes also take matplotlib `ax=`. Matplotlib charts return a
 `Figure` that notebooks show without pyplot; plotly charts return a
 `plotly.graph_objects.Figure`. `window` is `"context"` (history weeks), `"query"`

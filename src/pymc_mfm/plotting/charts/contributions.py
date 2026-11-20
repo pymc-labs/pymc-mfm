@@ -12,17 +12,17 @@ import numpy as np
 from pymc_mfm.plotting.panels import COLORS, _single, _suptitle, _title
 
 from ._backend import check, draw
-from ._data import checked_names, interval_quantiles, summarize, truth_by_week
+from ._data import FAMILIES, checked_names, interval_quantiles, summarize, truth_by_week
 from ._mpl import compact_axis, figure, forecast_span, time_positions
 from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, percent, rgba, series_colors
 
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ._data import ModelSource, Window
+    from ._data import IdataReader, Window
 
 #: Component families from the bottom of the stack up: channels end on top.
-FAMILY_ORDER = ("baseline", "latent", "indirect", "control", "channel")
+FAMILY_ORDER = FAMILIES
 #: Panels per row when ``stacked=False``.
 COLUMNS = 3
 _STACK_ALPHA = 0.85
@@ -92,9 +92,19 @@ def _edges(dates: np.ndarray, history: np.ndarray) -> np.ndarray:
     The first starts, and the last ends, half the ``history`` cadence (its median step)
     away from its date.
     """
-    half = np.timedelta64(round(np.median(np.diff(history).astype(np.int64)) / 2), "ns")
+    half = np.median(np.diff(history)) / 2  # a timedelta in the unit of ``history``
     middle = dates[:-1] + (dates[1:] - dates[:-1]) / 2
     return np.concatenate(([dates[0] - half], middle, [dates[-1] + half]))
+
+
+def _order(part: Window, first: Window, order: list[int]) -> list[int]:
+    """``order`` (positions in ``first``'s components) as positions in ``part``'s, by name."""
+    if sorted(part.components) != sorted(first.components):
+        raise ValueError(
+            f"the {part.name} window has components {list(part.components)}, "
+            f"the {first.name} window {list(first.components)}"
+        )
+    return [part.components.index(first.components[index]) for index in order]
 
 
 def _segment(
@@ -145,7 +155,7 @@ def _truth(
 
 
 def prepare(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str | None = None,
     components: Sequence[str] | None = None,
@@ -185,11 +195,13 @@ def prepare(
     )
     dates = np.concatenate([part.dates for part in windows])
     # The windows share the edge between them, so their stacks meet where forecasts start.
-    edges = _edges(dates, source.history().dates)
+    history = first.dates if first.name == "context" else source.dates("context")
+    edges = _edges(dates, history)
     segments, start = [], 0
     for part in windows:
         stop = start + len(part.dates)
-        segments.append(_segment(part, edges[start : stop + 1], order, stacked, interval))
+        where = _order(part, first, order)
+        segments.append(_segment(part, edges[start : stop + 1], where, stacked, interval))
         start = stop
     draws = first.n_samples
     if stacked:
@@ -508,7 +520,7 @@ def _plotly(data: Contributions) -> Any:
 
 
 def contributions_over_time(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str | None = None,
     components: Sequence[str] | None = None,

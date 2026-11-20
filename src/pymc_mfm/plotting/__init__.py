@@ -1,7 +1,7 @@
 """Figures and reports built from inference and diagnostic results, and ``model.plot``."""
 
 from ._graphviz import GraphvizGraph
-from .charts import ModelPlots, set_backend
+from .charts import ModelPlots, Plots, set_backend  # noqa: F401  (deprecated, not in __all__)
 from .dot import graph_to_dot
 from .inspector import GraphInspector, plot_graph_inspector
 from .panels import (
@@ -38,7 +38,7 @@ from .panels import (
 __all__ = [
     "GraphInspector",
     "GraphvizGraph",
-    "ModelPlots",
+    "Plots",
     "graph_to_dot",
     "plot_attribution",
     "plot_calibration",

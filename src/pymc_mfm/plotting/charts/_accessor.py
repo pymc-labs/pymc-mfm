@@ -1,4 +1,4 @@
-"""``model.plot``: sampling-free charts of one model's last complete inference."""
+"""``Plots`` and ``model.plot``: sampling-free charts read from a model tree."""
 
 from __future__ import annotations
 
@@ -11,26 +11,28 @@ from . import inputs as _inputs
 from . import media as _media
 from . import shares as _shares
 from . import totals as _totals
-from ._data import ModelSource
+from ._data import IdataReader
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     import pandas as pd
+    from xarray import DataTree
 
-    from pymc_mfm.model.model import MFM
 
+class Plots:
+    """Charts of a model tree: ``Plots(idata)``, or the live ``model.plot``.
 
-class ModelPlots:
-    """Charts of a model's last complete ``inference(history, future, ...)`` (``model.plot``).
+    ``Plots(idata)`` draws the tree it was given (``model.idata``, or one saved and opened
+    again) and never changes. ``model.plot`` reads ``model.idata`` at each chart call, so
+    it follows the model's last successful paired ``inference(history, future, ...)``.
 
     Each chart computes its numbers once, then draws them with matplotlib (the
     default; ``pymc-mfm[plot]``) or plotly (``pymc-mfm[interactive]``): pass
     ``backend="plotly"`` or call :func:`pymc_mfm.plotting.set_backend`. Matplotlib
     charts return a ``matplotlib.figure.Figure``, which notebooks display without
     pyplot; plotly charts return an interactive ``plotly.graph_objects.Figure``.
-    Charts read the model when called, so they follow its last successful paired
-    ``inference``. They never sample; ``predict`` does not change them.
+    They never sample; ``predict`` does not change them.
 
     Intervals are central intervals of the model's draws: pointwise over weeks or levels,
     one per series for shares and window totals. Draws are the expected outcome
@@ -38,10 +40,21 @@ class ModelPlots:
     causal lift. Context and query draws are separate marginals.
     """
 
-    __slots__ = ("_source",)
+    __slots__ = ("_get",)
 
-    def __init__(self, model: MFM):
-        self._source = ModelSource(model)
+    def __init__(self, idata: DataTree):
+        self._get: Callable[[], DataTree | None] = lambda: idata
+
+    @classmethod
+    def _live(cls, get: Callable[[], DataTree | None]) -> Plots:
+        """Charts that read the tree ``get()`` returns at each chart call."""
+        plots = cls.__new__(cls)
+        plots._get = get
+        return plots
+
+    @property
+    def _source(self) -> IdataReader:
+        return IdataReader(self._get())
 
     def inputs(self, *, backend: str | None = None, title: str | None = None) -> Any:
         """The outcome, each media covariate and each control covariate by week.

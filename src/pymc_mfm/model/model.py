@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from pymc_mfm.inference.curves import ResponseCurves
     from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
     from pymc_mfm.inference.result import DecompositionResult
-    from pymc_mfm.plotting.charts import ModelPlots
+    from pymc_mfm.plotting.charts import Plots
 
 
 def _move_together(tensors: Sequence[Tensor], device: torch.device) -> list[Tensor]:
@@ -118,8 +118,6 @@ class MFM(nn.Module):
         self.conditional_head = JointFlowHead(config, graph_router=False)
         self._inference_context: _FittedContext | None = None
         self._prediction_snapshot: _PredictionSnapshot | None = None
-        self._context_decomposition: DecompositionResult | None = None
-        self._response_curves: ResponseCurves | None = None
         self._idata: DataTree | None = None
         self._inference_revision = 0
 
@@ -629,10 +627,8 @@ class MFM(nn.Module):
         # Publish only the completed run: no candidate state leaks on failure.
         self._inference_context = fitted
         self._prediction_snapshot = prediction
-        self._context_decomposition = context_result
         self._idata = tree
         self._inference_revision = revision
-        self._response_curves = None
         return tree if return_idata else None
 
     def predict(
@@ -790,22 +786,15 @@ class MFM(nn.Module):
         return None if prediction is None else prediction.query
 
     @property
-    def plot(self) -> ModelPlots:
+    def plot(self) -> Plots:
         """Sampling-free charts of the last complete inference and its response curves.
 
         Each method returns a matplotlib or plotly figure and imports its backend
         only when drawing. Independent ``predict`` calls do not change these charts.
         """
-        from pymc_mfm.plotting.charts import ModelPlots
+        from pymc_mfm.plotting.charts import Plots
 
-        return ModelPlots(self)
-
-    def _context_result(self) -> DecompositionResult:
-        """Read the completed context marginal; never sample from a reader."""
-        result = self._context_decomposition
-        if result is None:
-            raise RuntimeError("call inference(context, query, ...) before reading context draws")
-        return result
+        return Plots._live(lambda: self.idata)
 
     def response_curves(
         self,
@@ -847,7 +836,6 @@ class MFM(nn.Module):
             self, levels=levels, channels=channels, weeks=weeks, n_samples=n_samples
         )
         tree = attach_response_curves(self._idata, curves, self._prediction_snapshot)
-        self._response_curves = curves
         self._idata = tree
         return curves
 

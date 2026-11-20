@@ -1,15 +1,13 @@
 """``model.plot.contributions_over_time``: stacked weekly means and per-component panels."""
 
-from types import SimpleNamespace
-
 import numpy as np
 import pandas as pd
 import pytest
 import torch
 from conftest import CHART_ROLES
 
-from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import ModelSource, Window, summarize
+from pymc_mfm.plotting.charts import _backend, contributions
+from pymc_mfm.plotting.charts._data import IdataReader, Window, summarize
 from pymc_mfm.plotting.charts._style import COLORS
 from pymc_mfm.plotting.charts.contributions import contributions_over_time
 
@@ -28,7 +26,7 @@ def matplotlib_default(monkeypatch):
 
 
 class _Source:
-    """Serves hand-made windows where a chart reads ``ModelSource``."""
+    """Serves hand-made windows where a chart reads ``IdataReader``."""
 
     def __init__(self, *windows: Window):
         self._windows = windows
@@ -36,8 +34,8 @@ class _Source:
     def windows(self, window):
         return self._windows
 
-    def history(self):
-        return SimpleNamespace(dates=self._windows[0].dates)
+    def window(self, name):
+        return self._windows[0]
 
 
 def _window(means: dict[str, list[float]], families: tuple[str, ...]) -> Window:
@@ -95,7 +93,7 @@ def test_stack_piles_positive_means_up_and_negative_means_down(predicted_model, 
     ax = fig.axes[0]
     assert ax.get_legend_handles_labels()[1] == [*ORDER, "Observed outcome", "Forecast weeks"]
     drawn = _stack(fig)
-    windows = ModelSource(predicted_model).windows(None)
+    windows = IdataReader(predicted_model.idata).windows(None)
     assert len(drawn) == len(windows) * len(ORDER)
     for number, window in enumerate(windows):
         layers = drawn[number * len(ORDER) : (number + 1) * len(ORDER)]
@@ -158,7 +156,7 @@ def test_components_pick_layers_keep_their_colors_and_never_resample(predicted_m
     ax = fig.axes[0]
     handles, labels = ax.get_legend_handles_labels()
     assert labels == ["baseline", "search", "tv", "Observed outcome"]
-    query = ModelSource(predicted_model).window("query")
+    query = IdataReader(predicted_model.idata).window("query")
     names = ("baseline", "search", "tv")
     for (values, _, baseline), (lower, upper) in zip(
         _stack(fig), _expected_stack(query, names), strict=True
@@ -192,7 +190,7 @@ def test_panels_draw_each_components_mean_and_interval_with_truth(predicted_mode
     panels = fig.axes[: len(ORDER)]
     assert [ax.get_title(loc="left") for ax in panels] == list(ORDER)
     assert not any(ax.get_visible() for ax in fig.axes[len(ORDER) :])
-    windows = ModelSource(predicted_model).windows(None)
+    windows = IdataReader(predicted_model.idata).windows(None)
     for ax, name in zip(panels, ORDER, strict=True):
         for number, window in enumerate(windows):
             mean, low, high = summarize(window.contribution(name), 0.8)
@@ -227,7 +225,7 @@ def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
 
     history, future = chart_frames
     model.inference(history, future.iloc[:1], n_samples=5, **CHART_ROLES)
-    query = ModelSource(model).window("query")
+    query = IdataReader(model.idata).window("query")
     fig = model.plot.contributions_over_time(window="query")
     for values, edges, _ in _stack(fig):
         assert values.shape == (1,)
@@ -237,6 +235,77 @@ def test_a_one_week_window_still_draws_whole_weeks(model, chart_frames):
     [bar] = panels.axes[0].collections
     np.testing.assert_allclose(bar.get_segments()[0][:, 1], [low[0], high[0]])
     np.testing.assert_allclose(panels.axes[0].lines[0].get_ydata(), mean)
+
+
+def _in_seconds(tree):
+    """``tree`` with every date coordinate held at one-second resolution."""
+    from test_plots_idata import _rebuilt
+
+    def seconds(data):
+        return data.assign_coords(date=data["date"].to_numpy().astype("datetime64[s]"))
+
+    paths = [node.path for node in tree.subtree if "date" in node.to_dataset(inherit=False).coords]
+    return _rebuilt(tree, {path: seconds for path in paths})
+
+
+@pytest.mark.parametrize("window", [None, "query"])
+def test_a_stack_of_seconds_resolution_dates_still_draws_whole_weeks(model, chart_frames, window):
+    history, future = chart_frames
+    model.inference(history, future.iloc[:1], n_samples=5, **CHART_ROLES)
+    tree = _in_seconds(model.idata)
+    source = IdataReader(tree)
+    assert source.window("query").dates.dtype == np.dtype("datetime64[s]")
+    drawn = contributions.prepare(source, window=window)
+    week = np.timedelta64(7, "D")
+    for segment in drawn.segments:
+        gaps = np.diff(segment.edges)
+        assert (gaps == week).all()
+    expected = contributions.prepare(IdataReader(model.idata), window=window)
+    for got, want in zip(drawn.segments, expected.segments, strict=True):
+        np.testing.assert_array_equal(got.edges, want.edges)
+
+
+def _with_unread_context_draws(tree):
+    """``tree`` whose context posterior variables are lazy and raise when read."""
+    import xarray as xr
+    from test_plots_idata import _rebuilt
+    from xarray.core import indexing
+
+    class Lazy(xr.backends.BackendArray):
+        """A lazy array that raises when anything reads its values."""
+
+        def __init__(self, like):
+            self.shape, self.dtype = like.shape, like.dtype
+
+        def __getitem__(self, key):
+            raise AssertionError("a context posterior draw array was read")
+
+    def stand_in(data):
+        draws = {}
+        for name, variable in data.data_vars.items():
+            lazy = indexing.LazilyIndexedArray(Lazy(variable))
+            draws[name] = xr.Variable(variable.dims, lazy)
+        return data.assign(draws)
+
+    return _rebuilt(tree, {"/context/posterior": stand_in})
+
+
+def test_a_query_only_stack_reads_no_context_draw_array(predicted_model):
+    tree = _with_unread_context_draws(predicted_model.idata)
+    with pytest.raises(AssertionError, match="context posterior draw"):
+        IdataReader(tree).window("context")
+    drawn = contributions.prepare(IdataReader(tree), window="query")
+    expected = contributions.prepare(IdataReader(predicted_model.idata), window="query")
+    assert len(drawn.segments) == 1
+    np.testing.assert_array_equal(drawn.segments[0].mean, expected.segments[0].mean)
+    np.testing.assert_array_equal(drawn.segments[0].edges, expected.segments[0].edges)
+
+
+def test_the_context_dates_come_from_the_dates_coordinate_alone(predicted_model):
+    source = IdataReader(predicted_model.idata)
+    np.testing.assert_array_equal(source.dates("context"), source.window("context").dates)
+    with pytest.raises(ValueError, match="window must be one of"):
+        source.dates("both")
 
 
 @pytest.mark.parametrize(
@@ -289,7 +358,7 @@ def test_plotly_draws_the_matplotlib_numbers(predicted_model, chart_frames):
     assert [fig.data[index].name for index in tops[: len(ORDER)]] == list(ORDER)
     assert not any(fig.data[index].showlegend for index in tops[len(ORDER) :])
     hovers = [trace for trace in fig.data if trace.mode == "markers"]
-    windows = ModelSource(predicted_model).windows(None)
+    windows = IdataReader(predicted_model.idata).windows(None)
     means = [window.contribution(name).mean(0) for window in windows for name in ORDER]
     for index, hover, mean, (values, edges, baseline) in zip(
         tops, hovers, means, layers, strict=True

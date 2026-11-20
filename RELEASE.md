@@ -45,6 +45,10 @@ distribution prerequisites, not an approved or published release.
   preserves reviewed numeric/chart outputs and every graph analysis/export;
   its headless acceptance uses a synthetic stand-in without downloading weights.
   No runtime context, result, curve or idata is captured in weight bundles.
+- **Compatibility break: `ModelPlots` is now a function.** `ModelPlots(model)` still works and
+  warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
+  `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
+  see `docs/migration.md`.
 - **Installed-artifact CI contracts.** The bare wheel is checked separately for
   lightweight client isolation. Local and diagnostics wheels positively exercise
   their declared tree dependencies and automatic idata instead of expecting

@@ -10,6 +10,7 @@ project:
     - "api/**"
     - "reference/**"
     - "models/**"
+    - "migration.md"
   resources:
     - assets/js/*.js
     - assets/fonts/*
@@ -114,6 +115,7 @@ website:
           contents:
             - guide/index.qmd
             - guide/concepts.qmd
+            - migration.md
         - section: Use a model
           contents:
             - guide/decompose.qmd
@@ -177,7 +179,7 @@ quartodoc:
     - title: Charts
       desc: Sampling-free matplotlib or plotly charts of a model's latest complete inference.
       contents:
-        - name: plotting.ModelPlots
+        - name: plotting.Plots
           members:
             - inputs
             - fit

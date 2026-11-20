@@ -12,7 +12,7 @@ from pymc_mfm.inference import curves as curves_module
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.plotting.charts import _backend
 from pymc_mfm.plotting.charts import curves as curve_charts
-from pymc_mfm.plotting.charts._data import ModelSource
+from pymc_mfm.plotting.charts._data import IdataReader
 from pymc_mfm.plotting.charts._style import CAVEAT
 
 CHANNELS = list(CHART_ROLES["channel_columns"])
@@ -256,11 +256,11 @@ def test_curves_follow_the_latest_complete_inference(model, chart_frames):
     with pytest.raises(RuntimeError, match="inference"):
         model.response_curves()
     with pytest.raises(RuntimeError, match=r"inference\(history, future, \.\.\.\)"):
-        ModelSource(model).response_curves()
+        IdataReader(model.idata).response_curves()
     model.inference(history, future, n_samples=2, **CHART_ROLES)
     original_tree, query = model.idata, model.query_result
     with pytest.raises(RuntimeError, match=r"model\.response_curves\(\.\.\.\) first"):
-        ModelSource(model).response_curves()
+        IdataReader(model.idata).response_curves()
     curves = model.response_curves(levels=[0, 1], weeks=1)
     tree = model.idata
     assert tree is not original_tree and "response_curves" not in original_tree.children
@@ -269,18 +269,18 @@ def test_curves_follow_the_latest_complete_inference(model, chart_frames):
     with pytest.raises(ValueError, match="search"):
         model.inference(history, future.drop(columns="search"), n_samples=2, **CHART_ROLES)
     assert model.idata is tree and model.query_result is query
-    assert ModelSource(model).response_curves() is curves
+    np.testing.assert_array_equal(IdataReader(model.idata).response_curves().draws, curves.draws)
     model.predict(future.iloc[:2].assign(search=1.0), n_samples=3, mode="map", units="USD")
     assert model.idata is tree and model.query_result is query
-    assert ModelSource(model).response_curves() is curves
+    np.testing.assert_array_equal(IdataReader(model.idata).response_curves().draws, curves.draws)
     np.testing.assert_array_equal(
-        curve_charts.prepare(ModelSource(model)).mean, curves.draws.mean(axis=2)
+        curve_charts.prepare(IdataReader(model.idata)).mean, curves.draws.mean(axis=2)
     )
     model.inference(history, future.iloc[:1], n_samples=2, **CHART_ROLES)
     assert model.idata is not tree and "response_curves" not in model.idata.children
     assert "response_curves" in tree.children
     with pytest.raises(RuntimeError, match=r"model\.response_curves"):
-        ModelSource(model).response_curves()
+        IdataReader(model.idata).response_curves()
 
 
 def test_curves_and_the_complete_tree_share_the_exact_draw_bank(forecast_model):
@@ -288,11 +288,10 @@ def test_curves_and_the_complete_tree_share_the_exact_draw_bank(forecast_model):
 
     base_tree = forecast_model.idata
     query = forecast_model.query_result
-    context = forecast_model._context_result()
     curves = forecast_model.response_curves(levels=[0, 0.5, 1, 2], weeks=2, n_samples=5)
     tree = forecast_model.idata
     assert tree is not base_tree and "response_curves" not in base_tree.children
-    assert forecast_model.query_result is query and forecast_model._context_result() is context
+    assert forecast_model.query_result is query and forecast_model.idata is tree
     assert tree.attrs["inference_revision"] == base_tree.attrs["inference_revision"]
     assert (
         tree["response_curves"].attrs["source_inference_revision"]
@@ -313,7 +312,7 @@ def test_curves_and_the_complete_tree_share_the_exact_draw_bank(forecast_model):
     np.testing.assert_array_equal(constants["media"], curves.media[:, None] * curves.levels)
     np.testing.assert_array_equal(constants["date"], curves.dates)
     state = torch.get_rng_state()
-    displayed = curve_charts.prepare(ModelSource(forecast_model), interval=0.8)
+    displayed = curve_charts.prepare(IdataReader(forecast_model.idata), interval=0.8)
     low, high = np.quantile(curves.draws, [0.1, 0.9], axis=2)
     np.testing.assert_array_equal(displayed.mean, curves.draws.mean(axis=2))
     np.testing.assert_allclose(displayed.low, low)
@@ -331,7 +330,10 @@ def test_a_new_sweep_replaces_its_entire_subtree_without_rewriting_held_trees(fo
     snapshot = first_tree.copy(deep=True)
     second = forecast_model.response_curves(channels=["tv"], levels=[0, 1], weeks=1, n_samples=3)
     tree = forecast_model.idata
-    assert tree is not first_tree and ModelSource(forecast_model).response_curves() is second
+    assert tree is not first_tree
+    np.testing.assert_array_equal(
+        IdataReader(forecast_model.idata).response_curves().draws, second.draws
+    )
     assert forecast_model.query_result is query
     posterior = tree["response_curves/posterior"]
     assert dict(posterior.sizes) == {"chain": 1, "draw": 3, "channel": 1, "level": 2}
@@ -360,7 +362,6 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
     tree = forecast_model.idata
     snapshot = tree.copy(deep=True)
     query = forecast_model.query_result
-    context = forecast_model._context_result()
     if failure == "sampling":
         decompose = api_module.decompose
         calls = 0
@@ -383,14 +384,15 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
     with pytest.raises(RuntimeError, match=f"curve {failure} failed"):
         forecast_model.response_curves(levels=[0, 0.5, 1, 2], weeks=2, n_samples=3)
     assert forecast_model.idata is tree and forecast_model.query_result is query
-    assert forecast_model._context_result() is context
     xr.testing.assert_identical(tree, snapshot)
     if keep_curves:
-        assert ModelSource(forecast_model).response_curves() is curves
+        np.testing.assert_array_equal(
+            IdataReader(forecast_model.idata).response_curves().draws, curves.draws
+        )
     else:
         assert "response_curves" not in tree.children
         with pytest.raises(RuntimeError, match=r"model\.response_curves"):
-            ModelSource(forecast_model).response_curves()
+            IdataReader(forecast_model.idata).response_curves()
 
 
 def test_sweeps_ignore_independent_predictions(forecast_model, chart_frames, recorded):
@@ -498,4 +500,4 @@ def test_panels_say_when_a_covariate_is_zero_and_skip_the_missing_level_1(foreca
 def test_chart_arguments_are_checked(forecast_model, options, message):
     forecast_model.response_curves(levels=[0, 1], weeks=1)
     with pytest.raises(ValueError, match=message):
-        curve_charts.prepare(ModelSource(forecast_model), **options)
+        curve_charts.prepare(IdataReader(forecast_model.idata), **options)

@@ -99,3 +99,24 @@ def test_result_tree_curves_and_charts_import_without_torch(module):
         """
     )
     assert blocked.returncode == 0, blocked.stderr + blocked.stdout
+
+
+def test_top_level_exports_and_the_light_names_load_without_torch():
+    result = run(
+        """
+        import sys
+        sys.modules["torch"] = None
+        sys.modules["safetensors"] = None
+        import pymc_mfm
+        from pymc_mfm.plotting import charts
+        assert pymc_mfm.__all__ == [
+            "MFM", "ModelConfig", "DecompositionResult", "decompose", "observation_batch",
+            "save_pretrained", "from_pretrained", "push_to_hub", "list_profiles",
+            "Plots", "set_backend",
+        ], pymc_mfm.__all__
+        assert pymc_mfm.Plots is charts.Plots
+        assert pymc_mfm.set_backend is charts.set_backend
+        assert {"Plots", "set_backend"} <= set(dir(pymc_mfm))
+        """
+    )
+    assert result.returncode == 0, result.stderr + result.stdout

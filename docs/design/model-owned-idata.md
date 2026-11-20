@@ -88,6 +88,8 @@ Preserve the notes about independent amortized draws, inapplicable MCMC converge
 
 ## Execution boundary
 
+Status after the charts-read-the-tree change: `model.idata` alone owns the context draw bank and the attached response curves. A sweep installs a new root tree with the curves attached, and the previous tree is left unchanged. `query_result` still returns the exact query result, for evidence. The model no longer holds `_context_result`, `_context_decomposition` or `_response_curves`. The two-step text below, which publishes a separate context result and `_response_curves` beside a new root, is kept as history.
+
 ### Complete `inference(context, query, ...)`
 
 1. `_add_context` validates and snapshots candidate history with `_FittedContext`, without publishing it. The same private stage supports no-sampling input preflight.

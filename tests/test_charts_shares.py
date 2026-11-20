@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import ModelSource, Window
+from pymc_mfm.plotting.charts._data import IdataReader, Window
 from pymc_mfm.plotting.charts._style import CAVEAT, COLORS, caption, series_colors
 from pymc_mfm.plotting.charts.shares import GRID_POINTS, prepare, prepare_window
 
@@ -186,7 +186,7 @@ def test_dist_densities_peak_at_one_where_normal_shares_center():
 
 
 def test_default_bars_are_mean_shares_of_the_history_weeks(predicted_model):
-    context = ModelSource(predicted_model).window("context")
+    context = IdataReader(predicted_model.idata).window("context")
     ax = predicted_model.plot.shares().axes[0]
     labels, drawn, expected = _bars(ax, context, _mean_shares(context), 0.9)
     assert sorted(labels[:2]) == ["search", "tv"] and labels[2] == "temperature"
@@ -206,7 +206,7 @@ def test_query_total_shares_never_sample_the_context(predicted_model):
     state = torch.get_rng_state()
     assert predicted_model.plot.shares(share="total", window="query", ax=ax) is fig
     assert torch.equal(torch.get_rng_state(), state)
-    query = ModelSource(predicted_model).window("query")
+    query = IdataReader(predicted_model.idata).window("query")
     labels, drawn, expected = _bars(ax, query, _total_shares(query), 0.9)
     np.testing.assert_allclose(drawn[0], expected[0])
     np.testing.assert_allclose(drawn[1], expected[1])
@@ -217,7 +217,7 @@ def test_query_total_shares_never_sample_the_context(predicted_model):
 
 def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
     pytest.importorskip("plotly")
-    data = prepare(ModelSource(predicted_model), window="query", interval=0.8)
+    data = prepare(IdataReader(predicted_model.idata), window="query", interval=0.8)
     ax = predicted_model.plot.shares(window="query", interval=0.8).axes[0]
     fig = predicted_model.plot.shares(window="query", interval=0.8, backend="plotly")
     assert [trace.name for trace in fig.data] == ["media covariates", "control covariates"]
@@ -246,7 +246,7 @@ def test_plotly_bars_draw_the_matplotlib_numbers(predicted_model):
 
 def test_dist_draws_the_same_densities_in_both_backends(predicted_model):
     pytest.importorskip("plotly")
-    data = prepare(ModelSource(predicted_model), window="query", view="dist")
+    data = prepare(IdataReader(predicted_model.idata), window="query", view="dist")
     ax = predicted_model.plot.shares(window="query", view="dist").axes[0]
     fig = predicted_model.plot.shares(window="query", view="dist", backend="plotly")
     assert data.names == ("search", "tv", "temperature")

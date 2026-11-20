@@ -18,7 +18,7 @@ from ._style import ACTUAL, CAVEAT, caption, panel_grid, percent, rgba
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ._data import ModelSource
+    from ._data import IdataReader
 
 _COLOR = COLORS["channel"]
 _ERROR_ALPHA = 0.35
@@ -58,7 +58,7 @@ class ContributionVsMedia:
 
 
 def prepare(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str = "context",
     channels: Sequence[str] | None = None,
@@ -74,7 +74,7 @@ def prepare(
     """
     interval_quantiles(interval)
     data = source.window(window)
-    # Channel components come in the order of the media covariate columns.
+    # The reader gives one media column per channel component, in component order.
     names = tuple(
         name
         for name, family in zip(data.components, data.families, strict=True)
@@ -227,7 +227,7 @@ def _plotly(data: ContributionVsMedia) -> Any:
 
 
 def contribution_vs_media(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str = "context",
     channels: Sequence[str] | None = None,

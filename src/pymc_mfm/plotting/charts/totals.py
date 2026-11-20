@@ -18,7 +18,7 @@ from ._style import ACTUAL, CAVEAT, caption, panel_grid, percent, rgba
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ._data import ModelSource, Window
+    from ._data import IdataReader, Window
 
 #: Families drawn unless ``components=`` names others.
 _FAMILIES = ("channel", "control")
@@ -76,7 +76,7 @@ def _truth_total(weekly: dict[str, np.ndarray], name: str, window: Window) -> fl
 
 
 def prepare(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str = "context",
     components: Sequence[str] | None = None,
@@ -247,7 +247,7 @@ def _plotly(data: Totals) -> Any:
 
 
 def contribution_totals(
-    source: ModelSource,
+    source: IdataReader,
     *,
     window: str = "context",
     components: Sequence[str] | None = None,

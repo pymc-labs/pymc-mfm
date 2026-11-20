@@ -19,7 +19,7 @@ from ._mpl import compact_axis, figure, percent_axis
 from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact, percent
 
 if TYPE_CHECKING:
-    from ._data import ModelSource
+    from ._data import IdataReader
 
 _TITLE = "Response curves: contribution by media covariate level"
 #: Panels per row before the grid wraps.
@@ -56,7 +56,7 @@ class Curves:
 
 
 def prepare(
-    source: ModelSource,
+    source: IdataReader,
     *,
     channels: Sequence[str] | None = None,
     interval: float = 0.9,
@@ -81,7 +81,7 @@ def prepare(
             for name, total in zip(names, totals, strict=True)
         ),
         levels=curves.levels,
-        media=totals[:, None] * curves.levels,
+        media=source.curve_media()[rows],
         mean=mean,
         low=low,
         high=high,
@@ -287,7 +287,7 @@ def _plotly(data: Curves) -> Any:
 
 
 def response_curves(
-    source: ModelSource,
+    source: IdataReader,
     *,
     channels: Sequence[str] | None = None,
     interval: float = 0.9,
