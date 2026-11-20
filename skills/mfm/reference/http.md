@@ -19,21 +19,31 @@ deleted resources return `410`.
 | Method and path | Purpose |
 | --- | --- |
 | `POST /v1/datasets` | Upload a history. `201` with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings`, `warning_details`. |
-| `GET /v1/datasets` | List your datasets: `{"datasets": [...]}`, each with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings` and `warning_details`. |
+| `GET /v1/datasets` | List your datasets, newest first: an object with `datasets` and, when you page, `next_cursor`. Each dataset has `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings` and `warning_details`. |
 | `GET /v1/datasets/{id}` | The summary, with `dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`, `expires_at`, `summary`, `history_ranges`, `warnings` and `warning_details`. |
-| `DELETE /v1/datasets/{id}` | Delete the dataset and all its analyses. `202`. |
-| `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`. With `"preview": true`: `200` with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`. Nothing is stored or run. |
-| `GET /v1/analyses/{id}` | `status`, the run counts `runs_total`, `runs_done`, `runs_failed` and `runs_cancelled`, `estimate_seconds`, and `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history`, `context` (`null` for a plan), `dataset_id`, `created_at` and `warning_details`. |
-| `GET /v1/analyses/{id}/result` | The result: `table`, `labels`, `history`, `assumptions`, `meta`, `context`, `fit`, `response_curves` and `input_usage`. `409 not_ready` until the analysis ends. |
-| `GET /v1/analyses/{id}/weekly?scenario_id=` | Weekly rows for one plan: `scenario_id` and `rows`, each with `date`, `component`, `mean`, `p05` and `p95`. |
+| `DELETE /v1/datasets/{id}` | Delete the dataset and all its analyses. `202` with `deletion`. |
+| `POST /v1/analyses` | Start an analysis. `202` with `analysis_id`, `dataset_id`, `name`, `url`, `runs_total`, `estimate_seconds`, `expires_at`, `warnings` and `warning_details`. With `"preview": true`: `200` with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions`, `warnings` and `warning_details`. Nothing is stored or run. |
+| `GET /v1/analyses/{id}` | `analysis_id`, `dataset_id`, `status`, the run counts `runs_total`, `runs_done`, `runs_failed` and `runs_cancelled`, `estimate_seconds`, and `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history`, `context` (`null` for a plan), `warnings` and `warning_details`. |
+| `GET /v1/analyses/{id}/result` | The result: `table`, `labels`, `history`, `assumptions`, `meta`, `context`, `fit`, `response_curves` and `input_usage`; with `?compact=true` also `plans`. `409 not_ready` until the analysis ends. |
+| `GET /v1/analyses/{id}/weekly?scenario_id=` | Weekly rows for one plan: `scenario_id` and `rows`, each with `date`, `component`, `mean`, `p05` and `p95`. `409 not_ready` until the analysis ends. `409 plan_failed` when that plan has no result. `422 missing_field` without `scenario_id`. |
 | `GET /v1/analyses/{id}/export` | The whole analysis as one JSON file (`mfm-analysis-export-v1`) with `format`, `analysis_id`, `name`, `created_at`, `expires_at`, `dataset`, `request`, `units`, `results`, `seed`, `draws`, `model_revision`, `library_revision`, `exported_at` and `scenarios`, each with `scenario_id`, `kind`, `base_scenario_id`, `multipliers`, `status`, `failure_code`, `inputs`, `warnings` and `warning_details`. `409 not_ready` until every run ends. |
-| `DELETE /v1/analyses/{id}` | Cancel unstarted runs and delete the analysis. `202`. |
-| `GET /v1/analyses?dataset_id=` | List your analyses: `{"analyses": [...]}`, each with `analysis_id`, `dataset_id`, `name`, `url`, `status`, `runs_total`, `runs_done`, `runs_failed`, `created_at` and `expires_at`. |
+| `DELETE /v1/analyses/{id}` | Cancel unstarted runs and delete the analysis. `202` with `deletion`. |
+| `GET /v1/analyses?dataset_id=` | List your analyses, newest first: an object with `analyses` and, when you page, `next_cursor`. Each analysis has `analysis_id`, `dataset_id`, `name`, `url`, `status`, `runs_total`, `runs_done`, `runs_failed`, `created_at` and `expires_at`. |
 
 Do not call other endpoints.
 
+Optional query parameters change what a call returns. Without them the answer is the same as before.
+
+- `limit` (1 to 200) and `cursor` on `GET /v1/datasets` and `GET /v1/analyses`. Without both, the list is whole. With
+  `limit`, the list has at most that many items and the answer adds `next_cursor`: send it as `cursor` for the next
+  page. `next_cursor` is `null` on the last page. A bad `limit` is `422 invalid_limit` and a bad `cursor` is `422 invalid_cursor`.
+- `compact=true` (or `1`) on `GET /v1/analyses/{id}/result` and `GET /v1/analyses/{id}/export`. The `table` has one
+  row of numbers for each plan and component, and `plans` holds what the rows of each plan share (its `kind`,
+  `multipliers`, `warnings`, `draws_url` and the other plan keys); a row repeats such a key only where it differs.
+  The full table stays the default. Any value other than `true`, `false`, `1` or `0` is `422 invalid_input`.
+
 Older servers may leave out `content_hash`, `created_at`, `last_used_at`, `analyses`, `name`,
-`url`, `runs_cancelled` and `warning_details`. Treat a missing field as unknown. `url` is `null`
+`url`, `runs_cancelled`, `warnings` and `warning_details`. Treat a missing field as unknown. `url` is `null`
 when the service has no site address.
 `runs_cancelled` counts runs that never started because the baseline run failed.
 `warning_details` lists the warnings as structured objects, next to the plain-text `warnings`.
@@ -60,7 +70,8 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
 ## Call order
 
 1. `POST /v1/datasets`. Send an `Idempotency-Key` header (a fresh UUID; 1 to 200 characters from
-   `A-Z a-z 0-9 . _ : -`). Body:
+   `A-Z a-z 0-9 . _ : -`) so a repeat after an error starts no second upload. The service does not require
+   the header. Body:
 
    ```json
    {"name": "weekly-history", "dates": ["2024-07-01", "..."], "outcome": [1012.5, "..."],
@@ -71,15 +82,15 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
    letters, ISO 4217 shape, such as `USD`). Neither is part of the content hash; the summary
    returns them as `summary.outcome` and `summary.currency`. The Python client sends the outcome
    column name as `outcome_name`.
-   Dates are weekly, contiguous, ISO dates. The body is at most 5 MB. `history_ranges` gives, per
+   Dates are weekly, contiguous ISO dates, exactly 7 days apart, and may fall on any weekday (use the same weekday every week). The body is at most 5 MB. `history_ranges` gives, per
    channel and control, the weekly `p05`, `p95` and `max`, `zero_share` and `all_zero`.
 2. Check `history_ranges` against the plan you will send. The weekly `p05` and `p95` are warning
    thresholds, not the edge of the observed data. Spend outside the history's 5th to 95th percentile
    gets a warning, and the model has little data there.
-3. `POST /v1/analyses` with `"preview": true` first. It needs no `Idempotency-Key`. Show the user
+3. `POST /v1/analyses` with `"preview": true` first. It stores nothing and needs no `Idempotency-Key`. Show the user
    the run count and the warnings. If `runs_total` is large, give the count and the estimate before
    you start.
-4. `POST /v1/analyses` without `preview`, with a fresh `Idempotency-Key`. The baseline comes in one
+4. `POST /v1/analyses` without `preview`, with a fresh `Idempotency-Key` (optional, but a repeat needs it to start no second run). The baseline comes in one
    of two forms. A **plan** gives the weeks after the history:
 
    ```json
@@ -128,7 +139,7 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
      window. Level 1 equals the base and does not run again. Level ids are
      `curve:<channel>:<base>:<level>`. For a first look use levels 0 to 2 in steps of 0.25.
    - `name` is optional: 1 to 120 characters, trimmed; `422` otherwise.
-   - `draws` is 100 to 2,000 (default 2,000). Use 200 to 500 for exploration. `seed` is 0 to 2147483647;
+   - `draws` is 100 to 2,000 (default 1,000). Use 200 to 500 for exploration. `seed` is 0 to 2147483647;
      a request without one uses seed 0. The same request gives the same numbers only with the same
      model revision, library revision, device class, dtype and execution settings, and results can
      differ across devices. More draws reduce sampling error. A different seed does not.
@@ -177,6 +188,17 @@ The service rejects these before any run, with `422`. Warnings are never refusal
 
 The service also refuses negative spend and unknown series names.
 
+## Refusal codes
+
+Every code of a `422`, by where it arises. Read `error.field` for the part of the request at fault.
+
+- Any create call: `invalid_json`, `nonfinite`, `body_too_complex`, `invalid_idempotency_key`, `unknown_field`, `missing_field`, `invalid_type`, `invalid_value`, `value_out_of_range`, `too_long`, `too_short`, `storage_quota`.
+- Dataset upload: `invalid_date`, `dates_not_weekly`, `length_mismatch`, `nonpositive_outcome`, `negative_spend`, `channel_count`, `control_count`, `controls_required`, `duplicate_name`, `reserved_name`, `invalid_name`, `invalid_outcome_name`, `invalid_currency`.
+- Analysis request: `invalid_observations` (from the dry run of the model), `dataset_required`, `history_with_context`, `plan_with_context`, `history_all_zero`, `dates_not_contiguous`, `name_mismatch`, `draws_out_of_range`, `seed_out_of_range`, `invalid_weeks`, `too_many_plans`, `too_many_requested_plans`.
+- Scenarios and curves: `invalid_scenario`, `steps_removed`, `scenario_plan_removed`, `invalid_id`, `reserved_id`, `duplicate_id`, `unknown_name`.
+- Backtest weeks and series: `invalid_window`, `context_too_short`, `series_required`, `unknown_series`, `duplicate_series`.
+- Lists and result options: `invalid_limit`, `invalid_cursor`, `invalid_input`.
+
 ## The result
 
 `table` has one row per plan and component. Columns: `scenario_id`, `kind` (`baseline`, `scenario`,
@@ -205,21 +227,32 @@ input token counts for the baseline run, or `null` before it is done.
 
 ## Errors and retries
 
-Error bodies look like `{"error": {"code", "message", "field"?}}`.
+Error bodies look like `{"error": {"code", "message", "request_id", "field"?}}`. `request_id` is also the
+`X-Request-Id` header. A `409 not_ready` body also has a top-level `status`, the status of the analysis.
 
 - After a timeout or a connection error, repeat the same create call with the same key and body. This
   never starts the work twice.
-- `429` and `502/503/504`: wait `Retry-After` seconds (or back off from 2 s, cap 60 s) and repeat with
-  the same key. `rate_limited` waits 60 s. `overloaded_user_analyses` means 20 unfinished analyses and
-  `overloaded_user_runs` 200 unfinished runs: wait or delete one.
-- `413`: the body is too large. Send fewer weeks, scenarios or curves in one call.
+- `408 timeout` and `400 bad_request`: the body did not arrive in full or in time. Repeat the call with the same key.
+- `429 rate_limited`, `429 overloaded_user_analyses`, `429 overloaded_user_runs` and `502/503/504`: wait
+  `Retry-After` seconds (or back off from 2 s, cap 60 s) and repeat with the same key. `rate_limited` waits 60 s.
+  `overloaded_user_analyses` means 20 unfinished analyses and `overloaded_user_runs` 200 unfinished runs: wait or
+  delete one. `503 unavailable` and `503 busy`: the service is busy; wait and repeat. `503 maintenance`: the service
+  takes no new analysis for now; a preview and a repeat of an earlier create call still work.
+- `413 body_too_large`: the body is too large. Send fewer weeks, scenarios or curves in one call.
 - `409 idempotency_conflict`: the key was used with another body. Use a new key. `409 plan_failed`: that
-  plan has no result.
-- `410`: the resource was deleted or expired. Do not retry. A repeat of a create call whose earlier
+  plan has no result. `409 not_ready`: the analysis has not ended; keep polling.
+- `410 gone`: the resource was deleted or expired. Do not retry. A repeat of a create call whose earlier
   analysis was deleted also gets `410`; only a new `Idempotency-Key` starts new work.
-- `404`: wrong id or another user's id. `401`: bad key; stop and tell the user.
+- `404 not_found`: wrong id or another user's id. `404 unknown_scenario`: the analysis has no such plan.
+  `401 unauthorized`: bad key; stop and tell the user.
 - `422`: read `error.code`, `error.field` and `error.message`. Fix the request (see "Refusals"). Nothing
   started. Do not loop on a `422`.
+- A failed plan is not an HTTP error: the status call answers `200`, and the export carries `failure_code` for that plan; its result rows have `status` `failed` and no numbers.
+  To send a failed analysis again, use a new `Idempotency-Key` (Python client: `fresh=True`): the same key returns the failed analysis.
+  `worker_stopped`: the service stopped the run; send the analysis again. `plan_outside_limits`: change the plan.
+  `data_unusable`: the model refused the input values; check the history and plan values. `cancelled`: the run was cancelled;
+  start it again if you still want it. `unknown`: no reason is given; send it again, and quote `request_id` if it fails again.
+- `500 internal_error`: the service failed. Repeat later; if it persists, quote `request_id`.
 
 ## Draws files
 

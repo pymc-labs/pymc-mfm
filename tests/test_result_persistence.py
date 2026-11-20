@@ -12,7 +12,7 @@ import pytest
 from test_diagnostics import make_result
 from test_inference import observed
 
-from pymc_mfm.inference._artifact_schema import json_bytes
+from pymc_mfm.inference._digest import json_bytes
 from pymc_mfm.inference.api import decompose
 from pymc_mfm.inference.result import DecompositionResult
 

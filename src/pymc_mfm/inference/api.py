@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import replace
 
 import numpy as np
@@ -13,12 +15,15 @@ from pymc_mfm.data.observations import encode_observations, observation_identity
 from pymc_mfm.inference._time import _validate_time
 from pymc_mfm.inference.result import (
     DecompositionResult,
+    _entity_names,
     _input_summary,
     _numpy,
+    _require_json_text,
+    _require_text,
     result_from_batch,
 )
 from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.flow import DEFAULT_N_SAMPLES
+from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, _random_seed
 from pymc_mfm.model.model import MFM
 
 
@@ -127,6 +132,7 @@ def decompose(
     time=None,
     units: str = "outcome",
     provenance=None,
+    random_seed: int | None = None,
 ) -> DecompositionResult:
     """Sample aligned conditional evidence from observed inputs or an encoded batch.
 
@@ -135,10 +141,53 @@ def decompose(
     Fixed graphs are supplied hypotheses; modal graphs are empirical router modes,
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
-    context/query posterior. The caller controls the PyTorch random seed;
-    ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
+    context/query posterior. ``random_seed`` replays the same random numbers: the call
+    uses its own generator and does not draw from or seed PyTorch's global random state.
+    The outputs agree up to floating-point round-off. They can differ slightly
+    across devices, thread counts, and compiled or eager runs. On a CPU with the
+    same thread count, a repeat gives the same result. With ``None`` the call draws from the
+    global generator and advances it. The result does not record the seed; only the
+    ``MFM.inference`` tree does, and there the context window continues the query window's
+    stream. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
+    return _decompose(
+        model,
+        observations,
+        n_samples=n_samples,
+        window=window,
+        mode=mode,
+        graph=graph,
+        router_samples=router_samples,
+        channel_names=channel_names,
+        control_names=control_names,
+        time=time,
+        units=units,
+        provenance=provenance,
+        random_seed=random_seed,
+    )
+
+
+def _decompose(
+    model: MFM,
+    observations: Mapping[str, object],
+    *,
+    n_samples: int = DEFAULT_N_SAMPLES,
+    window: str = "query",
+    mode: str = "model_average",
+    graph=None,
+    router_samples: int | None = None,
+    channel_names=None,
+    control_names=None,
+    time=None,
+    units: str = "outcome",
+    provenance=None,
+    random_seed: int | None = None,
+    generator: torch.Generator | None = None,
+) -> DecompositionResult:
+    """``decompose``, plus ``generator``: one stream that ``MFM`` calls share across calls."""
+    # Before any module mode change: a bad seed must leave the model as it was.
+    random_seed = _random_seed(random_seed)
     if not isinstance(observations, Mapping):
         raise ValueError("observations must be a mapping")
     parameter = next(model.parameters())
@@ -212,11 +261,27 @@ def decompose(
     if provenance is not None:
         if not isinstance(provenance, Mapping):
             raise ValueError("provenance must be a mapping")
+        # The result checks these too, after sampling; a seeded call must fail before it.
+        checked = dict(provenance)
+        json.dumps(checked, allow_nan=False)
+        _require_json_text(checked, "provenance")
         for key, value in provenance.items():
             if key in identity and identity[key] is not None and identity[key] != value:
                 raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
         identity.update(provenance)
+    if not isinstance(units, str) or not units:
+        raise ValueError("units must be a nonempty label")
+    _require_text(units, "units")
+    # Bind the checked tuples: a one-shot iterator is empty after this check.
+    channel_names, control_names = _entity_names(
+        batch["active_c_mask"].shape[-1],
+        batch["active_m_mask"].shape[-1],
+        channel_names,
+        control_names,
+    )
     _drop_recorded_evaluation(identity, getattr(model, "provenance", {}).get("training_evaluation"))
+    # Result annotations must not expose mutable loaded-model identity by reference.
+    identity = deepcopy(identity)
     if time is not None:
         full_length = batch["ctx_spend_z"].shape[1] + batch["qry_spend_z"].shape[1]
         time = _validate_time(time, length=full_length, allow_bool=False)
@@ -233,6 +298,8 @@ def decompose(
             graph=graph,
             router_samples=router_samples,
             window=window,
+            random_seed=random_seed,
+            generator=generator,
         )
     finally:
         if switch_modes:

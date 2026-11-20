@@ -57,6 +57,10 @@ jobs:
         run: |
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
+      # Static check of the deprecated top-level names; it only reads tests/typing.
+      - name: Check static types of the deprecated top-level names
+        if: matrix.installation == 'base' && matrix.lane == 'fast'
+        run: uv run --no-sync pyright tests/typing
       # Each lane selects its marker expression explicitly; plain pytest runs all tests.
       - name: Exercise local contracts without publication credentials
         run: >-
@@ -95,7 +99,7 @@ jobs:
         run: touch src/pymc_mfm/canary.pt tests/canary.npz examples/.env.canary
       - name: Build distributable artifacts
         run: uv build
-      - name: Verify installed sdist, base wheel, diagnostics-only wheel and arviz-only wheel
+      - name: Verify installed sdist, base/local wheels, diagnostics-only wheel and arviz-only wheel
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
 
   light:

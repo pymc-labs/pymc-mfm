@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO
 
 import numpy as np
-import torch
 
-from ._artifact_schema import json_bytes
+from ._digest import json_bytes
 from ._time import _validate_time
 from ._usage import _input_usage
 
@@ -38,6 +37,8 @@ _TUPLE_FIELDS = (
 
 def _numpy(value):
     if hasattr(value, "detach"):
+        import torch
+
         value = value.detach().cpu()
         # Widen exactly: NumPy has no native bfloat16 representation.
         if value.dtype == torch.bfloat16:
@@ -438,6 +439,29 @@ class DecompositionResult:
             return cls._from_saved(payload, handle)
 
 
+def _entity_names(k, m, channel_names, control_names) -> tuple[tuple[str, ...], ...]:
+    """Channel and control labels for ``k`` channel and ``m`` control slots, checked.
+
+    ``decompose`` calls this before it samples, so a bad name fails before any draw.
+    """
+    channels = (
+        tuple(f"channel_{i}" for i in range(k)) if channel_names is None else tuple(channel_names)
+    )
+    controls = (
+        tuple(f"control_{i}" for i in range(m)) if control_names is None else tuple(control_names)
+    )
+    if len(channels) != k or len(controls) != m:
+        raise ValueError("entity names must preserve padded entity axes")
+    for name, values in (("channel_names", channels), ("control_names", controls)):
+        if not all(isinstance(item, str) and item for item in values):
+            raise ValueError(f"{name} must contain nonempty strings")
+        for item in values:
+            _require_text(item, name)
+        if len(set(values)) != len(values):
+            raise ValueError(f"{name} must be unique")
+    return channels, controls
+
+
 def result_from_batch(
     batch,
     components,
@@ -475,14 +499,7 @@ def result_from_batch(
     k, m, j = len(active_c), len(active_m), len(active_j)
     if (m, j) != (model_config.n_controls, model_config.n_demand):
         raise ValueError("result geometry disagrees with model configuration")
-    channels = (
-        tuple(f"channel_{i}" for i in range(k)) if channel_names is None else tuple(channel_names)
-    )
-    controls = (
-        tuple(f"control_{i}" for i in range(m)) if control_names is None else tuple(control_names)
-    )
-    if len(channels) != k or len(controls) != m:
-        raise ValueError("entity names must preserve padded entity axes")
+    channels, controls = _entity_names(k, m, channel_names, control_names)
     names = (
         "baseline",
         *(f"channel:{name}" for name in channels),

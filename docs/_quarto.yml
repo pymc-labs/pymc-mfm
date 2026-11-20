@@ -10,6 +10,7 @@ project:
     - "api/**"
     - "reference/**"
     - "models/**"
+    - "migration.md"
   resources:
     - assets/js/*.js
     - assets/fonts/*
@@ -114,6 +115,7 @@ website:
           contents:
             - guide/index.qmd
             - guide/concepts.qmd
+            - migration.md
         - section: Use a model
           contents:
             - guide/decompose.qmd
@@ -162,16 +164,40 @@ quartodoc:
       contents:
         - name: model.MFM
           members:
-            - add_context
             - input_usage
             - inference
-            - build_idata
+            - predict
             - idata
+            - query_result
+            - plot
+            - response_curves
             - compile_sampling
             - disable_compiled_sampling
             - sampling_status
             - predict_batch
         - model.ModelConfig
+    - title: Charts
+      desc: Sampling-free matplotlib or plotly charts of a model's latest complete inference.
+      contents:
+        - name: plotting.Plots
+          members:
+            - inputs
+            - fit
+            - contributions_over_time
+            - shares
+            - contribution_totals
+            - contribution_vs_media
+            - response_curves
+        - plotting.set_backend
+        - name: inference.curves.ResponseCurves
+          members:
+            - to_frame
+    - title: Model trees as files
+      desc: Check a model tree, save it to a netCDF file without overwriting, and load it without PyTorch.
+      contents:
+        - idata.validate_idata
+        - idata.save_idata
+        - idata.load_idata
     - title: Inference
       desc: Array-level decomposition, results and warm-up for long-running processes.
       contents:

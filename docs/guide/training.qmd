@@ -53,7 +53,7 @@ pip install "pymc-mfm[training] @ git+https://github.com/pymc-labs/pymc-mfm.git"
 ```
 
 ```python
-from pymc_mfm import ModelConfig
+from pymc_mfm.model import ModelConfig
 from pymc_mfm.training import TrainingConfig, train
 
 result = train(

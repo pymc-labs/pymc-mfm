@@ -1939,6 +1939,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nodeenv"
+version = "1.12.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/99/d27cfc9518f49e4cbc25c683ec7cf8704a9d31311341c291c0e78ddf791b/nodeenv-1.12.0.tar.gz", hash = "sha256:4ea7f88339310afebc3253f2c7a91b94bacf97d73a36a5c108962abdfaca501e", size = 131292, upload-time = "2026-10-31T19:03:18.847Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/6a/8a9ac7d5e2f7cf53c459bfef90ebc17a2f8cd54b665af96799d4c534840e/nodeenv-1.12.0-py3-none-any.whl", hash = "sha256:80644d65c10cc2be12e3e4b54b3367ff288c7ad24ae75c2dcc65454fc7449d4d", size = 39442, upload-time = "2026-10-31T19:03:17.427Z" },
+]
+
+[[package]]
 name = "numba"
 version = "0.66.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2389,6 +2398,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d7/9a/8475be631fb33ca1466915e70fd594c42a4e84b512db650eaa14f90fe75d/platformdirs-4.14.5.tar.gz", hash = "sha256:32e9921db7385aa8169bee4fe9501923e5715ba9fb7ea3b9c69b0d8e0639f7a1", size = 71464, upload-time = "2026-11-04T16:54:50.358Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7c/ae/ecbbbfd0e4343a6a521d49b3c8656fb4643dee2a4f6eaf941cf3280391a8/platformdirs-4.14.5-py3-none-any.whl", hash = "sha256:8e778c6fa421516f4d3369449f8df3b0e1b72c0e0005fe88e3ec772d0a14e750", size = 35402, upload-time = "2026-11-04T16:54:48.875Z" },
+]
+
+[[package]]
+name = "plotly"
+version = "6.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "narwhals" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/96/07/795c79dbce40c39bece88e69d049babbd23ffa95b5d117f248db8ea03abb/plotly-6.9.0.tar.gz", hash = "sha256:967ad33e8c704fed051800d11d985eb206a9c795c14206b30a6f463ed9c67d0d", size = 6919903, upload-time = "2026-07-09T14:55:59.982Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/24/18/d8544811ab076f876c4892b3714f5b0dad335e1dc33aef826df431b8325d/plotly-6.9.0-py3-none-any.whl", hash = "sha256:36bebe2f1bb13884774fe61689c329071446f6ce4a8927fb1f0d6fb24f581236", size = 9909646, upload-time = "2026-07-09T14:55:55.421Z" },
 ]
 
 [[package]]
@@ -2849,9 +2871,11 @@ dependencies = [
 
 [package.optional-dependencies]
 arviz = [
+    { name = "arviz-base" },
     { name = "arviz-stats", extra = ["xarray"] },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 client = [
     { name = "h5netcdf" },
@@ -2860,12 +2884,14 @@ client = [
     { name = "xarray" },
 ]
 diagnostics = [
+    { name = "arviz-base" },
     { name = "arviz-stats" },
     { name = "matplotlib" },
     { name = "safetensors" },
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 draws = [
     { name = "h5netcdf" },
@@ -2873,29 +2899,41 @@ draws = [
     { name = "xarray" },
 ]
 examples = [
+    { name = "arviz-base" },
     { name = "ipython" },
     { name = "pymc-marketing" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 generation = [
+    { name = "arviz-base" },
     { name = "pymc-generator" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 hub = [
+    { name = "arviz-base" },
     { name = "huggingface-hub" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
+]
+interactive = [
+    { name = "plotly" },
 ]
 local = [
+    { name = "arviz-base" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 plot = [
     { name = "matplotlib" },
 ]
 training = [
+    { name = "arviz-base" },
     { name = "arviz-stats" },
     { name = "matplotlib" },
     { name = "mlflow" },
@@ -2903,10 +2941,12 @@ training = [
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
@@ -2918,6 +2958,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arviz-base", marker = "extra == 'local'", specifier = ">=1.3,<2" },
     { name = "arviz-stats", marker = "extra == 'diagnostics'", specifier = ">=1.3,<2" },
     { name = "arviz-stats", marker = "extra == 'training'", specifier = ">=1.3,<2" },
     { name = "arviz-stats", extras = ["xarray"], marker = "extra == 'arviz'", specifier = ">=1.3,<2" },
@@ -2933,6 +2974,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.1,<3" },
     { name = "packaging", specifier = ">=24.2" },
     { name = "pandas", specifier = ">=2.2.3,<4" },
+    { name = "plotly", marker = "extra == 'interactive'", specifier = ">=6,<7" },
     { name = "pymc-generator", marker = "extra == 'generation'", git = "https://github.com/pymc-labs/pymc-generator.git?rev=main" },
     { name = "pymc-marketing", marker = "extra == 'examples'", specifier = ">=1.1,<2" },
     { name = "pymc-mfm", extras = ["draws", "plot"], marker = "extra == 'client'" },
@@ -2949,11 +2991,13 @@ requires-dist = [
     { name = "scipy", marker = "extra == 'training'", specifier = ">=1.14" },
     { name = "torch", marker = "extra == 'local'", specifier = ">=2.6,<3" },
     { name = "xarray", marker = "extra == 'draws'", specifier = ">=2024.10" },
+    { name = "xarray", marker = "extra == 'local'", specifier = ">=2024.10" },
 ]
-provides-extras = ["local", "draws", "plot", "client", "generation", "diagnostics", "arviz", "hub", "training", "examples"]
+provides-extras = ["local", "draws", "plot", "interactive", "client", "generation", "diagnostics", "arviz", "hub", "training", "examples"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "pyright", specifier = ">=1.1.390" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "pytest-xdist", specifier = ">=3.6" },
@@ -2980,6 +3024,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ec/7f/d04044efe4acc4185db1174209fadac33cc21c015ed0d6bef8884c9fa808/pyprojroot-0.3.0.tar.gz", hash = "sha256:109705bb790968704958efcfc5ccce85d8e3dafa054897cc81371fcbbf56cb10", size = 6287, upload-time = "2023-03-13T05:39:30.318Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/53/9b/eef01392be945c0fe86a8d084ba9188b1e2b22af037d7109b9f40a962cd0/pyprojroot-0.3.0-py3-none-any.whl", hash = "sha256:c426b51b17ab4f4d4f95b479cf5b6c22df59bb58fbd4f01b37a6977d29b99888", size = 7558, upload-time = "2023-03-13T05:39:28.707Z" },
+]
+
+[[package]]
+name = "pyright"
+version = "1.1.414"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "nodeenv" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e1/1b/244c7b710031ada80f27e579ec20d28a2285dfc318fed0339866b1047f12/pyright-1.1.414.tar.gz", hash = "sha256:523c0a97c60da6333234955c277730c9cf4f5bd6d5399e7b7d2b0fc5d3599524", size = 4154638, upload-time = "2026-09-10T12:26:53.181Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/ba/18b6e682ead424ad24bcc134339ae5d1b931cd9ae260540592a058a91279/pyright-1.1.414-py3-none-any.whl", hash = "sha256:2a6b4b3298c9eec174c5ed83bd338de6eee82df2992f3e1930e6199d381be36f", size = 6225049, upload-time = "2026-09-10T12:26:51.427Z" },
 ]
 
 [[package]]

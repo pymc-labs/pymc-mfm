@@ -5,7 +5,7 @@ decomposition. A trained network reads one time series (media spend, controls
 and the observed outcome) and returns posterior draws of each component's
 contribution: baseline, each channel, each control and unobserved factors.
 The network is trained once on many simulated datasets. For a new dataset,
-`add_context` loads observed context; it does not train the network's weights.
+`inference(context, query, ...)` conditions on observed history without training its weights.
 
 This repository is the library. Simulators, training corpora and trained weights
 are separate artifacts: models load from a local folder or from the Hugging Face Hub.
@@ -20,21 +20,22 @@ pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"
 
 The default install, without `[local]`, is a light client for the River API (NumPy,
 pandas, httpx and packaging; about 130 MB, no PyTorch). `pymc_mfm.client` is the only
-part that runs there; see "Call the River API". The `[local]` extra adds PyTorch and
-safetensors, which load local models and run inference in your process. Names such as
-`from_pretrained` and `MFM` load on first use and raise an `ImportError` that names
+part that runs there; see "Call the River API". The `[local]` extra adds PyTorch,
+safetensors, xarray and ArviZ Base for local models and complete in-memory inference trees.
+Names such as `from_pretrained` and `MFM` load on first use and raise an `ImportError` that names
 `pymc-mfm[local]` when PyTorch is missing. Optional extras:
 
 | Extra | Adds |
 | --- | --- |
-| `local` | PyTorch and safetensors, to load local models and run inference |
+| `local` | PyTorch, safetensors, xarray and ArviZ Base for local models and inference trees |
 | `draws` | `xarray`, `h5netcdf` and `h5py`, to read the API's per-draw files |
-| `plot` | `matplotlib`, for the client's plots |
+| `plot` | `matplotlib`, for `model.plot` charts and the client's plots |
+| `interactive` | `plotly`, for interactive `model.plot` charts |
 | `client` | `draws` and `plot` |
 | `hub` | `local`, and loading from and publishing to the Hugging Face Hub |
 | `training` | `local`, MLflow tracking and the diagnostics recorded during training |
 | `diagnostics` | `local`, and diagnostics, plots and HTML reports for results |
-| `arviz` | `local`, and export of results as an ArviZ `DataTree` |
+| `arviz` | `local`, and ArviZ statistics for result analysis |
 | `generation` | `local`, and `pymc-generator`, to simulate corpora and read `.npz` corpora |
 | `examples` | `local`, and `pymc-marketing`, for the example notebook |
 
@@ -46,7 +47,6 @@ installs PyTorch.
 ```python
 import numpy as np
 import pandas as pd
-import torch
 
 from pymc_mfm import from_pretrained
 
@@ -65,81 +65,172 @@ data = pd.DataFrame(
     }
 )
 
-model.add_context(
-    data.iloc[:n_context],
-    date_column="date",
-    target_column="sales",
-    channel_columns=["search", "social"],
-    control_columns=["seasonality"],
-)
-future = data.iloc[n_context:].drop(columns="sales")
-torch.manual_seed(0)
-query = model.inference(future, n_samples=500)
+history, future = data.iloc[:n_context], data.iloc[n_context:]
+roles = {
+    "date_column": "date",
+    "target_column": "sales",
+    "channel_columns": ["search", "social"],
+    "control_columns": ["seasonality"],
+}
+# Preflight explicit inputs before sampling; no previous inference is required.
+usage = model.input_usage(history, future, **roles)
+idata = model.inference(history, future, **roles, n_samples=500, random_seed=0)
+assert idata is model.idata
+query = model.query_result  # exact query draw bank for components, diagnostics and graphs
 
 query.components.shape  # (500, 24, D): [draw, week, component]
 query.component_names  # ('baseline', 'channel:search', 'channel:social', ..., 'indirect:dc')
 ```
 
-`add_context` snapshots the history and column roles, validates the inputs, and returns
-the model. It needs at least two rows, strictly positive outcomes, nonnegative
-spend, and at least one channel and control. Control padding and masks are
-automatic; excess controls are rejected and channel count is not fixed.
+`random_seed` replays the same random numbers: the same seed and inputs give the same
+draws. The outputs agree up to floating-point round-off. They can differ slightly
+across devices, thread counts, and compiled or eager runs. On a CPU with the
+same thread count, a repeat gives the same result. A seeded call uses its own generator
+and does not draw from or seed PyTorch's global random state, so other models and `torch`
+calls cannot disturb it. After `compile_sampling()`, PyTorch itself saves and restores the global state while it compiles, which can undo global draws that another thread makes in that time. In `inference` the context window
+continues the query window's stream. The model tree (`idata`) records the seed; the result
+of `predict` or `decompose` does not, so keep the seed yourself if you save one. Without
+`random_seed`, a call draws from PyTorch's global generator and advances it, so
+`torch.manual_seed` before the call still sets the draws and each call gives new ones.
+`predict` and `response_curves` take the same keyword.
 
-`inference` requires only the stored date, channel and control columns. Physical
-column order does not matter; extra columns and any query targets are ignored.
+`inference` snapshots the explicit history, query and column roles and samples both
+windows before returning their complete `xarray.DataTree`. It stores that same tree
+as `model.idata` by default. History needs at least two rows, strictly positive
+outcomes, nonnegative spend, and at least one channel and control. Control padding
+and masks are automatic; excess controls are rejected and channel count is not fixed.
+
+The query requires the specified date, channel and control columns. Physical
+column order does not matter and extra columns are ignored. The model never reads
+query targets: a target column in the query frame is kept only so `model.plot` can
+compare the forecast with what happened (values that are not finite numbers count as
+unobserved).
 Dates must be timezone-naive, unique, and regularly spaced. Rows are sorted
 without modifying the dataframe. Queries must start at the next context period
 and follow its cadence without gaps. Calendar frequency is inferred when
 possible; two-row histories use their fixed interval.
 
-Repeated predictions reuse the same context without appending predictions.
-A successful second `add_context` replaces context; a failed call preserves it.
-`inference` before `add_context` raises an error. Weight bundles exclude private
-history, so call `add_context` again after loading. The illustrative data above
+Each successful complete call atomically replaces the stored run and clears its
+response curves; failures preserve the previous complete run. Changing a future
+plan or its horizon can change context draws too, so every full call samples both
+marginals afresh. Weight bundles exclude runtime history, results, curves and idata.
+After loading weights, run a complete inference again. The illustrative data above
 exercises the API, not attribution calibration.
+
+For an independent query-only calculation after complete inference, use
+`prediction = model.predict(future, n_samples=200)`. It reuses the last successful
+history and roles without appending predictions, sampling context, or replacing
+`model.idata`, `model.query_result`, model charts or curves. Its sampling options
+have their normal defaults, not the previous run's settings; fixed mode requires
+an explicit graph. Before complete inference, `predict` raises a prerequisite error.
+
+### Charts
+
+`model.plot` draws the latest complete `inference` with matplotlib (the `[plot]`
+extra) or plotly (the `[interactive]` extra), never an intervening `predict`:
+
+```python
+model.plot.inputs()  # outcome, media and control covariates by week, forecast weeks shaded
+model.plot.fit()  # expected vs observed outcome, with MAPE, R² and interval coverage
+model.plot.contributions_over_time()  # stacked weekly means of every component
+model.plot.shares()  # share of the expected outcome by media and control covariate
+model.plot.contribution_totals()  # each component's total over the window, over draws
+model.plot.contribution_vs_media()  # each week's media covariate against its contribution
+
+model.response_curves(levels=[0, 0.5, 1, 1.5, 2], weeks=8)  # samples sweep scenarios
+model.plot.response_curves()
+
+model.plot.fit(backend="plotly")  # interactive: hover, zoom, click a legend entry to hide it
+```
+
+| Method | Shows | Main options |
+| --- | --- | --- |
+| `inputs()` | Outcome, media covariates and control covariates by week | |
+| `fit()` | Mean and interval of the expected outcome over the observed outcome; MAPE and R² of the mean line (± their standard deviation over draws) and the empirical coverage of the interval | `window` |
+| `contributions_over_time()` | Stacked weekly means of every component; `stacked=False` gives one panel per component with its interval | `window`, `components`, `stacked`, `truth` |
+| `shares()` | Each media and control covariate's share of the expected outcome: bars with intervals, or `view="dist"` kernel densities | `share="mean"` or `"total"`, `window`, `view` |
+| `contribution_totals()` | Histogram of each component's total over the window | `window`, `components`, `bins`, `truth` |
+| `contribution_vs_media()` | Each week's raw media covariate against its mean contribution | `window`, `channels`, `truth` |
+| `response_curves()` | The latest `model.response_curves(...)`: contribution by media covariate level, observed level marked | `channels`, `truth` |
+
+Every chart takes `backend=` (`"matplotlib"` or `"plotly"`; set a session default with
+`pymc_mfm.set_backend`), `title=` and, where it summarizes draws, `interval=`
+(default 0.9). Charts with one axes also take matplotlib `ax=`. Matplotlib charts return a
+`Figure` that notebooks show without pyplot; plotly charts return a
+`plotly.graph_objects.Figure`. `window` is `"context"` (history weeks), `"query"`
+(forecast weeks) or, for the charts over time, `None` for both. `truth`, for simulated
+data, is a DataFrame of known contributions indexed by date (by level for response
+curves) with one column per media or control covariate name.
+
+Charts never sample: both marginals are ready when complete inference succeeds.
+`response_curves` samples separate media-covariate/level scenarios (one shared run
+for level 1), then returns the curves and attaches them to a new `model.idata` root.
+It keeps the result until the next successful complete `inference`; `predict`
+does not replace it. Failed inference or curve calculation leaves the previous
+complete analysis intact. Intervals are central intervals of the draws (pointwise
+over weeks or levels) and exclude observation noise; contributions are conditional
+on the inputs, not causal lift.
 
 ### Number of draws
 
-`n_samples` defaults to 2,000 draws per call. Summaries from few draws change between
-runs: on the River-1 quickstart world, the posterior-mean contribution of one channel
-moved by up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws and by 3% at
-4,000 draws. Cost grows about linearly with draws. On CPU, River-1 (8 threads, shared
-Linux x86 machine, `benchmarks/inference_speed.py --repeats 3`, median of 3 runs) took
+`n_samples` defaults to 2,000 draws for each marginal in complete inference and for
+query-only prediction. Summaries from few draws change between runs: on the
+River-1 quickstart world, the posterior-mean contribution of one channel moved by
+up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws and by 3% at
+4,000 draws. Cost grows about linearly with draws. Historical **query-only**
+CPU measurements for River-1 (8 threads, shared Linux x86 machine,
+`benchmarks/inference_speed.py --repeats 3`, median of 3 runs) were
 2.6, 12.3 and 34.8 s at 1,000 draws and 4.4, 22.0 and 69.8 s at 2,000 draws, for 10, 50
-and 150 query weeks. Memory also grows with draws: CPU sampling holds every draw's noise
+and 150 query weeks. A full paired inference additionally samples context and
+constructs/stores its tree; these timings do not measure that complete operation.
+Memory also grows with draws: CPU sampling holds every draw's noise
 for every task at once, so split a large `predict_batch` into smaller batches or lower
 `n_samples`. For a quick look, pass a smaller count; for numbers you report, keep the
 default or raise it and seed the call:
 
 ```python
-query = model.inference(future, n_samples=200)  # quick look, noisier summaries
+prediction = model.predict(
+    future, n_samples=200
+)  # independent quick look; stored analysis unchanged
 ```
 
 ### Context and query snapshots
 
-With the `[arviz]` extra, request both decomposition windows after a successful
-`add_context` and `inference`:
+The `[local]` extra includes complete in-memory trees; no export call or optional
+statistics package is required:
 
 ```python
-idata = model.build_idata()  # return-only; does not assign or replace model.idata
-assert model.idata is None
-
-stored = model.build_idata(store=True)
-assert model.idata is stored
+idata = model.idata  # current complete snapshot, including any attached curves
+assert idata is model.idata
 search_draws = idata["query"]["posterior"]["channel_contribution"].sel(channel="search")
+assert query.provenance["input_usage"] == usage
 
-# Retain separate scenario snapshots without accumulating history on the model.
+# A new complete scenario replaces the model's run, not caller-held snapshots.
 scenario = future.assign(search=lambda frame: frame["search"] * 1.2)
-model.inference(scenario, n_samples=500)
-assert model.idata is None
-idata_scenario = model.build_idata()
-# idata and stored still contain the original scenario, unchanged.
+idata_scenario = model.inference(history, scenario, **roles, n_samples=500)
+assert idata_scenario is model.idata
+
+# Suppress only the return value, never sampling, conversion or storage.
+returned = model.inference(history, future, **roles, n_samples=500, return_idata=False)
+assert returned is None
+assert model.idata is not None  # the complete replacement, with both marginals
+# idata and idata_scenario still describe their original runs.
 ```
 
-The returned `xarray.DataTree` has `context` and `query` subtrees, each with its
-own `posterior` and `constant_data`. Known context outcomes appear separately as
-`context/observed_data/outcome(date)`; query outcomes are neither read nor invented.
-ArviZ operations take a window subtree, for example
+`return_idata=True` is the default and returns the exact current `model.idata`.
+`False` returns `None` but completes and stores the same analysis; it is not a
+lower-cost or no-storage mode. `input_usage(history, **roles)` inspects context
+alone; supplying `future` inspects the complete request without sampling or
+changing stored state or RNG.
+
+The tree has `context` and `query` subtrees, each with its own `posterior` and
+`constant_data`. Covariates are original-unit `media(date, channel)` and
+`controls(date, control)`, without padding. Context observations appear as
+`context/observed_data/outcome(date)`. If any query outcomes are finite,
+`query/observed_data/outcome(date)` stores them with NaN for unobserved dates;
+these outcomes are never neural inputs. Complete window provenance is JSON text
+in each window's `attrs["provenance"]`, or a dictionary on `model.query_result.provenance`.
+ArviZ statistics (the `[arviz]` extra) take a window subtree, for example
 `arviz_stats.summary(idata["query"], var_names=["channel_contribution"], kind="stats")`,
 not the convenience root.
 
@@ -160,31 +251,33 @@ and `draw` retain the uncertainty in the amortized samples. **Context and query
 are separate marginals**: equal draw indices do not pair them into full-horizon
 trajectories. Do not concatenate their date axes to manufacture joint draws.
 
-`model.idata` is a passive, read-only property, initially `None`; reading it never
-samples or converts. `store=True` returns the same tree exposed by that property
-and reuses it while current. A return-only build creates a separate container
-and leaves any stored tree unchanged. A successful `add_context` or `inference` clears the
-stored reference and context-draw cache; failures preserve the last successful
-state. Earlier caller-held trees are never rewritten by later model calls.
-Weight bundles exclude history, prediction snapshots and exports.
+`model.idata` and `model.query_result` are passive properties, initially `None`;
+reading them never samples or converts. Successful complete inference replaces
+the root and increments `inference_revision` only after all work succeeds.
+Successful curves publish another root with `/response_curves/posterior`
+`contribution(chain, draw, channel, level)` and `/response_curves/constant_data`
+media totals and actual sweep dates. Curves may use a different draw count from
+either window and never replace `query_result`. Earlier caller-held trees and
+results are snapshots; do not mutate them to change model inputs.
 
-The first build samples the missing context marginal once, using the retained
-history/query inputs and inference options; it never resamples query. Subsequent
-builds reuse both sets of draws, even in return-only mode. Thus `store=False`
-means no retained **DataTree**, not no retained inference state. Prediction
-snapshots consume memory, and fresh exports may allocate arrays. Context
-sampling and optional xarray/ArviZ imports are deferred until requested; a
-missing extra is reported before context sampling. Building after `add_context` alone
-raises an error: the current sampler needs a successful prediction with a
-nonempty query window.
+Both marginals and their analysis representation consume memory even with
+`return_idata=False`. Query-only `predict` avoids context sampling and tree
+conversion while leaving the stored analysis unchanged. There is no history-only
+model tree or chart state.
+
+File export is explicit: install `[draws]`, write with
+`pymc_mfm.save_idata(model.idata, "analysis.nc")` (it never overwrites) and read
+with `pymc_mfm.load_idata("analysis.nc")`. Result evidence
+`query.save(...)` / `DecompositionResult.load(...)` is separate from tree export;
+neither restores a runnable dataframe session. Trees can contain sensitive
+outcomes, covariates and labels; review them before sharing.
 
 Lower-level `result.to_datatree()` and archive exports retain their generic
-`time`/`component` layouts; the model builder supplies the named dataframe-facing
-schema above.
+`time`/`component` layouts; complete model inference supplies the named schema above.
 
 ### Lower-level array inputs
 
-`decompose(model, observations, window="query", ...)` remains available for
+`pymc_mfm.inference.decompose(model, observations, window="query", ...)` remains available for
 array/tensor callers; `window="context"` selects the observed window instead.
 It requires the explicit padded observation mapping below.
 `model.predict_batch(batch, ...)` is the separate tensor-level joint sampler.
@@ -208,18 +301,18 @@ A column that is zero in the context but nonzero in the query is rejected.
 
 ### Output
 
-`inference` returns a query `DecompositionResult`; lower-level `decompose` can return
-either window:
+`model.query_result`, query-only `predict` and lower-level `decompose` expose a
+`DecompositionResult`; the latter can return either window:
 
 | Field | Shape | Content |
 | --- | --- | --- |
 | `components` | `[S, T_window, D]` | Draws in outcome units. `T_window` is `C` (context) or `T - C` (query). |
 | `component_names` | `[D]` | Baseline, `K` channels, `M` controls, latent total, indirect `cc`, `zc`, `dc` (`D = K + M + 5`) |
 | `graphs` | `[S, L]` | Causal graph sampled with each draw (edge layout below) |
-| `time` | `[T_window]` | Query dates (`inference`); row indices or supplied labels (`decompose`) |
+| `time` | `[T_window]` | Query dates (`query_result` / `predict`); row indices or supplied labels (`decompose`) |
 
-- `inference` derives names from column roles; `decompose` accepts `channel_names=`
-  and `control_names=`.
+- Dataframe inference/prediction derives names from column roles; `decompose` accepts
+  `channel_names=` and `control_names=`.
 - Components exclude observation noise. Context and query calls are separate
   draws, not one joint posterior.
 - Sampling skips padded channel, control and latent slots, their graph edges
@@ -230,7 +323,7 @@ either window:
 - `result.save(path)` and `DecompositionResult.load(path)` store and reload a
   result without the model.
 - With `[diagnostics]`: `result.plot.reconstruction(observed=...)` and
-  `result.diagnostics(truth=...)`. With `[arviz]`: `result.to_datatree()`.
+  `result.diagnostics(truth=...)`. `result.to_datatree()` exports the generic result schema.
 - Dates survive result save/load, plots and export. Saved results retain their
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
@@ -241,6 +334,7 @@ With `[diagnostics]`, switch between the marginal-average graph and individual
 complete graphs without rerunning inference:
 
 ```python
+result = model.query_result  # exact completed query draws; no resampling for helpers
 result.plot.dag()  # Average: numeric labels show marginal edge frequencies
 result.plot.dag(graph=0)  # Most frequent complete graph: binary edge indicators
 result.plot.dag(graph=1).savefig("graph-rank-1.svg")
@@ -311,12 +405,15 @@ training, conversion or installed compiler; the first CUDA call in a process com
 kernels (see below):
 
 ```python
+from pymc_mfm import from_pretrained
+from pymc_mfm.inference import decompose
+
 model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")  # Apple silicon
 model = from_pretrained("pymc-labs/mfm", profile="river-1", device="cuda")  # NVIDIA GPU
-result = decompose(model, observations, n_samples=1000)  # or model.inference(...)
+result = decompose(model, observations, n_samples=1000)  # independent array-level query draws
 ```
 
-River-1, 1,000 draws, the quickstart world with a 166-week context, PyTorch 2.14, median
+Historical query-only timings for River-1, 1,000 draws, a 166-week context, PyTorch 2.14, median
 of warm calls (`benchmarks/inference_speed.py --query-weeks 10,50,150,205 --device mps`
 or `--device cuda`):
 
@@ -330,8 +427,9 @@ or `--device cuda`):
 - GPU sampling draws its base noise with PyTorch's CPU generator, so a seeded call draws
   the same samples on CPU, Apple and NVIDIA GPUs up to float32 round-off (identical graphs
   on these inputs on an Apple M3 Max and NVIDIA T4, A10G, L4, A100 and H100). The noise is
-  drawn on a worker thread while the GPU runs; do not draw random numbers from other
-  threads during a call. CUDA sampling used to draw with the CUDA generator.
+  drawn on a worker thread while the GPU runs; without `random_seed`, do not draw random
+  numbers from other threads during a call. A seeded call draws from its own generator.
+  CUDA sampling used to draw with the CUDA generator.
 - Each Euler step runs one kernel per coordinate network that computes its first layer,
   its hidden product and its output without writing activations to memory: Metal on Apple
   GPUs; CUDA C++ on NVIDIA GPUs, compiled by NVRTC, which PyTorch's CUDA wheels include
@@ -384,7 +482,8 @@ compiled calls ran about 1.4 times as fast as eager calls on four test inputs; t
 compilation took 20–30 s.
 
 ```python
-from pymc_mfm.inference import warm_up_sampling
+from pymc_mfm import from_pretrained
+from pymc_mfm.inference import decompose, warm_up_sampling
 
 model = from_pretrained("pymc-labs/mfm", profile="river-1").to("cuda")
 model.compile_sampling()  # opt-in; sampling stays eager until this call
@@ -397,9 +496,11 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
   up with worlds, draw counts and modes like the ones you serve. `compiles` counts
   every compilation, so a later increase shows an input the warm-up did not cover.
 - Compiled draws follow the eager distribution; they agree with eager draws up to
-  float round-off but are not bit-identical. With a fixed seed, serialized calls on one
-  device repeat their draws, including a call that compiles. Sampling uses PyTorch's
-  process-wide random generator, so run warm-up before other threads sample.
+  float round-off but are not bit-identical. With a fixed seed, a call replays the same
+  random numbers, including a call that compiles. Without a seed, sampling uses PyTorch's
+  process-wide random generator, so run warm-up before other threads sample. While it
+  compiles, PyTorch saves and restores that generator's state, so global draws that another
+  thread makes in that time can repeat.
 - PyTorch's compile cache (`TORCHINDUCTOR_CACHE_DIR`) lets a restarted process reuse
   earlier compilations. A compiler failure warns, returns the model to eager sampling and
   shows in `sampling_status.fallback`. `model.disable_compiled_sampling()` switches it off.
@@ -583,7 +684,7 @@ pip install "pymc-mfm[training] @ git+https://github.com/pymc-labs/pymc-mfm.git"
 ```
 
 ```python
-from pymc_mfm import ModelConfig
+from pymc_mfm.model import ModelConfig
 from pymc_mfm.training import TrainingConfig, train
 
 result = train(
@@ -634,7 +735,8 @@ Checkpoints hold no optimizer state, so a run cannot be resumed.
 A model folder holds `config.json`, `model.safetensors` and `manifest.json`.
 
 ```python
-from pymc_mfm import from_pretrained, save_pretrained
+from pymc_mfm import from_pretrained
+from pymc_mfm.inference import save_pretrained
 from pymc_mfm.training import load_checkpoint
 
 model = from_pretrained("runs/my-model/model", device="cpu")  # final model
@@ -669,7 +771,7 @@ model = from_pretrained(
 - `cache_dir=` sets the download folder; `local_files_only=True` loads from the
   cache without network access.
 - `model.provenance["hub_revision"]` records the commit that was loaded.
-- `push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
+- `pymc_mfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
   a model and returns the commit id. New repositories are private.
 
 [`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a

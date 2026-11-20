@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -25,8 +25,10 @@ from .flow import (
     _noise_device,
     _NoisePrefetch,
     _NoiseRequest,
+    _random_seed,
     _sample_count,
     _sample_rows,
+    _sampling_generator,
     _to_device,
 )
 from .graph import (
@@ -44,8 +46,10 @@ if TYPE_CHECKING:
     from pandas import DataFrame
     from xarray import DataTree
 
+    from pymc_mfm.inference.curves import ResponseCurves
     from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
     from pymc_mfm.inference.result import DecompositionResult
+    from pymc_mfm.plotting.charts import Plots
 
 
 def _move_together(tensors: Sequence[Tensor], device: torch.device) -> list[Tensor]:
@@ -116,8 +120,8 @@ class MFM(nn.Module):
         self.conditional_head = JointFlowHead(config, graph_router=False)
         self._inference_context: _FittedContext | None = None
         self._prediction_snapshot: _PredictionSnapshot | None = None
-        self._context_decomposition: DecompositionResult | None = None
         self._idata: DataTree | None = None
+        self._inference_revision = 0
 
     def structure_logits(
         self,
@@ -494,7 +498,7 @@ class MFM(nn.Module):
         """Return the complete scalar training objective."""
         return self.loss_terms(batch, weights=weights)["loss"]
 
-    def add_context(
+    def _add_context(
         self,
         data: DataFrame,
         *,
@@ -502,19 +506,11 @@ class MFM(nn.Module):
         target_column: str,
         channel_columns: Sequence[str],
         control_columns: Sequence[str],
-    ) -> Self:
-        """Replace observed history and column roles without training the weights.
-
-        Dates are sorted and must follow a regular cadence. History needs at
-        least two rows, positive outcomes, nonnegative spend and at least one
-        channel and control. Controls are padded to this model's capacity.
-        A successful call replaces context and invalidates prediction/export
-        state; a failed call preserves the last successful state.
-        The stored history is independent of later changes to ``data``.
-        """
+    ) -> _FittedContext:
+        """Prepare validated history without publishing it as model state."""
         from pymc_mfm.inference.dataframe import _FittedContext
 
-        context = _FittedContext.from_data(
+        return _FittedContext.from_data(
             data,
             model_config=self.config,
             date_column=date_column,
@@ -522,42 +518,45 @@ class MFM(nn.Module):
             channel_columns=channel_columns,
             control_columns=control_columns,
         )
-        self._inference_context = context
-        self._prediction_snapshot = None
-        self._context_decomposition = None
-        self._idata = None
-        return self
 
-    def input_usage(self, data: DataFrame | None = None) -> dict[str, object]:
-        """Report input-volume counts without running the neural model.
+    def input_usage(
+        self,
+        context: DataFrame,
+        query: DataFrame | None = None,
+        *,
+        date_column: str,
+        target_column: str,
+        channel_columns: Sequence[str],
+        control_columns: Sequence[str],
+    ) -> dict[str, object]:
+        """Inspect explicit context/query input volume without sampling or storing state.
 
-        ``context`` and, with query ``data``, ``query`` contain ``steps``,
-        ``allocated_tokens`` for all padded entity slots, and
-        ``represented_tokens`` for unmasked slots. Tokens are time/entity cells,
-        including one revenue slot per step. With query data, ``total`` contains
-        both token sums. With ``data=None``, return only ``context``; no query
-        is inferred from earlier predictions.
-
-        Query data is validated as for ``inference``. These counts measure input
-        volume, not model capacity, maximum supported length, or runtime limits.
+        Each window reports steps and allocated/represented time-entity tokens.
+        With no query, report context only; otherwise also report the query and
+        full-request totals. Inputs follow inference's role, cadence and numeric
+        validation. Counts do not measure model capacity, memory or runtime.
         """
         from pymc_mfm.inference._usage import _input_usage
 
-        context = self._inference_context
-        if context is None:
-            raise RuntimeError("call add_context(history, ...) before input_usage(data)")
-        if data is None:
+        fitted = self._add_context(
+            context,
+            date_column=date_column,
+            target_column=target_column,
+            channel_columns=channel_columns,
+            control_columns=control_columns,
+        )
+        if query is None:
             return _input_usage(
-                context_steps=context.spend.shape[0],
-                channel_slots=context.spend.shape[1],
-                control_slots=context.controls.shape[1],
-                represented_channels=len(context.channel_columns),
-                represented_controls=int(context.control_mask.sum()),
+                context_steps=fitted.spend.shape[0],
+                channel_slots=fitted.spend.shape[1],
+                control_slots=fitted.controls.shape[1],
+                represented_channels=len(fitted.channel_columns),
+                represented_controls=int(fitted.control_mask.sum()),
             )
 
         from pymc_mfm.inference.api import _model_batch, observation_batch
 
-        observations, _ = context.observations(data)
+        observations, _ = fitted.observations(query)
         batch = observation_batch(**observations, model_config=self.config, device="cpu")
         batch = _model_batch(batch, device="cpu", dtype=next(self.parameters()).dtype)
         return _input_usage(
@@ -571,7 +570,92 @@ class MFM(nn.Module):
 
     def inference(
         self,
-        data: DataFrame,
+        context: DataFrame,
+        query: DataFrame,
+        *,
+        date_column: str,
+        target_column: str,
+        channel_columns: Sequence[str],
+        control_columns: Sequence[str],
+        n_samples: int = DEFAULT_N_SAMPLES,
+        mode: str = "model_average",
+        graph=None,
+        router_samples: int | None = None,
+        units: str = "outcome",
+        provenance: Mapping[str, object] | None = None,
+        return_idata: bool = True,
+        random_seed: int | None = None,
+    ) -> DataTree | None:
+        """Compute and store both marginals for an explicit history/future pair.
+
+        Context dates must have a regular cadence, with positive observed outcomes,
+        nonnegative media covariates and at least one media and control covariate.
+        Query dates start at the next context period without gaps. Inputs are
+        sorted and snapshotted; predictions never append themselves to history.
+        Query outcomes, when supplied, are kept only for analysis and charts.
+
+        Store a complete ``xarray.DataTree`` in :attr:`idata` on every successful
+        call. Return that exact tree by default; ``return_idata=False`` returns
+        ``None`` without skipping sampling, conversion or storage. Both windows
+        are separate conditional marginals, not paired full-horizon trajectories,
+        and their draws exclude observation noise.
+
+        A successful rerun replaces the entire analysis and drops response curves.
+        Failed calls preserve the last successful context, draws, tree and curves.
+        Runtime analysis state is never included in ``save_pretrained``.
+
+        ``random_seed`` (0 to 2**31-1) replays the same random numbers: the same seed and
+        inputs give the same draws. The outputs agree up to floating-point round-off. They can
+        differ slightly across devices, thread counts, and compiled or eager runs.
+        On a CPU with the same thread count, a repeat gives the same result. A seeded call
+        uses its own generator and does not draw from or seed PyTorch's global random state,
+        so other models and ``torch`` calls cannot disturb it (``compile_sampling`` states
+        one limit). The context window continues the query
+        window's stream, so one seed covers both. ``idata`` records the seed; the results
+        of ``predict`` and ``decompose`` do not. With ``random_seed=None`` the call draws
+        from PyTorch's global generator and advances it, so a ``torch.manual_seed`` call
+        before ``inference`` still sets the draws, and a repeated call without a seed gives
+        new draws.
+        """
+        from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
+
+        _require_arviz()
+        random_seed = _random_seed(random_seed)
+        # One generator serves both windows, so the context window continues the stream.
+        generator = _sampling_generator(random_seed, next(self.parameters()).device)
+        fitted = self._add_context(
+            context,
+            date_column=date_column,
+            target_column=target_column,
+            channel_columns=channel_columns,
+            control_columns=control_columns,
+        )
+        prediction = self._add_query(
+            fitted,
+            query,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            units=units,
+            provenance=provenance,
+            generator=generator,
+        )
+        context_result = self._sample_context(prediction, generator)
+        revision = self._inference_revision + 1
+        tree = prediction_datatree(
+            context_result, prediction, revision=revision, random_seed=random_seed
+        )
+        # Publish only the completed run: no candidate state leaks on failure.
+        self._inference_context = fitted
+        self._prediction_snapshot = prediction
+        self._idata = tree
+        self._inference_revision = revision
+        return tree if return_idata else None
+
+    def predict(
+        self,
+        query: DataFrame,
         *,
         n_samples: int = DEFAULT_N_SAMPLES,
         mode: str = "model_average",
@@ -579,28 +663,117 @@ class MFM(nn.Module):
         router_samples: int | None = None,
         units: str = "outcome",
         provenance: Mapping[str, object] | None = None,
+        random_seed: int | None = None,
     ) -> DecompositionResult:
-        """Infer future conditional components using history loaded by ``add_context``.
+        """Sample query only using the last complete inference's history and roles.
 
-        Supply the configured date, channel and control columns, starting at
-        the next context period without gaps. Dates are sorted; query targets
-        and unrelated columns are ignored. Every call reuses the same context
-        and context-only scales, without appending predictions to history.
-        Returned draws use original outcome units and exclude observation noise.
-        A successful call retains its inputs and query draws for ``build_idata``,
-        without sampling context or converting to a DataTree. Failed calls
-        preserve the last successful prediction and export. Runtime snapshots
-        are never included in ``save_pretrained``.
+        Return independent decomposition draws without replacing ``idata``,
+        ``query_result``, model charts or response curves. Query dates begin
+        immediately after the stored history, not after previous predictions.
+        Sampling options use their normal defaults, not the previous run's.
+        ``random_seed`` works as in ``inference``. The returned result does not record the
+        seed; keep it yourself if you save the result.
         """
-        from pymc_mfm.inference.api import decompose
-        from pymc_mfm.inference.dataframe import _PredictionSnapshot
-
+        generator = _sampling_generator(random_seed, next(self.parameters()).device)
         context = self._inference_context
         if context is None:
-            raise RuntimeError("call add_context(history, ...) before inference(future_data)")
-        observations, time = context.observations(data)
-        annotations = deepcopy(dict(provenance)) if isinstance(provenance, Mapping) else provenance
-        query = decompose(
+            raise RuntimeError("call inference(context, query, ...) before predict(query)")
+        result, _, _, _ = self._sample_query(
+            context,
+            query,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            units=units,
+            provenance=provenance,
+            generator=generator,
+        )
+        return result
+
+    def _add_query(
+        self,
+        context: _FittedContext,
+        query: DataFrame,
+        *,
+        n_samples: int,
+        mode: str,
+        graph,
+        router_samples: int | None,
+        units: str,
+        provenance: Mapping[str, object] | None,
+        generator: torch.Generator | None,
+    ) -> _PredictionSnapshot:
+        """Prepare a sampled query snapshot without publishing it as model state."""
+        from pymc_mfm.inference.dataframe import _PredictionSnapshot
+
+        result, observations, time, annotations = self._sample_query(
+            context,
+            query,
+            n_samples=n_samples,
+            mode=mode,
+            graph=graph,
+            router_samples=router_samples,
+            units=units,
+            provenance=provenance,
+            generator=generator,
+        )
+        return _PredictionSnapshot(
+            fitted_context=context,
+            observations=observations,
+            time=time,
+            query=result,
+            # Derived result metadata is not caller provenance to replay.
+            annotations=deepcopy(annotations),
+            n_samples=result.n_samples,
+            mode=result.mode,
+            router_samples=(
+                result.provenance["inference_config"]["router_samples"]
+                if result.mode == "map"
+                else None
+            ),
+            units=result.units,
+            query_outcome=context.query_outcome(query),
+        )
+
+    def _sample_query(
+        self,
+        context: _FittedContext,
+        query: DataFrame,
+        *,
+        n_samples: int,
+        mode: str,
+        graph,
+        router_samples: int | None,
+        units: str,
+        provenance: Mapping[str, object] | None,
+        generator: torch.Generator | None,
+    ) -> tuple[DecompositionResult, dict[str, np.ndarray], np.ndarray, dict[str, object] | None]:
+        """Compute query against an explicit candidate context without publishing it."""
+        from pymc_mfm.inference._digest import json_bytes
+        from pymc_mfm.inference.api import _decompose
+        from pymc_mfm.inference.result import _require_json_text, _require_text
+
+        observations, time = context.observations(query)
+        if provenance is not None and not isinstance(provenance, Mapping):
+            raise ValueError("provenance must be a mapping")
+        annotations = deepcopy(dict(provenance)) if provenance is not None else None
+        if annotations is not None:
+            json_bytes(annotations)
+            _require_json_text(annotations, "provenance")
+            state_sha256 = annotations.get("state_sha256")
+            if state_sha256 is not None and not isinstance(state_sha256, str):
+                raise ValueError("provenance state_sha256 must be text")
+            for key in ("state_sha256", "data_sha256", "graph_source"):
+                if "\x00" in str(annotations.get(key, "")):
+                    raise ValueError(f"provenance {key} must not contain NUL characters")
+        if not isinstance(units, str) or not units:
+            raise ValueError("units must be a nonempty label")
+        _require_text(units, "units")
+        if "\x00" in units:
+            raise ValueError("units must not contain NUL characters")
+        units = str(units)  # a str subclass, such as np.str_, cannot be an HDF5 attribute
+        result = _decompose(
             self,
             observations,
             n_samples=n_samples,
@@ -612,89 +785,112 @@ class MFM(nn.Module):
             time=time,
             units=units,
             provenance=annotations,
+            generator=generator,
         )
-        prediction = _PredictionSnapshot(
-            fitted_context=context,
-            observations=observations,
-            time=time,
-            query=query,
-            # Keep caller annotations separate from the public result metadata.
-            # Derived metadata is not valid provenance to replay on loaded models.
-            annotations=deepcopy(annotations),
-            n_samples=query.n_samples,
-            mode=query.mode,
-            router_samples=(
-                query.provenance["inference_config"]["router_samples"]
-                if query.mode == "map"
-                else None
-            ),
-            units=query.units,
+        return result, observations, time, annotations
+
+    def _sample_context(
+        self, prediction: _PredictionSnapshot, generator: torch.Generator | None = None
+    ) -> DecompositionResult:
+        """Sample history for this candidate query without publishing either marginal."""
+        from pymc_mfm.inference.api import _decompose
+
+        query = prediction.query
+        return _decompose(
+            self,
+            prediction.observations,
+            n_samples=prediction.n_samples,
+            window="context",
+            mode=prediction.mode,
+            graph=query.graphs[:, None, :] if prediction.mode == "fixed" else None,
+            router_samples=prediction.router_samples,
+            channel_names=query.channel_names,
+            control_names=query.control_names,
+            time=prediction.time,
+            units=prediction.units,
+            provenance=prediction.annotations,
+            generator=generator,
         )
-        self._prediction_snapshot = prediction
-        self._context_decomposition = None
-        self._idata = None
-        return query
 
     @property
     def idata(self) -> DataTree | None:
-        """The explicitly stored current export, or ``None``; never samples or converts."""
+        """The stored complete inference and curves, or ``None``; never samples or converts."""
         return self._idata
 
-    def build_idata(self, *, store: bool = False) -> DataTree:
-        """Export context and query subtrees for the latest successful prediction.
-
-        A successful ``inference`` after the current ``add_context`` is required. The
-        first build samples the missing context marginal and caches those draws;
-        query is never resampled. Context and query remain separate marginals,
-        not paired full-horizon trajectories.
-
-        By default return a fresh DataTree without changing ``idata``. With
-        ``store=True``, store and return the same object, reusing a current stored
-        export if available. Successful add_context/inference calls drop these references
-        without rewriting any earlier caller-held tree. Return-only builds still
-        retain inference state, but not their export container.
-
-        The optional ``pymc-mfm[arviz]`` dependencies are checked before context
-        sampling. Array conversion and context inference happen only on demand.
-        """
+    @property
+    def query_result(self) -> DecompositionResult | None:
+        """The exact query draws of the last complete inference, never an independent predict."""
         prediction = self._prediction_snapshot
-        if prediction is None:
-            raise RuntimeError(
-                "call inference(future_data) successfully after add_context(history, ...) "
-                "before build_idata()"
-            )
-        if store and self._idata is not None:
-            return self._idata
+        return None if prediction is None else prediction.query
 
-        from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
-        from pymc_mfm.inference.api import decompose
+    @property
+    def plot(self) -> Plots:
+        """Sampling-free charts of the last complete inference and its response curves.
 
-        _require_arviz()
-        context = self._context_decomposition
-        if context is None:
-            context = decompose(
-                self,
-                prediction.observations,
-                n_samples=prediction.n_samples,
-                window="context",
-                mode=prediction.mode,
-                graph=prediction.query.graphs[:, None, :] if prediction.mode == "fixed" else None,
-                router_samples=prediction.router_samples,
-                channel_names=prediction.query.channel_names,
-                control_names=prediction.query.control_names,
-                time=prediction.time,
-                units=prediction.units,
-                provenance=prediction.annotations,
-            )
-            # Cache inference before conversion: a failed export must not redraw
-            # successfully sampled context on the next build.
-            self._context_decomposition = context
-        tree = prediction_datatree(
-            context, prediction.query, observed=prediction.fitted_context.outcome
+        Each method returns a matplotlib or plotly figure and imports its backend
+        only when drawing. Independent ``predict`` calls do not change these charts.
+        """
+        from pymc_mfm.plotting.charts import Plots
+
+        return Plots._live(lambda: self.idata)
+
+    def response_curves(
+        self,
+        *,
+        levels: Sequence[float] | None = None,
+        channels: Sequence[str] | None = None,
+        weeks: int | None = None,
+        n_samples: int | None = None,
+        random_seed: int | None = None,
+    ) -> ResponseCurves:
+        """Each media covariate's contribution as its level in the first forecast weeks scales.
+
+        Needs a successful ``inference``. For each media covariate in ``channels``
+        (default: every channel column) and each multiplier in ``levels`` (at least two;
+        finite, nonnegative, sorted and deduplicated; default 0, 0.25, ..., 2), that
+        covariate in the first ``weeks`` forecast weeks (default: all of them) is
+        multiplied by the level and those weeks are decomposed again; each draw sums the
+        covariate's contribution over them. The runs see the history and a plan of just
+        those weeks, every other input as given to ``inference``, as ``inference`` on that
+        shorter plan would: the model reads every week of a plan, so with ``weeks`` below
+        the forecast length level 1 is that shorter plan, not the original inference.
+        Level 1, when listed, is one unchanged-input run that every covariate shares, and
+        a covariate that is zero in those weeks reuses that run at every level (scaling
+        zero changes no input); every other level runs once per covariate. Each run
+        draws ``n_samples`` (default: the inference's) with the inference's mode, router
+        samples, units and provenance; a ``mode="fixed"`` inference reuses its graphs,
+        one per draw, so ``n_samples`` must equal its draw count.
+
+        ``random_seed`` (0 to 2**31-1) replays the same random numbers: all runs of the
+        sweep draw from one stream that the seed starts. The outputs agree up to floating-point
+        round-off. They can differ slightly across devices, thread counts, and
+        compiled or eager runs. On a CPU with the same thread count, a repeat gives the
+        same result. A seeded call does not draw from or seed
+        PyTorch's global random state. ``idata`` records the seed. With
+        ``random_seed=None`` the runs draw from PyTorch's global generator and advance
+        it. Levels are sampled separately, so draws are not paired across levels and
+        intervals are pointwise.
+        These are conditional contributions, not causal lift, and exclude observation
+        noise. The result is kept in ``idata`` and for ``plot.response_curves`` until the
+        next successful ``inference``. Independent ``predict`` and failed calls preserve it.
+        """
+        from pymc_mfm.inference._datatree import attach_response_curves
+        from pymc_mfm.inference.curves import response_curves
+
+        random_seed = _random_seed(random_seed)
+        curves = response_curves(
+            self,
+            levels=levels,
+            channels=channels,
+            weeks=weeks,
+            n_samples=n_samples,
+            random_seed=random_seed,
         )
-        if store:
-            self._idata = tree
-        return tree
+        tree = attach_response_curves(
+            self._idata, curves, self._prediction_snapshot, random_seed=random_seed
+        )
+        self._idata = tree
+        return curves
 
     def compile_sampling(self, mode: str = "default", *, dynamic: bool | None = True) -> MFM:
         """Compile the flow velocity that sampling evaluates, for faster repeated calls.
@@ -702,8 +898,11 @@ class MFM(nn.Module):
         Opt-in and per model; sampling stays eager until this is called. The first call
         at each new input shape compiles (tens of seconds on a GPU), so warm the model up
         with representative inputs before timing or serving. Compiled draws follow the same
-        distribution as eager draws but are not bit-identical to them. With a fixed seed,
-        serialized calls on one device repeat their draws, whether or not a call compiles.
+        distribution as eager draws but are not bit-identical to them. With a fixed seed, a
+        call replays the same random numbers, whether or not it compiles. While a compilation
+        runs, PyTorch saves and then restores its global random state, which can undo global
+        draws that another thread makes in that time. Warm the model up before you use other
+        PyTorch random work in other threads.
         ``mode`` is a :func:`torch.compile` mode: ``"default"``, ``"reduce-overhead"`` or
         ``"max-autotune-no-cudagraphs"``. A compiler failure warns and returns this model to
         eager sampling; :attr:`sampling_status` reports it. Returns the model.
@@ -759,6 +958,8 @@ class MFM(nn.Module):
         graph: Tensor | None = None,
         router_samples: int | None = None,
         window: str = "query",
+        random_seed: int | None = None,
+        generator: torch.Generator | None = None,
     ) -> tuple[Tensor, Tensor]:
         """Draw the learned decomposition posterior conditioned on complete graphs.
 
@@ -771,6 +972,13 @@ class MFM(nn.Module):
         Fixed graphs must have shape ``[B,L]`` or exactly ``[S,B,L]``. Graph-
         forbidden coordinates remain zero throughout transport and decoding.
         Context and query calls are separate marginals, not aligned draws.
+        ``random_seed`` seeds a generator that belongs to this call: sampling draws use
+        that generator rather than PyTorch's global state. If enabled, :meth:`compile_sampling`
+        can save and restore the global state during compilation. With ``random_seed=None``
+        sampling draws from PyTorch's global generator and advances it. A call-owned
+        ``generator`` from :func:`_sampling_generator` continues one stream over several
+        calls; pass either it or ``random_seed``, not both. A request that fails a check
+        draws nothing and starts no noise prefetch.
         """
         if mode not in ("model_average", "map", "fixed"):
             raise ValueError("mode must be 'model_average', 'map', or 'fixed'")
@@ -787,10 +995,15 @@ class MFM(nn.Module):
         router_count = _sample_count(
             s if router_samples is None else router_samples, "router_samples"
         )
+        query = batch["qry_spend_z"]
+        if generator is None:
+            generator = _sampling_generator(random_seed, query.device)
+        elif random_seed is not None:
+            raise ValueError("pass random_seed or generator, not both")
         # On a GPU the CPU generator draws the base noise (see _noise_device). A worker thread
         # draws the router's and then the decoder's chunks, in the inline order, while the
-        # GPU encodes and transports. The router's chunks follow the query window's shape.
-        query = batch["qry_spend_z"]
+        # GPU transports. Both requests wait for the geometry checks, so a rejected request
+        # draws nothing. The router's chunks follow the query window's shape.
         prefetch = None
         if mode != "fixed" and _noise_device(query.device) != query.device:
             prefetch = _NoisePrefetch(pin=query.device.type == "cuda")
@@ -810,6 +1023,15 @@ class MFM(nn.Module):
                 )
             )
         try:
+            if window == "context":
+                timeline = self.encoder.forward_timeline(batch)
+                query_repr, selected_repr = timeline.query, timeline.context
+            else:
+                query_repr = SplitRepresentations(*self.encoder.forward_with_controls(batch))
+                selected_repr = query_repr
+            layout, state_mask, active_nodes = self._graph_conditional_geometry(
+                batch, selected_repr, host_masks
+            )
             router_noise = None
             if prefetch is not None:
                 router_noise = prefetch.request(
@@ -820,16 +1042,8 @@ class MFM(nn.Module):
                         router_count,
                     ),
                     next(self.parameters()).dtype,
+                    generator,
                 )
-            if window == "context":
-                timeline = self.encoder.forward_timeline(batch)
-                query_repr, selected_repr = timeline.query, timeline.context
-            else:
-                query_repr = SplitRepresentations(*self.encoder.forward_with_controls(batch))
-                selected_repr = query_repr
-            layout, state_mask, active_nodes = self._graph_conditional_geometry(
-                batch, selected_repr, host_masks
-            )
             head = self.conditional_head
             n_dec = head.state_dim(layout.K, layout.M)
             b, t = selected_repr.weekly.shape[:2]
@@ -842,13 +1056,15 @@ class MFM(nn.Module):
             ]
             decoder_noise = None
             if prefetch is not None:
-                decoder_noise = prefetch.request(noise_shapes, weekly.dtype)
+                decoder_noise = prefetch.request(noise_shapes, weekly.dtype, generator)
 
             def draw_noise() -> tuple[Tensor, Tensor]:
                 device = weekly.device
                 if _noise_device(device) == device:
                     noise = [
-                        head._draw_noise(shape, device=device, dtype=weekly.dtype)
+                        head._draw_noise(
+                            shape, device=device, dtype=weekly.dtype, generator=generator
+                        )
                         for shape in noise_shapes
                     ]
                     return (
@@ -858,7 +1074,8 @@ class MFM(nn.Module):
                 if decoder_noise is None:
                     uniform = _metal.uniform_normals()
                     noise = [
-                        _draw_host_noise(shape, weekly.dtype, uniform) for shape in noise_shapes
+                        _draw_host_noise(shape, weekly.dtype, uniform, None, generator)
+                        for shape in noise_shapes
                     ]
                 else:
                     noise = list(decoder_noise)
@@ -881,6 +1098,7 @@ class MFM(nn.Module):
                     structure_only=True,
                     noise=router_noise,
                     state_mask=state_mask,
+                    generator=generator,
                 )
                 graphs = binary_graphs_from_flow(graph_flow)
                 # Taken before the graphs are read, so a GPU router runs while the CPU draws.
@@ -1072,6 +1290,7 @@ class MFM(nn.Module):
         structure_only: bool = False,
         noise: _NoiseRequest | None = None,
         state_mask: Tensor | None = None,
+        generator: torch.Generator | None = None,
     ) -> Tensor | tuple[Tensor | None, Tensor]:
         """Draw a router marginal from already-encoded window representations.
 
@@ -1080,7 +1299,8 @@ class MFM(nn.Module):
         other work that only the decomposition coordinates read: no graph coordinate
         depends on them, so the graph draws are unchanged. ``noise`` optionally supplies
         the router's prefetched base-noise chunks, and ``state_mask`` this batch's
-        :meth:`_flow_state_mask` when the caller already has it.
+        :meth:`_flow_state_mask` when the caller already has it. ``generator`` supplies
+        the base noise in place of PyTorch's global generator.
         """
         if structure_only and not return_structure:
             raise ValueError("structure_only requires return_structure=True")
@@ -1100,6 +1320,7 @@ class MFM(nn.Module):
             state_mask=state_mask,
             noise=noise,
             graph_only=structure_only,
+            generator=generator,
         )
         g_samples = flow_samples[..., n_decomp:]
         if structure_only:

@@ -5,12 +5,102 @@ tag `client-v0.1.0`; the version bump and the tag come in the tagging commit, an
 is published. These notes describe the standalone library's development capabilities and
 distribution prerequisites, not an approved or published release.
 
-## Changes
+## Current changes
+
+- **Complete paired inference and automatic idata.**
+  `model.inference(context, query, date_column=..., target_column=...,
+  channel_columns=..., control_columns=...)` samples query and context and
+  atomically stores their complete `xarray.DataTree`. The default
+  `return_idata=True` returns that exact `model.idata`; `False` returns `None`
+  while still sampling, converting and storing the complete tree. There is no
+  public `add_context` or `build_idata`, and the old `inference(query)` call is
+  removed rather than retained as an overload.
+- **Isolated prediction and exact-result helpers.** After complete inference,
+  `model.predict(query, ...)` returns an independent `DecompositionResult` using
+  the stored history/roles without replacing idata, `model.query_result`, context
+  draws, charts, curves or the inference revision. `query_result` exposes the
+  exact completed query draw bank for components, diagnostics, graph catalogs,
+  ranked topologies, DOT/SVG exports and result evidence saving; helpers do not
+  resample. Prediction never appends itself to history.
+- **Sampling-free charts and preflight.** All model charts read the last complete
+  inference, including after independent predictions; they never sample context.
+  `model.input_usage(context, query, **roles)` validates explicit inputs before
+  inference without sampling, publishing state or changing RNG. Omit query for
+  context-only counts. Response curves sample scenarios off-side and attach a
+  new curve subtree/root only on success; complete inference replaces curves.
+  Any failed complete inference or curve conversion preserves the prior run.
+- **Complete analysis schema.** Both windows include original-unit media/control
+  covariates, context observations and optional sanitized query observations.
+  Query outcomes remain display/evaluation-only, never model inputs. Window
+  provenance is canonical JSON text; root metadata records roles and a successful
+  inference revision. Curves have independent draw/level axes and separately
+  labeled source provenance. Context/query remain separate marginals, not paired
+  full-horizon trajectories. Changing a plan can also change context draws.
+- **Model tree validation.** Charts and file validation reject multiple descriptors for
+  a single channel or control. Validation accepts unrelated extension coordinates and
+  requires response-curve levels to increase, including when stored as unsigned integers.
+- **Dependencies and migration.** `local` now includes `xarray>=2024.10` and
+  `arviz-base>=1.3,<2` for automatic in-memory trees; optional statistics,
+  rendering and explicit file export remain separate. Full inference pays for
+  both marginals and tree storage even with `return_idata=False`; historical
+  query-only timings below do not measure that full operation. README, guides,
+  generated API entries and quickstart use the paired contract. The notebook
+  preserves reviewed numeric/chart outputs and every graph analysis/export;
+  its headless acceptance uses a synthetic stand-in without downloading weights.
+  No runtime context, result, curve or idata is captured in weight bundles.
+- **Compatibility break: `ModelPlots` is now a function.** `ModelPlots(model)` still works and
+  warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
+  `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
+  see `docs/migration.md`.
+- **Installed-artifact CI contracts.** The bare wheel is checked separately for
+  lightweight client isolation. Local and diagnostics wheels positively exercise
+  their declared tree dependencies and automatic idata instead of expecting
+  exports to fail. Installed local-wheel checks cover both return modes,
+  independent prediction and automatic curve attachment.
+- **Private inference stages.** `_add_context`, `_add_query` and `_sample_context`
+  prepare independent candidates; complete inference only orchestrates them and
+  publishes the successful run. Prediction and preflight reuse their relevant
+  stages without exposing new public setters or partial model state.
+
+## Historical development records
+
+The entries below record earlier changes, including APIs and lazy-storage behavior
+superseded by the current paired-inference contract above. They are retained as
+history, not current workflow instructions.
 
 - **Parallel CI test lanes.** Fast tests run on two workers; slow integration tests
   run serially beside the installed-distribution smoke job. Local pytest keeps all
   cases by default, including focused file and node selections. The README documents
   explicit fast and slow commands and the all-extras setup for the slow and full suites.
+
+- **`model.plot`: charts of the latest `add_context` and `inference`.** `MFM.plot` returns
+  `pymc_mfm.plotting.ModelPlots`. It offers seven charts:
+  - `inputs`: outcome, media covariates and control covariates by week.
+  - `fit`: expected against observed outcome, with MAPE, R² and empirical interval coverage.
+  - `contributions_over_time`: stacked weekly means, or one panel per component.
+  - `shares`: each media and control covariate's share of the expected outcome, as bars with
+    intervals or (`view="dist"`) kernel densities.
+  - `contribution_totals`: window totals over draws.
+  - `contribution_vs_media`: weekly media covariate against its contribution.
+  - `response_curves`: contribution by media covariate level.
+
+  Each chart computes its numbers once and draws them with matplotlib (the `plot` extra,
+  default) or plotly (new `interactive` extra, `plotly>=6,<7`). Choose with `backend=` or
+  `pymc_mfm.plotting.set_backend`. Matplotlib charts are pyplot-free figures;
+  single-axes charts take `ax=`. `truth=` overlays known contributions for simulated data.
+  - **Sampling:** charts never sample, except that the first chart showing context weeks
+    samples the context marginal once. `build_idata` now reuses those draws (new
+    `MFM._context_result`), and a `window="query"` chart never samples the context.
+  - **Query targets:** `MFM.inference` keeps a target column of its data for the charts
+    only. The model never reads it and draws are unchanged; values that are not finite
+    numbers count as unobserved.
+  - **Response curves:** new `MFM.response_curves(levels=, channels=, weeks=, n_samples=)`
+    reruns inference with one media covariate in the first `weeks` forecast weeks
+    multiplied by each level, one shared run for level 1. It returns
+    `pymc_mfm.inference.curves.ResponseCurves` (`to_frame(interval)`) and keeps it for
+    `plot.response_curves` until the next `add_context` or `inference`.
+  - **Quickstart:** `examples/river_1_quickstart.ipynb` now uses `add_context`/`inference`
+    and `model.plot` in place of about 120 lines of hand-written matplotlib.
 
 - **Default sampling is 2,000 draws.** `DEFAULT_N_SAMPLES` rises from 32 to 2,000, so
   `decompose`, `MFM.inference`, `MFM.predict_batch`, `MFM.sample_context`,

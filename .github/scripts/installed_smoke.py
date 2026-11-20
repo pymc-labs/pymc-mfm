@@ -16,15 +16,56 @@ import tomllib
 import zipfile
 from pathlib import Path
 
-#: Run where the arviz extra is not installed: the DataTree export must refuse and name it.
-ARVIZ_EXTRA_REQUIRED = """
-from pymc_mfm import DecompositionResult
-try:
-    DecompositionResult.load("base-inference/query").to_datatree()
-except ImportError as exc:
-    assert "pymc-mfm[arviz]" in str(exc), exc
-else:
-    raise AssertionError("to_datatree() ran without the arviz extra")
+#: The local wheel must produce a complete analysis without statistics or plotting.
+PAIRED_INFERENCE = """
+import numpy as np
+import pandas as pd
+import torch
+import xarray as xr
+from pymc_mfm import from_pretrained
+
+model = from_pretrained("workflow/run/model", device="cpu")
+frame = pd.DataFrame({
+    "date": pd.date_range("2024-01-01", periods=7, freq="W-MON"),
+    "outcome": [100., 110., 105., 115., 120., 125., 130.],
+    "media": [1., 3., 2., 4., 3., 4., 5.],
+    "control": [-1., 0., 1., 0., -1., 0., 1.],
+})
+context, query = frame.iloc[:5], frame.iloc[5:]
+roles = dict(
+    date_column="date", target_column="outcome",
+    channel_columns=["media"], control_columns=["control"],
+)
+torch.manual_seed(31)
+tree = model.inference(context, query, **roles, n_samples=4)
+assert tree is model.idata
+assert set(tree.children) == {"context", "query"}
+assert tree["context/posterior"].sizes["date"] == len(context)
+assert tree["query/posterior"].sizes["date"] == len(query)
+np.testing.assert_array_equal(
+    tree["context/observed_data"]["outcome"].values, context["outcome"].to_numpy()
+)
+np.testing.assert_array_equal(
+    tree["query/observed_data"]["outcome"].values, query["outcome"].to_numpy()
+)
+after = torch.get_rng_state()
+torch.manual_seed(31)
+assert model.inference(context, query, **roles, n_samples=4, return_idata=False) is None
+assert model.idata is not tree
+assert torch.equal(torch.get_rng_state(), after)
+for window in ("context", "query"):
+    assert model.idata[f"{window}/posterior"].sizes["draw"] == 4
+    xr.testing.assert_equal(tree[f"{window}/posterior"], model.idata[f"{window}/posterior"])
+stored, result = model.idata, model.query_result
+prediction = model.predict(query.assign(media=query["media"] * 1.2), n_samples=2)
+assert prediction.components.shape[:2] == (2, len(query))
+assert model.idata is stored and model.query_result is result
+curves = model.response_curves(levels=[0, 1], weeks=1, n_samples=2)
+assert "response_curves" not in stored.children
+np.testing.assert_array_equal(
+    model.idata["response_curves/posterior"]["contribution"].values,
+    curves.draws.transpose(2, 0, 1)[None],
+)
 """
 
 
@@ -92,7 +133,8 @@ def main() -> None:
     python_paths = {}
     for name, extras, artifact in (
         ("full", ("generation", "training", "hub"), sdists[0]),
-        ("base", ("local",), wheels[0]),
+        ("base", (), wheels[0]),
+        ("local", ("local",), wheels[0]),
         ("diagnostics", ("diagnostics",), wheels[0]),
         ("arviz", ("arviz",), wheels[0]),
     ):
@@ -146,12 +188,14 @@ def main() -> None:
 import pathlib
 import sys
 import pymc_mfm
-from pymc_mfm.training._provenance import code_record
+if sys.argv[1] != "base":
+    from pymc_mfm.training._provenance import code_record
+    assert code_record()["revision_status"] == "not_available"
 p = pathlib.Path(pymc_mfm.__file__).resolve()
 assert p.is_relative_to(pathlib.Path(sys.prefix).resolve()), p
-assert code_record()["revision_status"] == "not_available"
 print(p)
 """,
+            name,
             cwd=out,
             env=env,
         )
@@ -166,6 +210,8 @@ print(p)
     )
     forbidden = (
         "pymc_generator",
+        "torch",
+        "safetensors",
         "mlflow",
         "matplotlib",
         "scipy",
@@ -186,32 +232,71 @@ print(p)
     run(
         str(python_paths["base"]),
         "-I",
+        str(root / ".github/scripts/light_install_check.py"),
+        cwd=out,
+        env=env,
+    )
+    run(
+        str(python_paths["local"]),
+        "-I",
+        "-c",
+        "import importlib.util\n"
+        "for name in ('torch', 'safetensors', 'xarray', 'arviz_base'):\n"
+        "    assert importlib.util.find_spec(name) is not None, name\n"
+        "for name in "
+        "('pymc_generator', 'mlflow', 'matplotlib', 'scipy', 'huggingface_hub', 'arviz_stats'):\n"
+        "    assert importlib.util.find_spec(name) is None, name",
+        cwd=out,
+        env=env,
+    )
+    run(str(python_paths["local"]), "-I", "-c", PAIRED_INFERENCE, cwd=out, env=env)
+    run(
+        str(python_paths["local"]),
+        "-I",
         str(root / ".github/scripts/observation_only.py"),
         "--model",
         str(out / "workflow/run/model"),
         "--observations",
         str(out / "workflow/observations.json"),
         "--out",
-        str(out / "base-inference"),
+        str(out / "local-inference"),
         "--samples",
         "4",
         cwd=out,
         env=env,
     )
-    run(str(python_paths["base"]), "-I", "-c", ARVIZ_EXTRA_REQUIRED, cwd=out, env=env)
+    run(
+        str(python_paths["local"]),
+        "-I",
+        "-c",
+        """
+import sys
+from pymc_mfm.inference import DecompositionResult
+for window in ("context", "query"):
+    result = DecompositionResult.load(f"local-inference/{window}")
+    tree = result.to_datatree()
+    assert tree.attrs["window"] == window
+    assert tree["posterior"]["components"].shape == (
+        1, result.n_samples, len(result.time), int(result.component_mask.sum())
+    )
+assert "arviz_stats" not in sys.modules
+""",
+        cwd=out,
+        env=env,
+    )
     run(
         str(python_paths["diagnostics"]),
         "-I",
         "-c",
         """
 import importlib.util
-from pymc_mfm import DecompositionResult
+from pymc_mfm.inference import DecompositionResult
 from pymc_mfm.diagnostics import build_report, render_report
 assert all(
     importlib.util.find_spec(name) is None
-    for name in ("pymc_generator", "mlflow", "huggingface_hub", "xarray", "arviz_base")
+    for name in ("pymc_generator", "mlflow", "huggingface_hub")
 )
-result = DecompositionResult.load("base-inference/query")
+result = DecompositionResult.load("local-inference/query")
 manifest = build_report(result, "diagnostics-report")
 replay = render_report("diagnostics-report", "diagnostics-rerender")
 assert replay["provenance"] == manifest["provenance"]
@@ -221,11 +306,13 @@ assert all(
     for panel in replay["panels"].values()
     if panel["status"] not in ("unavailable", "not_applicable")
 )
+tree = result.to_datatree()
+assert tree.attrs["window"] == "query"
+assert tree["posterior"]["components"].sizes["draw"] == result.n_samples
 """,
         cwd=out,
         env=env,
     )
-    run(str(python_paths["diagnostics"]), "-I", "-c", ARVIZ_EXTRA_REQUIRED, cwd=out, env=env)
     run(
         str(python_paths["arviz"]),
         "-I",
@@ -233,10 +320,10 @@ assert all(
         """
 import importlib.util
 import arviz_stats
-from pymc_mfm import DecompositionResult
+from pymc_mfm.inference import DecompositionResult
 trees = {}
 for window in ("query", "context"):
-    result = DecompositionResult.load(f"base-inference/{window}")
+    result = DecompositionResult.load(f"local-inference/{window}")
     trees[window] = tree = result.to_datatree()
     expected = result.components.shape[1] * result.component_mask.sum() + result.edge_mask.sum()
     assert len(arviz_stats.summary(tree, kind="stats")) == expected, window
@@ -247,8 +334,8 @@ assert importlib.util.find_spec("matplotlib") is None
         env=env,
     )
     print(
-        "Installed sdist workflow, base wheel inference, diagnostics-only replay and "
-        "arviz-only DataTree export passed."
+        "Installed sdist workflow, base wheel client isolation, local wheel paired inference, "
+        "diagnostics-only replay/export and arviz-only DataTree export passed."
     )
 
 

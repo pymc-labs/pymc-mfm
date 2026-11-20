@@ -6,11 +6,53 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Fully executed synthetic-data quickstart with the pinned River-1 model: all 25 code cells ran, including the input-token example, and 14 inline PNG plots were regenerated. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data, so these exact reviewed bytes are pinned. Any rerun must update sha256 in the same pull request. Malformed-image findings are never covered."
-sha256 = "d5f16da727e8cdb8ab4284680311fc3bd434224d037cde0bd4e0cbd07e0f1cae"
+reason = "Paired-inference migration of the reviewed synthetic-data quickstart: editable source/markdown cells now use explicit input_usage and complete inference with model.query_result, document return_idata and isolated predict, and retain every graph catalog/topology/DOT/SVG example. The 15 previously reviewed PNG outputs and unchanged numeric/text output representations are preserved; no weights were downloaded and no outputs regenerated for this source-only migration. Headless runtime acceptance uses a synthetic stand-in and native Graphviz. These exact bytes are pinned; reruns require a new review/hash in the same pull request. Malformed-image findings are never covered."
+sha256 = "e18759ab22e7753cf803617d10e10d83d259a14e13da37a5fdc1b5865a589b3b"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed paired-inference quickstart before random_seed replaced torch.manual_seed in its source cells. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+sha256 = "5d17b5c0c1fcca5a057a18585cc04fa829844737689017a1e37a917b71976c12"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Historical reviewed synthetic-data quickstart with the pinned River-1 model, before paired inference: all 24 code cells ran top to bottom with the then-current add_context/inference workflow, model.plot charts, response_curves and graph section, with 15 inline PNG plots; stderr download/progress streams were dropped. Retain this exact historical hash for whole-PR range checks. The notebook rule checks image structure and scans all other strings but cannot rule out hidden data. Malformed-image findings are never covered."
+sha256 = "cbd9bc9fc77b5c58ac0068b424070cf5ca198c7a5f8a52352e0c3ce261c072fc"
 max_bytes = 3000000
 
 # Range scans use the end-revision allowlist for every historical blob.
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed model.plot quickstart after the view=\"dist\" and descriptive-title renames, before the outcome and media/control covariate wording (target column \"sales\"). Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+sha256 = "e7da8d1ac1d3978daedbde26bdef82a21f6b80098cda9fd5634234e1f38bdd1a"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed model.plot quickstart before the chart renames (view=\"spread\", question-style titles), with its data cell wrapped for the 100-character limit. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+sha256 = "b187d9897f10bd05f675cc3550907ba423708dca06ca485137670497d351bd16"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed model.plot quickstart before its data cell was wrapped for the 100-character line limit. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+sha256 = "bdfb3e9f7bff7a69e77ebc66d9149c56a920757d7ec0d0c8c24626eab5cd959a"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed fully executed quickstart before the model.plot rewrite: all 25 code cells ran, including the input-token example, and 14 inline PNG plots were regenerated. Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
+sha256 = "d5f16da727e8cdb8ab4284680311fc3bd434224d037cde0bd4e0cbd07e0f1cae"
+max_bytes = 3000000
+
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]

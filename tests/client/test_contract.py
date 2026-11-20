@@ -7,6 +7,7 @@ same pull request; a failure here names what drifted. A response key that a fake
 contract lacks fails here, and so does a contract key that ``http.md`` does not name.
 """
 
+import copy
 import dataclasses
 import json
 import re
@@ -29,9 +30,11 @@ from .contract_check import (
     check_fake_record,
     check_response,
     endpoint_cell,
+    http_pages,
     http_reference_text,
     required,
     row_drift,
+    spec_problems,
     unnamed_keys,
 )
 
@@ -102,22 +105,110 @@ def test_every_response_key_of_the_contract_is_named_in_the_http_reference():
     assert not missing, f"http.md does not name these response keys: {sorted(missing)}"
 
 
-def test_each_http_reference_row_names_exactly_the_contract_keys_of_its_route():
-    assert row_drift(http_reference_text()) == {}
+SPEC = http_pages.load_spec()
+
+
+def test_each_http_reference_row_names_every_contract_key_and_only_keys_the_spec_has():
+    assert row_drift(http_reference_text(), SPEC) == {}
 
 
 def test_a_key_removed_from_one_http_reference_row_fails():
     reference = http_reference_text()
     status_row = endpoint_cell("GET", "/v1/analyses/{id}")
     shortened = reference.replace(status_row, status_row.replace("`warning_details`", "nothing"))
-    assert row_drift(shortened) == {"GET /v1/analyses/{id}": ({"warning_details"}, set())}
+    assert row_drift(shortened, SPEC) == {"GET /v1/analyses/{id}": ({"warning_details"}, set())}
 
 
-def test_a_key_added_to_one_http_reference_row_fails():
+def test_a_key_added_to_one_http_reference_row_fails_unless_the_spec_has_it():
     reference = http_reference_text()
     list_row = endpoint_cell("GET", "/v1/analyses")
     longer = reference.replace(list_row, list_row + " Also `dummy_key`.")
-    assert row_drift(longer) == {"GET /v1/analyses": (set(), {"dummy_key"})}
+    assert row_drift(longer, SPEC) == {"GET /v1/analyses": (set(), {"dummy_key"})}
+    known = reference.replace(list_row, list_row + " Also `next_cursor`.")
+    assert row_drift(known, SPEC) == {}  # the server sends more than the SDK reads
+
+
+def test_the_spec_supports_every_field_route_and_error_of_the_contract():
+    assert spec_problems(SPEC) == []
+
+
+def spec_without(route: str, method: str, drop):
+    spec = copy.deepcopy(SPEC)
+    drop(spec, spec["paths"][route][method])
+    return spec
+
+
+def schema_of(spec, name):
+    return spec["components"]["schemas"][name]
+
+
+@pytest.mark.parametrize(
+    ("what", "change", "expected"),
+    [
+        (
+            "a field the spec lacks",
+            lambda s: schema_of(s, "AnalysisStatus")["properties"].pop("seed"),
+            "seed",
+        ),
+        (
+            "a required field the spec marks optional",
+            lambda s: schema_of(s, "AnalysisStatus")["required"].remove("runs_done"),
+            "runs_done",
+        ),
+        (
+            "a field of another type",
+            lambda s: schema_of(s, "AnalysisStatus")["properties"].update(
+                runs_total={"type": "string"}
+            ),
+            "runs_total",
+        ),
+        (
+            "a required field that can be null",
+            lambda s: schema_of(s, "AnalysisStatus")["properties"].update(
+                expires_at={"anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}]}
+            ),
+            "expires_at",
+        ),
+        (
+            "a column of the result table",
+            lambda s: schema_of(s, "ResultRow")["properties"].pop("simulation_se"),
+            "simulation_se",
+        ),
+        (
+            "a request field",
+            lambda s: [
+                schema_of(s, form)["properties"].pop("decision_weeks")
+                for form in ("PlanFormStored", "PlanFormInline", "WeeksForm")
+            ],
+            "decision_weeks",
+        ),
+        (
+            "an error code",
+            lambda s: s["paths"]["/v1/analyses/{analysis_id}/weekly"]["get"]["responses"].pop(
+                "409"
+            ),
+            "plan_failed",
+        ),
+    ],
+)
+def test_a_contract_field_the_spec_cannot_support_fails(what, change, expected):
+    spec = copy.deepcopy(SPEC)
+    change(spec)
+    problems = spec_problems(spec)
+    assert problems and expected in " ".join(problems), what
+
+
+def test_a_contract_route_the_spec_lacks_fails():
+    spec = copy.deepcopy(SPEC)
+    del spec["paths"]["/v1/analyses/{analysis_id}/export"]
+    assert any("export" in problem for problem in spec_problems(spec))
+
+
+def test_the_spec_may_send_more_than_the_contract_lists():
+    """Optional server fields and unlisted keys are allowed: the contract is a subset."""
+    spec = copy.deepcopy(SPEC)
+    schema_of(spec, "AnalysisStatus")["properties"]["extra_key"] = {"type": "string"}
+    assert spec_problems(spec) == []
 
 
 def test_every_sdk_route_has_a_row_in_the_http_reference():
@@ -246,3 +337,68 @@ def test_a_dummy_key_in_a_result_weekly_or_export_body_fails(path, body):
     nested = next(key for key in ("table", "rows", "scenarios") if key in body)
     with pytest.raises(AssertionError, match="dummy_key"):
         check_response("GET", path, 200, {**body, nested: [{"dummy_key": 1}]})
+
+
+# ---- Types of the columns the SDK reads ------------------------------------------------------
+
+
+def test_a_string_typed_column_the_sdk_converts_to_numbers_fails():
+    """``result_table`` runs ``pd.to_numeric`` on ``mean``; a spec that sent a string must fail."""
+    spec = copy.deepcopy(SPEC)
+    schema_of(spec, "ResultRow")["properties"]["mean"] = {"type": "string"}
+    assert any("mean" in problem for problem in spec_problems(spec))
+    spec = copy.deepcopy(SPEC)
+    schema_of(spec, "ResultRow")["properties"]["draws_url_expires_at"] = {"type": "number"}
+    assert any("draws_url_expires_at" in problem for problem in spec_problems(spec))
+
+
+def test_a_column_that_may_be_null_needs_a_nullable_contract_type():
+    spec = copy.deepcopy(SPEC)
+    schema_of(spec, "WeeklyRow")["properties"]["mean"] = {
+        "anyOf": [{"type": "number"}, {"type": "null"}]
+    }
+    assert any("mean" in problem for problem in spec_problems(spec))
+
+
+def test_every_key_of_a_typed_group_has_a_type(monkeypatch):
+    typed = [name for name, group in FIELDS.items() if group.get("typed")]
+    assert {"result_row", "weekly_row", "analysis_list_item", "response_curve"} <= set(typed)
+    for name in typed:
+        group = FIELDS[name]
+        keys = {k for part in ("required", "optional", "ordered") for k in group.get(part, ())}
+        assert keys <= set(group["types"]), (name, sorted(keys - set(group["types"])))
+    monkeypatch.delitem(FIELDS["result_row"]["types"], "mean")
+    assert any("no type" in problem and "mean" in problem for problem in spec_problems(SPEC))
+
+
+def test_every_column_the_sdk_converts_is_typed():
+    for column in ("level", "spend_total", "mean", "p05", "p95", "window_mean"):
+        assert FIELDS["result_row"]["types"][column] == "number|null"
+    assert FIELDS["result_row"]["types"]["draws_url_expires_at"] == "date-time|null"
+    for column in ("value", "sd", "p05", "p95"):
+        assert column in {
+            k for g in ("fit_score", "share_band", "curve_point") for k in FIELDS[g]["types"]
+        }
+    assert set(FIELDS["curve_point"]["types"]) == {"level", "value", "p05", "p95"}
+    assert FIELDS["response_curve"]["types"]["spend"] == "number"
+
+
+def test_every_column_the_source_converts_has_a_numeric_or_date_type_in_the_contract():
+    source = (CLIENT_SRC / "analysis.py").read_text()
+    numeric = re.findall(
+        r"for column in \(([^)]*)\):\n(?:[^\n]*\n)??\s+\w+\[column\] = pd\.to_numeric", source
+    )
+    dates = re.findall(r'\["(\w+)"\] = pd\.to_datetime', source)
+    assert len(numeric) == 2 and dates == ["draws_url_expires_at", "date"]
+
+    def is_number(kind: str) -> bool:
+        return kind.partition("|")[0] in ("number", "integer")
+
+    for column in re.findall(r'"(\w+)"', numeric[0]):  # result_table
+        assert is_number(FIELDS["result_row"]["types"][column]), column
+    labelled = ("fit_score", "share_band", "curve_point", "response_curve")  # _labelled
+    for column in re.findall(r'"(\w+)"', numeric[1]):
+        kinds = [FIELDS[g]["types"][column] for g in labelled if column in FIELDS[g]["types"]]
+        assert kinds and all(is_number(kind) for kind in kinds), column
+    assert FIELDS["result_row"]["types"]["draws_url_expires_at"].partition("|")[0] == "date-time"
+    assert FIELDS["weekly_row"]["types"]["date"] == "date"

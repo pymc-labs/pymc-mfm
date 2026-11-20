@@ -25,11 +25,9 @@ from ._artifact_schema import (
     FORMAT_VERSION,
     SHA256_PATTERN,
     _release_version,
-    digest_bytes,
     exact_keys,
     file_record,
     inference_metadata,
-    json_bytes,
     normalized_version,
     provenance_metadata,
     python_version,
@@ -38,6 +36,7 @@ from ._artifact_schema import (
     validate_profile,
     validate_semantic_schema,
 )
+from ._digest import digest_bytes, json_bytes
 
 _FLOAT_DTYPES = {torch.float16, torch.bfloat16, torch.float32, torch.float64}
 _CONFIG_KEYS = frozenset(

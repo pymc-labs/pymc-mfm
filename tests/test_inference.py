@@ -485,7 +485,8 @@ def test_loading_and_sampling_import_no_compiler_stack(model, synthetic_corpus, 
     code = (
         "import sys\n"
         "import numpy as np\n"
-        "from pymc_mfm import decompose, from_pretrained\n"
+        "from pymc_mfm import from_pretrained\n"
+        "from pymc_mfm.inference import decompose\n"
         "model = from_pretrained(sys.argv[1])\n"
         "decompose(model, dict(np.load(sys.argv[2])), n_samples=3)\n"
         "loaded = [name for name in ('torch._dynamo', 'sympy') if name in sys.modules]\n"

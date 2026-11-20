@@ -1,4 +1,4 @@
-"""Immutable observed history and column roles for the public add_context/inference API."""
+"""Immutable history and column roles for explicit context/query inference."""
 
 from __future__ import annotations
 
@@ -9,7 +9,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_complex_dtype, is_numeric_dtype
+from pandas.api.types import (
+    is_bool_dtype,
+    is_complex_dtype,
+    is_datetime64_any_dtype,
+    is_numeric_dtype,
+    is_timedelta64_dtype,
+)
 
 from pymc_mfm.data.observations import encode_observations
 from pymc_mfm.model.config import ModelConfig
@@ -27,12 +33,14 @@ def _column_names(value, role: str) -> tuple[str, ...]:
         raise ValueError(f"{role} must be a nonempty sequence of column names") from None
     if not names or any(not isinstance(name, str) or not name for name in names):
         raise ValueError(f"{role} must contain nonempty string column names")
+    if any("\x00" in name for name in names):
+        raise ValueError(f"{role} must not contain NUL characters")
     for name in names:
         try:
             name.encode("utf-8")
         except UnicodeEncodeError:
             raise ValueError(f"{role} must contain valid Unicode column names") from None
-    return names
+    return tuple(str(name) for name in names)  # built-in str: np.str_ cannot be an HDF5 attribute
 
 
 def _ordered_frame(data, required: tuple[str, ...], date_column: str):
@@ -79,7 +87,7 @@ def _numeric_columns(data: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
 
 def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if len(dates) < 2:
-        raise ValueError("add_context needs at least two dated context rows to determine frequency")
+        raise ValueError("context needs at least two dated rows to determine frequency")
     frequency = pd.infer_freq(dates) if len(dates) >= 3 else None
     if frequency is not None:
         return pd.tseries.frequencies.to_offset(frequency)
@@ -199,6 +207,48 @@ class _FittedContext:
             "control_mask": self.control_mask,
         }, np.concatenate((self.dates, dates.to_numpy(dtype="datetime64[ns]")))
 
+    def query_outcome(self, data: pd.DataFrame) -> np.ndarray | None:
+        """Observed query outcomes in date order, for figures only; never model input.
+
+        ``None`` when ``data`` has no target column or none of its values is a finite
+        number. Other entries that are not finite numbers become NaN (unobserved), so
+        the column never fails or changes inference. Call after ``observations``,
+        which validates the dates.
+        """
+        if self.target_column not in data.columns:
+            return None
+        frame, _ = _ordered_frame(data, (self.date_column,), self.date_column)
+        column = frame[self.target_column]
+        if is_datetime64_any_dtype(column.dtype) or is_timedelta64_dtype(column.dtype):
+            return None
+        if not is_numeric_dtype(column.dtype):
+            try:
+                column = pd.to_numeric(column, errors="coerce")
+            except (TypeError, ValueError, OverflowError):
+                # pandas refuses some object columns whole (an int past float64, a list):
+                # convert entry by entry instead, each failure unobserved.
+                column = column.map(_number).astype(np.float64)
+        if (
+            not is_numeric_dtype(column.dtype)
+            or is_complex_dtype(column.dtype)
+            or is_bool_dtype(column.dtype)
+        ):
+            return None
+        values = column.to_numpy(dtype=np.float64, na_value=np.nan, copy=True)
+        values[~np.isfinite(values)] = np.nan
+        if np.isnan(values).all():
+            return None
+        values.setflags(write=False)
+        return values
+
+
+def _number(value: object) -> float:
+    """``value`` as a float, or NaN when it is not a number float64 can hold."""
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return np.nan
+
 
 @dataclass(frozen=True, slots=True)
 class _PredictionSnapshot:
@@ -213,6 +263,8 @@ class _PredictionSnapshot:
     mode: str
     router_samples: int | None
     units: str
+    #: Observed query outcomes for figures (NaN where unobserved), or ``None``.
+    query_outcome: np.ndarray | None = None
 
     def __post_init__(self):
         # Reuse the observation arrays already owned by the dataframe adapter,
