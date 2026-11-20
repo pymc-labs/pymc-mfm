@@ -2,7 +2,7 @@
 
 Each deprecated name keeps working as a call and warns with a `DeprecationWarning` until it is removed.
 
-The six `pymc_mfm.<name>` rows in the table warn on first access in a process. A name that loaded stays silent after that, even if you enable warnings later. Python hides `DeprecationWarning` by default, except for code in `__main__`: run with `python -W default` or `pytest` to see it from a library. A load that fails, for example without PyTorch, is not cached, so the next access warns again and raises the same `ImportError` with the `pymc-mfm[local]` hint.
+The six `pymc_mfm.<name>` rows in the table warn on first access in a process. Overlapping first accesses may each warn. A name that loaded stays silent after that, even if you enable warnings later. Python hides `DeprecationWarning` by default, except for code in `__main__`: run with `python -W default` or `pytest` to see it from a library. A load that fails, for example without PyTorch, is not cached, so the next access warns again and raises the same `ImportError` with the `pymc-mfm[local]` hint.
 
 | Old | New |
 | --- | --- |

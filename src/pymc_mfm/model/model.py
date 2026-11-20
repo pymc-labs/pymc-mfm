@@ -972,12 +972,13 @@ class MFM(nn.Module):
         Fixed graphs must have shape ``[B,L]`` or exactly ``[S,B,L]``. Graph-
         forbidden coordinates remain zero throughout transport and decoding.
         Context and query calls are separate marginals, not aligned draws.
-        ``random_seed`` seeds a generator that belongs to this call: the call never reads
-        or changes PyTorch's global random state. With ``random_seed=None`` the call draws
-        from PyTorch's global generator and advances it. ``generator`` is a call-owned
-        generator from :func:`_sampling_generator`, for callers that continue one stream
-        over several calls; pass either it or ``random_seed``, not both. A request that
-        fails a check draws nothing and starts no noise prefetch.
+        ``random_seed`` seeds a generator that belongs to this call: sampling draws use
+        that generator rather than PyTorch's global state. If enabled, :meth:`compile_sampling`
+        can save and restore the global state during compilation. With ``random_seed=None``
+        sampling draws from PyTorch's global generator and advances it. A call-owned
+        ``generator`` from :func:`_sampling_generator` continues one stream over several
+        calls; pass either it or ``random_seed``, not both. A request that fails a check
+        draws nothing and starts no noise prefetch.
         """
         if mode not in ("model_average", "map", "fixed"):
             raise ValueError("mode must be 'model_average', 'map', or 'fixed'")

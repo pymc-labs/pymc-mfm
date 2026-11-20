@@ -212,16 +212,18 @@ def _check_window(tree: DataTree, window: str, roles: dict[str, tuple[str, ...]]
     labels = families["component"].to_numpy()
     if len(set(labels)) != len(labels):
         _fail(f"{root}/constant_data", f"component labels must be unique, got {list(labels)}")
-    for family in dict.fromkeys(families.to_numpy()):
-        # The reader pairs components by label and rejects an unknown family itself.
-        if family in roles:
-            _variable(
-                posterior,
-                f"{root}/posterior",
-                f"{family}_contribution",
-                (*_SAMPLE_DIMS, "date", family),
-            )
-    for label, family in zip(labels, families.to_numpy(), strict=True):
+    component_families = families.to_numpy()
+    described_roles = tuple(
+        dict.fromkeys(family for family in component_families if family in roles)
+    )
+    for family in described_roles:
+        _variable(
+            posterior,
+            f"{root}/posterior",
+            f"{family}_contribution",
+            (*_SAMPLE_DIMS, "date", family),
+        )
+    for label, family in zip(labels, component_families, strict=True):
         if family not in roles and family in FAMILIES:
             _variable(
                 posterior,
@@ -237,7 +239,8 @@ def _check_window(tree: DataTree, window: str, roles: dict[str, tuple[str, ...]]
     _variable(constants, f"{root}/constant_data", "controls", ("date", "control"))
     _one_chain(f"{root}/posterior", posterior)
     _dates(f"{root}/posterior", posterior["date"].to_numpy(), least=2 if window == "context" else 1)
-    _same_coordinates(root, groups, ("date", *_ROLES))
+    _same_coordinates(root, groups, ("date",))
+    _same_coordinates(root, {"posterior": posterior, "constant_data": constants}, described_roles)
     for role, names in roles.items():
         recorded = tuple(str(name) for name in constants[role].to_numpy())
         if sorted(recorded) != sorted(names):
@@ -314,7 +317,7 @@ def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
         _fail(path, "level coordinate must hold finite values of at least 0")
     if not (levels > 0).any():
         _fail(path, "level coordinate needs at least one positive level")
-    if len(levels) < 2 or not (np.diff(levels) > 0).all():
+    if len(levels) < 2 or not (levels[1:] > levels[:-1]).all():
         _fail(path, f"level coordinate needs at least 2 values, strictly increasing, got {levels}")
     if "date" not in constants.coords:
         _fail(f"{root}/constant_data", "date coordinate is missing")

@@ -13,6 +13,7 @@ from conftest import CHART_ROLES
 
 import pymc_mfm.plotting as plotting
 import pymc_mfm.plotting.charts as charts
+from pymc_mfm import validate_idata
 from pymc_mfm.model.model import MFM
 from pymc_mfm.plotting import Plots
 from pymc_mfm.plotting.charts import _backend
@@ -793,6 +794,24 @@ def test_a_missing_component_descriptor_raises_instead_of_dropping_a_contributio
     for chart in ("fit", "shares", "contribution_totals", "contributions_over_time"):
         with pytest.raises(ValueError, match=r"/context/constant_data.*channel.*'tv'"):
             getattr(Plots(changed), chart)()
+
+
+@pytest.mark.parametrize(("family", "label"), [("channel", "tv"), ("control", "temperature")])
+@pytest.mark.usefixtures("matplotlib_backend")
+def test_two_descriptors_for_one_draw_column_are_rejected(predicted_model, family, label):
+    def add_alias(data):
+        labels = data["component"].to_numpy().tolist()
+        alias = labels.index(f"{family}:{label}")
+        return data.isel(component=[*range(len(labels)), alias]).assign_coords(
+            component=[*labels, label]
+        )
+
+    changed = _edit(predicted_model.idata, "/query/constant_data", add_alias)
+    message = rf"^/query/constant_data: {family} descriptors must name each column once"
+    with pytest.raises(ValueError, match=message):
+        Plots(changed).contribution_totals(window="query")
+    with pytest.raises(ValueError, match=message):
+        validate_idata(changed)
 
 
 def test_a_descriptor_for_a_channel_the_tree_does_not_name_raises(predicted_model):

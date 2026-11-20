@@ -368,6 +368,11 @@ class IdataReader:
         }
         for family, named in roles.items():
             described = [n for n, f in zip(plain, families, strict=True) if f == family]
+            if len(described) != len(set(described)):
+                raise ValueError(
+                    f"/{name}/constant_data: {family} descriptors must name each column once, "
+                    f"got {described}"
+                )
             absent = [label for label in named if label not in described]
             unknown = [label for label in described if label not in named]
             if absent or unknown:

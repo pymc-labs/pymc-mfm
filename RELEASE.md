@@ -36,6 +36,9 @@ distribution prerequisites, not an approved or published release.
   inference revision. Curves have independent draw/level axes and separately
   labeled source provenance. Context/query remain separate marginals, not paired
   full-horizon trajectories. Changing a plan can also change context draws.
+- **Model tree validation.** Charts and file validation reject multiple descriptors for
+  a single channel or control. Validation accepts unrelated extension coordinates and
+  requires response-curve levels to increase, including when stored as unsigned integers.
 - **Dependencies and migration.** `local` now includes `xarray>=2024.10` and
   `arviz-base>=1.3,<2` for automatic in-memory trees; optional statistics,
   rendering and explicit file export remain separate. Full inference pays for

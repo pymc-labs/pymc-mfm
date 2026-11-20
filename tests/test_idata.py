@@ -8,7 +8,9 @@ import shutil
 import subprocess
 import sys
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import numpy as np
 import pytest
@@ -212,6 +214,21 @@ def test_an_extension_variable_may_use_an_axis_without_a_coordinate(tree, tmp_pa
     save_idata(tree, tmp_path / "tree.nc")
     loaded = load_idata(tmp_path / "tree.nc")
     np.testing.assert_array_equal(loaded["query/constant_data/external_draws"].to_numpy(), [1, 2])
+
+
+@pytest.mark.usefixtures("files")
+def test_observations_can_carry_an_unrelated_channel_coordinate(tree, tmp_path):
+    path = "context/observed_data"
+    _edit(
+        tree,
+        path,
+        lambda data: data.assign_coords(channel=["external"]).assign(sensor=("channel", [2.5])),
+    )
+    target = tmp_path / "tree.nc"
+    save_idata(tree, target)
+    sensor = load_idata(target)[f"{path}/sensor"]
+    np.testing.assert_array_equal(sensor["channel"], ["external"])
+    np.testing.assert_array_equal(sensor, [2.5])
 
 
 @pytest.mark.parametrize(
@@ -425,6 +442,37 @@ def test_save_never_overwrites_and_leaves_no_temporary_file(tree, tmp_path):
         save_idata(tree, path)
     assert path.read_bytes() == b"keep me"
     assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("hard_links", [True, False])
+@pytest.mark.usefixtures("files")
+def test_competing_saves_leave_only_the_winners_file(tree, tmp_path, monkeypatch, hard_links):
+    target = tmp_path / "tree.nc"
+    ready = Barrier(2, timeout=30)
+    link = os.link
+
+    def publish_together(source, destination):
+        ready.wait()
+        if not hard_links:
+            raise OSError(errno.EPERM, "hard links are not supported")
+        link(source, destination)
+
+    def save(candidate):
+        try:
+            save_idata(candidate, target)
+        except FileExistsError:
+            return None
+        return candidate.attrs["writer"]
+
+    candidates = [tree.copy(), tree.copy()]
+    for index, candidate in enumerate(candidates):
+        candidate.attrs["writer"] = index
+    monkeypatch.setattr(os, "link", publish_together)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(save, candidates))
+    [winner] = [result for result in results if result is not None]
+    assert load_idata(target).attrs["writer"] == winner
+    assert list(tmp_path.iterdir()) == [target]
 
 
 @pytest.mark.usefixtures("files")
@@ -879,6 +927,10 @@ def _curve_no_channels(tree):
         ),
         (
             _curve_levels(np.array([0.0, 1.0, 1.0])),
+            r"^/response_curves/posterior: level coordinate needs at least 2 values, strictly",
+        ),
+        (
+            _curve_levels(np.array([2, 1], dtype=np.uint64)),
             r"^/response_curves/posterior: level coordinate needs at least 2 values, strictly",
         ),
         (
