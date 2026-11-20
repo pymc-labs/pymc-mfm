@@ -4,6 +4,8 @@ import subprocess
 import sys
 import textwrap
 
+import pytest
+
 
 def run(code: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -36,6 +38,7 @@ def test_local_names_explain_the_extra_when_torch_is_missing():
             try:
                 getattr(pymc_mfm, name)
             except ImportError as error:
+                assert str(error).startswith(f"pymc_mfm.{name} runs the model"), error
                 assert 'pip install "pymc-mfm[local]"' in str(error), error
             else:
                 raise SystemExit(f"{name} loaded without torch")
@@ -58,3 +61,41 @@ def test_dir_lists_the_lazy_names():
         """
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "pymc_mfm.inference._datatree",
+        "pymc_mfm.inference.curves",
+        "pymc_mfm.inference.result",
+        "pymc_mfm.plotting",
+        "pymc_mfm.plotting.charts",
+    ],
+)
+def test_result_tree_curves_and_charts_import_without_torch(module):
+    loaded = run(
+        f"""
+        import sys
+        import {module}
+        assert "torch" not in sys.modules, "torch was imported"
+        assert "safetensors" not in sys.modules, "safetensors was imported"
+        """
+    )
+    assert loaded.returncode == 0, loaded.stderr + loaded.stdout
+    blocked = run(
+        f"""
+        import sys
+        sys.modules["torch"] = None  # makes "import torch" fail, as in a light install
+        sys.modules["safetensors"] = None
+        import {module}
+        import pymc_mfm.inference
+        try:
+            pymc_mfm.inference.decompose
+        except ImportError as error:
+            assert 'pip install "pymc-mfm[local]"' in str(error), error
+        else:
+            raise SystemExit("decompose loaded without torch")
+        """
+    )
+    assert blocked.returncode == 0, blocked.stderr + blocked.stdout

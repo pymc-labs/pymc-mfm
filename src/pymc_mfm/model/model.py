@@ -724,7 +724,7 @@ class MFM(nn.Module):
         provenance: Mapping[str, object] | None,
     ) -> tuple[DecompositionResult, dict[str, np.ndarray], np.ndarray, dict[str, object] | None]:
         """Compute query against an explicit candidate context without publishing it."""
-        from pymc_mfm.inference._artifact_schema import json_bytes
+        from pymc_mfm.inference._digest import json_bytes
         from pymc_mfm.inference.api import decompose
         from pymc_mfm.inference.result import _require_json_text, _require_text
 

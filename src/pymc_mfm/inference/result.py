@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO
 
 import numpy as np
-import torch
 
-from ._artifact_schema import json_bytes
+from ._digest import json_bytes
 from ._time import _validate_time
 from ._usage import _input_usage
 
@@ -38,6 +37,8 @@ _TUPLE_FIELDS = (
 
 def _numpy(value):
     if hasattr(value, "detach"):
+        import torch
+
         value = value.detach().cpu()
         # Widen exactly: NumPy has no native bfloat16 representation.
         if value.dtype == torch.bfloat16:

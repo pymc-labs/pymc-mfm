@@ -51,10 +51,9 @@ import torch
 from pymc_mfm.data.observations import observation_identity
 from pymc_mfm.inference._artifact_schema import (
     SHA256_PATTERN,
-    digest_bytes,
-    json_bytes,
     validate_profile,
 )
+from pymc_mfm.inference._digest import digest_bytes, json_bytes
 from pymc_mfm.inference.checkpoint import _canonical_model, _state_sha256, _validate_state
 from pymc_mfm.inference.result import _require_text
 from pymc_mfm.model.flow import FLOW_STEPS_SAMPLE

@@ -123,12 +123,11 @@ import numpy as np
 
 from pymc_mfm.inference._artifact_schema import (
     SHA256_PATTERN,
-    digest_bytes,
     exact_keys,
-    json_bytes,
     parse_json,
     validate_profile,
 )
+from pymc_mfm.inference._digest import digest_bytes, json_bytes
 from pymc_mfm.inference.result import DecompositionResult, _checked_evidence, _require_text
 
 from .strata import result_effect_rows

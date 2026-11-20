@@ -34,6 +34,8 @@ from pymc_mfm.model.flow import (
 )
 from pymc_mfm.model.graph import STRUCT_EDGE_KEYS, EdgeSlotLayout
 
+from ._digest import json_bytes as _json_bytes
+
 FORMAT_VERSION = 1
 SEMANTIC_SCHEMA_VERSION = 2
 ARCHITECTURE = "mfm-graph-conditional-v1"
@@ -143,14 +145,6 @@ _TORCH_BUILD = re.compile(
 _REFERENCE_KEYS = frozenset(
     {"name", "sha256", "config_hash", "content_hash", "manifest_hash", "uri", "status", "recipe"}
 )
-
-
-def json_bytes(value: object) -> bytes:
-    return (json.dumps(value, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
-
-
-def digest_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
 
 
 def file_record(path: Path) -> dict:
@@ -329,7 +323,7 @@ def provenance_metadata(value: Mapping | None) -> dict:
                         raise ValueError("artifact reference hashes must be full lowercase SHA-256")
     if "training_evaluation" in result:
         _validate_training_evaluation(result["training_evaluation"])
-    if len(json_bytes(result)) > 1 << 20:
+    if len(_json_bytes(result)) > 1 << 20:
         raise ValueError("provenance exceeds the 1 MiB metadata limit")
     return result
 
@@ -706,7 +700,7 @@ def validate_semantic_schema(
         not isinstance(value, dict)
         or type(value.get("version")) is not int
         or value["version"] != SEMANTIC_SCHEMA_VERSION
-        or (config is not None and json_bytes(value) != json_bytes(semantic_schema(config)))
+        or (config is not None and _json_bytes(value) != _json_bytes(semantic_schema(config)))
     ):
         raise ValueError(
             f"{label} has an incompatible input representation; expected semantic schema "

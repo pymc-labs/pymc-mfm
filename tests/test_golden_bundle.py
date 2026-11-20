@@ -36,7 +36,8 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-from pymc_mfm.inference._artifact_schema import digest_bytes, file_record, json_bytes
+from pymc_mfm.inference._artifact_schema import file_record
+from pymc_mfm.inference._digest import digest_bytes, json_bytes
 from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.inference.hub import from_pretrained
 from pymc_mfm.model import MFM, ModelConfig

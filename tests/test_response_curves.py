@@ -6,6 +6,8 @@ import pytest
 import torch
 from conftest import CHART_ROLES
 
+import pymc_mfm.inference as inference
+from pymc_mfm.inference import api as api_module
 from pymc_mfm.inference import curves as curves_module
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.plotting.charts import _backend
@@ -26,7 +28,7 @@ def matplotlib_default(monkeypatch):
 def recorded(monkeypatch):
     """Each ``decompose`` call of ``response_curves``: its inputs, options and result."""
     calls = []
-    decompose = curves_module.decompose
+    decompose = api_module.decompose
 
     def record(model, observations, **options):
         result = decompose(model, observations, **options)
@@ -34,7 +36,7 @@ def recorded(monkeypatch):
         calls.append({"observations": inputs, "options": options, "result": result})
         return result
 
-    monkeypatch.setattr(curves_module, "decompose", record)
+    monkeypatch.setattr(api_module, "decompose", record)
     return calls
 
 
@@ -57,6 +59,25 @@ def swept(forecast_model):
 
 #: Known contributions of tv at three of the swept levels, as from a simulation.
 TRUTH = pd.DataFrame({"tv": [40.0, 20.0, 30.0]}, index=[1.0, 0.0, 0.5])
+
+
+def test_inference_exports_are_exactly_the_documented_names():
+    assert sorted(inference.__all__) == [
+        "DecompositionResult",
+        "ResponseCurves",
+        "WarmUp",
+        "decompose",
+        "from_pretrained",
+        "list_profiles",
+        "observation_batch",
+        "push_to_hub",
+        "save_pretrained",
+        "warm_up_observations",
+        "warm_up_sampling",
+    ]
+    for name in inference.__all__:
+        assert getattr(inference, name).__name__ == name
+    assert inference.ResponseCurves is curves_module.ResponseCurves
 
 
 def _channel_totals(result, name):
@@ -184,6 +205,7 @@ def test_scenarios_keep_the_mode_graphs_units_and_provenance_of_inference(
     else:
         options["router_samples"] = 7
     model.inference(history, future, **CHART_ROLES, **options)
+    recorded.clear()  # the patch also saw inference()
     query = model.query_result
     curves = model.response_curves(levels=[0, 1], weeks=1)
     # tv is zero in the first forecast week, so it reuses the unchanged run.
@@ -340,7 +362,7 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
     query = forecast_model.query_result
     context = forecast_model._context_result()
     if failure == "sampling":
-        decompose = curves_module.decompose
+        decompose = api_module.decompose
         calls = 0
 
         def fail_mid_sweep(*args, **kwargs):
@@ -351,7 +373,7 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
                 raise RuntimeError("curve sampling failed")
             return result
 
-        monkeypatch.setattr(curves_module, "decompose", fail_mid_sweep)
+        monkeypatch.setattr(api_module, "decompose", fail_mid_sweep)
     else:
 
         def fail_conversion(*args, **kwargs):
@@ -378,6 +400,7 @@ def test_sweeps_ignore_independent_predictions(forecast_model, chart_frames, rec
         future.iloc[:1].assign(search=1.0), n_samples=3, mode="map", units="USD"
     )
     assert independent is not query
+    recorded.clear()  # the patch also saw predict()
     curves = forecast_model.response_curves(levels=[1, 2], weeks=2)
     assert curves.weeks == 2 and curves.n_samples == 2 and curves.units == "outcome"
     np.testing.assert_array_equal(curves.media, future[CHANNELS].iloc[:2].sum())

@@ -11,6 +11,8 @@ from importlib import import_module
 from importlib.metadata import version
 from typing import TYPE_CHECKING
 
+from ._lazy import lazy_exports
+
 if TYPE_CHECKING:
     from .inference import (
         DecompositionResult,
@@ -29,13 +31,13 @@ __version__ = version("pymc-mfm")
 _LOCAL_EXPORTS = {
     "MFM": "pymc_mfm.model",
     "ModelConfig": "pymc_mfm.model",
-    "DecompositionResult": "pymc_mfm.inference",
-    "decompose": "pymc_mfm.inference",
-    "observation_batch": "pymc_mfm.inference",
-    "save_pretrained": "pymc_mfm.inference",
-    "from_pretrained": "pymc_mfm.inference",
-    "push_to_hub": "pymc_mfm.inference",
-    "list_profiles": "pymc_mfm.inference",
+    "DecompositionResult": "pymc_mfm.inference.result",
+    "decompose": "pymc_mfm.inference.api",
+    "observation_batch": "pymc_mfm.inference.api",
+    "save_pretrained": "pymc_mfm.inference.checkpoint",
+    "from_pretrained": "pymc_mfm.inference.hub",
+    "push_to_hub": "pymc_mfm.inference.hub",
+    "list_profiles": "pymc_mfm.inference.hub",
 }
 
 __all__ = [
@@ -50,30 +52,10 @@ __all__ = [
     "list_profiles",
 ]
 
-_LOCAL_DEPENDENCIES = ("torch", "safetensors")
+_lazy_getattr, __dir__ = lazy_exports(__name__, _LOCAL_EXPORTS, globals())
 
 
 def __getattr__(name: str):
     if name == "client":  # torch-free; `import pymc_mfm` then `pymc_mfm.client` works
         return import_module(f"{__name__}.client")
-    module_name = _LOCAL_EXPORTS.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    try:
-        value = getattr(import_module(module_name), name)
-    except ModuleNotFoundError as error:
-        # Only a missing PyTorch dependency becomes the install hint. Any other
-        # missing module is a real bug and keeps its own error.
-        if (error.name or "").partition(".")[0] not in _LOCAL_DEPENDENCIES:
-            raise
-        raise ImportError(
-            f"pymc_mfm.{name} runs the model in this process and needs PyTorch. "
-            'Install it with: pip install "pymc-mfm[local]". '
-            "To call a hosted service without PyTorch, use pymc_mfm.client."
-        ) from error
-    globals()[name] = value
-    return value
-
-
-def __dir__() -> list[str]:
-    return sorted({*globals(), *_LOCAL_EXPORTS})
+    return _lazy_getattr(name)
