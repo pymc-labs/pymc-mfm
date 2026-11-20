@@ -40,7 +40,7 @@ def _column_names(value, role: str) -> tuple[str, ...]:
             name.encode("utf-8")
         except UnicodeEncodeError:
             raise ValueError(f"{role} must contain valid Unicode column names") from None
-    return names
+    return tuple(str(name) for name in names)  # built-in str: np.str_ cannot be an HDF5 attribute
 
 
 def _ordered_frame(data, required: tuple[str, ...], date_column: str):

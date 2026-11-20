@@ -734,11 +734,15 @@ class MFM(nn.Module):
             state_sha256 = annotations.get("state_sha256")
             if state_sha256 is not None and not isinstance(state_sha256, str):
                 raise ValueError("provenance state_sha256 must be text")
+            for key in ("state_sha256", "data_sha256", "graph_source"):
+                if "\x00" in str(annotations.get(key, "")):
+                    raise ValueError(f"provenance {key} must not contain NUL characters")
         if not isinstance(units, str) or not units:
             raise ValueError("units must be a nonempty label")
         _require_text(units, "units")
         if "\x00" in units:
             raise ValueError("units must not contain NUL characters")
+        units = str(units)  # a str subclass, such as np.str_, cannot be an HDF5 attribute
         result = decompose(
             self,
             observations,
