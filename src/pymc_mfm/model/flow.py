@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import math
 import platform
 import sys
@@ -185,7 +184,8 @@ def _map_batches[T](
     round. Batches share no state and draw no randomness, preserving sample identity.
     Different batch shapes may introduce floating-point round-off. Grad mode is
     thread-local and carried into workers, which never outnumber ``torch.get_num_threads()``;
-    off Apple silicon they split those threads between them.
+    off Apple silicon each worker gets the same whole share of those threads, so a batch's
+    round-off does not depend on which worker runs it and repeated calls match bit for bit.
     """
     threads = torch.get_num_threads()
     workers = min(_SAMPLE_BATCH_WORKERS, threads) if device.type == "cpu" else 1
@@ -199,12 +199,12 @@ def _map_batches[T](
     pool_size = min(workers, count)
     initializer = None
     if _SPLIT_SAMPLE_THREADS and _thread_counts_per_thread():
-        share, extra = divmod(threads, pool_size)
-        slots = itertools.count()
+        share = threads // pool_size
 
         def split_threads() -> None:
-            # Per pool thread, which ends with the pool.
-            torch.set_num_threads(share + (next(slots) < extra))
+            # Per pool thread, which ends with the pool. Equal shares: with unequal ones a
+            # batch's thread count, and so its round-off, varied between identical calls.
+            torch.set_num_threads(share)
 
         initializer = split_threads
 

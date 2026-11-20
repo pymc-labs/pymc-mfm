@@ -10,6 +10,11 @@ from pymc_mfm.model.config import ModelConfig
 from pymc_mfm.model.graph import EdgeSlotLayout
 from pymc_mfm.model.model import MFM
 
+# One intra-op thread for every test. On many-core machines PyTorch's default thread
+# count makes the tiny test models several times slower. Tests that need more threads
+# set them and restore this value.
+torch.set_num_threads(1)
+
 GENERATOR_EDGE_TYPES = ["cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz"]
 #: Skips a test unless the ``arviz`` extra (xarray, arviz-base, arviz-stats) is installed.
 needs_arviz = pytest.mark.skipif(
