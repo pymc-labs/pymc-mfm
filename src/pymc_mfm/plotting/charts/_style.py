@@ -35,7 +35,8 @@ PALETTE = (
     "#dbdb8d",
     "#9edae5",
 )
-CAVEAT = "Conditional contributions, not causal lift; observation noise excluded."
+#: Shown with contributions; :func:`caption` already says the draws exclude observation noise.
+CAVEAT = "Conditional contributions, not causal lift."
 
 
 def series_colors(names: Iterable[str]) -> dict[str, str]:

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from . import fit as _fit
 from . import inputs as _inputs
+from . import shares as _shares
 from ._data import ModelSource
 
 if TYPE_CHECKING:
@@ -66,4 +67,45 @@ class ModelPlots:
         """
         return _fit.fit(
             self._source, window=window, interval=interval, backend=backend, title=title
+        )
+
+    def shares(
+        self,
+        *,
+        share: str = "mean",
+        window: str = "context",
+        view: str = "bars",
+        interval: float = 0.9,
+        backend: str | None = None,
+        title: str | None = None,
+        ax: Any = None,
+    ) -> Any:
+        """Each channel's and control's share of the expected outcome.
+
+        The expected outcome of a draw and week is the sum of every component, so all
+        components' shares add to one; the chart shows the channels and controls. With
+        ``share="mean"`` a draw's share is the average over weeks of contribution /
+        expected outcome; with ``share="total"``, the window's total contribution over
+        its total expected outcome. Weeks (``"mean"``) or draws (``"total"``) whose
+        expected outcome is not positive are left out, as is a draw with no week left;
+        the caption says how many.
+
+        ``view="bars"`` draws each mean share with its central ``interval`` over draws:
+        channels first, then controls, each largest first. ``view="spread"`` draws the
+        per-draw shares of each as a Gaussian kernel density (Scott's bandwidth), all
+        scaled to the same height.
+
+        Needs ``inference``. ``window`` is ``"context"`` (the history weeks) or
+        ``"query"`` (the forecast weeks; never samples the context). ``interval`` is a
+        fraction between 0 and 1; ``ax`` draws into existing matplotlib axes.
+        """
+        return _shares.shares(
+            self._source,
+            share=share,
+            window=window,
+            view=view,
+            interval=interval,
+            backend=backend,
+            title=title,
+            ax=ax,
         )
