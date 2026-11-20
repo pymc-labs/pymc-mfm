@@ -28,7 +28,7 @@ def matplotlib_default(monkeypatch):
 def recorded(monkeypatch):
     """Each ``decompose`` call of ``response_curves``: its inputs, options and result."""
     calls = []
-    decompose = api_module.decompose
+    decompose = api_module._decompose
 
     def record(model, observations, **options):
         result = decompose(model, observations, **options)
@@ -36,7 +36,7 @@ def recorded(monkeypatch):
         calls.append({"observations": inputs, "options": options, "result": result})
         return result
 
-    monkeypatch.setattr(api_module, "decompose", record)
+    monkeypatch.setattr(api_module, "_decompose", record)
     return calls
 
 
@@ -241,16 +241,16 @@ def test_a_seed_equals_manual_seed_before_the_sweep(model, chart_frames, mode):
 
 
 def test_a_failed_seeded_sweep_leaves_the_generator_unchanged(forecast_model, monkeypatch):
-    decompose = api_module.decompose
+    decompose = api_module._decompose
     generators = []
 
     def fail_second(*args, **kwargs):
-        generators.append(kwargs["_generator"])
+        generators.append(kwargs["generator"])
         if len(generators) == 2:
             raise RuntimeError("sampling failed")
         return decompose(*args, **kwargs)
 
-    monkeypatch.setattr(api_module, "decompose", fail_second)
+    monkeypatch.setattr(api_module, "_decompose", fail_second)
     torch.manual_seed(1)
     before = torch.get_rng_state()
     with pytest.raises(RuntimeError, match="sampling failed"):
@@ -263,14 +263,14 @@ def test_a_failed_seeded_sweep_leaves_the_generator_unchanged(forecast_model, mo
 def test_a_seeded_sweep_ignores_global_torch_use_between_runs(forecast_model, monkeypatch):
     options = {"levels": [0, 1, 2], "weeks": 1, "n_samples": 4, "random_seed": 5}
     isolated = forecast_model.response_curves(**options)
-    decompose = api_module.decompose
+    decompose = api_module._decompose
 
     def disturb(*args, **kwargs):
         torch.manual_seed(123)
         torch.rand(5)
         return decompose(*args, **kwargs)
 
-    monkeypatch.setattr(api_module, "decompose", disturb)
+    monkeypatch.setattr(api_module, "_decompose", disturb)
     np.testing.assert_array_equal(forecast_model.response_curves(**options).draws, isolated.draws)
 
 
@@ -455,7 +455,7 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
     snapshot = tree.copy(deep=True)
     query = forecast_model.query_result
     if failure == "sampling":
-        decompose = api_module.decompose
+        decompose = api_module._decompose
         calls = 0
 
         def fail_mid_sweep(*args, **kwargs):
@@ -466,7 +466,7 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
                 raise RuntimeError("curve sampling failed")
             return result
 
-        monkeypatch.setattr(api_module, "decompose", fail_mid_sweep)
+        monkeypatch.setattr(api_module, "_decompose", fail_mid_sweep)
     else:
 
         def fail_conversion(*args, **kwargs):

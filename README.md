@@ -83,8 +83,9 @@ query.component_names  # ('baseline', 'channel:search', 'channel:social', ..., '
 ```
 
 `random_seed` replays the same random numbers: the same seed and inputs give the same
-draws. On CPU the outputs match exactly; on a GPU they match closely, not bit for bit. A
-seeded call uses its own generator and does not change PyTorch's global random state, so
+draws. The outputs agree up to floating-point round-off. They can differ in the last
+digits across devices, thread counts, and compiled or eager runs. On a CPU with the
+same thread count, a repeat gives the same result. A seeded call uses its own generator and does not change PyTorch's global random state, so
 other models and `torch` calls cannot disturb it. In `inference` the context window
 continues the query window's stream. The model tree (`idata`) records the seed; the result
 of `predict` or `decompose` does not, so keep the seed yourself if you save one. Without

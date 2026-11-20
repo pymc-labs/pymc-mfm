@@ -12,7 +12,7 @@ from conftest import needs_arviz
 from safetensors import safe_open
 from safetensors.torch import load_file
 
-from pymc_mfm.inference.api import decompose
+from pymc_mfm.inference.api import _decompose, decompose, observation_batch
 from pymc_mfm.inference.checkpoint import save_pretrained
 from pymc_mfm.inference.hub import from_pretrained
 from pymc_mfm.inference.result import DecompositionResult
@@ -1644,6 +1644,88 @@ def test_a_request_with_no_active_demand_entity_changes_no_random_state(
             **options,
         )
     assert torch.equal(torch.get_rng_state(), before)
+
+
+def test_the_public_decompose_signature_has_no_private_parameters():
+    import inspect
+
+    names = list(inspect.signature(decompose).parameters)
+    assert names[-1] == "random_seed" and not [name for name in names if name.startswith("_")]
+
+
+def _raw_world(model):
+    steps = 8
+    rng = np.random.default_rng(0)
+    return {
+        "spend": rng.uniform(1.0, 5.0, (steps, 2)),
+        "controls": rng.uniform(0.0, 1.0, (steps, model.config.n_controls)),
+        "context_outcome": np.arange(5.0) + 100.0,
+    }
+
+
+def _encoded_world(model, case):
+    """An encoded batch that the model must reject, or the raw inputs when that is the way in."""
+    raw = _raw_world(model)
+    if case == "raw-no-media":
+        # observation_batch refuses this itself (api.py), before any model code runs.
+        return {**raw, "channel_mask": np.zeros(2, dtype=bool)}
+    batch = observation_batch(**raw, model_config=model.config)
+    if case == "encoded-no-latent":
+        batch["active_j_mask"] = torch.zeros_like(batch["active_j_mask"])
+    else:
+        batch["active_c_mask"] = torch.zeros_like(batch["active_c_mask"])
+    return batch
+
+
+@pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("encoded-no-latent", "no active demand entities"),
+        ("encoded-no-media", "no active media channels"),
+        ("raw-no-media", "at least one represented entity"),
+    ],
+)
+def test_a_rejected_encoded_or_media_request_draws_nothing(model, mode, case, message):
+    options = _seeding_options(model, mode)
+    observations = _encoded_world(model, case)
+    torch.manual_seed(1)
+    before = torch.get_rng_state()
+    for seed in (None, 7):
+        with pytest.raises(ValueError, match=message):
+            decompose(model, observations, random_seed=seed, **options)
+    assert torch.equal(torch.get_rng_state(), before)
+    # A seeded call owns its generator, so a shared one shows whether anything drew.
+    generator = torch.Generator().manual_seed(3)
+    state = generator.get_state()
+    with pytest.raises(ValueError, match=message):
+        _decompose(model, observations, generator=generator, **options)
+    assert torch.equal(generator.get_state(), state)
+
+
+def test_the_seed_is_in_the_tree_and_not_in_saved_evidence_or_its_digest(
+    model, history, future, tmp_path
+):
+    tree = model.inference(history, future, **COLUMN_ROLES, n_samples=3, random_seed=7)
+    saved = {}
+    for name, result in {
+        "predict7": model.predict(future, n_samples=3, random_seed=7),
+        "predict8": model.predict(future, n_samples=3, random_seed=8),
+        "unseeded": model.predict(future, n_samples=3),
+        "query": model.query_result,
+    }.items():
+        text = (result.save(tmp_path / name) / "result.json").read_text()
+        saved[name] = json.loads(text)
+        assert "random_seed" not in text
+        assert DecompositionResult.load(tmp_path / name).provenance == result.provenance
+    # The seed changes the draws and nothing in the metadata, so the digest is the same.
+    assert saved["predict7"]["metadata_sha256"] == saved["predict8"]["metadata_sha256"]
+    assert saved["predict7"]["metadata"] == saved["unseeded"]["metadata"]
+    assert saved["predict7"]["arrays_sha256"] != saved["predict8"]["arrays_sha256"]
+    # The tree records the seed; its window digests are those of the saved evidence.
+    assert tree.attrs["random_seed"] == 7
+    assert tree["query"].attrs["metadata_sha256"] == saved["query"]["metadata_sha256"]
+    assert "random_seed" not in tree["query"].attrs and "random_seed" not in tree["context"].attrs
 
 
 def test_a_rejected_request_starts_no_noise_prefetch(model, history, future, monkeypatch):

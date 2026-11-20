@@ -605,14 +605,16 @@ class MFM(nn.Module):
         Runtime analysis state is never included in ``save_pretrained``.
 
         ``random_seed`` (0 to 2**31-1) replays the same random numbers: the same seed and
-        inputs give the same draws. On CPU the outputs match exactly; on a GPU they match
-        closely, not bit for bit. A seeded call uses its own generator and does not change
-        PyTorch's global random state, so other models and ``torch`` calls cannot disturb
-        it. The context window continues the query window's stream, so one seed covers
-        both. ``idata`` records the seed; the results of ``predict`` and ``decompose`` do
-        not. With ``random_seed=None`` the call draws from PyTorch's global generator and
-        advances it, so a ``torch.manual_seed`` call before ``inference`` still sets the
-        draws, and a repeated call without a seed gives new draws.
+        inputs give the same draws. The outputs agree up to floating-point round-off. They can
+        differ in the last digits across devices, thread counts, and compiled or eager runs.
+        On a CPU with the same thread count, a repeat gives the same result. A seeded call
+        uses its own generator and does not change PyTorch's global random state, so other
+        models and ``torch`` calls cannot disturb it. The context window continues the query
+        window's stream, so one seed covers both. ``idata`` records the seed; the results
+        of ``predict`` and ``decompose`` do not. With ``random_seed=None`` the call draws
+        from PyTorch's global generator and advances it, so a ``torch.manual_seed`` call
+        before ``inference`` still sets the draws, and a repeated call without a seed gives
+        new draws.
         """
         from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
 
@@ -748,7 +750,7 @@ class MFM(nn.Module):
     ) -> tuple[DecompositionResult, dict[str, np.ndarray], np.ndarray, dict[str, object] | None]:
         """Compute query against an explicit candidate context without publishing it."""
         from pymc_mfm.inference._digest import json_bytes
-        from pymc_mfm.inference.api import decompose
+        from pymc_mfm.inference.api import _decompose
         from pymc_mfm.inference.result import _require_json_text, _require_text
 
         observations, time = context.observations(query)
@@ -770,7 +772,7 @@ class MFM(nn.Module):
         if "\x00" in units:
             raise ValueError("units must not contain NUL characters")
         units = str(units)  # a str subclass, such as np.str_, cannot be an HDF5 attribute
-        result = decompose(
+        result = _decompose(
             self,
             observations,
             n_samples=n_samples,
@@ -782,7 +784,7 @@ class MFM(nn.Module):
             time=time,
             units=units,
             provenance=annotations,
-            _generator=generator,
+            generator=generator,
         )
         return result, observations, time, annotations
 
@@ -790,10 +792,10 @@ class MFM(nn.Module):
         self, prediction: _PredictionSnapshot, generator: torch.Generator | None = None
     ) -> DecompositionResult:
         """Sample history for this candidate query without publishing either marginal."""
-        from pymc_mfm.inference.api import decompose
+        from pymc_mfm.inference.api import _decompose
 
         query = prediction.query
-        return decompose(
+        return _decompose(
             self,
             prediction.observations,
             n_samples=prediction.n_samples,
@@ -806,7 +808,7 @@ class MFM(nn.Module):
             time=prediction.time,
             units=prediction.units,
             provenance=prediction.annotations,
-            _generator=generator,
+            generator=generator,
         )
 
     @property
@@ -859,8 +861,10 @@ class MFM(nn.Module):
         one per draw, so ``n_samples`` must equal its draw count.
 
         ``random_seed`` (0 to 2**31-1) replays the same random numbers: all runs of the
-        sweep draw from one stream that the seed starts. On CPU the outputs match exactly;
-        on a GPU they match closely, not bit for bit. A seeded call does not change
+        sweep draw from one stream that the seed starts. The outputs agree up to floating-point
+        round-off. They can differ in the last digits across devices, thread counts, and
+        compiled or eager runs. On a CPU with the same thread count, a repeat gives the
+        same result. A seeded call does not change
         PyTorch's global random state. ``idata`` records the seed. With
         ``random_seed=None`` the runs draw from PyTorch's global generator and advance
         it. Levels are sampled separately, so draws are not paired across levels and
@@ -894,7 +898,10 @@ class MFM(nn.Module):
         at each new input shape compiles (tens of seconds on a GPU), so warm the model up
         with representative inputs before timing or serving. Compiled draws follow the same
         distribution as eager draws but are not bit-identical to them. With a fixed seed, a
-        call replays the same random numbers, whether or not it compiles.
+        call replays the same random numbers, whether or not it compiles. While a compilation
+        runs, PyTorch saves and then restores its global random state, which can undo global
+        draws that another thread makes in that time. Warm the model up before you use other
+        PyTorch random work in other threads.
         ``mode`` is a :func:`torch.compile` mode: ``"default"``, ``"reduce-overhead"`` or
         ``"max-autotune-no-cudagraphs"``. A compiler failure warns and returns this model to
         eager sampling; :attr:`sampling_status` reports it. Returns the model.

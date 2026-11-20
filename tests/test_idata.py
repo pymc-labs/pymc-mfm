@@ -353,7 +353,7 @@ def test_a_seeded_tree_saves_loads_and_validates_with_its_seeds(seeded, tmp_path
 
 
 @pytest.mark.usefixtures("files")
-def test_save_refuses_a_malformed_seed_and_load_refuses_a_file_that_holds_one(seeded, tmp_path):
+def test_save_refuses_a_malformed_seed(seeded, tmp_path):
     seeded.attrs["random_seed"] = "not-an-integer"
     with pytest.raises(ValueError, match=r"^/: .*'random_seed'"):
         save_idata(seeded, tmp_path / "bad.nc")
@@ -365,9 +365,38 @@ def test_save_refuses_a_malformed_seed_and_load_refuses_a_file_that_holds_one(se
     assert not (tmp_path / "bad.nc").exists()
 
 
+@pytest.mark.parametrize(
+    ("group", "value", "message"),
+    [
+        ("/", "not-an-integer", r"^/: .*'random_seed'"),
+        ("/response_curves", -1, r"^/response_curves: .*'random_seed'"),
+        ("/response_curves/posterior", 13, r"^/response_curves/posterior: .*random_seed"),
+    ],
+)
+@pytest.mark.usefixtures("files")
+def test_load_refuses_a_file_that_holds_a_malformed_seed_and_closes_it(
+    seeded, tmp_path, group, value, message
+):
+    import h5py
+
+    path = tmp_path / "seeded.nc"
+    save_idata(seeded, path)  # a valid file; the seed is changed behind save's check
+    with h5py.File(path, "r+") as file:
+        file[group].attrs["random_seed"] = value
+    with pytest.raises(ValueError, match=message):
+        load_idata(path)
+    with h5py.File(path, "r+"):  # fails while the loader still holds the file
+        pass
+
+
 @pytest.mark.usefixtures("files")
 def test_a_seeded_file_validates_with_torch_blocked(seeded, tmp_path):
     save_idata(seeded, tmp_path / "seeded.nc")
+    # The ends of the seed range; the curve group and its posterior must agree.
+    seeded.attrs["random_seed"] = 0
+    for place in ("response_curves", "response_curves/posterior"):
+        seeded[place].attrs["random_seed"] = _MAX_SEED
+    save_idata(seeded, tmp_path / "ends.nc")
     run = _run(
         """
         import sys
@@ -375,12 +404,15 @@ def test_a_seeded_file_validates_with_torch_blocked(seeded, tmp_path):
         sys.modules["torch"] = None
         from pymc_mfm import load_idata, validate_idata
 
-        tree = load_idata(sys.argv[1])
-        validate_idata(tree)
-        assert tree.attrs["random_seed"] == 11
-        assert tree["response_curves"].attrs["random_seed"] == 12
+        for path, root, curves in ((sys.argv[1], 11, 12), (sys.argv[2], 0, 2**31 - 1)):
+            tree = load_idata(path)
+            validate_idata(tree)
+            assert tree.attrs["random_seed"] == root
+            for place in ("response_curves", "response_curves/posterior"):
+                assert tree[place].attrs["random_seed"] == curves
         """,
         str(tmp_path / "seeded.nc"),
+        str(tmp_path / "ends.nc"),
     )
     assert run.returncode == 0, run.stderr
 

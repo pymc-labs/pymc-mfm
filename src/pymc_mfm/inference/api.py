@@ -133,7 +133,6 @@ def decompose(
     units: str = "outcome",
     provenance=None,
     random_seed: int | None = None,
-    _generator: torch.Generator | None = None,
 ) -> DecompositionResult:
     """Sample aligned conditional evidence from observed inputs or an encoded batch.
 
@@ -144,14 +143,49 @@ def decompose(
     calibrated business attribution, predictive observation noise, or a paired
     context/query posterior. ``random_seed`` replays the same random numbers: the call
     draws from its own generator and does not change PyTorch's global random state.
-    On CPU the outputs match exactly; on a GPU they match closely, not bit for bit.
-    With ``None`` the call draws from the global generator and advances it. The result
-    does not record the seed; only the ``MFM.inference`` tree does, and there the context
-    window continues the query window's stream. ``_generator`` is for ``MFM`` calls that
-    share one stream across calls. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000)
-    conditional draws.
+    The outputs agree up to floating-point round-off. They can differ in the last digits
+    across devices, thread counts, and compiled or eager runs. On a CPU with the
+    same thread count, a repeat gives the same result. With ``None`` the call draws from the
+    global generator and advances it. The result does not record the seed; only the
+    ``MFM.inference`` tree does, and there the context window continues the query window's
+    stream. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
+    return _decompose(
+        model,
+        observations,
+        n_samples=n_samples,
+        window=window,
+        mode=mode,
+        graph=graph,
+        router_samples=router_samples,
+        channel_names=channel_names,
+        control_names=control_names,
+        time=time,
+        units=units,
+        provenance=provenance,
+        random_seed=random_seed,
+    )
+
+
+def _decompose(
+    model: MFM,
+    observations: Mapping[str, object],
+    *,
+    n_samples: int = DEFAULT_N_SAMPLES,
+    window: str = "query",
+    mode: str = "model_average",
+    graph=None,
+    router_samples: int | None = None,
+    channel_names=None,
+    control_names=None,
+    time=None,
+    units: str = "outcome",
+    provenance=None,
+    random_seed: int | None = None,
+    generator: torch.Generator | None = None,
+) -> DecompositionResult:
+    """``decompose``, plus ``generator``: one stream that ``MFM`` calls share across calls."""
     # Before any module mode change: a bad seed must leave the model as it was.
     random_seed = _random_seed(random_seed)
     if not isinstance(observations, Mapping):
@@ -265,7 +299,7 @@ def decompose(
             router_samples=router_samples,
             window=window,
             random_seed=random_seed,
-            generator=_generator,
+            generator=generator,
         )
     finally:
         if switch_modes:

@@ -71,7 +71,7 @@ def response_curves(
     random_seed: int | None = None,
 ) -> ResponseCurves:
     """Curves of ``model``'s last complete inference; see ``MFM.response_curves``."""
-    from pymc_mfm.inference.api import decompose
+    from pymc_mfm.inference.api import _decompose
     from pymc_mfm.model.flow import _sampling_generator
 
     prediction = model._prediction_snapshot
@@ -96,7 +96,7 @@ def response_curves(
     graph = prediction.query.graphs[:, None, :] if prediction.mode == "fixed" else None
 
     def sample(spend: np.ndarray) -> DecompositionResult:
-        return decompose(
+        return _decompose(
             model,
             {**observations, "spend": spend},
             n_samples=n_samples,
@@ -109,7 +109,7 @@ def response_curves(
             time=prediction.time[:stop],
             units=prediction.units,
             provenance=prediction.annotations,
-            _generator=generator,
+            generator=generator,
         )
 
     actual = observations["spend"]
