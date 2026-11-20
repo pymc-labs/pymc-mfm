@@ -192,6 +192,12 @@ quartodoc:
         - name: inference.curves.ResponseCurves
           members:
             - to_frame
+    - title: Model trees as files
+      desc: Check a model tree, save it to a netCDF file without overwriting, and load it without PyTorch.
+      contents:
+        - idata.validate_idata
+        - idata.save_idata
+        - idata.load_idata
     - title: Inference
       desc: Array-level decomposition, results and warm-up for long-running processes.
       contents:

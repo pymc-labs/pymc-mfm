@@ -112,7 +112,7 @@ def test_top_level_exports_and_the_light_names_load_without_torch():
         assert pymc_mfm.__all__ == [
             "MFM", "ModelConfig", "DecompositionResult", "decompose", "observation_batch",
             "save_pretrained", "from_pretrained", "push_to_hub", "list_profiles",
-            "Plots", "set_backend",
+            "Plots", "set_backend", "save_idata", "load_idata", "validate_idata",
         ], pymc_mfm.__all__
         assert pymc_mfm.Plots is charts.Plots
         assert pymc_mfm.set_backend is charts.set_backend

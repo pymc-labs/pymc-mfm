@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from ._lazy import lazy_exports
 
 if TYPE_CHECKING:
+    from .idata import load_idata, save_idata, validate_idata
     from .inference import (
         DecompositionResult,
         decompose,
@@ -45,6 +46,9 @@ _LOCAL_EXPORTS = {
 _LIGHT_EXPORTS = {
     "Plots": "pymc_mfm.plotting.charts",
     "set_backend": "pymc_mfm.plotting.charts",
+    "save_idata": "pymc_mfm.idata",
+    "load_idata": "pymc_mfm.idata",
+    "validate_idata": "pymc_mfm.idata",
 }
 
 __all__ = [
@@ -59,6 +63,9 @@ __all__ = [
     "list_profiles",
     "Plots",
     "set_backend",
+    "save_idata",
+    "load_idata",
+    "validate_idata",
 ]
 
 _lazy_getattr, __dir__ = lazy_exports(__name__, {**_LOCAL_EXPORTS, **_LIGHT_EXPORTS}, globals())

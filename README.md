@@ -255,8 +255,9 @@ Both marginals and their analysis representation consume memory even with
 conversion while leaving the stored analysis unchanged. There is no history-only
 model tree or chart state.
 
-File export is still explicit: install `[draws]` and use
-`model.idata.to_netcdf("analysis.nc", engine="h5netcdf")`. Result evidence
+File export is explicit: install `[draws]`, write with
+`pymc_mfm.save_idata(model.idata, "analysis.nc")` (it never overwrites) and read
+with `pymc_mfm.load_idata("analysis.nc")`. Result evidence
 `query.save(...)` / `DecompositionResult.load(...)` is separate from tree export;
 neither restores a runnable dataframe session. Trees can contain sensitive
 outcomes, covariates and labels; review them before sharing.
