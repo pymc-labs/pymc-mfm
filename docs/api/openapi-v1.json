@@ -1,0 +1,5827 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MFM HTTP API",
+    "description": "Upload a weekly history, run an analysis and read the result. Every request carries `Authorization: Bearer <key>`. Error bodies are `{\"error\": {\"code\", \"message\", \"request_id\", \"field\"?}}`; the 409 `not_ready` body also has a top-level `status`.",
+    "version": "1"
+  },
+  "paths": {
+    "/v1/analyses": {
+      "post": {
+        "tags": [
+          "Analyses"
+        ],
+        "summary": "Create an analysis",
+        "description": "Start an analysis of a stored or inline dataset. With `\"preview\": true` the service answers 200 with the expanded plans and stores and runs nothing.",
+        "operationId": "createAnalysis",
+        "responses": {
+          "200": {
+            "description": "The preview.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisPreview"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The analysis started. A replay answers 202 with `Idempotent-Replayed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisStarted"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "The path of the new resource.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` when the call repeats an earlier one with the same `Idempotency-Key` and body.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body did not arrive.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error400"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The body took too long to arrive.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error408"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The `Idempotency-Key` was used with another body.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error409Conflict"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The resource was deleted or expired.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error410"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is too large.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error413"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The service refused the request. Nothing started.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error422"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, or too many unfinished analyses or runs.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Error429RateLimited"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error429Overloaded"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`maintenance`: submissions are closed. `unavailable`: the database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Error503Maintenance"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error503Unavailable"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "1 to 200 characters from `A-Z a-z 0-9 . _ : -`. A repeat with the same key and body starts the work once. The service does not require a key.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,200}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisCreate"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Analyses"
+        ],
+        "summary": "List analyses",
+        "description": "Your analyses, newest first, without deleted ones. `limit` (1 to 200) and `cursor` page the list; without both the list is whole.",
+        "operationId": "listAnalyses",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the analyses of this dataset."
+            },
+            "description": "Only the analyses of this dataset."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 to 200. The page size."
+            },
+            "description": "1 to 200. The page size."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next_cursor` of the previous page."
+            },
+            "description": "The `next_cursor` of the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The analyses. `next_cursor` appears only when you page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_limit` or `invalid_cursor`.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error422List"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error503Unavailable"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/analyses/{analysis_id}": {
+      "get": {
+        "tags": [
+          "Analyses"
+        ],
+        "summary": "Get an analysis",
+        "description": "The status and run counts. Poll it until `status` is `done`, `failed` or `deleted`.",
+        "operationId": "getAnalysis",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisStatus"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The resource was deleted or expired.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error410"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error503Unavailable"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Analyses"
+        ],
+        "summary": "Delete an analysis",
+        "description": "Cancel the runs that have not started and delete the analysis.",
+        "operationId": "deleteAnalysis",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The service accepted the delete.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionAccepted"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error503Unavailable"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/analyses/{analysis_id}/export": {
+      "get": {
+        "tags": [
+          "Analyses"
+        ],
+        "summary": "Export an analysis",
+        "description": "The whole analysis as one JSON file.",
+        "operationId": "exportAnalysis",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "compact",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Returns the compact table: one row of numbers for each plan and component, and `plans` with what the rows of each plan share. The default is the full table."
+            },
+            "description": "Returns the compact table: one row of numbers for each plan and component, and `plans` with what the rows of each plan share. The default is the full table."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document, as an attachment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisExport"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Disposition": {
+                "description": "An attachment named `<analysis id>.json`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The analysis has not ended. Keep polling.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorNotReady"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The resource was deleted or expired.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error410"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_input` for a `compact` value other than `true`, `false`, `1` or `0`.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error422Compact"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`unavailable`: the database is busy. `busy`: too many large reads.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Error503Unavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error503Busy"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/analyses/{analysis_id}/result": {
+      "get": {
+        "tags": [
+          "Analyses"
+        ],
+        "summary": "Get the result",
+        "description": "The table of plans and components.",
+        "operationId": "getResult",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "compact",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Returns the compact table: one row of numbers for each plan and component, and `plans` with what the rows of each plan share. The default is the full table."
+            },
+            "description": "Returns the compact table: one row of numbers for each plan and component, and `plans` with what the rows of each plan share. The default is the full table."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResult"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The analysis has not ended. Keep polling.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorNotReady"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The resource was deleted or expired.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error410"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_input` for a `compact` value other than `true`, `false`, `1` or `0`.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error422Compact"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`unavailable`: the database is busy. `busy`: too many large reads.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Error503Unavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error503Busy"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/analyses/{analysis_id}/weekly": {
+      "get": {
+        "tags": [
+          "Analyses"
+        ],
+        "summary": "Get weekly rows",
+        "description": "The weekly rows of one plan.",
+        "operationId": "getWeekly",
+        "parameters": [
+          {
+            "name": "analysis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scenario_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The plan to read."
+            },
+            "description": "The plan to read."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The weekly rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`not_ready`: keep polling. `plan_failed`: that plan has no result.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorNotReady"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error409PlanFailed"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The resource was deleted or expired.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error410"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`missing_field`: no `scenario_id`.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error422Weekly"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`unavailable`: the database is busy. `busy`: too many large reads.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Error503Unavailable"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Error503Busy"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/datasets": {
+      "post": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Upload a dataset",
+        "description": "Store one weekly history. Later calls refer to it by `dataset_id`.",
+        "operationId": "createDataset",
+        "responses": {
+          "201": {
+            "description": "The dataset record. A replay answers 201 with `Idempotent-Replayed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRecord"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "The path of the new resource.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Idempotent-Replayed": {
+                "description": "`true` when the call repeats an earlier one with the same `Idempotency-Key` and body.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body did not arrive.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error400"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "408": {
+            "description": "The body took too long to arrive.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error408"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The `Idempotency-Key` was used with another body.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error409Conflict"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The resource was deleted or expired.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error410"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The body is too large.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error413"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The service refused the request. Nothing started.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error422"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many create calls.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error429RateLimited"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error503Unavailable"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "description": "1 to 200 characters from `A-Z a-z 0-9 . _ : -`. A repeat with the same key and body starts the work once. The service does not require a key.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,200}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatasetCreate"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "List datasets",
+        "description": "Your datasets, newest first, without deleted or expired ones. `limit` (1 to 200) and `cursor` page the list; without both the list is whole.",
+        "operationId": "listDatasets",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 to 200. The page size."
+            },
+            "description": "1 to 200. The page size."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The `next_cursor` of the previous page."
+            },
+            "description": "The `next_cursor` of the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The datasets. `next_cursor` appears only when you page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetList"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_limit` or `invalid_cursor`.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error422List"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error503Unavailable"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/datasets/{dataset_id}": {
+      "get": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Get a dataset",
+        "description": "Read one dataset. `expires_at` moves later when an analysis uses it.",
+        "operationId": "getDataset",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The dataset record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetRecord"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The resource was deleted or expired.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error410"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error503Unavailable"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Datasets"
+        ],
+        "summary": "Delete a dataset",
+        "description": "Delete the dataset and all its analyses. The call is repeatable.",
+        "operationId": "deleteDataset",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The service accepted the delete.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletionAccepted"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The key is missing or wrong.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "WWW-Authenticate": {
+                "description": "`Bearer`",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error401"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or the resource of another user.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error404"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The service failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error500"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database is busy.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Finds the request's log lines.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the call is repeated.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error503Unavailable"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Amount": {
+        "properties": {
+          "amount": {
+            "type": "number",
+            "minimum": 0.0,
+            "description": "Total spend, 0 or more. Rounded to cents."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "amount"
+        ],
+        "description": "A channel's total spend over the decision window."
+      },
+      "AnalysisContext": {
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date"
+          },
+          "end": {
+            "type": "string",
+            "format": "date"
+          },
+          "query_end": {
+            "type": "string",
+            "format": "date"
+          },
+          "channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "controls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "query_end",
+          "channels",
+          "controls"
+        ],
+        "description": "The weeks and series of a backtest."
+      },
+      "AnalysisCreate": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/PlanFormStored"
+          },
+          {
+            "$ref": "#/components/schemas/PlanFormInline"
+          },
+          {
+            "$ref": "#/components/schemas/WeeksForm"
+          }
+        ],
+        "description": "The body of `POST /v1/analyses`: exactly one of three forms. Each needs one data source\n(`dataset_id` or `history`) and either a `plan` or `context` with `query`. `null` is accepted\nonly where the schema says so."
+      },
+      "AnalysisExport": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "const": "mfm-analysis-export-v1"
+          },
+          "analysis_id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/ExportDataset"
+          },
+          "request": {
+            "additionalProperties": true,
+            "type": "object",
+            "description": "The request as the service stored it. Its keys are not a stable contract."
+          },
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ExportScenario"
+            },
+            "type": "array"
+          },
+          "units": {
+            "$ref": "#/components/schemas/ExportUnits"
+          },
+          "results": {
+            "$ref": "#/components/schemas/ExportResults"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "draws": {
+            "type": "integer"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "library_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exported_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "format",
+          "analysis_id",
+          "name",
+          "created_at",
+          "expires_at",
+          "dataset",
+          "request",
+          "scenarios",
+          "units",
+          "results",
+          "seed",
+          "draws",
+          "model_revision",
+          "library_revision",
+          "exported_at"
+        ],
+        "description": "The whole analysis as one document."
+      },
+      "AnalysisList": {
+        "properties": {
+          "analyses": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisListItem"
+            },
+            "type": "array",
+            "description": "Newest first."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with `limit` or `cursor`. The `cursor` of the next page, null on the last."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analyses"
+        ]
+      },
+      "AnalysisListItem": {
+        "properties": {
+          "analysis_id": {
+            "type": "string"
+          },
+          "dataset_id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "deleted"
+            ]
+          },
+          "runs_total": {
+            "type": "integer"
+          },
+          "runs_done": {
+            "type": "integer"
+          },
+          "runs_failed": {
+            "type": "integer"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "dataset_id",
+          "name",
+          "url",
+          "status",
+          "runs_total",
+          "runs_done",
+          "runs_failed",
+          "expires_at",
+          "created_at"
+        ]
+      },
+      "AnalysisPreview": {
+        "properties": {
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/PlanPreview"
+            },
+            "type": "array"
+          },
+          "runs_total": {
+            "type": "integer"
+          },
+          "estimate_seconds": {
+            "type": "number"
+          },
+          "assumptions": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/ControlAssumption"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "description": "By plan id, then control."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "plans",
+          "runs_total",
+          "estimate_seconds",
+          "assumptions",
+          "warnings",
+          "warning_details"
+        ],
+        "description": "What an analysis would run. Nothing is stored."
+      },
+      "AnalysisResult": {
+        "properties": {
+          "table": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ResultRow"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CompactRow"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "One row for each plan and component. With `compact=true`, compact rows."
+          },
+          "plans": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/CompactPlan"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with `compact=true`: what the rows of each plan share, by plan id."
+          },
+          "history": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ResultRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null unless `explain_history` is true."
+          },
+          "assumptions": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/ControlAssumption"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "description": "By plan id, then control."
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResultMeta"
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a plan."
+          },
+          "fit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Fit"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a plan, and before the baseline run is done."
+          },
+          "response_curves": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ResponseCurve"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a plan."
+          },
+          "input_usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InputUsage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null before the baseline run is done."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "table",
+          "history",
+          "assumptions",
+          "meta",
+          "labels",
+          "context",
+          "fit",
+          "response_curves",
+          "input_usage"
+        ],
+        "description": "The result of an analysis whose runs have all ended."
+      },
+      "AnalysisStarted": {
+        "properties": {
+          "analysis_id": {
+            "type": "string"
+          },
+          "dataset_id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The result page, or null when the service has no site address."
+          },
+          "runs_total": {
+            "type": "integer"
+          },
+          "estimate_seconds": {
+            "type": "number"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "dataset_id",
+          "name",
+          "url",
+          "runs_total",
+          "estimate_seconds",
+          "expires_at",
+          "warnings",
+          "warning_details"
+        ],
+        "description": "An analysis the service accepted."
+      },
+      "AnalysisStatus": {
+        "properties": {
+          "analysis_id": {
+            "type": "string"
+          },
+          "dataset_id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "deleted"
+            ]
+          },
+          "runs_total": {
+            "type": "integer"
+          },
+          "runs_done": {
+            "type": "integer"
+          },
+          "runs_failed": {
+            "type": "integer"
+          },
+          "runs_cancelled": {
+            "type": "integer",
+            "description": "Runs that never started because the baseline failed."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estimate_seconds": {
+            "type": "number"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "draws": {
+            "type": "integer"
+          },
+          "explain_history": {
+            "type": "boolean"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a plan."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analysis_id",
+          "dataset_id",
+          "name",
+          "url",
+          "status",
+          "runs_total",
+          "runs_done",
+          "runs_failed",
+          "runs_cancelled",
+          "expires_at",
+          "estimate_seconds",
+          "seed",
+          "draws",
+          "explain_history",
+          "context",
+          "warnings",
+          "warning_details"
+        ]
+      },
+      "Band": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p05": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "density": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`x` and `y` of a kernel density."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "p05",
+          "p95",
+          "density"
+        ],
+        "description": "A mean and its 5th and 95th percentiles over draws. Each is null when not finite."
+      },
+      "CompactPlan": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "baseline",
+              "scenario",
+              "curve"
+            ]
+          },
+          "base_scenario_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "varied_channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multipliers": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/components/schemas/Amount"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spend_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sensitivity": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          },
+          "draws_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A signed link to the plan's draws file (netCDF4), or null."
+          },
+          "draws_url_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "base_scenario_id",
+          "varied_channel",
+          "level",
+          "multipliers",
+          "run_id",
+          "spend_total",
+          "sensitivity",
+          "warnings",
+          "warning_details",
+          "draws_url",
+          "draws_url_expires_at"
+        ],
+        "description": "What the rows of one plan share, in a compact result."
+      },
+      "CompactRow": {
+        "properties": {
+          "scenario_id": {
+            "type": "string"
+          },
+          "component": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed"
+            ]
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p05": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window_mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mean_difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "simulation_se": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "baseline",
+                  "scenario",
+                  "curve"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "base_scenario_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "varied_channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multipliers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Amount"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spend_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sensitivity": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warning_details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/WarningDetail"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draws_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "draws_url_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "component",
+          "status",
+          "mean",
+          "p05",
+          "p95",
+          "window_mean",
+          "mean_difference",
+          "simulation_se"
+        ],
+        "description": "The numbers of one plan and component. A key of `CompactPlan` appears only where the\nrow differs from its plan."
+      },
+      "ContextBody": {
+        "additionalProperties": false,
+        "properties": {
+          "start": {
+            "format": "date",
+            "type": "string"
+          },
+          "end": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "ControlAssumption": {
+        "properties": {
+          "values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "description": "The control value of each forecast week."
+          },
+          "history": {
+            "$ref": "#/components/schemas/HistoryBand"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "values",
+          "history"
+        ]
+      },
+      "CurveBody": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "levels": {
+            "description": "Each level multiplies the spend of the channel in the window.",
+            "items": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "base": {
+            "default": "baseline",
+            "description": "`baseline` or a scenario id. Default `baseline`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "levels"
+        ],
+        "type": "object"
+      },
+      "CurvePoint": {
+        "properties": {
+          "level": {
+            "type": "number"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null where the level was not asked or its run failed."
+          },
+          "p05": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "level",
+          "value",
+          "p05",
+          "p95"
+        ]
+      },
+      "DatasetCreate": {
+        "additionalProperties": false,
+        "description": "The body of `POST /v1/datasets`, and the inline `history` of `POST /v1/analyses`. Limits: the body is at most 5 MB. Dates are `YYYY-MM-DD`, oldest first, exactly 7 days apart, in the years 1900 to 2199, at least one week. Dates are weekly and may fall on any weekday, but every date must use the same weekday and no week may be missing. Use 1 to 10 spend channels and 1 to 10 controls; at least one control is required. A channel or control name is 1 to 64 characters and unique across both.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A label for the dataset."
+          },
+          "outcome_name": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A label for the site. Not part of the content hash."
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "ISO 4217 shape. Not part of the content hash."
+          },
+          "dates": {
+            "description": "Weekly ISO dates, oldest first, exactly 7 days apart. Any weekday works. Years 1900 to 2199.",
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "description": "One positive value for each date.",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "spend": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "description": "One array of spend for each channel, 0 or more per week. 1 to 10 channels.",
+            "type": "object"
+          },
+          "controls": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "description": "One array for each control. 1 to 10 controls. At least one control is required.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "dates",
+          "outcome",
+          "spend",
+          "controls"
+        ],
+        "type": "object"
+      },
+      "DatasetList": {
+        "properties": {
+          "datasets": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetRecord"
+            },
+            "type": "array",
+            "description": "Newest first."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only with `limit` or `cursor`. The `cursor` of the next page, null on the last."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "datasets"
+        ]
+      },
+      "DatasetRecord": {
+        "properties": {
+          "dataset_id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content_hash": {
+            "type": "string",
+            "description": "`mfm-dataset-v1:` and a SHA-256 hex digest."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Moves later when an analysis uses the dataset."
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "analyses": {
+            "type": "integer",
+            "description": "The number of live analyses of the dataset."
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DatasetSummary"
+          },
+          "history_ranges": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HistoryRange"
+            },
+            "type": "object",
+            "description": "By channel and control."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "name",
+          "content_hash",
+          "created_at",
+          "expires_at",
+          "last_used_at",
+          "analyses",
+          "summary",
+          "history_ranges",
+          "warnings",
+          "warning_details"
+        ],
+        "description": "A stored dataset."
+      },
+      "DatasetSummary": {
+        "properties": {
+          "weeks": {
+            "type": "integer"
+          },
+          "start": {
+            "type": "string",
+            "format": "date"
+          },
+          "end": {
+            "type": "string",
+            "format": "date"
+          },
+          "channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "controls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "The outcome label."
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Three uppercase letters, or null."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "weeks",
+          "start",
+          "end",
+          "channels",
+          "controls",
+          "outcome",
+          "currency"
+        ]
+      },
+      "DeletionAccepted": {
+        "properties": {
+          "deletion": {
+            "type": "string",
+            "const": "in_progress"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "deletion"
+        ]
+      },
+      "Error400": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error400Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The request body did not arrive."
+      },
+      "Error400Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "bad_request",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error400."
+      },
+      "Error401": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error401Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The key is missing or wrong."
+      },
+      "Error401Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "unauthorized",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error401."
+      },
+      "Error404": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error404Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "No such resource, or another user's. `unknown_scenario`: no such plan."
+      },
+      "Error404Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "not_found",
+              "unknown_scenario"
+            ],
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error404."
+      },
+      "Error408": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error408Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The body took too long to arrive."
+      },
+      "Error408Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "timeout",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error408."
+      },
+      "Error409Conflict": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error409ConflictDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The `Idempotency-Key` was used with another body."
+      },
+      "Error409ConflictDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "idempotency_conflict",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error409Conflict."
+      },
+      "Error409PlanFailed": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error409PlanFailedDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "That plan has no result."
+      },
+      "Error409PlanFailedDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "plan_failed",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error409PlanFailed."
+      },
+      "Error410": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error410Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The resource was deleted or expired."
+      },
+      "Error410Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "gone",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error410."
+      },
+      "Error413": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error413Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The body is too large."
+      },
+      "Error413Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "body_too_large",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error413."
+      },
+      "Error422": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error422Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The service refused a create call. Nothing started."
+      },
+      "Error422Compact": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error422CompactDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "A `compact` value other than `true`, `false`, `1` or `0`."
+      },
+      "Error422CompactDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "invalid_input",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part of the request at fault."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error422Compact."
+      },
+      "Error422Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "body_too_complex",
+              "channel_count",
+              "context_too_short",
+              "control_count",
+              "controls_required",
+              "dataset_required",
+              "dates_not_contiguous",
+              "dates_not_weekly",
+              "draws_out_of_range",
+              "duplicate_id",
+              "duplicate_name",
+              "duplicate_series",
+              "history_all_zero",
+              "history_with_context",
+              "invalid_currency",
+              "invalid_date",
+              "invalid_id",
+              "invalid_idempotency_key",
+              "invalid_json",
+              "invalid_name",
+              "invalid_observations",
+              "invalid_outcome_name",
+              "invalid_scenario",
+              "invalid_type",
+              "invalid_value",
+              "invalid_weeks",
+              "invalid_window",
+              "length_mismatch",
+              "missing_field",
+              "name_mismatch",
+              "negative_spend",
+              "nonfinite",
+              "nonpositive_outcome",
+              "plan_with_context",
+              "reserved_id",
+              "reserved_name",
+              "scenario_plan_removed",
+              "seed_out_of_range",
+              "series_required",
+              "steps_removed",
+              "storage_quota",
+              "too_long",
+              "too_many_plans",
+              "too_many_requested_plans",
+              "too_short",
+              "unknown_field",
+              "unknown_name",
+              "unknown_series",
+              "value_out_of_range"
+            ],
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part of the request at fault."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error422."
+      },
+      "Error422List": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error422ListDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "A bad `limit` or `cursor`."
+      },
+      "Error422ListDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_limit",
+              "invalid_cursor"
+            ],
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part of the request at fault."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error422List."
+      },
+      "Error422Weekly": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error422WeeklyDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The weekly call has no `scenario_id`."
+      },
+      "Error422WeeklyDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "missing_field",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part of the request at fault."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error422Weekly."
+      },
+      "Error429Overloaded": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error429OverloadedDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "Too many unfinished analyses or runs."
+      },
+      "Error429OverloadedDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "overloaded_user_analyses",
+              "overloaded_user_runs"
+            ],
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error429Overloaded."
+      },
+      "Error429RateLimited": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error429RateLimitedDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "Too many create calls."
+      },
+      "Error429RateLimitedDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "rate_limited",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error429RateLimited."
+      },
+      "Error500": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error500Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The service failed."
+      },
+      "Error500Detail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "internal_error",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error500."
+      },
+      "Error503Busy": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error503BusyDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "Too many large reads at once."
+      },
+      "Error503BusyDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "busy",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error503Busy."
+      },
+      "Error503Maintenance": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error503MaintenanceDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "New analyses are paused. A preview and a replay still work."
+      },
+      "Error503MaintenanceDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "maintenance",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error503Maintenance."
+      },
+      "Error503Unavailable": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error503UnavailableDetail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "description": "The service is busy. Retry after the `Retry-After` seconds."
+      },
+      "Error503UnavailableDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "unavailable",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of Error503Unavailable."
+      },
+      "ErrorNotReady": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorNotReadyDetail"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "deleted"
+            ],
+            "description": "The status of the analysis."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "error",
+          "status"
+        ],
+        "description": "The analysis has not ended. Poll it, then ask again."
+      },
+      "ErrorNotReadyDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "not_ready",
+            "description": "The code. See the Errors page."
+          },
+          "message": {
+            "type": "string",
+            "description": "Fixed text. It never holds a value you sent."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Also the `X-Request-Id` header. It finds the request's log lines."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "description": "The `error` object of ErrorNotReady."
+      },
+      "ExportDataset": {
+        "properties": {
+          "dataset_id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/DatasetSummary"
+          },
+          "display_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "source_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "name",
+          "content_hash",
+          "summary",
+          "display_names",
+          "source_names"
+        ]
+      },
+      "ExportResults": {
+        "properties": {
+          "table": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ResultRow"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CompactRow"
+                },
+                "type": "array"
+              }
+            ]
+          },
+          "plans": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/CompactPlan"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ResultRow"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResultMeta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "table",
+          "history",
+          "labels",
+          "meta"
+        ]
+      },
+      "ExportScenario": {
+        "properties": {
+          "scenario_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "baseline",
+              "scenario",
+              "curve"
+            ]
+          },
+          "base_scenario_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "multipliers": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/components/schemas/Amount"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "status": {
+            "type": "string",
+            "description": "`ok`, or the run status of a plan without numbers."
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "worker_stopped",
+                  "plan_outside_limits",
+                  "data_unusable",
+                  "cancelled",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why this plan has no result; `null` when it did not fail. `worker_stopped`: the service stopped the run, so send the analysis again. `plan_outside_limits`: the plan is outside what the model accepts, so change the plan. `data_unusable`: the model refused the input values, so check the history and plan values. `cancelled`: the run was cancelled, so start it again if you still want it. `unknown`: the service gives no reason, so send it again, and if it fails again quote the `request_id`."
+          },
+          "inputs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScenarioInputs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "kind",
+          "base_scenario_id",
+          "multipliers",
+          "status",
+          "failure_code",
+          "inputs",
+          "warnings",
+          "warning_details"
+        ]
+      },
+      "ExportUnits": {
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "horizon_weeks": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "outcome",
+          "currency",
+          "horizon_weeks"
+        ]
+      },
+      "Fit": {
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/FitWindow"
+          },
+          "query": {
+            "$ref": "#/components/schemas/FitWindow"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "context",
+          "query"
+        ]
+      },
+      "FitWindow": {
+        "properties": {
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array"
+          },
+          "actual": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "mean": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "p05": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "p95": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "r2": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Score"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the outcome never changes."
+          },
+          "mape": {
+            "$ref": "#/components/schemas/Score"
+          },
+          "crps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Share"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null on runs scored before shares were kept."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dates",
+          "actual",
+          "mean",
+          "p05",
+          "p95",
+          "r2",
+          "mape",
+          "crps",
+          "shares"
+        ]
+      },
+      "HistoryBand": {
+        "properties": {
+          "p05": {
+            "type": "number"
+          },
+          "p95": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "p05",
+          "p95",
+          "max"
+        ],
+        "description": "The weekly 5th percentile, 95th percentile and maximum of a series."
+      },
+      "HistoryRange": {
+        "properties": {
+          "p05": {
+            "type": "number"
+          },
+          "p95": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "zero_share": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "description": "The share of weeks with a value of 0."
+          },
+          "all_zero": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "p05",
+          "p95",
+          "max",
+          "zero_share",
+          "all_zero"
+        ],
+        "description": "The history of one channel or control."
+      },
+      "HostFacts": {
+        "properties": {
+          "gpu_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "torch_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cuda_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "gpu_name",
+          "torch_version",
+          "cuda_version",
+          "instance_id",
+          "device"
+        ]
+      },
+      "InputUsage": {
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/TokenCount"
+          },
+          "query": {
+            "$ref": "#/components/schemas/TokenCount"
+          },
+          "total": {
+            "$ref": "#/components/schemas/TokenTotal"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "context",
+          "query",
+          "total"
+        ],
+        "description": "The model's input token counts for the baseline run."
+      },
+      "Labels": {
+        "properties": {
+          "intervals": {
+            "type": "string"
+          },
+          "simulation_se": {
+            "type": "string"
+          },
+          "difference_interval": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "intervals",
+          "simulation_se",
+          "difference_interval"
+        ],
+        "description": "How to read the numbers. Quote them when you share a result."
+      },
+      "PlanBody": {
+        "additionalProperties": false,
+        "description": "The baseline plan for the weeks after the history.",
+        "properties": {
+          "dates": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "spend": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "controls": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "dates",
+          "spend",
+          "controls"
+        ],
+        "type": "object"
+      },
+      "PlanFormInline": {
+        "additionalProperties": false,
+        "description": "The plan form on an inline dataset: a `history` and a `plan`.",
+        "properties": {
+          "decision_weeks": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`[i, j]`, 1-based and inclusive, in the plan or in the predicted weeks. Default: all of them."
+          },
+          "scenarios": {
+            "default": [],
+            "description": "There are no default scenarios.",
+            "items": {
+              "$ref": "#/components/schemas/ScenarioBody"
+            },
+            "type": "array"
+          },
+          "curves": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CurveBody"
+            },
+            "type": "array"
+          },
+          "draws": {
+            "default": 2000,
+            "description": "100 to 2000. Default 2000.",
+            "maximum": 2000,
+            "minimum": 100,
+            "type": "integer"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Default 0."
+          },
+          "explain_history": {
+            "description": "Default `true` for a backtest and `false` for a plan.",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Trimmed; 1 to 120 characters."
+          },
+          "preview": {
+            "default": false,
+            "description": "`true` returns the expanded plans and stores nothing.",
+            "type": "boolean"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanBody",
+            "description": "The baseline for the weeks after the history."
+          },
+          "history": {
+            "$ref": "#/components/schemas/DatasetCreate",
+            "description": "An inline dataset, stored with the analysis."
+          },
+          "dataset_id": {
+            "default": null,
+            "description": "Leave it out, or send null.",
+            "type": "null"
+          }
+        },
+        "required": [
+          "plan",
+          "history"
+        ],
+        "type": "object"
+      },
+      "PlanFormStored": {
+        "additionalProperties": false,
+        "description": "The plan form on a stored dataset: `dataset_id` and a `plan`.",
+        "properties": {
+          "decision_weeks": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`[i, j]`, 1-based and inclusive, in the plan or in the predicted weeks. Default: all of them."
+          },
+          "scenarios": {
+            "default": [],
+            "description": "There are no default scenarios.",
+            "items": {
+              "$ref": "#/components/schemas/ScenarioBody"
+            },
+            "type": "array"
+          },
+          "curves": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CurveBody"
+            },
+            "type": "array"
+          },
+          "draws": {
+            "default": 2000,
+            "description": "100 to 2000. Default 2000.",
+            "maximum": 2000,
+            "minimum": 100,
+            "type": "integer"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Default 0."
+          },
+          "explain_history": {
+            "description": "Default `true` for a backtest and `false` for a plan.",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Trimmed; 1 to 120 characters."
+          },
+          "preview": {
+            "default": false,
+            "description": "`true` returns the expanded plans and stores nothing.",
+            "type": "boolean"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanBody",
+            "description": "The baseline for the weeks after the history."
+          },
+          "dataset_id": {
+            "description": "A stored dataset.",
+            "type": "string"
+          },
+          "history": {
+            "default": null,
+            "description": "Leave it out, or send null.",
+            "type": "null"
+          }
+        },
+        "required": [
+          "plan",
+          "dataset_id"
+        ],
+        "type": "object"
+      },
+      "PlanPreview": {
+        "properties": {
+          "scenario_id": {
+            "type": "string"
+          },
+          "multipliers": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/components/schemas/Amount"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "spend": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "description": "Weekly spend of each channel."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "multipliers",
+          "spend"
+        ]
+      },
+      "QueryBody": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "end"
+        ],
+        "type": "object"
+      },
+      "ResponseCurve": {
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "spend": {
+            "type": "number",
+            "description": "The baseline spend of the channel in the predicted weeks."
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "channel",
+          "spend",
+          "points"
+        ]
+      },
+      "ResultMeta": {
+        "properties": {
+          "seed": {
+            "type": "integer"
+          },
+          "draws": {
+            "type": "integer"
+          },
+          "model_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "library_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compiled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/HostFacts"
+            },
+            "type": "object",
+            "description": "By run id."
+          },
+          "hosts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "paired_on_one_host": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "seed",
+          "draws",
+          "model_revision",
+          "library_revision",
+          "mode",
+          "dtype",
+          "compiled",
+          "runs",
+          "hosts",
+          "paired_on_one_host",
+          "warnings",
+          "warning_details"
+        ],
+        "description": "The run record: seed, draws, shared run settings and host facts."
+      },
+      "ResultRow": {
+        "properties": {
+          "scenario_id": {
+            "type": "string",
+            "description": "`baseline`, a scenario id or `curve:<channel>:<base>:<level>`."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "baseline",
+              "scenario",
+              "curve"
+            ]
+          },
+          "base_scenario_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan the difference is measured from. Null for the baseline."
+          },
+          "varied_channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The channel a curve plan varies."
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The factor of a curve plan."
+          },
+          "multipliers": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/components/schemas/Amount"
+                }
+              ]
+            },
+            "type": "object",
+            "description": "The factor or amount of each changed channel. Empty for the baseline."
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spend_total": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null on history rows."
+          },
+          "sensitivity": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "failed"
+            ],
+            "description": "`failed`: the plan has no numbers."
+          },
+          "component": {
+            "type": "string",
+            "description": "`outcome`, `baseline`, a channel, a control, `latent` or `indirect:*`."
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total over the forecast. Null for a failed plan."
+          },
+          "p05": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The 5th percentile over draws, as a total."
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The 95th percentile over draws, as a total."
+          },
+          "window_mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total over the decision window."
+          },
+          "mean_difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Paired mean difference from the base plan."
+          },
+          "simulation_se": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Monte Carlo standard error of `mean_difference`."
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "warning_details": {
+            "items": {
+              "$ref": "#/components/schemas/WarningDetail"
+            },
+            "type": "array"
+          },
+          "draws_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A signed link to the plan's draws file (netCDF4), or null."
+          },
+          "draws_url_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "kind",
+          "base_scenario_id",
+          "varied_channel",
+          "level",
+          "multipliers",
+          "run_id",
+          "spend_total",
+          "sensitivity",
+          "status",
+          "component",
+          "mean",
+          "p05",
+          "p95",
+          "window_mean",
+          "mean_difference",
+          "simulation_se",
+          "warnings",
+          "warning_details",
+          "draws_url",
+          "draws_url_expires_at"
+        ],
+        "description": "One plan and one component, over the whole forecast."
+      },
+      "ScenarioBody": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Unique. `baseline` and the `curve:` prefix are reserved.",
+            "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+            "type": "string"
+          },
+          "multipliers": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "maximum": 5,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "$ref": "#/components/schemas/Amount"
+                }
+              ]
+            },
+            "description": "A number from 0 to 5 multiplies the spend of a channel in the window. `{\"amount\": X}` sets its total. A channel left out keeps its spend.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "multipliers"
+        ],
+        "type": "object"
+      },
+      "ScenarioInputs": {
+        "properties": {
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "description": "The forecast weeks."
+          },
+          "spend": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "controls": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "object"
+          },
+          "decision_dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "description": "The decision window."
+          },
+          "assumptions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ControlAssumption"
+            },
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dates",
+          "spend",
+          "controls",
+          "decision_dates",
+          "assumptions"
+        ],
+        "description": "What a plan ran with."
+      },
+      "Score": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The score of the mean line."
+          },
+          "sd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The spread of the score over draws."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value",
+          "sd"
+        ]
+      },
+      "Share": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "channel",
+              "control"
+            ]
+          },
+          "mean": {
+            "$ref": "#/components/schemas/Band"
+          },
+          "total": {
+            "$ref": "#/components/schemas/Band"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "group",
+          "mean",
+          "total"
+        ]
+      },
+      "TokenCount": {
+        "properties": {
+          "steps": {
+            "type": "integer"
+          },
+          "allocated_tokens": {
+            "type": "integer"
+          },
+          "represented_tokens": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "steps",
+          "allocated_tokens",
+          "represented_tokens"
+        ]
+      },
+      "TokenTotal": {
+        "properties": {
+          "allocated_tokens": {
+            "type": "integer"
+          },
+          "represented_tokens": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "allocated_tokens",
+          "represented_tokens"
+        ]
+      },
+      "WarningDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A stable code, for example `spend_outside_history_band`."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "analysis",
+              "scenario"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "description": "`caution`."
+          },
+          "message": {
+            "type": "string",
+            "description": "The same text as in `warnings`."
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The channel or control the warning is about."
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan id, for a warning of scope `scenario`."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "scope",
+          "severity",
+          "message",
+          "field",
+          "scenario"
+        ],
+        "description": "One warning as a structured object. The plain text is in ``warnings``."
+      },
+      "WeeklyResponse": {
+        "properties": {
+          "scenario_id": {
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/WeeklyRow"
+            },
+            "type": "array"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scenario_id",
+          "rows"
+        ]
+      },
+      "WeeklyRow": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "component": {
+            "type": "string"
+          },
+          "mean": {
+            "type": "number"
+          },
+          "p05": {
+            "type": "number"
+          },
+          "p95": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "date",
+          "component",
+          "mean",
+          "p05",
+          "p95"
+        ]
+      },
+      "WeeksForm": {
+        "additionalProperties": false,
+        "description": "The weeks form: the weeks of a stored dataset, with `context` and `query`. It takes no\n`plan` and no `history`.",
+        "properties": {
+          "decision_weeks": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`[i, j]`, 1-based and inclusive, in the plan or in the predicted weeks. Default: all of them."
+          },
+          "scenarios": {
+            "default": [],
+            "description": "There are no default scenarios.",
+            "items": {
+              "$ref": "#/components/schemas/ScenarioBody"
+            },
+            "type": "array"
+          },
+          "curves": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CurveBody"
+            },
+            "type": "array"
+          },
+          "draws": {
+            "default": 2000,
+            "description": "100 to 2000. Default 2000.",
+            "maximum": 2000,
+            "minimum": 100,
+            "type": "integer"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Default 0."
+          },
+          "explain_history": {
+            "description": "Default `true` for a backtest and `false` for a plan.",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Trimmed; 1 to 120 characters."
+          },
+          "preview": {
+            "default": false,
+            "description": "`true` returns the expanded plans and stores nothing.",
+            "type": "boolean"
+          },
+          "dataset_id": {
+            "description": "A stored dataset.",
+            "type": "string"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ContextBody",
+            "description": "The input weeks of a backtest."
+          },
+          "query": {
+            "$ref": "#/components/schemas/QueryBody",
+            "description": "The last predicted week of a backtest."
+          },
+          "channels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Channels of a backtest, at least one. Default: all."
+          },
+          "controls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Controls of a backtest, at least one. Default: all."
+          }
+        },
+        "required": [
+          "dataset_id",
+          "context",
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Your invitation tells you how to get your service URL and your key."
+      }
+    }
+  }
+}

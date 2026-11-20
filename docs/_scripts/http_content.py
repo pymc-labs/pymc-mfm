@@ -1,9 +1,10 @@
 # ruff: noqa: E501  (page copy: long prose lines are easier to review than split strings)
 """Page copy for the HTTP API reference.
 
-``http_pages.py`` reads the route list from ``skills/mfm/reference/http.md`` and fails if
-this module and that file disagree about which routes exist. The wording here restates
-facts of that file for a developer reader. Response values in the samples are illustrative.
+``http_pages.py`` reads the routes, the headers, the fields and the errors of each page from the
+exported spec (``docs/api/openapi-v1.json``) and fails if this module has no page for a route of
+the spec, or a page for a route it lacks. This module keeps only the prose, the samples and the
+hand-written notes of each page. Response values in the samples are illustrative.
 """
 
 from __future__ import annotations
@@ -23,20 +24,15 @@ class Param:
 
 @dataclass(frozen=True)
 class Detail:
-    """Everything a route page shows. Empty fields leave their section out."""
+    """The copy of a route page. The spec supplies its headers, fields and errors. Empty fields leave their section out."""
 
     slug: str
     title: str
     summary: str
     lead: str
-    headers: tuple[Param, ...] = ()
-    inputs: tuple[Param, ...] = ()
-    inputs_title: str = "Parameters"
     notes: tuple[tuple[str, str], ...] = ()
-    status: str = ""
     response: str = ""
     response_text: str = ""
-    errors: tuple[str, ...] = ()
     curl: str = ""
     python: str = ""
     extra_blocks: tuple[tuple[str, str, str], ...] = field(default=())
@@ -48,42 +44,7 @@ AUTH = Param(
     required=True,
 )
 JSON_TYPE = Param("Content-Type", "`application/json`. The body is JSON only.", required=True)
-IDEMPOTENCY = Param(
-    "Idempotency-Key",
-    "A fresh UUID, 1 to 200 characters from `A-Z a-z 0-9 . _ : -`. Repeat a call with the same key "
-    "and body and the work starts once.",
-    required=True,
-)
-ANALYSIS_IDEMPOTENCY = Param(
-    "Idempotency-Key",
-    'A fresh UUID, as for a dataset. A preview (`"preview": true`) does not need it.',
-)
-
 ID_PARAM = Param("id", "The id from the create call.", "path")
-
-# Error rows shared by many routes: (status and code, meaning). Keys are used in Detail.errors.
-ERRORS = {
-    "401": ("401", "The key is bad."),
-    "404": ("404", "Wrong id, or the id of another user."),
-    "409_conflict": (
-        "409 `idempotency_conflict`",
-        "The key was used with another body. Use a new key.",
-    ),
-    "409_not_ready": ("409 `not_ready`", "The analysis has not ended. Keep polling."),
-    "410": ("410", "The resource was deleted or expired. Do not retry."),
-    "413": ("413", "The body is too large. Send fewer weeks, scenarios or curves in one call."),
-    "422": (
-        "422",
-        "The service refused the request before any run, and nothing started. "
-        "Read `error.code`, `error.field` and `error.message`. See [Errors](errors.qmd).",
-    ),
-    "429": ("429", "Wait `Retry-After` seconds, then repeat with the same key."),
-}
-
-DATASET_FIELDS = (
-    "`dataset_id`, `content_hash`, `created_at`, `last_used_at`, `analyses` (the number of live analyses), "
-    "`name`, `expires_at`, `summary`, `history_ranges`, `warnings` and `warning_details`."
-)
 
 DATASET_RECORD = """{
   "dataset_id": "ds_123",
@@ -151,14 +112,14 @@ def curl_data(body: str) -> str:
 
 
 STATUS_RECORD = """{
+  "analysis_id": "an_123", "dataset_id": "ds_123",
   "status": "running",
   "runs_total": 7, "runs_done": 3, "runs_failed": 0, "runs_cancelled": 0,
   "estimate_seconds": 40,
   "name": "Spend scenarios", "url": null,
   "expires_at": "2026-11-16T09:30:00Z",
   "seed": 7, "draws": 1000, "explain_history": false, "context": null,
-  "dataset_id": "ds_123", "created_at": "2026-11-09T09:40:00Z",
-  "warning_details": []
+  "warnings": [], "warning_details": []
 }"""
 
 RESULT_RECORD = """{
@@ -166,7 +127,7 @@ RESULT_RECORD = """{
     {"scenario_id": "baseline", "kind": "baseline", "component": "outcome", "status": "ok",
      "mean": 51234.5, "p05": 48800.1, "p95": 53710.9, "draws_url": "<signed link>"}
   ],
-  "labels": {"outcome": "sales"},
+  "labels": {"intervals": "...", "simulation_se": "...", "difference_interval": "..."},
   "history": "...", "assumptions": "...", "meta": "...", "context": null,
   "fit": null, "response_curves": null, "input_usage": "..."
 }"""
@@ -180,7 +141,7 @@ EXPORT_RECORD = """{
   "model_revision": "...", "library_revision": "...", "exported_at": "2026-11-09T10:00:00Z",
   "scenarios": [
     {"scenario_id": "baseline", "kind": "baseline", "base_scenario_id": null,
-     "multipliers": null, "status": "ok", "failure_code": null,
+     "multipliers": {}, "status": "ok", "failure_code": null,
      "inputs": "...", "warnings": [], "warning_details": []}
   ]
 }"""
@@ -208,17 +169,6 @@ DETAILS: dict[tuple[str, str], Detail] = {
         summary="Store one weekly history.",
         lead="Store a weekly history of the outcome, the spend of each channel and the controls. "
         "Later calls refer to it by `dataset_id`.",
-        headers=(AUTH, JSON_TYPE, IDEMPOTENCY),
-        inputs_title="Body",
-        inputs=(
-            Param("name", "A label for the dataset.", "string"),
-            Param("dates", "Weekly, contiguous ISO dates.", "array of dates", True),
-            Param("outcome", "One value for each date.", "array of numbers", True),
-            Param("spend", "One array of spend for each channel.", "object", True),
-            Param("controls", "One array for each control.", "object"),
-            Param("outcome_name", "A label for the site, 1 to 60 characters.", "string"),
-            Param("currency", "Three uppercase letters, ISO 4217 shape, such as `USD`.", "string"),
-        ),
         notes=(
             (
                 "Limits",
@@ -234,10 +184,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
                 "not the edge of the observed data.",
             ),
         ),
-        status="201 Created",
         response=DATASET_RECORD,
-        response_text="The dataset record, with " + DATASET_FIELDS,
-        errors=("401", "409_conflict", "413", "422", "429"),
         curl=(
             "KEY=$(uuidgen)  # reuse on retries\n"
             'curl -sS -X POST "$MFM_API_URL/v1/datasets" \\\n'
@@ -257,7 +204,6 @@ DETAILS: dict[tuple[str, str], Detail] = {
         summary="List your stored datasets.",
         lead="List your datasets. Call this before an upload, and reuse a stored dataset when its "
         "`content_hash` equals the hash of your data.",
-        headers=(AUTH,),
         notes=(
             (
                 "Reuse a stored dataset",
@@ -271,11 +217,8 @@ DETAILS: dict[tuple[str, str], Detail] = {
                 "SHA-256 hex digest. The Python client does this in `pymc_mfm.client.dataset_content_hash`.",
             ),
         ),
-        status="200 OK",
         response='{\n  "datasets": [\n'
         + "    ...one dataset record each, as in Upload a dataset...\n  ]\n}",
-        response_text='`{"datasets": [...]}`. Each record has ' + DATASET_FIELDS,
-        errors=("401", "429"),
         curl=CURL_GET.format(path="/v1/datasets"),
         python=CLIENT + "\nclient.datasets.list()",
     ),
@@ -284,8 +227,6 @@ DETAILS: dict[tuple[str, str], Detail] = {
         title="Get a dataset",
         summary="Read one dataset summary.",
         lead="Read the summary of one dataset. Read it again when you need `expires_at`: using a dataset moves it later.",
-        headers=(AUTH,),
-        inputs=(ID_PARAM,),
         notes=(
             (
                 "Retention",
@@ -294,10 +235,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
                 "Do not treat it as a fixed deadline. An analysis has the `expires_at` of its dataset.",
             ),
         ),
-        status="200 OK",
         response=DATASET_RECORD,
-        response_text="The dataset record, with " + DATASET_FIELDS,
-        errors=("401", "404", "410"),
         curl=CURL_GET.format(path="/v1/datasets/ds_123"),
         python=CLIENT + '\nclient.datasets.get("ds_123")',
     ),
@@ -306,11 +244,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
         title="Delete a dataset",
         summary="Delete a dataset and all its analyses.",
         lead="Delete a dataset. This also deletes all its analyses.",
-        headers=(AUTH,),
-        inputs=(ID_PARAM,),
-        status="202 Accepted",
         response_text="The service accepted the delete. Later calls with the id answer `410`.",
-        errors=("401", "404", "410"),
         curl=CURL_DELETE.format(path="/v1/datasets/ds_123"),
         python=CLIENT + '\nclient.datasets.delete("ds_123")',
     ),
@@ -321,56 +255,6 @@ DETAILS: dict[tuple[str, str], Detail] = {
         lead="Start an analysis of a stored dataset: one forecast, with optional budget scenarios and "
         "response curves. The call answers `202`. Poll the analysis, then read the result. "
         'With `"preview": true` it answers `200` and stores and runs nothing.',
-        headers=(AUTH, JSON_TYPE, ANALYSIS_IDEMPOTENCY),
-        inputs_title="Body",
-        inputs=(
-            Param("dataset_id", "The dataset to analyse.", "string", True),
-            Param(
-                "plan",
-                "The baseline for the weeks after the history. Use `plan` or `context`, not both.",
-                "object",
-            ),
-            Param("context", "`start` and `end` of the input weeks of a backtest.", "object"),
-            Param(
-                "query",
-                "`end`, the last predicted week of a backtest. It comes with `context`.",
-                "object",
-            ),
-            Param(
-                "channels",
-                "Channels of the dataset for a backtest. Default: all.",
-                "array of strings",
-            ),
-            Param(
-                "controls",
-                "Controls of the dataset for a backtest. Default: all.",
-                "array of strings",
-            ),
-            Param(
-                "scenarios",
-                "Spend changes to compare with the baseline. There are no default scenarios.",
-                "array",
-            ),
-            Param("curves", "Response curves, one object for each channel.", "array"),
-            Param(
-                "decision_weeks",
-                "`[i, j]`, 1-based and inclusive. Default: the whole plan.",
-                "array of integers",
-            ),
-            Param(
-                "explain_history",
-                "Default `true` for a backtest and `false` for a plan.",
-                "boolean",
-            ),
-            Param("draws", "1 to 2,000. Default 1,000. Use 200 to 500 for exploration.", "integer"),
-            Param("seed", "0 to 2147483647. The server picks one if you leave it out.", "integer"),
-            Param("name", "1 to 120 characters, trimmed. Other values answer `422`.", "string"),
-            Param(
-                "preview",
-                "`true` to return the expanded plans without storing or running anything.",
-                "boolean",
-            ),
-        ),
         notes=(
             (
                 "Plan and backtest",
@@ -404,13 +288,10 @@ DETAILS: dict[tuple[str, str], Detail] = {
                 "An analysis has at most 200 different plans, and equal plans run once.",
             ),
         ),
-        status="202 Accepted",
-        response='{\n  "analysis_id": "an_123",\n  "name": "Spend scenarios",\n  "url": null,\n'
-        '  "runs_total": 7,\n  "estimate_seconds": 40,\n  "expires_at": "2026-11-16T09:30:00Z"\n}',
-        response_text="`analysis_id`, `name`, `url`, `runs_total`, `estimate_seconds` and `expires_at`. "
-        '`url` is `null` when the service has no site address. With `"preview": true` the answer is `200` '
-        "with the expanded `plans`, `runs_total`, `estimate_seconds`, `assumptions` and `warnings`.",
-        errors=("401", "409_conflict", "413", "422", "429"),
+        response='{\n  "analysis_id": "an_123",\n  "dataset_id": "ds_123",\n  "name": "Spend scenarios",\n  "url": null,\n'
+        '  "runs_total": 7,\n  "estimate_seconds": 40,\n  "expires_at": "2026-11-16T09:30:00Z",\n'
+        '  "warnings": [],\n  "warning_details": []\n}',
+        response_text='`url` is `null` when the service has no site address. A repeat with the same `Idempotency-Key` and body answers `202` again with the header `Idempotent-Replayed: true`. With `"preview": true` the answer is `200` with the expanded plans, and nothing is stored.',
         curl=(
             "KEY=$(uuidgen)  # reuse on retries\n"
             'curl -sS -X POST "$MFM_API_URL/v1/analyses" \\\n'
@@ -435,14 +316,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
         title="List analyses",
         summary="List your analyses.",
         lead="List your analyses, or only those of one dataset.",
-        headers=(AUTH,),
-        inputs_title="Query",
-        inputs=(Param("dataset_id", "Return only the analyses of this dataset.", "string"),),
-        status="200 OK",
         response=LIST_ANALYSES_RECORD,
-        response_text='`{"analyses": [...]}`. Each item has `analysis_id`, `dataset_id`, `name`, `url`, `status`, '
-        "`runs_total`, `runs_done`, `runs_failed`, `created_at` and `expires_at`.",
-        errors=("401", "429"),
         curl='curl -sS "$MFM_API_URL/v1/analyses?dataset_id=ds_123" \\\n  -H "Authorization: Bearer $MFM_API_KEY"',
         python=CLIENT + '\nclient.list_analyses("ds_123")',
     ),
@@ -452,8 +326,6 @@ DETAILS: dict[tuple[str, str], Detail] = {
         summary="Read the status and run counts.",
         lead="Read the status of an analysis. Poll this route every 3 seconds until `status` is `done`, "
         "`failed` or `deleted`.",
-        headers=(AUTH,),
-        inputs=(ID_PARAM,),
         notes=(
             (
                 "Status",
@@ -465,12 +337,8 @@ DETAILS: dict[tuple[str, str], Detail] = {
                 "back to `running` until it ends.",
             ),
         ),
-        status="200 OK",
         response=STATUS_RECORD,
-        response_text="`status`, the run counts `runs_total`, `runs_done`, `runs_failed` and `runs_cancelled`, "
-        "`estimate_seconds`, and `name`, `url`, `expires_at`, `seed`, `draws`, `explain_history`, `context` "
-        "(`null` for a plan), `dataset_id`, `created_at` and `warning_details`.",
-        errors=("401", "404", "410"),
+        response_text="`url` is `null` when the service has no site address. `runs_cancelled` counts the runs that never started because the baseline run failed.",
         curl=CURL_GET.format(path="/v1/analyses/an_123"),
         python=CLIENT + '\nclient.get("an_123").status()',
     ),
@@ -479,8 +347,6 @@ DETAILS: dict[tuple[str, str], Detail] = {
         title="Get the result",
         summary="Read the table of plans and components.",
         lead="Read the result of an analysis. Until every run ends, the call answers `409 not_ready`: keep polling.",
-        headers=(AUTH,),
-        inputs=(ID_PARAM,),
         notes=(
             (
                 "The table",
@@ -517,11 +383,8 @@ DETAILS: dict[tuple[str, str], Detail] = {
                 "posterior sample.",
             ),
         ),
-        status="200 OK",
         response=RESULT_RECORD,
-        response_text="`table`, `labels`, `history`, `assumptions`, `meta`, `context`, `fit`, `response_curves` and "
-        "`input_usage`. The sample is shortened.",
-        errors=("401", "404", "409_not_ready", "410"),
+        response_text="The sample is shortened. Request `?compact=true` for the compact table: one row of numbers for each plan and component, and `plans` with what the rows of each plan share. The default stays the full table.",
         curl=CURL_GET.format(path="/v1/analyses/an_123/result"),
         python=CLIENT + '\nanalysis = client.get("an_123")\nanalysis.table',
     ),
@@ -530,17 +393,8 @@ DETAILS: dict[tuple[str, str], Detail] = {
         title="Get weekly rows",
         summary="Read weekly rows for one plan.",
         lead="Read the weekly rows of one plan of an analysis.",
-        headers=(AUTH,),
-        inputs_title="Parameters",
-        inputs=(
-            ID_PARAM,
-            Param("scenario_id", "The plan to read.", "query"),
-        ),
-        status="200 OK",
         response='{\n  "scenario_id": "baseline",\n  "rows": [\n'
         '    {"date": "2026-11-09", "component": "outcome", "mean": 1043.2, "p05": 981.4, "p95": 1107.9}\n  ]\n}',
-        response_text="`scenario_id` and `rows`, each with `date`, `component`, `mean`, `p05` and `p95`.",
-        errors=("401", "404", "410"),
         curl='curl -sS "$MFM_API_URL/v1/analyses/an_123/weekly?scenario_id=baseline" \\\n'
         '  -H "Authorization: Bearer $MFM_API_KEY"',
         python=CLIENT + '\nclient.get("an_123").weekly("baseline")',
@@ -550,15 +404,8 @@ DETAILS: dict[tuple[str, str], Detail] = {
         title="Export an analysis",
         summary="Save the whole analysis as one JSON file.",
         lead="Save the whole analysis as one JSON file. Until every run ends, the call answers `409 not_ready`.",
-        headers=(AUTH,),
-        inputs=(ID_PARAM,),
-        status="200 OK",
         response=EXPORT_RECORD,
-        response_text="`format` (`mfm-analysis-export-v1`), `analysis_id`, `name`, `created_at`, `expires_at`, "
-        "`dataset`, `request`, `units`, `results`, `seed`, `draws`, `model_revision`, `library_revision`, "
-        "`exported_at` and `scenarios`. Each scenario has `scenario_id`, `kind`, `base_scenario_id`, "
-        "`multipliers`, `status`, `failure_code`, `inputs`, `warnings` and `warning_details`. The sample is shortened.",
-        errors=("401", "404", "409_not_ready", "410"),
+        response_text="The sample is shortened. `?compact=true` works as for the result. `request` is the request as the service stored it; its keys are not a stable contract.",
         curl=CURL_GET.format(path="/v1/analyses/an_123/export") + " \\\n  -o analysis.json",
         python=CLIENT + '\nclient.get("an_123").export("analysis.json")',
     ),
@@ -567,11 +414,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
         title="Delete an analysis",
         summary="Cancel unstarted runs and delete the analysis.",
         lead="Cancel the runs that have not started and delete the analysis.",
-        headers=(AUTH,),
-        inputs=(ID_PARAM,),
-        status="202 Accepted",
         response_text="The service accepted the delete. A `410` after the delete is expected.",
-        errors=("401", "404", "410"),
         curl=CURL_DELETE.format(path="/v1/analyses/an_123"),
         python=CLIENT + '\nclient.get("an_123").delete()',
     ),
@@ -582,9 +425,16 @@ DETAILS: dict[tuple[str, str], Detail] = {
 STATUS_ROWS = (
     ("401", "The key is bad. Check the key."),
     ("404", "Wrong id, or the id of another user."),
+    (
+        "400 `bad_request`, 408 `timeout`",
+        "The body did not arrive in full, or too slowly. Repeat the call with the same key.",
+    ),
     ("409 `idempotency_conflict`", "The key was used with another body. Use a new key."),
     ("409 `plan_failed`", "That plan has no result."),
-    ("409 `not_ready`", "The analysis has not ended. Keep polling."),
+    (
+        "409 `not_ready`",
+        "The analysis has not ended. Keep polling. This body also has a top-level `status`, the status of the analysis.",
+    ),
     (
         "410",
         "The resource was deleted or expired. Do not retry. A repeat of a create call whose earlier analysis "
@@ -600,12 +450,24 @@ STATUS_ROWS = (
         "429, 502, 503, 504",
         "Wait `Retry-After` seconds, or back off from 2 seconds with a cap of 60, and repeat with the same key. "
         "`rate_limited` waits 60 seconds. `overloaded_user_analyses` means 20 unfinished analyses and "
-        "`overloaded_user_runs` means 200 unfinished runs: wait, or delete one.",
+        "`overloaded_user_runs` means 200 unfinished runs: wait, or delete one. `503 unavailable` and `503 busy` "
+        "mean the service is busy. `503 maintenance` means the service takes no new analysis for now; a preview "
+        "and a repeat of an earlier create call still work.",
     ),
 )
 
-ERROR_BODY = (
-    '{\n  "error": {\n    "code": "...",\n    "message": "...",\n    "field": "..."\n  }\n}'
-)
-REFUSAL_BODY = '{\n  "error": {\n    "code": "steps_removed",\n    "message": "...",\n    "field": "scenarios[0].steps"\n  }\n}'
+ERROR_BODY = '{\n  "error": {\n    "code": "...",\n    "message": "...",\n    "field": "...",\n    "request_id": "req_..."\n  }\n}'
+REFUSAL_BODY = '{\n  "error": {\n    "code": "steps_removed",\n    "message": "...",\n    "field": "scenarios[0].steps",\n    "request_id": "req_..."\n  }\n}'
 ENV_BLOCK = 'export MFM_API_URL="<your service URL>"\nexport MFM_API_KEY="<your key>"'
+
+#: The ``failure_code`` of a plan that has no result, and what to do.
+FAILURE_ROWS = (
+    ("worker_stopped", "The service stopped the run. Send the analysis again."),
+    ("plan_outside_limits", "The plan is outside what the model accepts. Change the plan."),
+    ("data_unusable", "The model refused the input values. Check the history and plan values."),
+    ("cancelled", "The run was cancelled. Start it again if you still want it."),
+    (
+        "unknown",
+        "The service gives no reason. Send it again, and quote the `request_id` if it fails again.",
+    ),
+)
