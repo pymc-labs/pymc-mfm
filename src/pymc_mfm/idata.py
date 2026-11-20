@@ -50,6 +50,27 @@ def _integer_attr(node: DataTree, path: str, name: str) -> int:
     return int(value)
 
 
+_MAX_SEED = 2**31 - 1
+
+
+def _seed_attr(node: DataTree, path: str) -> int | None:
+    """The recorded ``random_seed``, or ``None`` when absent, as in an older file.
+
+    A file gives it back as a NumPy integer, which is accepted; a bool, float or text is not.
+    """
+    if "random_seed" not in node.attrs:
+        return None
+    value = node.attrs["random_seed"]
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+        _fail(path, f"attribute 'random_seed' must be an integer, got {value!r}")
+    if not 0 <= value <= _MAX_SEED:
+        _fail(
+            path,
+            f"attribute 'random_seed' must be an integer from 0 to {_MAX_SEED}, got {value!r}",
+        )
+    return int(value)
+
+
 def _join(path: str, name: str) -> str:
     return f"{path.rstrip('/')}/{name}"
 
@@ -255,6 +276,15 @@ def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
     posterior = _group(tree, "response_curves", "posterior")
     constants = _group(tree, "response_curves", "constant_data")
     path = f"{root}/posterior"
+    # One sweep writes one seed to both groups.
+    seed = _seed_attr(node, root)
+    posterior_seed = _seed_attr(tree["response_curves/posterior"], path)
+    if seed != posterior_seed:
+        _fail(
+            path,
+            f"attribute 'random_seed' is {posterior_seed!r} but {root} records {seed!r}; "
+            "run response_curves again",
+        )
     _variable(posterior, path, "contribution", (*_SAMPLE_DIMS, "channel", "level"))
     _variable(constants, f"{root}/constant_data", "media", ("channel", "level"))
     _one_chain(path, posterior)
@@ -351,6 +381,7 @@ def validate_idata(idata: DataTree) -> None:
     if version != _SCHEMA_VERSION:
         _fail("/", f"schema_version must be {_SCHEMA_VERSION}, got {version}")
     _integer_attr(idata, "/", "inference_revision")
+    _seed_attr(idata, "/")
     roles = _roles(idata)
     _check_text(idata)
     for window in WINDOWS:
