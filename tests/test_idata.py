@@ -15,6 +15,7 @@ import pytest
 import torch
 import xarray as xr
 from conftest import CHART_ROLES
+from xarray.backends.common import BackendArray
 
 import pymc_mfm
 from pymc_mfm import load_idata, save_idata, validate_idata
@@ -431,6 +432,25 @@ def test_numpy_text_names_and_units_save_as_text(model, chart_frames, tmp_path):
     assert loaded["query/posterior"].attrs["units"] == "USD"
 
 
+@pytest.mark.usefixtures("files")
+def test_numpy_text_identity_saves_as_text(model, chart_frames, tmp_path):
+    history, future = chart_frames
+    identity = {"state_sha256": "a" * 64, "data_sha256": "b" * 64, "graph_source": "joint_router"}
+    model.inference(
+        history,
+        future,
+        n_samples=2,
+        provenance={key: np.str_(text) for key, text in identity.items()},
+        **CHART_ROLES,
+    )
+    validate_idata(model.idata)
+    save_idata(model.idata, tmp_path / "tree.nc")
+    for window in ("context", "query"):
+        attrs = model.idata[f"{window}/posterior"].attrs
+        assert {key: type(attrs[key]) for key in identity} == dict.fromkeys(identity, str)
+        assert attrs["state_sha256"] == identity["state_sha256"]
+
+
 @pytest.mark.parametrize("key", ["state_sha256", "data_sha256", "graph_source"])
 def test_a_nul_in_a_recorded_identity_is_refused_before_sampling(
     predicted_model, chart_frames, key
@@ -664,6 +684,11 @@ def _curve_channels(tree):
         )
 
 
+def _curve_no_channels(tree):
+    for group in ("posterior", "constant_data"):
+        _edit(tree, f"response_curves/{group}", lambda data: data.isel(channel=slice(0, 0)))
+
+
 @pytest.mark.parametrize(
     ("edit", "message"),
     [
@@ -684,6 +709,7 @@ def _curve_channels(tree):
             r"^/response_curves: attribute 'weeks' must be positive",
         ),
         (_curve_channels, r"^/response_curves/posterior: channel coordinate"),
+        (_curve_no_channels, r"^/response_curves/posterior: channel coordinate must hold at least"),
         (
             lambda tree: _edit(
                 tree,
@@ -779,6 +805,31 @@ def test_validate_does_not_stack_the_draws(tree, monkeypatch):
 
     monkeypatch.setattr(IdataReader, "window", stacked)
     monkeypatch.setattr(np, "stack", stacked)
+    validate_idata(tree)
+
+
+class _Unreadable(BackendArray):
+    """Lazy file-style array that raises when anything reads its values."""
+
+    def __init__(self, like):
+        self.shape, self.dtype = like.shape, like.dtype
+
+    def __getitem__(self, key):
+        raise AssertionError("validate_idata read the draws")
+
+
+def test_validate_does_not_read_numeric_draws(tree):
+    from xarray.core.indexing import LazilyIndexedArray
+
+    for group in ("context/posterior", "query/posterior"):  # the curve reader loads its own
+        node = tree[group]
+        data = node.to_dataset(inherit=False)
+        lazy = {
+            name: (var.dims, LazilyIndexedArray(_Unreadable(var.variable)))
+            for name, var in data.data_vars.items()
+            if var.dtype.kind in "fi" and name != "graph"  # the binary check reads graph on purpose
+        }
+        node.dataset = data.assign(lazy)
     validate_idata(tree)
 
 

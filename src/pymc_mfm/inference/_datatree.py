@@ -151,7 +151,7 @@ def _result_attrs(result: DecompositionResult) -> dict[str, Any]:
         if value is not None:
             if not isinstance(value, str):
                 raise ValueError(f"provenance {key} must be text, got {value!r}")
-            attrs[key] = value
+            attrs[key] = str(value)  # a str subclass, such as np.str_, cannot be an HDF5 attribute
     return {**attrs, "graph_draws": _GRAPH_DRAWS[result.mode], **_NOTES}
 
 

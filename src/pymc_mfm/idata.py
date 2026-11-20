@@ -151,6 +151,8 @@ def _check_text(tree: DataTree) -> None:
         for name, variable in node.to_dataset(inherit=False).variables.items():
             where = _join(node.path, str(name))
             _text_attrs(where, variable.attrs)
+            if variable.dtype.kind not in "OUS":
+                continue  # numbers hold no text, and reading them loads every draw
             values = variable.to_numpy()
             if values.dtype.kind == "O" and not all(isinstance(item, str) for item in values.flat):
                 _fail(where, "labels must be str")
@@ -262,6 +264,12 @@ def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
             f"attribute n_samples {n_samples} differs from the {posterior.sizes['draw']} draws",
         )
     channels = [str(name) for name in posterior["channel"].to_numpy()]
+    if not channels:
+        _fail(
+            path,
+            f"channel coordinate must hold at least one of {list(roles['channel'])}; "
+            f"keep at least one channel",
+        )
     unknown = [name for name in channels if name not in roles["channel"]]
     if len(set(channels)) != len(channels) or unknown:
         _fail(
@@ -274,7 +282,6 @@ def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
         _fail(path, f"level coordinate must hold numbers, got dtype {levels.dtype}")
     if not (np.isfinite(levels).all() and (levels >= 0).all()):
         _fail(path, "level coordinate must hold finite values of at least 0")
-    # The reader recovers observed media at level 1, or else at the top level.
     if not (levels > 0).any():
         _fail(path, "level coordinate needs at least one positive level")
     if len(levels) < 2 or not (np.diff(levels) > 0).all():
@@ -325,8 +332,8 @@ def validate_idata(idata: DataTree) -> None:
     history needs its observed outcome and at least two increasing dates, and each
     posterior has one chain. Components and channels are paired by label, so their stored
     order does not matter. The check then runs the chart reads on both windows and on the
-    curves, without stacking the draws. Unknown variables, groups and attributes are
-    ignored, so ``MFM.idata`` as built is valid.
+    curves, without stacking the draws. Unknown variables, groups and attributes need
+    no schema entry, but their text must still be storable, so ``MFM.idata`` as built is valid.
     """
     if not _is_tree(idata):
         _fail(
