@@ -34,30 +34,26 @@ class Inputs:
     """
 
     dates: np.ndarray
-    first_query: int | None
+    first_query: int
     series: tuple[tuple[str, str, np.ndarray], ...]
     title: str
 
 
 def prepare(source: ModelSource, *, title: str | None = None) -> Inputs:
-    """The context, and the forecast weeks of the latest ``inference`` if there is one.
+    """The history and forecast weeks of the last complete paired ``inference``.
 
     Forecast-week outcomes come from the target column given to ``inference`` (NaN
     where it had none); the model never read them.
     """
-    history = source.history()
-    prediction = source.prediction()
+    prediction = source.require_prediction()
+    history = prediction.fitted_context
     length = len(history.dates)
-    if prediction is None:
-        dates, first = history.dates, None
-        media, controls, outcome = history.spend, history.controls, history.outcome
-    else:
-        dates, first = prediction.time, length
-        media = prediction.observations["spend"]
-        controls = prediction.observations["controls"]
-        query = prediction.query_outcome
-        future = np.full(len(dates) - length, np.nan) if query is None else query
-        outcome = np.concatenate((history.outcome, future))
+    dates = prediction.time
+    media = prediction.observations["spend"]
+    controls = prediction.observations["controls"]
+    query = prediction.query_outcome
+    future = np.full(len(dates) - length, np.nan) if query is None else query
+    outcome = np.concatenate((history.outcome, future))
     channels, controls_named = history.channel_columns, history.control_columns
     series = (
         ("outcome", "outcome", outcome),
@@ -65,7 +61,7 @@ def prepare(source: ModelSource, *, title: str | None = None) -> Inputs:
         *((name, "control", controls[:, index]) for index, name in enumerate(controls_named)),
     )
     title = title or "Model inputs: outcome, media and control covariates"
-    return Inputs(dates, first, series, title)
+    return Inputs(dates, length, series, title)
 
 
 def _matplotlib(data: Inputs) -> Any:
@@ -73,14 +69,13 @@ def _matplotlib(data: Inputs) -> Any:
     for ax, (name, role, values) in zip(axes[:, 0], data.series, strict=True):
         positions = time_positions(ax, data.dates)
         ax.plot(positions, values, color=_ROLE_COLORS[role], linewidth=1.2)
-        if data.first_query is not None:
-            forecast_span(ax, positions, data.first_query, label=None)
+        forecast_span(ax, positions, data.first_query, label=None)
         ax.set_title(_label(name, role), loc="left", fontsize=9)
         compact_axis(ax.yaxis)
         ax.grid(axis="y", alpha=0.15)
     for ax in axes[:-1, 0]:  # the rows share one date axis, labelled once at the bottom
         ax.tick_params(labelbottom=False)
-    _suptitle(fig, data.title, _SPAN_NOTE if data.first_query is not None else None)
+    _suptitle(fig, data.title, _SPAN_NOTE)
     return fig
 
 
@@ -111,10 +106,8 @@ def _plotly(data: Inputs) -> Any:
             row=row,
             col=1,
         )
-    if data.first_query is not None:
-        plotting.forecast_span(fig, data.dates, data.first_query, row="all", col=1)
-    caption = _SPAN_NOTE if data.first_query is not None else None
-    return plotting.finish(fig, title=data.title, caption=caption, height=110 * rows + 50)
+    plotting.forecast_span(fig, data.dates, data.first_query, row="all", col=1)
+    return plotting.finish(fig, title=data.title, caption=_SPAN_NOTE, height=110 * rows + 50)
 
 
 def inputs(source: ModelSource, *, backend: str | None = None, title: str | None = None) -> Any:

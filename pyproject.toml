@@ -18,6 +18,8 @@ dependencies = [
 local = [
     "torch>=2.6,<3",
     "safetensors>=0.6.2,<1",
+    "xarray>=2024.10",
+    "arviz-base>=1.3,<2",
 ]
 # Client extras: netCDF draws files and plots.
 draws = [
@@ -46,6 +48,7 @@ diagnostics = [
     "scikit-learn>=1.6",
     "arviz-stats>=1.3,<2",
 ]
+# In-memory trees are included in local; this extra adds ArviZ statistics.
 arviz = [
     "pymc-mfm[local]",
     "arviz-stats[xarray]>=1.3,<2",

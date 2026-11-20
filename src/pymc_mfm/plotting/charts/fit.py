@@ -123,8 +123,8 @@ def prepare(
 ) -> Fit:
     """Each window's expected-outcome draws, summarized and scored against the outcome.
 
-    ``interval`` is checked before any window is read, and ``window="query"``
-    never samples the context.
+    ``interval`` is checked before any window is read. All windows read completed
+    inference without sampling.
     """
     interval_quantiles(interval)
     windows = source.windows(window)

@@ -216,13 +216,13 @@ def prepare(
 ) -> Shares:
     """Check every argument, then the numbers of ``window``; see :func:`prepare_window`.
 
-    Only a ``"context"`` window reads the context draws, sampled once per prediction.
+    Both windows read the last complete inference without sampling.
     """
     if share not in SHARES:
         raise ValueError(f"share must be one of {SHARES}, got {share!r}")
     if view not in VIEWS:
         raise ValueError(f"view must be one of {VIEWS}, got {view!r}")
-    interval_quantiles(interval)  # raises before a context window samples
+    interval_quantiles(interval)
     data = source.window(window)
     return prepare_window(data, share=share, view=view, interval=interval, title=title)
 

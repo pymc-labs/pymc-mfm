@@ -45,7 +45,7 @@ def require(backend: str) -> None:
 
 
 def check(backend: str | None, ax: Any = None) -> str:
-    """The backend a chart will draw with, checked before it reads or samples anything.
+    """The drawing backend, checked before a chart reads the completed inference.
 
     Refuses ``ax=`` (matplotlib axes) with plotly and imports the backend's library,
     raising ``ImportError`` naming its extra when it is missing.

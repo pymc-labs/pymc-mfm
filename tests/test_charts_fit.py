@@ -164,8 +164,7 @@ def test_scores_leave_out_unobserved_weeks_and_undefined_metrics():
 
 def test_forecast_weeks_without_an_outcome_are_neither_drawn_nor_scored(model, chart_frames):
     history, future = chart_frames
-    model.add_context(history, **CHART_ROLES)
-    model.inference(future.drop(columns="sales"), n_samples=5)
+    model.inference(history, future.drop(columns="sales"), n_samples=5, **CHART_ROLES)
     fig = model.plot.fit()
     np.testing.assert_array_equal(
         fig.axes[0].lines[-1].get_ydata(), np.concatenate([history["sales"], np.full(6, np.nan)])
@@ -176,7 +175,7 @@ def test_forecast_weeks_without_an_outcome_are_neither_drawn_nor_scored(model, c
     assert len(query.axes) == 1 and len(query.axes[0].lines) == 1
 
 
-def test_query_fit_never_samples_the_context(predicted_model, chart_frames):
+def test_fit_reads_both_completed_windows_without_sampling(predicted_model, chart_frames):
     _, future = chart_frames
     state = torch.get_rng_state()
     fig = predicted_model.plot.fit(window="query")
@@ -190,7 +189,7 @@ def test_query_fit_never_samples_the_context(predicted_model, chart_frames):
     assert not ax.patches  # one window: no forecast weeks to set apart
     assert [card[0] for card in _cards(fig)] == [_LABELS["query"]]
     predicted_model.plot.fit(window="context")
-    assert not torch.equal(torch.get_rng_state(), state)  # the context draws are sampled now
+    assert torch.equal(torch.get_rng_state(), state)
 
 
 @pytest.mark.parametrize(
@@ -201,7 +200,7 @@ def test_query_fit_never_samples_the_context(predicted_model, chart_frames):
         ({"interval": 0}, "interval must be a fraction"),
     ],
 )
-def test_fit_rejects_unknown_windows_and_intervals_before_sampling(
+def test_fit_rejects_unknown_windows_and_intervals_without_sampling(
     predicted_model, arguments, message
 ):
     state = torch.get_rng_state()

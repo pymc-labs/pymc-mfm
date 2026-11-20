@@ -157,7 +157,7 @@ def prepare(
     """Each chosen component's weekly numbers in every drawn window.
 
     ``truth`` with ``stacked=True`` and a bad ``interval`` with ``stacked=False`` raise
-    before any window is read; ``window="query"`` never samples the context.
+    before any window is read. All windows read completed inference without sampling.
     """
     if truth is not None and stacked:
         raise ValueError("truth is drawn only with stacked=False, in each component's panel")

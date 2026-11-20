@@ -1,4 +1,4 @@
-"""``model.plot``: the charts of one model's latest ``add_context`` and ``inference``."""
+"""``model.plot``: sampling-free charts of one model's last complete inference."""
 
 from __future__ import annotations
 
@@ -22,14 +22,15 @@ if TYPE_CHECKING:
 
 
 class ModelPlots:
-    """Charts of a model's latest ``add_context`` and ``inference`` (``model.plot``).
+    """Charts of a model's last complete ``inference(history, future, ...)`` (``model.plot``).
 
     Each chart computes its numbers once, then draws them with matplotlib (the
     default; ``pymc-mfm[plot]``) or plotly (``pymc-mfm[interactive]``): pass
     ``backend="plotly"`` or call :func:`pymc_mfm.plotting.set_backend`. Matplotlib
     charts return a ``matplotlib.figure.Figure``, which notebooks display without
     pyplot; plotly charts return an interactive ``plotly.graph_objects.Figure``.
-    Charts read the model when called, so they follow its latest ``inference``.
+    Charts read the model when called, so they follow its last successful paired
+    ``inference``. They never sample; ``predict`` does not change them.
 
     Intervals are central intervals of the model's draws: pointwise over weeks or levels,
     one per series for shares and window totals. Draws are the expected outcome
@@ -45,8 +46,8 @@ class ModelPlots:
     def inputs(self, *, backend: str | None = None, title: str | None = None) -> Any:
         """The outcome, each media covariate and each control covariate by week.
 
-        Needs ``add_context``. After ``inference`` it adds the forecast weeks, shaded,
-        with the outcome given to ``inference`` when its data had the target column.
+        Needs a successful ``inference(history, future, ...)``. Forecast weeks are
+        shaded, with the query's observed outcome where its data had the target column.
         """
         return _inputs.inputs(self._source, backend=backend, title=title)
 
@@ -69,10 +70,10 @@ class ModelPlots:
         coverage of the interval (the share of observed weeks inside it). The intervals
         exclude observation noise, so coverage can fall below ``interval``.
 
-        Needs ``inference``. Forecast weeks show and score the outcome only when the
-        data given to ``inference`` had the target column. ``window`` is ``"context"``
-        or ``"query"`` for one window, or ``None`` for both; ``"query"`` never samples
-        the context. ``interval`` is a fraction between 0 and 1.
+        Needs complete ``inference``. Forecast weeks show and score the outcome only
+        when the query had the target column. ``window`` is ``"context"`` or ``"query"``
+        for one window, or ``None`` for both; neither window samples.
+        ``interval`` is a fraction between 0 and 1.
         """
         return _fit.fit(
             self._source, window=window, interval=interval, backend=backend, title=title
@@ -104,8 +105,8 @@ class ModelPlots:
         distribution of each series' per-draw shares as a Gaussian kernel density
         (Scott's bandwidth), all scaled to the same peak height.
 
-        Needs ``inference``. ``window`` is ``"context"`` (the history weeks) or
-        ``"query"`` (the forecast weeks; never samples the context). ``interval`` is a
+        Needs complete ``inference``. ``window`` is ``"context"`` (the history weeks)
+        or ``"query"`` (the forecast weeks). Neither samples. ``interval`` is a
         fraction between 0 and 1; ``ax`` draws into existing matplotlib axes.
         """
         return _shares.shares(
@@ -136,8 +137,8 @@ class ModelPlots:
         weekly contributions summed over the window), with their mean (solid line),
         central ``interval`` (shaded) and, with ``truth``, the true total (dashed).
 
-        Needs ``inference``. ``window`` is ``"context"`` (the history weeks) or
-        ``"query"`` (the forecast weeks, which never samples the context).
+        Needs complete ``inference``. ``window`` is ``"context"`` (the history weeks)
+        or ``"query"`` (the forecast weeks). Neither samples.
         ``components`` are display names of any family (``"baseline"``, a channel or
         control, ``"latent"``, ``"indirect:cc"``...); every channel and control by
         default. ``bins`` is the number of histogram bins per panel (or any ``bins``
@@ -175,8 +176,8 @@ class ModelPlots:
         depends on earlier weeks of the media covariate (carryover), so the points need
         not lie on one curve. The panels share the contribution axis.
 
-        Needs ``inference``. ``window`` is ``"context"`` (the history weeks) or
-        ``"query"`` (the forecast weeks, which never samples the context).
+        Needs complete ``inference``. ``window`` is ``"context"`` (the history weeks)
+        or ``"query"`` (the forecast weeks). Neither samples.
         ``channels`` are media covariate (channel) display names, all by default.
         ``truth`` holds known contributions: a DataFrame indexed by date with one column
         per display name; its media covariate columns are drawn, and weeks it lacks get
@@ -208,7 +209,8 @@ class ModelPlots:
         ``interval`` of its contribution, summed over the weeks it was varied, against
         its level as a percent of the observed level, with a dashed line (and a dot on
         the mean) at the observed level. Draws the latest ``model.response_curves(...)``,
-        which needs ``inference``; a new ``add_context`` or ``inference`` drops them.
+        which needs complete ``inference``; a new successful ``inference`` drops them,
+        while ``predict`` leaves them unchanged.
         ``channels`` picks panels (default: every channel of the curves). ``truth``,
         a DataFrame indexed by level with one column per channel, adds known
         contributions (from a simulation, say) as black dots. ``interval`` is a
@@ -245,9 +247,9 @@ class ModelPlots:
         ``stacked=False`` draws one panel per component, three to a row, sharing the
         dates: its weekly mean and central ``interval``, with ``truth`` dashed.
 
-        Needs ``inference``. ``window`` is ``"context"`` or ``"query"`` for one window,
-        or ``None`` for both, the forecast weeks shaded; ``"query"`` never samples the
-        context. ``components`` are display names (``"baseline"``, a channel or
+        Needs complete ``inference``. ``window`` is ``"context"`` or ``"query"`` for one
+        window, or ``None`` for both, the forecast weeks shaded; neither window samples.
+        ``components`` are display names (``"baseline"``, a channel or
         control, ``"latent"``, ``"indirect:cc"``...), all active components by
         default. ``truth`` (``stacked=False`` only) holds known contributions, from a
         simulation say: a DataFrame indexed by date with one column per display name;

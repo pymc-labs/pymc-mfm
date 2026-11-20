@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import replace
 
 import numpy as np
@@ -217,6 +218,8 @@ def decompose(
                 raise ValueError(f"provenance {key!r} conflicts with the loaded artifact")
         identity.update(provenance)
     _drop_recorded_evaluation(identity, getattr(model, "provenance", {}).get("training_evaluation"))
+    # Result annotations must not expose mutable loaded-model identity by reference.
+    identity = deepcopy(identity)
     if time is not None:
         full_length = batch["ctx_spend_z"].shape[1] + batch["qry_spend_z"].shape[1]
         time = _validate_time(time, length=full_length, allow_bool=False)

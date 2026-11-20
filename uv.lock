@@ -2862,9 +2862,11 @@ dependencies = [
 
 [package.optional-dependencies]
 arviz = [
+    { name = "arviz-base" },
     { name = "arviz-stats", extra = ["xarray"] },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 client = [
     { name = "h5netcdf" },
@@ -2873,12 +2875,14 @@ client = [
     { name = "xarray" },
 ]
 diagnostics = [
+    { name = "arviz-base" },
     { name = "arviz-stats" },
     { name = "matplotlib" },
     { name = "safetensors" },
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 draws = [
     { name = "h5netcdf" },
@@ -2886,32 +2890,41 @@ draws = [
     { name = "xarray" },
 ]
 examples = [
+    { name = "arviz-base" },
     { name = "ipython" },
     { name = "pymc-marketing" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 generation = [
+    { name = "arviz-base" },
     { name = "pymc-generator" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 hub = [
+    { name = "arviz-base" },
     { name = "huggingface-hub" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 interactive = [
     { name = "plotly" },
 ]
 local = [
+    { name = "arviz-base" },
     { name = "safetensors" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 plot = [
     { name = "matplotlib" },
 ]
 training = [
+    { name = "arviz-base" },
     { name = "arviz-stats" },
     { name = "matplotlib" },
     { name = "mlflow" },
@@ -2919,6 +2932,7 @@ training = [
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "torch" },
+    { name = "xarray" },
 ]
 
 [package.dev-dependencies]
@@ -2934,6 +2948,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arviz-base", marker = "extra == 'local'", specifier = ">=1.3,<2" },
     { name = "arviz-stats", marker = "extra == 'diagnostics'", specifier = ">=1.3,<2" },
     { name = "arviz-stats", marker = "extra == 'training'", specifier = ">=1.3,<2" },
     { name = "arviz-stats", extras = ["xarray"], marker = "extra == 'arviz'", specifier = ">=1.3,<2" },
@@ -2966,6 +2981,7 @@ requires-dist = [
     { name = "scipy", marker = "extra == 'training'", specifier = ">=1.14" },
     { name = "torch", marker = "extra == 'local'", specifier = ">=2.6,<3" },
     { name = "xarray", marker = "extra == 'draws'", specifier = ">=2024.10" },
+    { name = "xarray", marker = "extra == 'local'", specifier = ">=2024.10" },
 ]
 provides-extras = ["local", "draws", "plot", "interactive", "client", "generation", "diagnostics", "arviz", "hub", "training", "examples"]
 

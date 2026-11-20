@@ -1,4 +1,4 @@
-"""Immutable observed history and column roles for the public add_context/inference API."""
+"""Immutable history and column roles for explicit context/query inference."""
 
 from __future__ import annotations
 
@@ -33,6 +33,8 @@ def _column_names(value, role: str) -> tuple[str, ...]:
         raise ValueError(f"{role} must be a nonempty sequence of column names") from None
     if not names or any(not isinstance(name, str) or not name for name in names):
         raise ValueError(f"{role} must contain nonempty string column names")
+    if any("\x00" in name for name in names):
+        raise ValueError(f"{role} must not contain NUL characters")
     for name in names:
         try:
             name.encode("utf-8")
@@ -85,7 +87,7 @@ def _numeric_columns(data: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
 
 def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if len(dates) < 2:
-        raise ValueError("add_context needs at least two dated context rows to determine frequency")
+        raise ValueError("context needs at least two dated rows to determine frequency")
     frequency = pd.infer_freq(dates) if len(dates) >= 3 else None
     if frequency is not None:
         return pd.tseries.frequencies.to_offset(frequency)

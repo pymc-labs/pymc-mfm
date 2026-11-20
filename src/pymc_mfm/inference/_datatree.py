@@ -11,6 +11,7 @@ ArviZ ``rcParams`` are consulted) and the standard ArviZ attributes of
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -22,9 +23,12 @@ if TYPE_CHECKING:
     from xarray import DataTree
 
     from pymc_mfm.diagnostics.archive import EvaluationArchive
+    from pymc_mfm.inference.curves import ResponseCurves
+    from pymc_mfm.inference.dataframe import _PredictionSnapshot
 
 _EXTRA = "DataTree export requires the pymc-mfm[arviz] extra: pip install 'pymc-mfm[arviz]'"
 _SAMPLE_DIMS = ("chain", "draw")
+_MODEL_TREE_SCHEMA_VERSION = 1
 #: Component axis order of an archive tree: the slot order of ``result_from_batch``.
 _FAMILY_RANK = {
     family: rank
@@ -253,26 +257,150 @@ def result_datatree(
 
 
 def prediction_datatree(
-    context: DecompositionResult, query: DecompositionResult, *, observed
+    context_result: DecompositionResult,
+    prediction_snapshot: _PredictionSnapshot,
+    *,
+    revision: int,
 ) -> DataTree:
-    """Nest named context/query marginals without inference or shared date coordinates.
+    """Build a complete model tree from the two completed, separately sampled marginals.
 
-    ``observed`` is the fitted context outcome; no query observations or synthetic
-    evidence are manufactured. ArviZ operations take either window subtree, not the
-    convenience root. Matching draw indices across windows do not imply paired draws.
+    Covariates and observations retain their original units. Query observations are
+    already sanitized by the dataframe adapter and never participate in inference.
+    Every window owns its axes; matching draw indices do not imply paired draws.
     """
     xr, arviz_base = _require_arviz()
+    history = prediction_snapshot.fitted_context
+    start = len(history.dates)
     groups = {}
-    for window, result in (("context", context), ("query", query)):
+    for window, result, rows in (
+        ("context", context_result, slice(0, start)),
+        ("query", prediction_snapshot.query, slice(start, None)),
+    ):
         window_groups, attrs = _result_groups(
             xr,
             arviz_base,
             result,
-            observed=observed if window == "context" else None,
+            observed=history.outcome if window == "context" else None,
             named=True,
         )
+        attrs["provenance"] = json_bytes(result.provenance).decode("utf-8")
+        window_groups["posterior"].attrs["provenance"] = attrs["provenance"]
+        coords = {
+            "date": _time_coordinate(result.time),
+            "channel": _labels(history.channel_columns, "channel"),
+            "control": _labels(history.control_columns, "control"),
+        }
+        constants = window_groups["constant_data"].assign_coords(coords)
+        constants["media"] = (
+            ("date", "channel"),
+            _numeric(prediction_snapshot.observations["spend"][rows]),
+        )
+        constants["controls"] = (
+            ("date", "control"),
+            _numeric(
+                prediction_snapshot.observations["controls"][rows, : len(history.control_columns)]
+            ),
+        )
+        window_groups["constant_data"] = constants
+        if window == "query":
+            observed = prediction_snapshot.query_outcome
+            if observed is not None and np.isfinite(observed).any():
+                window_groups["observed_data"] = _dataset(
+                    xr, arviz_base, {"outcome": (("date",), _numeric(observed))}, coords
+                )
+        for dataset in window_groups.values():
+            for variable in dataset.variables.values():
+                variable.data.setflags(write=False)
         groups[window] = _tree(xr, arviz_base, window_groups, attrs)
-    return _tree(xr, arviz_base, groups, dict(_NOTES))
+    return _tree(
+        xr,
+        arviz_base,
+        groups,
+        {
+            "schema_version": _MODEL_TREE_SCHEMA_VERSION,
+            "inference_revision": revision,
+            "date_column": history.date_column,
+            "target_column": history.target_column,
+            "channel_columns": json_bytes(history.channel_columns).decode("utf-8"),
+            "control_columns": json_bytes(history.control_columns).decode("utf-8"),
+            **_NOTES,
+        },
+    )
+
+
+def attach_response_curves(
+    tree: DataTree, curves: ResponseCurves, prediction: _PredictionSnapshot
+) -> DataTree:
+    """Replace the entire curve subtree in a new root, retaining immutable draw buffers.
+
+    Reconstruct nodes from datasets, never from live tree nodes. Shallow dataset copies
+    retain the numeric buffers, while recursive metadata copies isolate mutable attrs
+    and encodings on every dataset, coordinate and data variable.
+    """
+    xr, arviz_base = _require_arviz()
+    attrs = {
+        "source_inference_revision": tree.attrs["inference_revision"],
+        "source_provenance": tree["query"].attrs["provenance"],
+        "mode": prediction.mode,
+        "units": curves.units,
+        "n_samples": curves.n_samples,
+        "weeks": curves.weeks,
+        "graph_draws": _GRAPH_DRAWS[prediction.mode],
+        "level_draws": (
+            "levels are separate marginals: draws are not paired across levels; "
+            "the unchanged reference may be reused across channels and zero-media levels"
+        ),
+        **_NOTES,
+    }
+    if prediction.mode == "model_average":
+        attrs["router_samples"] = curves.n_samples
+    elif prediction.mode == "map":
+        attrs["router_samples"] = (
+            curves.n_samples if prediction.router_samples is None else prediction.router_samples
+        )
+    coords = {
+        "chain": np.array([0]),
+        "draw": np.arange(curves.n_samples),
+        "channel": _labels(curves.channels, "channel"),
+        "level": _numeric(curves.levels),
+    }
+    curve_groups = {
+        "/response_curves": _dataset(xr, arviz_base, {}, {}, attrs=attrs),
+        "/response_curves/posterior": _dataset(
+            xr,
+            arviz_base,
+            {
+                "contribution": (
+                    ("chain", "draw", "channel", "level"),
+                    _numeric(curves.draws, widen_float32=True).transpose(2, 0, 1)[None],
+                )
+            },
+            coords,
+            sample_dims=_SAMPLE_DIMS,
+            attrs=attrs,
+        ),
+        "/response_curves/constant_data": _dataset(
+            xr,
+            arviz_base,
+            {"media": (("channel", "level"), curves.media[:, None] * curves.levels)},
+            coords,
+        ).assign_coords(date=("date", _time_coordinate(curves.dates))),
+    }
+    for dataset in curve_groups.values():
+        for variable in dataset.variables.values():
+            variable.data.setflags(write=False)
+    groups = {}
+    for node in tree.subtree:
+        if node.path == "/response_curves" or node.path.startswith("/response_curves/"):
+            continue
+        dataset = node.to_dataset(inherit=False).copy(deep=False)
+        dataset.attrs = deepcopy(dataset.attrs)
+        dataset.encoding = deepcopy(dataset.encoding)
+        for variable in dataset.variables.values():
+            variable.attrs = deepcopy(variable.attrs)
+            variable.encoding = deepcopy(variable.encoding)
+        groups[node.path] = dataset
+    return xr.DataTree.from_dict({**groups, **curve_groups}, name=tree.name)
 
 
 def _labels(values, name: str) -> np.ndarray:
