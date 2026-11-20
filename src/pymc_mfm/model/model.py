@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from pandas import DataFrame
     from xarray import DataTree
 
+    from pymc_mfm.inference.curves import ResponseCurves
     from pymc_mfm.inference.dataframe import _FittedContext, _PredictionSnapshot
     from pymc_mfm.inference.result import DecompositionResult
     from pymc_mfm.plotting.charts import ModelPlots
@@ -118,6 +119,7 @@ class MFM(nn.Module):
         self._inference_context: _FittedContext | None = None
         self._prediction_snapshot: _PredictionSnapshot | None = None
         self._context_decomposition: DecompositionResult | None = None
+        self._response_curves: ResponseCurves | None = None
         self._idata: DataTree | None = None
 
     def structure_logits(
@@ -509,8 +511,8 @@ class MFM(nn.Module):
         Dates are sorted and must follow a regular cadence. History needs at
         least two rows, positive outcomes, nonnegative spend and at least one
         channel and control. Controls are padded to this model's capacity.
-        A successful call replaces context and invalidates prediction/export
-        state; a failed call preserves the last successful state.
+        A successful call replaces context and invalidates prediction, response-curve
+        and export state; a failed call preserves the last successful state.
         The stored history is independent of later changes to ``data``.
         """
         from pymc_mfm.inference.dataframe import _FittedContext
@@ -526,6 +528,7 @@ class MFM(nn.Module):
         self._inference_context = context
         self._prediction_snapshot = None
         self._context_decomposition = None
+        self._response_curves = None
         self._idata = None
         return self
 
@@ -591,8 +594,9 @@ class MFM(nn.Module):
         the same context and context-only scales, without appending predictions to
         history. Returned draws use original outcome units and exclude observation
         noise. A successful call retains its inputs and query draws for
-        ``build_idata`` and ``plot``, without sampling context or converting to a
-        DataTree. Failed calls preserve the last successful prediction and export.
+        ``build_idata``, ``response_curves`` and ``plot``, without sampling context or
+        converting to a DataTree, and drops the previous prediction's response curves.
+        Failed calls preserve the last successful prediction, export and curves.
         Runtime snapshots are never included in ``save_pretrained``.
         """
         from pymc_mfm.inference.api import decompose
@@ -637,6 +641,7 @@ class MFM(nn.Module):
         )
         self._prediction_snapshot = prediction
         self._context_decomposition = None
+        self._response_curves = None
         self._idata = None
         return query
 
@@ -726,6 +731,42 @@ class MFM(nn.Module):
         if store:
             self._idata = tree
         return tree
+
+    def response_curves(
+        self,
+        *,
+        levels: Sequence[float] | None = None,
+        channels: Sequence[str] | None = None,
+        weeks: int | None = None,
+        n_samples: int | None = None,
+    ) -> ResponseCurves:
+        """Each channel's contribution as its spend in the first forecast weeks scales.
+
+        Needs a successful ``inference``. For each of ``channels`` (default: every
+        channel column) and each spend multiplier in ``levels`` (finite, nonnegative,
+        sorted and deduplicated; default 0, 0.25, ..., 2), that channel's spend in the
+        first ``weeks`` forecast weeks (default: all of them) is multiplied by the level,
+        history and every other input kept as given to ``inference``, and those weeks
+        are decomposed again; each draw sums the channel's contribution over them.
+        Level 1, when listed, is one unchanged-input run that every channel shares;
+        every other level runs once per channel. Each run draws ``n_samples`` (default:
+        the inference's) with the inference's mode, router samples, units and
+        provenance; a ``mode="fixed"`` inference reuses its graphs, one per draw, so
+        ``n_samples`` must equal its draw count.
+
+        Draws come from PyTorch's global random generator: call ``torch.manual_seed``
+        first to repeat them. Levels are sampled separately, so draws are not paired
+        across levels and intervals are pointwise. These are conditional contributions,
+        not causal lift, and exclude observation noise. The result is kept for
+        ``plot.response_curves`` until a successful ``add_context`` or ``inference``;
+        a failed call keeps the previous curves.
+        """
+        from pymc_mfm.inference.curves import response_curves
+
+        self._response_curves = response_curves(
+            self, levels=levels, channels=channels, weeks=weeks, n_samples=n_samples
+        )
+        return self._response_curves
 
     def compile_sampling(self, mode: str = "default", *, dynamic: bool | None = True) -> MFM:
         """Compile the flow velocity that sampling evaluates, for faster repeated calls.
