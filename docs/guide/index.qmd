@@ -77,9 +77,10 @@ query.component_names
 ```
 
 `random_seed` replays the same random numbers: the same seed and inputs give the same
-draws. The outputs agree up to floating-point round-off. They can differ in the last
-digits across devices, thread counts, and compiled or eager runs. On a CPU with the
-same thread count, a repeat gives the same result. A seeded call uses its own generator and does not change PyTorch's global random state. In
+draws. The outputs agree up to floating-point round-off. They can differ slightly
+across devices, thread counts, and compiled or eager runs. On a CPU with the
+same thread count, a repeat gives the same result. A seeded call uses its own generator
+and does not draw from or seed PyTorch's global random state. After `compile_sampling()`, PyTorch itself saves and restores the global state while it compiles, which can undo global draws that another thread makes in that time. In
 `inference` the context window continues the query window's stream. The tree (`idata`)
 records the seed; the result of `predict` or `decompose` does not. Without `random_seed`,
 a call draws from PyTorch's global generator and advances it, so each call gives new draws.

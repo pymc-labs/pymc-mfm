@@ -271,4 +271,4 @@ result = decompose(model, observations, n_samples=1_000)
 print(model.sampling_status)
 ```
 
-Sampling remains eager until `compile_sampling()` is called. New input kinds can still compile on their first use, and a compiler failure returns sampling to eager mode with its reason in `sampling_status.fallback`. Compiled draws follow the eager distribution up to floating-point round-off but are not bit-identical. CPU compilation usually does not speed sampling.
+Sampling remains eager until `compile_sampling()` is called. New input kinds can still compile on their first use, and a compiler failure returns sampling to eager mode with its reason in `sampling_status.fallback`. Compiled draws follow the eager distribution up to floating-point round-off but are not bit-identical. While it compiles, PyTorch saves and restores its global random state, so global draws that another thread makes in that time can repeat: warm up before other threads sample. CPU compilation usually does not speed sampling.

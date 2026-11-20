@@ -142,8 +142,8 @@ def decompose(
     not thresholded auxiliary-head probabilities. This call does not promise
     calibrated business attribution, predictive observation noise, or a paired
     context/query posterior. ``random_seed`` replays the same random numbers: the call
-    draws from its own generator and does not change PyTorch's global random state.
-    The outputs agree up to floating-point round-off. They can differ in the last digits
+    uses its own generator and does not draw from or seed PyTorch's global random state.
+    The outputs agree up to floating-point round-off. They can differ slightly
     across devices, thread counts, and compiled or eager runs. On a CPU with the
     same thread count, a repeat gives the same result. With ``None`` the call draws from the
     global generator and advances it. The result does not record the seed; only the

@@ -83,10 +83,11 @@ query.component_names  # ('baseline', 'channel:search', 'channel:social', ..., '
 ```
 
 `random_seed` replays the same random numbers: the same seed and inputs give the same
-draws. The outputs agree up to floating-point round-off. They can differ in the last
-digits across devices, thread counts, and compiled or eager runs. On a CPU with the
-same thread count, a repeat gives the same result. A seeded call uses its own generator and does not change PyTorch's global random state, so
-other models and `torch` calls cannot disturb it. In `inference` the context window
+draws. The outputs agree up to floating-point round-off. They can differ slightly
+across devices, thread counts, and compiled or eager runs. On a CPU with the
+same thread count, a repeat gives the same result. A seeded call uses its own generator
+and does not draw from or seed PyTorch's global random state, so other models and `torch`
+calls cannot disturb it. After `compile_sampling()`, PyTorch itself saves and restores the global state while it compiles, which can undo global draws that another thread makes in that time. In `inference` the context window
 continues the query window's stream. The model tree (`idata`) records the seed; the result
 of `predict` or `decompose` does not, so keep the seed yourself if you save one. Without
 `random_seed`, a call draws from PyTorch's global generator and advances it, so
@@ -497,7 +498,9 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 - Compiled draws follow the eager distribution; they agree with eager draws up to
   float round-off but are not bit-identical. With a fixed seed, a call replays the same
   random numbers, including a call that compiles. Without a seed, sampling uses PyTorch's
-  process-wide random generator, so run warm-up before other threads sample.
+  process-wide random generator, so run warm-up before other threads sample. While it
+  compiles, PyTorch saves and restores that generator's state, so global draws that another
+  thread makes in that time can repeat.
 - PyTorch's compile cache (`TORCHINDUCTOR_CACHE_DIR`) lets a restarted process reuse
   earlier compilations. A compiler failure warns, returns the model to eager sampling and
   shows in `sampling_status.fallback`. `model.disable_compiled_sampling()` switches it off.

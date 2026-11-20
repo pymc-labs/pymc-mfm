@@ -606,10 +606,11 @@ class MFM(nn.Module):
 
         ``random_seed`` (0 to 2**31-1) replays the same random numbers: the same seed and
         inputs give the same draws. The outputs agree up to floating-point round-off. They can
-        differ in the last digits across devices, thread counts, and compiled or eager runs.
+        differ slightly across devices, thread counts, and compiled or eager runs.
         On a CPU with the same thread count, a repeat gives the same result. A seeded call
-        uses its own generator and does not change PyTorch's global random state, so other
-        models and ``torch`` calls cannot disturb it. The context window continues the query
+        uses its own generator and does not draw from or seed PyTorch's global random state,
+        so other models and ``torch`` calls cannot disturb it (``compile_sampling`` states
+        one limit). The context window continues the query
         window's stream, so one seed covers both. ``idata`` records the seed; the results
         of ``predict`` and ``decompose`` do not. With ``random_seed=None`` the call draws
         from PyTorch's global generator and advances it, so a ``torch.manual_seed`` call
@@ -862,9 +863,9 @@ class MFM(nn.Module):
 
         ``random_seed`` (0 to 2**31-1) replays the same random numbers: all runs of the
         sweep draw from one stream that the seed starts. The outputs agree up to floating-point
-        round-off. They can differ in the last digits across devices, thread counts, and
+        round-off. They can differ slightly across devices, thread counts, and
         compiled or eager runs. On a CPU with the same thread count, a repeat gives the
-        same result. A seeded call does not change
+        same result. A seeded call does not draw from or seed
         PyTorch's global random state. ``idata`` records the seed. With
         ``random_seed=None`` the runs draw from PyTorch's global generator and advance
         it. Levels are sampled separately, so draws are not paired across levels and
