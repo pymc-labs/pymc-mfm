@@ -7,6 +7,9 @@ distribution prerequisites, not an approved or published release.
 
 ## Current changes
 
+- **Default sampling is 1,000 draws.** `DEFAULT_N_SAMPLES` falls from 2,000 to
+  1,000, so every public sampling call that omits `n_samples` draws 1,000 samples
+  and takes about half the time. Pass `n_samples=2_000` to keep the old count.
 - **Complete paired inference and automatic idata.**
   `model.inference(context, query, date_column=..., target_column=...,
   channel_columns=..., control_columns=...)` samples query and context and

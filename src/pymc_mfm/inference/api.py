@@ -148,7 +148,7 @@ def decompose(
     same thread count, a repeat gives the same result. With ``None`` the call draws from the
     global generator and advances it. The result does not record the seed; only the
     ``MFM.inference`` tree does, and there the context window continues the query window's
-    stream. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
+    stream. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (1,000) conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
     return _decompose(

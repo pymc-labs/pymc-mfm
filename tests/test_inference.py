@@ -585,11 +585,11 @@ def test_decomposition_restores_units_without_changing_graphs(
     assert replay.units == "rescaled sales"
 
 
-def test_default_draw_count_is_2000_on_every_public_sampling_signature():
+def test_default_draw_count_is_1000_on_every_public_sampling_signature():
     from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, JointFlowHead
     from pymc_mfm.model.model import MFM
 
-    assert DEFAULT_N_SAMPLES == 2000
+    assert DEFAULT_N_SAMPLES == 1000
     for fn in (
         decompose,
         MFM.inference,
@@ -599,4 +599,4 @@ def test_default_draw_count_is_2000_on_every_public_sampling_signature():
         MFM.sample,
         JointFlowHead.sample,
     ):
-        assert inspect.signature(fn).parameters["n_samples"].default == 2000, fn.__qualname__
+        assert inspect.signature(fn).parameters["n_samples"].default == 1000, fn.__qualname__

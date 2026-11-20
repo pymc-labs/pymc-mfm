@@ -175,7 +175,7 @@ on the inputs, not causal lift.
 
 ### Number of draws
 
-`n_samples` defaults to 2,000 draws for each marginal in complete inference and for
+`n_samples` defaults to 1,000 draws for each marginal in complete inference and for
 query-only prediction. Summaries from few draws change between runs: on the
 River-1 quickstart world, the posterior-mean contribution of one channel moved by
 up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws and by 3% at
@@ -187,7 +187,7 @@ and 150 query weeks. A full paired inference additionally samples context and
 constructs/stores its tree; these timings do not measure that complete operation.
 Memory also grows with draws: CPU sampling holds every draw's noise
 for every task at once, so split a large `predict_batch` into smaller batches or lower
-`n_samples`. For numbers you report, keep the default (2,000 draws) or raise it, and seed
+`n_samples`. For numbers you report, keep the default (1,000 draws) or raise it, and seed
 the call. For a quick look, pass a smaller count:
 
 ```python
