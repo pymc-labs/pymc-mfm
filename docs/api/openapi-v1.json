@@ -4823,8 +4823,8 @@
             "type": "array"
           },
           "draws": {
-            "default": 2000,
-            "description": "100 to 2000. Default 2000.",
+            "default": 1000,
+            "description": "100 to 2000. Default 1000.",
             "maximum": 2000,
             "minimum": 100,
             "type": "integer"
@@ -4928,8 +4928,8 @@
             "type": "array"
           },
           "draws": {
-            "default": 2000,
-            "description": "100 to 2000. Default 2000.",
+            "default": 1000,
+            "description": "100 to 2000. Default 1000.",
             "maximum": 2000,
             "minimum": 100,
             "type": "integer"
@@ -5722,8 +5722,8 @@
             "type": "array"
           },
           "draws": {
-            "default": 2000,
-            "description": "100 to 2000. Default 2000.",
+            "default": 1000,
+            "description": "100 to 2000. Default 1000.",
             "maximum": 2000,
             "minimum": 100,
             "type": "integer"
