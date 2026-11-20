@@ -609,6 +609,7 @@ def test_exported_names():
     )
 
 
+@pytest.mark.usefixtures("matplotlib_backend")
 def test_a_plot_property_that_calls_model_plots_returns_a_live_accessor(chart_frames):
     import warnings
 
@@ -748,6 +749,7 @@ def test_the_curve_amounts_are_the_stored_media_by_channel_and_level(predicted_m
         ),
     ],
 )
+@pytest.mark.usefixtures("matplotlib_backend")
 def test_curve_media_labels_that_do_not_match_the_curves_raise(predicted_model, change, message):
     predicted_model.response_curves(levels=[0, 0.5, 2], weeks=2, n_samples=4)
     changed = _edit(predicted_model.idata, "/response_curves/constant_data", change)
@@ -772,6 +774,7 @@ def without_tv(predicted_model):
     return predicted_model.idata, changed
 
 
+@pytest.mark.usefixtures("matplotlib_backend")
 def test_a_missing_component_descriptor_raises_instead_of_dropping_a_contribution(without_tv):
     tree, changed = without_tv
     # The channels contribute different amounts, so a dropped one would change the fit.
@@ -809,6 +812,7 @@ def test_a_descriptor_for_a_channel_the_tree_does_not_name_raises(predicted_mode
 
 @pytest.mark.parametrize("label", ["baseline", "indirect:cc"])
 @pytest.mark.parametrize("window", ["context", "query"])
+@pytest.mark.usefixtures("matplotlib_backend")
 def test_a_posterior_contribution_without_a_descriptor_raises(predicted_model, label, window):
     """A baseline or indirect draw that no descriptor names would be left out of the sum."""
     variable = label.replace(":", "_")
