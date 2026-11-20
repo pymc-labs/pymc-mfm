@@ -189,7 +189,11 @@ def _decompose(
     # Before any module mode change: a bad seed must leave the model as it was.
     random_seed = _random_seed(random_seed)
     if not isinstance(observations, Mapping):
-        raise ValueError("observations must be a mapping")
+        raise ValueError(
+            "observations must be a mapping of arrays. For pandas input, use "
+            "model.inference(context, query, date_column=..., target_column=..., "
+            "channel_columns=..., control_columns=...)"
+        )
     parameter = next(model.parameters())
     if "ctx_spend_z" in observations or "spend" not in observations:
         if not all(isinstance(key, str) for key in observations):

@@ -117,6 +117,9 @@ def test_validate_rejects_a_newer_schema_with_an_upgrade_hint(tree):
 def test_validate_rejects_a_missing_role_attribute(tree):
     with pytest.raises(ValueError, match=r"^/: attribute 'control_columns' is missing"):
         validate_idata(_without(tree, "/", "control_columns"))
+    # A tree from another tool, such as ArviZ, has no schema version at all.
+    with pytest.raises(ValueError, match=r"'schema_version' is missing; this is not a pymc-mfm"):
+        validate_idata(_without(tree, "/", "schema_version"))
 
 
 def test_validate_rejects_role_attributes_that_disagree_with_the_variables(tree):
@@ -438,8 +441,10 @@ def test_a_seeded_file_validates_with_torch_blocked(seeded, tmp_path):
 def test_save_never_overwrites_and_leaves_no_temporary_file(tree, tmp_path):
     path = tmp_path / "tree.nc"
     path.write_bytes(b"keep me")
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError) as caught:
         save_idata(tree, path)
+    assert caught.value.filename == str(path)
+    assert ".tmp" not in str(caught.value)
     assert path.read_bytes() == b"keep me"
     assert list(tmp_path.iterdir()) == [path]
 

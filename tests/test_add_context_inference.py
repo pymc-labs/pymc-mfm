@@ -591,11 +591,15 @@ def test_inference_requires_both_frames_and_explicit_roles_without_consuming_rng
     ],
 )
 def test_inference_rejects_invalid_role_schemas_before_rng_consumption(
-    model, history, future, roles
+    model, history, future, roles, request
 ):
     history = history.assign(extra_control=1.0, another_control=2.0)
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    needs_one = {
+        "no-channels": "channel_columns needs at least one column name",
+        "no-controls": "control_columns needs at least one column name",
+    }
+    with pytest.raises(ValueError, match=needs_one.get(request.node.callspec.id)):
         model.inference(history, future, **{**COLUMN_ROLES, **roles}, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
@@ -619,17 +623,24 @@ def test_inference_rejects_invalid_context_table_shapes(model, history, future, 
 
 
 @pytest.mark.parametrize(
-    ("column", "value"),
-    [("search", -1e-50), ("sales", 0.0), ("temperature", np.inf), ("tv", 1 + 2j)],
+    ("column", "value", "message"),
+    [
+        ("search", -1e-50, r"negative values in \['search'\]"),
+        ("sales", 0.0, "'sales' has zero or negative values"),
+        ("temperature", np.inf, r"\['temperature'\] must contain finite"),
+        ("tv", 1 + 2j, "'tv' must contain finite"),
+    ],
 )
-def test_inference_validates_raw_context_numeric_domains(model, history, future, column, value):
+def test_inference_validates_raw_context_numeric_domains(
+    model, history, future, column, value, message
+):
     values = history[column].to_numpy(
         dtype=complex if isinstance(value, complex) else float, copy=True
     )
     values[0] = value
     history[column] = values
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 
@@ -648,6 +659,11 @@ def test_preflight_and_inference_validate_canonical_context_representation(model
     "problem", ["missing", "invalid", "numeric", "aware", "duplicate", "irregular"]
 )
 def test_inference_rejects_invalid_or_irregular_context_dates(model, history, future, problem):
+    message = (
+        r"first break is after \d{4}-\d\d-\d\d: expected \d{4}-\d\d-\d\d, found \d{4}-\d\d-\d\d$"
+        if problem == "irregular"
+        else None
+    )
     if problem == "invalid":
         history["date"] = ["not a date", *history["date"].dt.strftime("%Y-%m-%d").tolist()[1:]]
     elif problem == "numeric":
@@ -664,7 +680,7 @@ def test_inference_rejects_invalid_or_irregular_context_dates(model, history, fu
             dates[2] += np.timedelta64(1, "D")
         history["date"] = dates
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         model.inference(history, future, **COLUMN_ROLES, n_samples=2)
     assert torch.equal(torch.get_rng_state(), before)
 

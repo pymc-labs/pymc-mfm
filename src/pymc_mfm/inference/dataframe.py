@@ -31,7 +31,9 @@ def _column_names(value, role: str) -> tuple[str, ...]:
         names = tuple(value)
     except TypeError:
         raise ValueError(f"{role} must be a nonempty sequence of column names") from None
-    if not names or any(not isinstance(name, str) or not name for name in names):
+    if not names:
+        raise ValueError(f"{role} needs at least one column name")
+    if any(not isinstance(name, str) or not name for name in names):
         raise ValueError(f"{role} must contain nonempty string column names")
     if any("\x00" in name for name in names):
         raise ValueError(f"{role} must not contain NUL characters")
@@ -78,11 +80,21 @@ def _numeric_columns(data: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
             raise ValueError(f"{name!r} must contain finite real numeric values")
     values = data.loc[:, list(names)].to_numpy(dtype=np.float64, na_value=np.nan, copy=True)
     if not np.isfinite(values).all():
-        raise ValueError(f"{list(names)} must contain finite real numeric values")
+        bad = [
+            name
+            for name, column in zip(names, values.T, strict=True)
+            if not np.isfinite(column).all()
+        ]
+        raise ValueError(f"{bad} must contain finite real numeric values (no NaN or infinity)")
     for index, name in enumerate(names):
         if (data[name].ne(0) & (values[:, index] == 0)).any():
             raise ValueError(f"{name!r} cannot be represented in float64 without underflow")
     return values
+
+
+def _show(stamp: pd.Timestamp) -> str:
+    """A date without the time when the time is midnight."""
+    return str(stamp.date()) if stamp == stamp.normalize() else str(stamp)
 
 
 def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
@@ -92,8 +104,14 @@ def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if frequency is not None:
         return pd.tseries.frequencies.to_offset(frequency)
     intervals = dates[1:] - dates[:-1]
-    if not (intervals == intervals[0]).all():
-        raise ValueError("context dates must follow a regular frequency without missing periods")
+    irregular = np.flatnonzero(intervals != intervals[0])
+    if irregular.size:
+        before, found = dates[irregular[0]], dates[irregular[0] + 1]
+        raise ValueError(
+            "context dates must follow a regular frequency without missing periods; "
+            f"the first break is after {_show(before)}: expected {_show(before + intervals[0])}, "
+            f"found {_show(found)}"
+        )
     return pd.tseries.frequencies.to_offset(intervals[0])
 
 
@@ -140,8 +158,15 @@ class _FittedContext:
         spend = _numeric_columns(frame, channels)
         represented_controls = _numeric_columns(frame, controls)
         outcome = _numeric_columns(frame, (target_column,))[:, 0]
-        if np.any(spend < 0) or np.any(outcome <= 0):
-            raise ValueError("channel spend must be nonnegative and context outcomes positive")
+        if np.any(spend < 0):
+            negative = [
+                name for name, column in zip(channels, spend.T, strict=True) if np.any(column < 0)
+            ]
+            raise ValueError(f"channel spend must be nonnegative; negative values in {negative}")
+        if np.any(outcome <= 0):
+            raise ValueError(
+                f"context outcomes must be positive; {target_column!r} has zero or negative values"
+            )
         padded_controls = np.zeros((len(frame), model_config.n_controls), dtype=np.float64)
         padded_controls[:, : len(controls)] = represented_controls
         control_mask = np.arange(model_config.n_controls) < len(controls)
