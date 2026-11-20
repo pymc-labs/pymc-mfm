@@ -7,9 +7,15 @@ from typing import TYPE_CHECKING, Any
 from . import fit as _fit
 from . import inputs as _inputs
 from . import shares as _shares
+from . import spend as _spend
+from . import totals as _totals
 from ._data import ModelSource
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import pandas as pd
+
     from pymc_mfm.model.model import MFM
 
 
@@ -108,4 +114,78 @@ class ModelPlots:
             backend=backend,
             title=title,
             ax=ax,
+        )
+
+    def contribution_totals(
+        self,
+        *,
+        window: str = "context",
+        components: Sequence[str] | None = None,
+        interval: float = 0.9,
+        bins: int = 40,
+        truth: pd.DataFrame | None = None,
+        backend: str | None = None,
+        title: str | None = None,
+    ) -> Any:
+        """How much each component adds over a window: the spread of its total over draws.
+
+        One panel per component: a histogram of its per-draw totals (each draw's
+        weekly contributions summed over the window), with their mean (solid line),
+        central ``interval`` (shaded) and, with ``truth``, the true total (dashed).
+
+        Needs ``inference``. ``window`` is ``"context"`` (the history weeks) or
+        ``"query"`` (the forecast weeks, which never samples the context).
+        ``components`` are display names of any family (``"baseline"``, a channel or
+        control, ``"latent"``, ``"indirect:cc"``...); every channel and control by
+        default. ``bins`` is the number of histogram bins per panel (or any ``bins``
+        :func:`numpy.histogram` accepts). ``truth`` holds known contributions, from a
+        simulation say: a DataFrame indexed by date with one column per display name.
+        A drawn component's column needs a value in every week of the window, whose
+        sum is its true total. ``interval`` is a fraction between 0 and 1.
+        """
+        return _totals.contribution_totals(
+            self._source,
+            window=window,
+            components=components,
+            interval=interval,
+            bins=bins,
+            truth=truth,
+            backend=backend,
+            title=title,
+        )
+
+    def contribution_vs_spend(
+        self,
+        *,
+        window: str = "context",
+        channels: Sequence[str] | None = None,
+        interval: float = 0.9,
+        truth: pd.DataFrame | None = None,
+        backend: str | None = None,
+        title: str | None = None,
+    ) -> Any:
+        """Each channel's weekly contribution against its weekly spend, a panel each.
+
+        Each point is a week: the channel's raw spend and the mean of its
+        contribution draws, with a light bar over their central ``interval``;
+        ``truth`` weeks are black crosses at the same spend. A week's contribution
+        also depends on earlier spend (carryover), so the points need not lie on one
+        curve. The panels share the contribution axis.
+
+        Needs ``inference``. ``window`` is ``"context"`` (the history weeks) or
+        ``"query"`` (the forecast weeks, which never samples the context).
+        ``channels`` are channel display names, all by default. ``truth`` holds known
+        contributions: a DataFrame indexed by date with one column per display name;
+        its channel columns are drawn, and weeks it lacks get no cross (a drawn
+        channel's column needs a value in at least one week of the window).
+        ``interval`` is a fraction between 0 and 1.
+        """
+        return _spend.contribution_vs_spend(
+            self._source,
+            window=window,
+            channels=channels,
+            interval=interval,
+            truth=truth,
+            backend=backend,
+            title=title,
         )

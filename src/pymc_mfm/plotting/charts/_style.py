@@ -61,9 +61,14 @@ def compact(value: float) -> str:
     return f"{value:.3g}"
 
 
-def caption(interval: float, n_samples: int) -> str:
-    """How to read the draws a chart summarizes."""
+def caption(interval: float, n_samples: int, *, pointwise: bool = True) -> str:
+    """How to read the draws a chart summarizes.
+
+    ``pointwise`` intervals are drawn per week or per level, not as a joint band; a
+    chart of one quantity per series (a share, a window total) passes ``False``.
+    """
+    kind = "pointwise intervals" if pointwise else "central intervals"
     return (
-        f"{interval:.0%} pointwise intervals over {n_samples:,} draws · "
+        f"{interval:.0%} {kind} over {n_samples:,} draws · "
         "expected outcome, without observation noise"
     )

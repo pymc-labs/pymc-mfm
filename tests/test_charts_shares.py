@@ -140,7 +140,7 @@ def test_shares_of_a_hand_made_window(share, per_draw, left_out, note, xlabel):
     np.testing.assert_allclose(data.mean, np.mean(per_draw, axis=0))
     np.testing.assert_allclose((data.low, data.high), np.quantile(per_draw, [0.1, 0.9], axis=0))
     assert (data.left_out_draws, data.left_out_draw_weeks) == left_out
-    assert data.caption == (caption(0.8, len(per_draw)), CAVEAT, note)
+    assert data.caption == (caption(0.8, len(per_draw), pointwise=False), CAVEAT, note)
     assert data.xlabel == xlabel
 
 

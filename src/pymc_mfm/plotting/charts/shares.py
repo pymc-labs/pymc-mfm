@@ -196,7 +196,7 @@ def prepare_window(
             if share == "mean"
             else f"Share of expected {data.target} over the {weeks}"
         ),
-        caption=(caption(interval, len(shares)), CAVEAT, *spread_note, *notes),
+        caption=(caption(interval, len(shares), pointwise=False), CAVEAT, *spread_note, *notes),
         title=title or f"How does each driver contribute to {data.target}?",
     )
 
