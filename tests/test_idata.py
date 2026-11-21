@@ -444,7 +444,7 @@ def test_save_never_overwrites_and_leaves_no_temporary_file(tree, tmp_path):
     with pytest.raises(FileExistsError) as caught:
         save_idata(tree, path)
     assert caught.value.filename == str(path)
-    assert ".tmp" not in str(caught.value)
+    assert caught.value.filename2 is None
     assert path.read_bytes() == b"keep me"
     assert list(tmp_path.iterdir()) == [path]
 

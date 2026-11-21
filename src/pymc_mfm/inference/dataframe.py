@@ -97,6 +97,24 @@ def _show(stamp: pd.Timestamp) -> str:
     return str(stamp.date()) if stamp == stamp.normalize() else str(stamp)
 
 
+def _show_interval(interval: pd.Timedelta) -> str:
+    if interval % pd.Timedelta(days=1):
+        return str(interval)
+    return f"{interval.days} day" + ("" if interval.days == 1 else "s")
+
+
+def _regular_prefix(dates: pd.DatetimeIndex) -> int:
+    """The length of the longest leading run of ``dates`` with one inferred frequency."""
+    regular, irregular = 2, len(dates)
+    while irregular - regular > 1:
+        middle = (regular + irregular) // 2
+        if pd.infer_freq(dates[:middle]) is None:
+            irregular = middle
+        else:
+            regular = middle
+    return regular
+
+
 def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if len(dates) < 2:
         raise ValueError("context needs at least two dated rows to determine frequency")
@@ -104,13 +122,16 @@ def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if frequency is not None:
         return pd.tseries.frequencies.to_offset(frequency)
     intervals = dates[1:] - dates[:-1]
-    irregular = np.flatnonzero(intervals != intervals[0])
-    if irregular.size:
-        before, found = dates[irregular[0]], dates[irregular[0] + 1]
+    if (intervals != intervals[0]).any():
+        # Report only observed dates: a calendar frequency such as month-end has unequal
+        # day counts, and adding an interval to a date can leave the Timestamp range.
+        middle = _regular_prefix(dates) - 1
+        first, second, third = dates[middle - 1], dates[middle], dates[middle + 1]
         raise ValueError(
             "context dates must follow a regular frequency without missing periods; "
-            f"the first break is after {_show(before)}: expected {_show(before + intervals[0])}, "
-            f"found {_show(found)}"
+            f"the spacing changes at {_show(second)}: {_show(first)} to {_show(second)} is "
+            f"{_show_interval(second - first)}, then {_show(second)} to {_show(third)} is "
+            f"{_show_interval(third - second)}"
         )
     return pd.tseries.frequencies.to_offset(intervals[0])
 

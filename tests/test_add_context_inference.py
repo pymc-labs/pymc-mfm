@@ -660,7 +660,8 @@ def test_preflight_and_inference_validate_canonical_context_representation(model
 )
 def test_inference_rejects_invalid_or_irregular_context_dates(model, history, future, problem):
     message = (
-        r"first break is after \d{4}-\d\d-\d\d: expected \d{4}-\d\d-\d\d, found \d{4}-\d\d-\d\d$"
+        "spacing changes at 2024-01-08: 2024-01-01 to 2024-01-08 is 7 days, "
+        "then 2024-01-08 to 2024-01-16 is 8 days$"
         if problem == "irregular"
         else None
     )
@@ -679,6 +680,39 @@ def test_inference_rejects_invalid_or_irregular_context_dates(model, history, fu
         else:
             dates[2] += np.timedelta64(1, "D")
         history["date"] = dates
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError, match=message):
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+@pytest.mark.parametrize(
+    ("dates", "message"),
+    [
+        pytest.param(
+            ["2024-01-01", "2024-01-15", "2024-01-22", "2024-01-29"],
+            "spacing changes at 2024-01-15: 2024-01-01 to 2024-01-15 is 14 days, "
+            "then 2024-01-15 to 2024-01-22 is 7 days$",
+            id="weekly-missing-second-week",
+        ),
+        pytest.param(
+            ["2023-12-31", "2024-01-31", "2024-02-29", "2024-04-30"],
+            "spacing changes at 2024-02-29: 2024-01-31 to 2024-02-29 is 29 days, "
+            "then 2024-02-29 to 2024-04-30 is 61 days$",
+            id="month-end-missing-march",
+        ),
+        pytest.param(
+            ["2262-04-08", "2262-04-10", "2262-04-11"],
+            "spacing changes at 2262-04-10: 2262-04-08 to 2262-04-10 is 2 days, "
+            "then 2262-04-10 to 2262-04-11 is 1 day$",
+            id="timestamp-upper-bound",
+        ),
+    ],
+)
+def test_irregular_context_dates_name_observed_intervals_only(
+    model, history, future, dates, message
+):
+    history = history.iloc[: len(dates)].assign(date=pd.to_datetime(dates))
     before = torch.get_rng_state()
     with pytest.raises(ValueError, match=message):
         model.inference(history, future, **COLUMN_ROLES, n_samples=2)
