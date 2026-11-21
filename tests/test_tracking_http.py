@@ -33,7 +33,7 @@ HTTP_VARIABLES = (
     "MLFLOW_HTTP_REQUEST_BACKOFF_JITTER",
     "MLFLOW_HTTP_RESPECT_RETRY_AFTER_HEADER",
 )
-# Seconds a busy backend asks a client to wait: far longer than MFM's 0 s / 2 s backoff.
+# Seconds a busy backend asks a client to wait: far longer than MKTFM's 0 s / 2 s backoff.
 RETRY_AFTER = 10
 
 
@@ -402,7 +402,7 @@ def test_unreachable_backend_costs_one_bounded_start_and_nothing_after(tmp_path,
     with pytest.warns(RuntimeWarning):
         result = tiny_run(out, tracking=TrackingConfig(tracking_uri=server.uri, diagnostics=False))
     assert result.status == "finished"
-    # MFM defaults: an immediate first retry, then backoff 1 s * 2 without jitter.
+    # MKTFM defaults: an immediate first retry, then backoff 1 s * 2 without jitter.
     accepted = server.connections()
     assert len(accepted) == 3
     assert accepted[1] - accepted[0] < 0.5
@@ -454,7 +454,7 @@ def test_retry_after_does_not_stretch_the_backoff(tmp_path, backend):
     # Each answer asks for RETRY_AFTER s, as a rate-limited or overloaded server does.
     server = backend("serve", busy="/experiments/get-by-name")
     start_and_end(MlflowTrainingObserver(tmp_path, TrackingConfig(tracking_uri=server.uri)), "busy")
-    # MFM's backoff still applies: an immediate first retry, then 1 s * 2.
+    # MKTFM's backoff still applies: an immediate first retry, then 1 s * 2.
     accepted = server.connections()
     assert len(accepted) == 3
     assert accepted[1] - accepted[0] < 0.5

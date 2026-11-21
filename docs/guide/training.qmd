@@ -1,6 +1,6 @@
 ---
 title: "Train a network"
-description: "Prepare a simulated corpus and train one amortized PyMC MFM network."
+description: "Prepare a simulated corpus and train one amortized PyMC-MKTFM network."
 ---
 
 ## Corpus contract

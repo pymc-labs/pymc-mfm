@@ -1,6 +1,6 @@
-# PyMC MFM
+# PyMC-MKTFM
 
-PyMC MFM trains and runs amortized neural networks for marketing mix
+PyMC-MKTFM trains and runs amortized neural networks for marketing mix
 decomposition. A trained network reads one time series (media spend, controls
 and the observed outcome) and returns posterior draws of each component's
 contribution: baseline, each channel, each control and unobserved factors.

@@ -1,5 +1,5 @@
 ---
-pagetitle: "PyMC MFM: Train once, decompose many."
+pagetitle: "PyMC-MKTFM: Train once, decompose many."
 description: "Amortized neural networks for Bayesian marketing-mix decomposition: posterior draws of every contribution, with the causal graph behind each draw."
 page-layout: custom
 title-block-style: none
@@ -28,7 +28,7 @@ css:
     <!-- The line wraps to the width of the name (landing.css). Every few seconds the first word
          glitches into "Bayesian" and back (landing.js). -->
     <div class="mktfm-hero__name" data-mktfm="name">
-      <h1 id="mktfm-hero-title" class="mktfm-hero__title" aria-label="PyMC MFM"><span class="mktfm-hero__word mktfm-glitch" data-mktfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mktfm-hero__word" aria-hidden="true">MFM</span></h1>
+      <h1 id="mktfm-hero-title" class="mktfm-hero__title" aria-label="PyMC-MKTFM"><span class="mktfm-hero__word mktfm-glitch" data-mktfm="glitch" data-text="PyMC" aria-hidden="true">PyMC</span> <span class="mktfm-hero__word" aria-hidden="true">MKTFM</span></h1>
       <p class="mktfm-hero__line">Marketing foundational models by PyMC&nbsp;Labs.<br>Train once, decompose many.</p>
     </div>
     <div class="mktfm-hero__actions">

@@ -1,11 +1,11 @@
 ---
 title: "How it works"
-description: "Understand the amortized encoder, graph router, and flow decoder behind PyMC MFM draws."
+description: "Understand the amortized encoder, graph router, and flow decoder behind PyMC-MKTFM draws."
 ---
 
 ## Amortized inference
 
-PyMC MFM learns an inference procedure from simulated worlds rather than fitting a new model to each observed dataset. Training teaches one network to map an observed history and query covariates to decomposition draws. Adding context to a loaded [MFM](../reference/model.MFM.qmd) replaces its observed history and column roles; it does not optimize model weights.
+PyMC-MKTFM learns an inference procedure from simulated worlds rather than fitting a new model to each observed dataset. Training teaches one network to map an observed history and query covariates to decomposition draws. Adding context to a loaded [MKTFM](../reference/model.MFM.qmd) replaces its observed history and column roles; it does not optimize model weights.
 
 ## Context and query windows
 

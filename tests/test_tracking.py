@@ -55,7 +55,7 @@ def test_installed_code_identity_ignores_an_enclosing_applications_git_history(
             "-c",
             "core.hooksPath=/dev/null",
             "-c",
-            "user.name=MFM test",
+            "user.name=MKTFM test",
             "-c",
             "user.email=test@example.invalid",
             "-c",

@@ -1,6 +1,6 @@
 # Agent and contributor instructions
 
-PyMC MFM is a library that will be published. Everything Git tracks here, including
+PyMC-MKTFM is a library that will be published. Everything Git tracks here, including
 history, pull request heads, CI logs and built archives, must be safe to publish.
 
 ## Set up

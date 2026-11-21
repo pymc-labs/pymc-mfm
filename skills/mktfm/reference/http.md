@@ -1,4 +1,4 @@
-# MFM API over HTTP
+# MKTFM API over HTTP
 
 For agents without Python. The Python client in `SKILL.md` makes the same calls. The reading
 rules, limits and deletion rules in `SKILL.md` apply here too.

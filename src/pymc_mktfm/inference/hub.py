@@ -1,4 +1,4 @@
-"""Optional Hub transport over the same strict local MFM bundle contract."""
+"""Optional Hub transport over the same strict local MKTFM bundle contract."""
 
 from __future__ import annotations
 
@@ -299,7 +299,7 @@ def list_profiles(
             "revision": commit,
         }
     if not profiles:
-        raise FileNotFoundError("no MFM bundles were found in the selected directory or snapshot")
+        raise FileNotFoundError("no MKTFM bundles were found in the selected directory or snapshot")
     return profiles
 
 
@@ -417,7 +417,7 @@ def _corpus_section(plan: ShardPlan | None) -> str:
         ("plan.worlds", plan.worlds),
         *((f"prior.{field}", payload[field]) for field in _CORPUS_FIELDS),
     ]
-    return f"""The maintainer who rendered this card named MFM's shard plan
+    return f"""The maintainer who rendered this card named MKTFM's shard plan
 `{plan.name}` as the training corpus. Shard `i` is one generator call with seed
 `plan.first_seed + i * plan.seed_stride`; regenerate it into directory `<dir>` with
 `python -m pymc_mktfm.data generate --profile {plan.name} --shard <i> --out <dir>`.
@@ -534,7 +534,7 @@ def _bundle_card(
     return f"""{_front_matter(license)}
 # Marketing Foundation Model{title}
 
-A complete trainable graph-conditional MFM artifact, including the shared
+A complete trainable graph-conditional MKTFM artifact, including the shared
 encoder, joint graph router, auxiliary structure head, graph conditioner,
 and conditional decomposition decoder. Profiles are artifacts of this same
 fixed architecture trained on different corpora, not alternative model
@@ -609,7 +609,7 @@ def _collection_card(profiles: list[str], *, license: str, repo_id: str | None) 
     return f"""{_front_matter(license)}
 # Marketing Foundation Model collection
 
-Every profile below is an artifact of the same fixed graph-conditional MFM
+Every profile below is an artifact of the same fixed graph-conditional MKTFM
 architecture, trained on its own corpus. Each profile's model card describes its
 architecture, training corpus, recorded training evaluation, provenance and
 limitations.
@@ -847,5 +847,5 @@ def push_to_hub(
             revision=revision,
             parent_commit=info.sha,
             operations=operations,
-            commit_message="Upload complete MFM model artifact",
+            commit_message="Upload complete MKTFM model artifact",
         )

@@ -22,7 +22,7 @@ from pymc_mktfm.inference import decompose
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", type=Path, required=True, help="Local MFM bundle directory")
+    parser.add_argument("--model", type=Path, required=True, help="Local MKTFM bundle directory")
     parser.add_argument("--observations", type=Path, required=True, help="Observation-only JSON")
     parser.add_argument("--out", type=Path, required=True, help="New output directory")
     parser.add_argument("--samples", type=int, default=32)

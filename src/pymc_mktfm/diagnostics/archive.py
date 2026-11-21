@@ -1554,7 +1554,7 @@ class EvaluationArchive:
     def to_datatree(self, window: str) -> DataTree:
         """Every world of ``window`` as one ArviZ ``xarray.DataTree``; needs ``pymc-mktfm[arviz]``.
 
-        Export only: the archive stays the evidence and MFM never reads a tree back. A
+        Export only: the archive stays the evidence and MKTFM never reads a tree back. A
         ``world`` dimension in archive order (coordinate: the world ids) joins the
         worlds' draws, truth and observations on the union of their time labels and
         active components; ``NaN`` marks a time label or component a world does not

@@ -34,7 +34,7 @@ metadata-files:
   - api/_sidebar.yml
 
 website:
-  title: "PyMC MFM"
+  title: "PyMC-MKTFM"
   description: "Amortized Bayesian marketing-mix decomposition with causal graphs, by PyMC Labs."
   site-url: https://pymc-labs.github.io/pymc-mktfm/
   repo-url: https://github.com/pymc-labs/pymc-mktfm
@@ -55,17 +55,17 @@ website:
     image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mktfm-social.jpg
     image-width: 1200
     image-height: 630
-    image-alt: "PyMC MFM: Train once, decompose many."
+    image-alt: "PyMC-MKTFM: Train once, decompose many."
   twitter-card:
     card-style: summary_large_image
     image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mktfm-social.jpg
     image-width: 1200
     image-height: 630
-    image-alt: "PyMC MFM: Train once, decompose many."
+    image-alt: "PyMC-MKTFM: Train once, decompose many."
   navbar:
-    # The MFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
+    # The MKTFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
     logo: assets/img/logo/mktfm-logo-navy.svg
-    logo-alt: "PyMC MFM home"
+    logo-alt: "PyMC-MKTFM home"
     title: false
     collapse-below: lg
     # The bar stays on screen while the page scrolls under it (glass, site.css).
@@ -92,7 +92,7 @@ website:
             href: models/index.qmd
           - text: "Hugging Face"
             href: https://huggingface.co/pymc-labs/mfm
-      # pymc-labs.com, which carries the PyMC Labs blog too: MFM has no blog of its own.
+      # pymc-labs.com, which carries the PyMC Labs blog too: MKTFM has no blog of its own.
       - text: PyMC Labs
         href: https://www.pymc-labs.com
     right:

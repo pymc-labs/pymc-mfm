@@ -693,7 +693,7 @@ def linear_correct() -> bool:
 
     In a macOS virtual machine (GPU "Apple Paravirtual device"), PyTorch 2.14's MPS computes
     ``F.linear`` with a bias wrongly, 30-80% off at every shape, while products and bias
-    additions on their own are right; every MFM layer is such a linear layer. Checked once,
+    additions on their own are right; every MKTFM layer is such a linear layer. Checked once,
     on a small layer, with its own generator.
     """
     generator = torch.Generator().manual_seed(0)

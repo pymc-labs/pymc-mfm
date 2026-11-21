@@ -42,7 +42,7 @@ notes. Keep every number traceable to one of them.
 
 ::: {.lead}
 We're introducing **River 1.0**, the first Marketing Foundational Model from PyMC Labs and
-the first network for the PyMC MFM library. River reads one weekly marketing table
+the first network for the PyMC-MKTFM library. River reads one weekly marketing table
 (spend per channel, controls and sales) and returns draws of every contribution, with
 the causal graph behind each draw. It needs no new parameter fit: it learned from
 200,000 simulated marketing worlds with known answers, and its weights stay fixed for

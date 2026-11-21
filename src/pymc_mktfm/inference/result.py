@@ -329,7 +329,7 @@ class DecompositionResult:
     def to_datatree(self, *, observed=None, truth=None, graph_truth=None) -> DataTree:
         """These draws as an ArviZ ``xarray.DataTree``; needs the ``pymc-mktfm[arviz]`` extra.
 
-        Export only: ``save`` stays the evidence format and MFM never reads a tree back.
+        Export only: ``save`` stays the evidence format and MKTFM never reads a tree back.
         Groups: ``posterior`` (``components[chain=1, draw, time, component]`` and
         ``graph[chain=1, draw, edge]``, active slots only), ``constant_data`` (component
         and edge families, edge endpoints), ``observed_data`` (``outcome[time]``, from

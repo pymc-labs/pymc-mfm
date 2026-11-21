@@ -78,7 +78,7 @@ def corpus_batch(
     m, j = covariate_shape[2], latent_shape[1]
     if n_worlds < 1 or n_weeks < 2 or min(k, m, j) < 1:
         raise ValueError(
-            "MFM requires worlds, context/query weeks, and positive padded K/M/J sizes"
+            "MKTFM requires worlds, context/query weeks, and positive padded K/M/J sizes"
         )
 
     if rows is None:
@@ -132,14 +132,14 @@ def corpus_batch(
     controls = values("covariates", (n_weeks, m))
     outcome = values("outcome_raw", (n_weeks,)).astype(np.float64)
     if np.any(spend < 0):
-        raise ValueError("treatment_raw must be nonnegative for the MFM representation")
+        raise ValueError("treatment_raw must be nonnegative for the MKTFM representation")
     if np.any(outcome[:, :n_context] <= 0):
         raise ValueError("context outcome_raw must be strictly positive for log observations")
 
     baseline = values("baseline_intrinsic", (n_weeks,)).astype(np.float64)
     direct = values("treatment_contribution_raw", (n_weeks, k)).astype(np.float64)
     if np.any(direct < 0):
-        raise ValueError("treatment_contribution_raw must be nonnegative for the MFM support")
+        raise ValueError("treatment_contribution_raw must be nonnegative for the MKTFM support")
     covariate = values("covariate_contribution", (n_weeks, m)).astype(np.float64)
     latent = values("latent_unobserved_contribution", (n_weeks, j)).astype(np.float64)
     indirect = values("indirect_effects_by_source", (n_weeks, 3)).astype(np.float64)
@@ -187,6 +187,6 @@ def corpus_batch(
         dtype = np.float64 if key == "sales_scale" else np.float32
         array = np.ascontiguousarray(array, dtype=dtype)
         if not np.isfinite(array).all():
-            raise ValueError(f"{key} exceeds the finite MFM representation")
+            raise ValueError(f"{key} exceeds the finite MKTFM representation")
         result[key] = torch.from_numpy(array).to("cpu" if key == "sales_scale" else device)
     return result

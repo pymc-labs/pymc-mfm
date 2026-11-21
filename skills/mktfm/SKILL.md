@@ -1,11 +1,11 @@
 ---
 name: mktfm
-description: Use the MFM API (River-1) to forecast a weekly outcome, backtest past weeks and compare budget scenarios from a weekly marketing history. Use when the user asks to run MFM or River-1, compare spend plans, sweep scenarios, check the fit on past weeks, or draw response curves from weekly spend, controls and an outcome. Covers install, setup, limits, the Python client, showing charts, reading the numbers, errors and deletion.
+description: Use the MKTFM API (River-1) to forecast a weekly outcome, backtest past weeks and compare budget scenarios from a weekly marketing history. Use when the user asks to run MKTFM or River-1, compare spend plans, sweep scenarios, check the fit on past weeks, or draw response curves from weekly spend, controls and an outcome. Covers install, setup, limits, the Python client, showing charts, reading the numbers, errors and deletion. Also known by its old name MFM (marketing foundation model); use this skill for either name.
 ---
 
-# MFM API (River-1)
+# MKTFM API (River-1)
 
-The MFM API (Marketing Foundational Models) runs River-1 on a weekly history of spend, controls and
+The MKTFM API (Marketing Foundational Models) runs River-1 on a weekly history of spend, controls and
 an outcome. One resource, an **analysis**, answers every question: a forecast of a baseline,
 scenarios (budget changes to compare with it) and response curves. The baseline is either a
 **plan** for the weeks after the history, or a **backtest**: weeks the dataset already holds,
@@ -215,7 +215,7 @@ outside the history's 5th to 95th percentile gets a warning, and the model has l
 
 Do not only print tables. Save `plot_compare()` as PNG (the example does this) and show the file to
 the user. Save and show `plot_curves()` only when the user asked for curves. Give the person the
-result link, `analysis.url`, to open the analysis on the MFM API site. If `url` is `None`, give the
+result link, `analysis.url`, to open the analysis on the MKTFM API site. If `url` is `None`, give the
 analysis id instead. Say what each chart is:
 
 - `plot_compare()` draws each scenario's mean difference from its base plan. The bars are simulation

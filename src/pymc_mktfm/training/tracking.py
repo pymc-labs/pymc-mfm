@@ -137,9 +137,9 @@ _HTTP_SHARED: dict[str, Any] = {
 def _apply_http_settings(config: TrackingConfig) -> dict[str, Any] | None:
     """Hold bounded MLflow HTTP settings for one run; describe any adjustment.
 
-    Values resolve as field > caller environment > MFM default. Caller values
+    Values resolve as field > caller environment > MKTFM default. Caller values
     are parsed with MLflow's own getters, so a value MLflow cannot parse falls
-    back to the MFM default instead of failing every request. So does a parsed
+    back to the MKTFM default instead of failing every request. So does a parsed
     value that is non-finite, negative, or a timeout below 1 s: a NaN jitter,
     for example, would make urllib3 sleep its 120 s maximum between retries,
     and MLflow fails every request with a zero timeout. Upper bounds stay

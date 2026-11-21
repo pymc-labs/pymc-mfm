@@ -45,7 +45,7 @@ One call does **not** change the statistical model: context and query remain sep
 
 [PyMC `sample`](https://www.pymc.io/projects/docs/en/stable/api/generated/pymc.sample.html) returns inference data by default. [PyMC-Marketing's inspected `ModelBuilder`](https://github.com/pymc-labs/pymc-marketing/blob/6f88b343a9837e4b68577f30c754819cb90bb36c/pymc_marketing/model_builder.py) stores and returns idata from `fit`, and removes posterior-derived outputs when replacing the posterior. Its prediction helpers illustrate that a convenience result return need not match the main inference return.
 
-Keep this repository's `xarray.DataTree`; do not introduce legacy `arviz.InferenceData` alongside it. Here, “idata” names that tree. PyMC's stable sampling documentation names `InferenceData`; those Python types are not interchangeable. MFM draws are amortized conditional draws, not MCMC samples.
+Keep this repository's `xarray.DataTree`; do not introduce legacy `arviz.InferenceData` alongside it. Here, “idata” names that tree. PyMC's stable sampling documentation names `InferenceData`; those Python types are not interchangeable. MKTFM draws are amortized conditional draws, not MCMC samples.
 
 ## Lifecycle, overwrite and ownership
 

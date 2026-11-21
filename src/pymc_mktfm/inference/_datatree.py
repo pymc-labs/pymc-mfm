@@ -1,12 +1,12 @@
 """ArviZ ``DataTree`` export of conditional draws; xarray and arviz-base load only when called.
 
-Export only. Evidence stays :meth:`DecompositionResult.save` and evaluation archives; MFM
+Export only. Evidence stays :meth:`DecompositionResult.save` and evaluation archives; MKTFM
 never reads a tree back or scores one. Each window is a separate marginal: grouping context
 and query trees never pairs their draws or joins their time axes.
 
 Every group is a plain ``xarray.Dataset`` with explicit dimensions and coordinates (no
 ArviZ ``rcParams`` are consulted) and the standard ArviZ attributes of
-``arviz_base.make_attrs``. MFM attributes are flat text and numbers, never ``None``.
+``arviz_base.make_attrs``. MKTFM attributes are flat text and numbers, never ``None``.
 """
 
 from __future__ import annotations

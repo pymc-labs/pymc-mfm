@@ -30,10 +30,10 @@ REDIRECT = """<!doctype html>
 <meta name="robots" content="noindex">
 <meta http-equiv="refresh" content="0; url=/">
 <link rel="canonical" href="/">
-<title>PyMC MFM</title>
+<title>PyMC-MKTFM</title>
 </head>
 <body>
-<p><a href="/">PyMC MFM</a></p>
+<p><a href="/">PyMC-MKTFM</a></p>
 </body>
 </html>
 """

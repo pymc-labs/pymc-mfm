@@ -1,15 +1,15 @@
 ---
 title: "Get started"
-description: "Install PyMC MFM and produce posterior component draws for one time series."
+description: "Install PyMC-MKTFM and produce posterior component draws for one time series."
 ---
 
-## What PyMC MFM does
+## What PyMC-MKTFM does
 
-PyMC MFM trains and runs amortized neural networks for marketing-mix decomposition. A network is trained once on many simulated worlds, then reads a regularly spaced time series of media spend, controls, and observed outcome. It returns posterior draws of baseline, channel, control, and unobserved-factor contributions, together with a causal graph for each draw. [inference(context, query, ...)](../reference/model.MFM.qmd) conditions on observed history without training or refitting its weights.
+PyMC-MKTFM trains and runs amortized neural networks for marketing-mix decomposition. A network is trained once on many simulated worlds, then reads a regularly spaced time series of media spend, controls, and observed outcome. It returns posterior draws of baseline, channel, control, and unobserved-factor contributions, together with a causal graph for each draw. [inference(context, query, ...)](../reference/model.MFM.qmd) conditions on observed history without training or refitting its weights.
 
 ## Install
 
-PyMC MFM requires Python 3.13 or newer. Install local inference from Git:
+PyMC-MKTFM requires Python 3.13 or newer. Install local inference from Git:
 
 ```bash
 pip install "pymc-mktfm[local] @ git+https://github.com/pymc-labs/pymc-mktfm.git"

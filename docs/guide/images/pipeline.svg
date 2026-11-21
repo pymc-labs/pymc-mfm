@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="310" viewBox="0 0 1200 310" role="img" aria-labelledby="title desc">
-  <title id="title">PyMC MFM inference pipeline</title>
+  <title id="title">PyMC-MKTFM inference pipeline</title>
   <desc id="desc">Observed regularly spaced media spend, controls, and context outcomes flow through a bi-attention encoder, a joint graph router, and a graph-conditioned rectified-flow decoder to posterior component draws.</desc>
   <rect width="1200" height="310" rx="24" fill="#07142a"/>
   <text x="56" y="58" fill="#f7f7f7" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700">One observed timeline, many posterior decompositions</text>

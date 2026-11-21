@@ -269,7 +269,7 @@ def save_pretrained(
     exporting.
     """
     if type(model) is not MFM:
-        raise ValueError("save_pretrained accepts only the canonical MFM architecture")
+        raise ValueError("save_pretrained accepts only the canonical MKTFM architecture")
     compatibility, producer = _export_environment()
     config = ModelConfig.from_dict(model.config.to_dict())
     previous = getattr(model, "artifact_metadata", {})
@@ -398,7 +398,7 @@ def _load_local(path: str | Path, *, device: str | torch.device = "cpu") -> MFM:
     """The sole reconstruction path, also used after Hub snapshot retrieval."""
     path = Path(path).expanduser()
     if not path.is_dir():
-        raise FileNotFoundError("expected a safe MFM bundle directory, not a checkpoint file")
+        raise FileNotFoundError("expected a safe MKTFM bundle directory, not a checkpoint file")
     if any(not (path / name).is_file() for name in BUNDLE_FILES):
         raise FileNotFoundError(f"model bundle requires all of {BUNDLE_FILES}")
     manifest = _read_manifest(path / "manifest.json")
