@@ -8,8 +8,18 @@ distribution prerequisites, not an approved or published release.
 ## Current changes
 
 - **Default sampling is 1,000 draws.** `DEFAULT_N_SAMPLES` falls from 2,000 to
-  1,000, so every public sampling call that omits `n_samples` draws 1,000 samples
-  and takes about half the time. Pass `n_samples=2_000` to keep the old count.
+  1,000. Entrypoints whose `n_samples` defaults to `DEFAULT_N_SAMPLES`
+  (`MFM.inference`, `MFM.predict`, `MFM.predict_batch`, `MFM.sample`,
+  `MFM.sample_context`, `MFM.sample_disentangled` and `decompose`) now draw 1,000
+  samples when `n_samples` is omitted. `MFM.response_curves()` without `n_samples`
+  still inherits the draw count of the last successful inference, so it draws 1,000
+  only when that inference did. In the README's historical query-only CPU measurements
+  for River-1, 1,000 draws took 2.6, 12.3 and 34.8 s against 4.4, 22.0 and 69.8 s at
+  2,000 draws for 10, 50 and 150 query weeks. Those runs did not measure paired
+  inference, curves or GPU calls, so other calls can save less. Pass
+  `n_samples=2_000` to keep the old count. A seed alone does not reproduce a run made
+  with the old default: pass the same `random_seed` and `n_samples=2_000` to get the
+  old draw count and random stream under the same execution settings.
 - **Complete paired inference and automatic idata.**
   `model.inference(context, query, date_column=..., target_column=...,
   channel_columns=..., control_columns=...)` samples query and context and

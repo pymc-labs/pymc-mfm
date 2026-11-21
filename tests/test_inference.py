@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+from conftest import CHART_ROLES
 
 from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.inference.api import decompose, observation_batch
@@ -593,6 +594,7 @@ def test_default_draw_count_is_1000_on_every_public_sampling_signature():
     for fn in (
         decompose,
         MFM.inference,
+        MFM.predict,
         MFM.predict_batch,
         MFM.sample_context,
         MFM.sample_disentangled,
@@ -600,3 +602,11 @@ def test_default_draw_count_is_1000_on_every_public_sampling_signature():
         JointFlowHead.sample,
     ):
         assert inspect.signature(fn).parameters["n_samples"].default == 1000, fn.__qualname__
+
+
+def test_calls_that_omit_the_draw_count_sample_1000_draws(model, chart_frames):
+    history, future = chart_frames
+    tree = model.inference(history, future, **CHART_ROLES, random_seed=0)
+    assert tree["context/posterior"].sizes["draw"] == 1000
+    assert tree["query/posterior"].sizes["draw"] == 1000
+    assert model.predict(future, random_seed=0).n_samples == 1000
