@@ -5,8 +5,8 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.data.corpus import corpus_batch
-from pymc_mfm.training.stream import CorpusStream, PrefetchingStream, batches_for_rows
+from pymc_mktfm.data.corpus import corpus_batch
+from pymc_mktfm.training.stream import CorpusStream, PrefetchingStream, batches_for_rows
 
 
 def train_rows(corpus, corpus_index=0):

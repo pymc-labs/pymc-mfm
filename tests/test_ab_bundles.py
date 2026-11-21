@@ -1,6 +1,6 @@
 """Opt-in rejection of the original dimensional A/B bundle collection.
 
-Set ``MFM_LEGACY_AB_BUNDLES`` to the collection holding ``profiles/A`` and
+Set ``MKTFM_LEGACY_AB_BUNDLES`` to the collection holding ``profiles/A`` and
 ``profiles/B``. These weights were trained before canonical input scaling;
 neither loading nor publishing compatibility cards may reinterpret them.
 Fresh-model evaluation compatibility is covered in ``test_compatibility.py``.
@@ -11,17 +11,17 @@ from pathlib import Path
 
 import pytest
 
-from pymc_mfm.inference.hub import from_pretrained, write_model_cards
+from pymc_mktfm.inference.hub import from_pretrained, write_model_cards
 
 
 @pytest.fixture(scope="module", params=("A", "B"))
 def legacy_bundle(request):
-    value = os.environ.get("MFM_LEGACY_AB_BUNDLES")
+    value = os.environ.get("MKTFM_LEGACY_AB_BUNDLES") or os.environ.get("MFM_LEGACY_AB_BUNDLES")
     if value is None:
-        pytest.skip("set MFM_LEGACY_AB_BUNDLES to check the original dimensional A/B bundles")
+        pytest.skip("set MKTFM_LEGACY_AB_BUNDLES to check the original dimensional A/B bundles")
     root = Path(value)
     if not value or not root.is_dir():
-        pytest.fail(f"MFM_LEGACY_AB_BUNDLES={value!r} is not a bundle collection directory")
+        pytest.fail(f"MKTFM_LEGACY_AB_BUNDLES={value!r} is not a bundle collection directory")
     return root / "profiles" / request.param, request.param
 
 

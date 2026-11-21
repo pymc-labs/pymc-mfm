@@ -6,8 +6,8 @@ import pytest
 import torch
 from conftest import CHART_ROLES
 
-from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import IdataReader
+from pymc_mktfm.plotting.charts import _backend
+from pymc_mktfm.plotting.charts._data import IdataReader
 
 pytest.importorskip("matplotlib")
 

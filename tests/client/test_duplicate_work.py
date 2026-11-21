@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import pymc_mfm
-from pymc_mfm.client import Client, Gone, Preview
+import pymc_mktfm
+from pymc_mktfm.client import Client, Gone, Preview
 
 from . import local_service
 
@@ -30,7 +30,7 @@ def local_client(stub):
 
 
 def run_script(base_url: str, *args: str) -> subprocess.Popen[str]:
-    source = str(Path(pymc_mfm.__file__).parents[1])
+    source = str(Path(pymc_mktfm.__file__).parents[1])
     env = {**os.environ, "PYTHONPATH": source, "NO_PROXY": "127.0.0.1"}
     return subprocess.Popen(
         [sys.executable, str(SCRIPT), base_url, *args],

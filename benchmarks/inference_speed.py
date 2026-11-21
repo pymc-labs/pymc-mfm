@@ -42,9 +42,9 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-import pymc_mfm  # noqa: E402
-from pymc_mfm import from_pretrained  # noqa: E402
-from pymc_mfm.inference import decompose  # noqa: E402
+import pymc_mktfm  # noqa: E402
+from pymc_mktfm import from_pretrained  # noqa: E402
+from pymc_mktfm.inference import decompose  # noqa: E402
 
 REPOSITORY = "pymc-labs/mfm"
 PROFILE = "river-1"
@@ -247,7 +247,7 @@ def main() -> int:
         f"{platform.machine()} {platform.processor() or platform.platform()} | "
         f"threads {torch.get_num_threads()} | device {args.device} | commit {_commit()} | "
         f"{REPOSITORY}/{PROFILE}@{REVISION[:12]} | load {load_s:.2f}s | "
-        f"package {Path(pymc_mfm.__file__).parent}",
+        f"package {Path(pymc_mktfm.__file__).parent}",
         file=sys.stderr,
     )
 

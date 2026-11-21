@@ -16,9 +16,9 @@ A local model bundle is a directory with three files:
 [from_pretrained](../reference/inference.from_pretrained.qmd) verifies the folder before constructing an evaluation-mode model. It checks the manifest, configuration, and package compatibility; it does not unpickle code. [save_pretrained](../reference/inference.save_pretrained.qmd) writes only to a new or empty directory. Use [load_checkpoint](../reference/training.load_checkpoint.qmd) to load a training checkpoint for export.
 
 ```python
-from pymc_mfm import from_pretrained
-from pymc_mfm.inference import save_pretrained
-from pymc_mfm.training import load_checkpoint
+from pymc_mktfm import from_pretrained
+from pymc_mktfm.inference import save_pretrained
+from pymc_mktfm.training import load_checkpoint
 
 model = from_pretrained("runs/my-model/model", device="cpu")
 
@@ -30,10 +30,10 @@ A training checkpoint contains model state and run records, not optimizer state.
 
 ## Load from Hugging Face Hub
 
-Hub operations need `pymc-mfm[hub]`. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
+Hub operations need `pymc-mktfm[hub]`. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
 
 ```python
-from pymc_mfm import from_pretrained, list_profiles
+from pymc_mktfm import from_pretrained, list_profiles
 
 profiles = list_profiles("pymc-labs/mfm")
 revision = profiles["river-1"]["revision"]
@@ -61,7 +61,7 @@ Omitting `revision=` resolves the repository's default branch. A full commit is 
 Use [push_to_hub](../reference/inference.push_to_hub.qmd) to export one complete bundle and publish its model card in one Hub commit.
 
 ```python
-from pymc_mfm.inference import push_to_hub
+from pymc_mktfm.inference import push_to_hub
 
 commit = push_to_hub(
     model,

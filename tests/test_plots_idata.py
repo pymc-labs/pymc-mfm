@@ -11,13 +11,13 @@ import pytest
 import torch
 from conftest import CHART_ROLES
 
-import pymc_mfm.plotting as plotting
-import pymc_mfm.plotting.charts as charts
-from pymc_mfm import validate_idata
-from pymc_mfm.model.model import MFM
-from pymc_mfm.plotting import Plots
-from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import IdataReader
+import pymc_mktfm.plotting as plotting
+import pymc_mktfm.plotting.charts as charts
+from pymc_mktfm import validate_idata
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.plotting import Plots
+from pymc_mktfm.plotting.charts import _backend
+from pymc_mktfm.plotting.charts._data import IdataReader
 
 #: Every chart of the accessor, with options that exercise a second code path.
 CHARTS = {
@@ -53,7 +53,7 @@ def swept(request, model, chart_frames):
 
 @pytest.fixture
 def netcdf():
-    """Skip a file test without the netCDF backend (``pymc-mfm[draws]``)."""
+    """Skip a file test without the netCDF backend (``pymc-mktfm[draws]``)."""
     pytest.importorskip("h5netcdf")
     pytest.importorskip("h5py")
 
@@ -268,7 +268,7 @@ def reordered(predicted_model, chart_frames):
 
 def test_charts_of_a_reordered_tree_draw_the_numbers_of_their_labels(reordered, chart_frames):
     """Each chart of a re-stored tree draws what the input frames and the sweep hold."""
-    from pymc_mfm.plotting.charts import contributions, fit, inputs, media
+    from pymc_mktfm.plotting.charts import contributions, fit, inputs, media
 
     _, returned, tree, changed = reordered
     history, future = chart_frames
@@ -318,7 +318,7 @@ def test_a_saved_and_reopened_reordered_tree_draws_the_raw_arrays_by_label(
     reordered, netcdf, tmp_path
 ):
     """Plotted means equal the original tree's raw arrays, picked by label with xarray."""
-    from pymc_mfm.plotting.charts import contributions, media
+    from pymc_mktfm.plotting.charts import contributions, media
 
     _, returned, tree, changed = reordered
     source = IdataReader(_saved(changed, tmp_path))
@@ -410,7 +410,7 @@ def test_labels_that_do_not_match_raise_naming_the_group_and_labels(
 
 
 def test_windows_with_other_component_names_raise(predicted_model):
-    from pymc_mfm.plotting.charts import contributions
+    from pymc_mktfm.plotting.charts import contributions
 
     tree = predicted_model.idata
     # Drop a component from the query window only: the stack cannot draw both windows.
@@ -462,7 +462,7 @@ def test_a_tree_with_more_than_one_chain_raises(predicted_model, path):
 
 
 def test_repeated_component_names_raise_and_do_not_hang():
-    from pymc_mfm.plotting.charts._data import unique_names
+    from pymc_mktfm.plotting.charts._data import unique_names
 
     assert unique_names(["a", "a", "b"], ["x:a", "y:a", "b"]) == ("x:a", "y:a", "b")
     with pytest.raises(ValueError, match="component names must be unique"):
@@ -487,7 +487,7 @@ def test_a_file_draws_the_charts_with_torch_blocked(swept, tmp_path):
         sys.modules["torch"] = None  # any import of torch now raises ImportError
         import xarray as xr
 
-        from pymc_mfm.plotting import Plots
+        from pymc_mktfm.plotting import Plots
 
         plots = Plots(xr.open_datatree(sys.argv[1], engine="h5netcdf").load())
         for name in (
@@ -527,7 +527,7 @@ def _run(code):
     return run.stdout.splitlines()
 
 
-@pytest.mark.parametrize("module", ["pymc_mfm.plotting", "pymc_mfm.plotting.charts"])
+@pytest.mark.parametrize("module", ["pymc_mktfm.plotting", "pymc_mktfm.plotting.charts"])
 def test_model_plots_warns_once_per_call_and_not_on_import(module):
     lines = _run(
         f"""
@@ -553,9 +553,9 @@ def test_backends_warns_once_per_process_on_import():
         """
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            from pymc_mfm.plotting.charts import BACKENDS
-            from pymc_mfm.plotting.charts import BACKENDS as again
-            import pymc_mfm.plotting.charts as charts
+            from pymc_mktfm.plotting.charts import BACKENDS
+            from pymc_mktfm.plotting.charts import BACKENDS as again
+            import pymc_mktfm.plotting.charts as charts
             assert charts.BACKENDS == BACKENDS == again == ("matplotlib", "plotly")
         """
     )
@@ -614,8 +614,8 @@ def test_exported_names():
 def test_a_plot_property_that_calls_model_plots_returns_a_live_accessor(chart_frames):
     import warnings
 
-    from pymc_mfm.model.config import ModelConfig
-    from pymc_mfm.plotting.charts import ModelPlots
+    from pymc_mktfm.model.config import ModelConfig
+    from pymc_mktfm.plotting.charts import ModelPlots
 
     class Custom(MFM):
         plot = property(lambda self: ModelPlots(self))
@@ -655,7 +655,7 @@ def test_the_curve_baseline_is_the_observed_total_when_no_level_is_one(model, ch
     curves = IdataReader(model.idata).response_curves()
     assert returned.media[returned.channels.index("search")] == 0.25
     np.testing.assert_array_equal(curves.media, returned.media)
-    from pymc_mfm.plotting.charts import curves as curve_chart
+    from pymc_mktfm.plotting.charts import curves as curve_chart
 
     titles = curve_chart.prepare(IdataReader(model.idata)).panel_titles
     assert titles[curves.channels.index("search")].startswith("search · media covariate total 0.25")
@@ -718,7 +718,7 @@ def _with_stored_amounts(tree, flip):
 def test_the_curve_amounts_are_the_stored_media_by_channel_and_level(predicted_model, flip):
     """The chart data and the Plotly hover show the stored amounts, not total times level."""
     pytest.importorskip("plotly")
-    from pymc_mfm.plotting.charts import curves as curve_chart
+    from pymc_mktfm.plotting.charts import curves as curve_chart
 
     predicted_model.response_curves(levels=[0, 0.5, 2], weeks=2, n_samples=4)
     changed, amounts = _with_stored_amounts(predicted_model.idata, flip)

@@ -24,7 +24,8 @@ class Param:
 
 @dataclass(frozen=True)
 class Detail:
-    """The copy of a route page. The spec supplies its headers, fields and errors. Empty fields leave their section out."""
+    """The copy of a route page. The spec supplies its headers, fields and errors. Empty fields "
+    "leave their section out."""
 
     slug: str
     title: str
@@ -40,7 +41,7 @@ class Detail:
 
 AUTH = Param(
     "Authorization",
-    "`Bearer $MFM_API_KEY`. See [Authentication](authentication.qmd).",
+    "`Bearer $MKTFM_API_KEY`. See [Authentication](authentication.qmd).",
     required=True,
 )
 JSON_TYPE = Param("Content-Type", "`application/json`. The body is JSON only.", required=True)
@@ -154,12 +155,13 @@ LIST_ANALYSES_RECORD = """{
   ]
 }"""
 
-CURL_GET = 'curl -sS "$MFM_API_URL{path}" \\\n  -H "Authorization: Bearer $MFM_API_KEY"'
+CURL_GET = 'curl -sS "$MKTFM_API_URL{path}" \\\n  -H "Authorization: Bearer $MKTFM_API_KEY"'
 CURL_DELETE = (
-    'curl -sS -X DELETE "$MFM_API_URL{path}" \\\n  -H "Authorization: Bearer $MFM_API_KEY"'
+    'curl -sS -X DELETE "$MKTFM_API_URL{path}" \\\n  -H "Authorization: Bearer $MKTFM_API_KEY"'
 )
 CLIENT = (
-    "from pymc_mfm.client import Client\n\nclient = Client()  # reads MFM_API_URL and MFM_API_KEY\n"
+    "from pymc_mktfm.client import Client\n\nclient = Client()  # reads MKTFM_API_URL and "
+    "MKTFM_API_KEY\n"
 )
 
 DETAILS: dict[tuple[str, str], Detail] = {
@@ -172,23 +174,27 @@ DETAILS: dict[tuple[str, str], Detail] = {
         notes=(
             (
                 "Limits",
-                "The body is at most 5 MB. `outcome_name` and `currency` are not part of the content hash. "
+                "The body is at most 5 MB. `outcome_name` and `currency` are not part of the "
+                "content hash. "
                 "The summary returns them as `summary.outcome` and `summary.currency`. "
                 "The samples show three weeks to stay short.",
             ),
             (
                 "Compare spend with the history",
-                "`history_ranges` gives, for each channel and control, the weekly `p05`, `p95` and `max`, "
-                "`zero_share` and `all_zero`. Spend outside the 5th to 95th percentile of the history gets a "
-                "warning, and the model has little data there. The percentiles are warning thresholds, "
+                "`history_ranges` gives, for each channel and control, the weekly `p05`, `p95` and "
+                "`max`, "
+                "`zero_share` and `all_zero`. Spend outside the 5th to 95th percentile of the "
+                "history gets a "
+                "warning, and the model has little data there. The percentiles are warning "
+                "thresholds, "
                 "not the edge of the observed data.",
             ),
         ),
         response=DATASET_RECORD,
         curl=(
             "KEY=$(uuidgen)  # reuse on retries\n"
-            'curl -sS -X POST "$MFM_API_URL/v1/datasets" \\\n'
-            '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
+            'curl -sS -X POST "$MKTFM_API_URL/v1/datasets" \\\n'
+            '  -H "Authorization: Bearer $MKTFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
             '  -H "Idempotency-Key: $KEY" \\\n' + curl_data(DATASET_BODY)
         ),
@@ -207,14 +213,20 @@ DETAILS: dict[tuple[str, str], Detail] = {
         notes=(
             (
                 "Reuse a stored dataset",
-                "Match on `content_hash` only. Never match by name or by number of weeks: one changed value "
-                "gives a different hash. To compute the hash, take `dates`, `outcome`, `spend` and `controls` "
-                "(not `name`). Write each date as `YYYY-MM-DD`. Convert every number to a float: `-0.0` becomes "
-                "`0.0`, and NaN and infinity are errors. Sort the rows by date and reorder every series the "
-                'same way. Build `{"v":1,"dates":[...],"outcome":[...],"spend":{...},"controls":{...}}` '
+                "Match on `content_hash` only. Never match by name or by number of weeks: one "
+                "changed value "
+                "gives a different hash. To compute the hash, take `dates`, `outcome`, `spend` and "
+                "`controls` "
+                "(not `name`). Write each date as `YYYY-MM-DD`. Convert every number to a float: "
+                "`-0.0` becomes "
+                "`0.0`, and NaN and infinity are errors. Sort the rows by date and reorder every "
+                "series the "
+                "same way. Build "
+                '`{"v":1,"dates":[...],"outcome":[...],"spend":{...},"controls":{...}}` '
                 'and encode it with `json.dumps(obj, sort_keys=True, separators=(",", ":"), '
-                'allow_nan=False, ensure_ascii=False)` as UTF-8. The hash is `"mfm-dataset-v1:"` plus the '
-                "SHA-256 hex digest. The Python client does this in `pymc_mfm.client.dataset_content_hash`.",
+                'allow_nan=False, ensure_ascii=False)` as UTF-8. The hash is `"mfm-dataset-v1:"` '
+                "plus the "
+                "SHA-256 hex digest. The Python client does this in `pymc_mktfm.client.dataset_content_hash`.",
             ),
         ),
         response='{\n  "datasets": [\n'
@@ -230,8 +242,10 @@ DETAILS: dict[tuple[str, str], Detail] = {
         notes=(
             (
                 "Retention",
-                "The service keeps a dataset 7 days after last use, and at most 30 days after upload. "
-                "Using a dataset, for example by starting an analysis on it, moves `expires_at` later. "
+                "The service keeps a dataset 7 days after last use, and at most 30 days after "
+                "upload. "
+                "Using a dataset, for example by starting an analysis on it, moves `expires_at` "
+                "later. "
                 "Do not treat it as a fixed deadline. An analysis has the `expires_at` of its dataset.",
             ),
         ),
@@ -258,33 +272,48 @@ DETAILS: dict[tuple[str, str], Detail] = {
         notes=(
             (
                 "Plan and backtest",
-                "A **plan** gives the weeks after the history. It is the baseline, with id `baseline` (reserved). "
-                "It holds spend for every channel and a value for every control, for every forecast week. "
+                "A **plan** gives the weeks after the history. It is the baseline, with id "
+                "`baseline` (reserved). "
+                "It holds spend for every channel and a value for every control, for every "
+                "forecast week. "
                 "Its dates start the week after the history.\n\n"
-                "A **backtest** uses weeks the dataset already holds. The model reads the input weeks "
-                "`context.start` to `context.end` and predicts the weeks after them, up to `query.end`. "
-                "It does not see the outcome of the predicted weeks, so the result can score the forecast "
-                "against it. The baseline is the dataset's own spend and controls in the predicted weeks. "
+                "A **backtest** uses weeks the dataset already holds. The model reads the input "
+                "weeks "
+                "`context.start` to `context.end` and predicts the weeks after them, up to "
+                "`query.end`. "
+                "It does not see the outcome of the predicted weeks, so the result can score the "
+                "forecast "
+                "against it. The baseline is the dataset's own spend and controls in the predicted "
+                "weeks. "
                 "Every date is a week of the dataset, and `query.end` is after `context.end`. "
                 "Do not send `plan` with them: the answer is `422 plan_with_context`.\n\n"
-                "The window is the only part of the forecast that scenarios and curves change: the predicted "
+                "The window is the only part of the forecast that scenarios and curves change: the "
+                "predicted "
                 "weeks of a backtest, or `decision_weeks` of a plan.",
             ),
             (
                 "Scenarios",
-                'A scenario is `{"id", "multipliers"}`. The `id` is unique, 1 to 64 characters from '
-                "`A-Za-z0-9_.-`. `baseline` and the `curve:` prefix are reserved. `multipliers` maps a channel "
-                "to a number from 0 to 5 (rounded to 4 decimals), which multiplies its spend in the window, or "
-                'to `{"amount": X}` (X is 0 or more, rounded to cents), which sets its total spend in the '
-                "window to X. An amount keeps the weekly pattern. On a channel with no spend in the window, it "
-                "puts X / W in each of the W window weeks. A channel left out keeps its spend. A scenario "
+                'A scenario is `{"id", "multipliers"}`. The `id` is unique, 1 to 64 characters '
+                "from "
+                "`A-Za-z0-9_.-`. `baseline` and the `curve:` prefix are reserved. `multipliers` "
+                "maps a channel "
+                "to a number from 0 to 5 (rounded to 4 decimals), which multiplies its spend in "
+                "the window, or "
+                'to `{"amount": X}` (X is 0 or more, rounded to cents), which sets its total spend '
+                "in the "
+                "window to X. An amount keeps the weekly pattern. On a channel with no spend in "
+                "the window, it "
+                "puts X / W in each of the W window weeks. A channel left out keeps its spend. A "
+                "scenario "
                 "keeps every control.",
             ),
             (
                 "Curves",
-                'A curve is `{"channel", "levels", "base"?}`. Each level multiplies the spend of that channel '
+                'A curve is `{"channel", "levels", "base"?}`. Each level multiplies the spend of '
+                "that channel "
                 "in the window. Level 1 equals the base and does not run again. Level ids are "
-                "`curve:<channel>:<base>:<level>`. For a first look, use levels 0 to 2 in steps of 0.25. "
+                "`curve:<channel>:<base>:<level>`. For a first look, use levels 0 to 2 in steps of "
+                "0.25. "
                 "An analysis has at most 200 different plans, and equal plans run once.",
             ),
         ),
@@ -294,12 +323,12 @@ DETAILS: dict[tuple[str, str], Detail] = {
         response_text='`url` is `null` when the service has no site address. A repeat with the same `Idempotency-Key` and body answers `202` again with the header `Idempotent-Replayed: true`. With `"preview": true` the answer is `200` with the expanded plans, and nothing is stored.',
         curl=(
             "KEY=$(uuidgen)  # reuse on retries\n"
-            'curl -sS -X POST "$MFM_API_URL/v1/analyses" \\\n'
-            '  -H "Authorization: Bearer $MFM_API_KEY" \\\n'
+            'curl -sS -X POST "$MKTFM_API_URL/v1/analyses" \\\n'
+            '  -H "Authorization: Bearer $MKTFM_API_KEY" \\\n'
             '  -H "Content-Type: application/json" \\\n'
             '  -H "Idempotency-Key: $KEY" \\\n' + curl_data(PLAN_BODY)
         ),
-        python=CLIENT + "\nfrom pymc_mfm.client import curve, scenario\n\n"
+        python=CLIENT + "\nfrom pymc_mktfm.client import curve, scenario\n\n"
         "# dataset: the Dataset from client.datasets.create (see Upload a dataset)\n"
         "# plan: a DataFrame for the weeks after the history, from 2026-11-09:\n"
         "#       a week column, spend for tv and search, and the holiday control\n"
@@ -317,7 +346,7 @@ DETAILS: dict[tuple[str, str], Detail] = {
         summary="List your analyses.",
         lead="List your analyses, or only those of one dataset.",
         response=LIST_ANALYSES_RECORD,
-        curl='curl -sS "$MFM_API_URL/v1/analyses?dataset_id=ds_123" \\\n  -H "Authorization: Bearer $MFM_API_KEY"',
+        curl='curl -sS "$MKTFM_API_URL/v1/analyses?dataset_id=ds_123" \\\n  -H "Authorization: Bearer $MKTFM_API_KEY"',
         python=CLIENT + '\nclient.list_analyses("ds_123")',
     ),
     ("GET", "/v1/analyses/{id}"): Detail(
@@ -329,11 +358,16 @@ DETAILS: dict[tuple[str, str], Detail] = {
         notes=(
             (
                 "Status",
-                "`status` is one of `queued`, `running`, `done`, `failed` and `deleted`. The first run after idle "
-                "can take about 20 seconds more. The result is ready only when every run has ended. A `done` "
-                "analysis can still have failed scenario or curve plans: their rows have `status` `failed` and "
-                "no numbers. `failed` means the baseline failed. `runs_cancelled` counts runs that never "
-                "started because the baseline run failed. A scenario added on the site sets a `done` analysis "
+                "`status` is one of `queued`, `running`, `done`, `failed` and `deleted`. The first "
+                "run after idle "
+                "can take about 20 seconds more. The result is ready only when every run has "
+                "ended. A `done` "
+                "analysis can still have failed scenario or curve plans: their rows have `status` "
+                "`failed` and "
+                "no numbers. `failed` means the baseline failed. `runs_cancelled` counts runs that "
+                "never "
+                "started because the baseline run failed. A scenario added on the site sets a "
+                "`done` analysis "
                 "back to `running` until it ends.",
             ),
         ),
@@ -350,36 +384,55 @@ DETAILS: dict[tuple[str, str], Detail] = {
         notes=(
             (
                 "The table",
-                "`table` has one row for each plan and component. Columns: `scenario_id`, `kind` (`baseline`, "
-                "`scenario`, `curve`), `base_scenario_id`, `varied_channel`, `level`, `multipliers`, `run_id`, "
-                "`status` (`ok`, `failed`), `spend_total`, `component`, `mean`, `p05`, `p95`, `window_mean`, "
+                "`table` has one row for each plan and component. Columns: `scenario_id`, `kind` "
+                "(`baseline`, "
+                "`scenario`, `curve`), `base_scenario_id`, `varied_channel`, `level`, "
+                "`multipliers`, `run_id`, "
+                "`status` (`ok`, `failed`), `spend_total`, `component`, `mean`, `p05`, `p95`, "
+                "`window_mean`, "
                 "`mean_difference`, `simulation_se`, `sensitivity`, `warnings`, `draws_url` and "
-                "`draws_url_expires_at`. Components are `outcome`, `baseline`, each channel, each control, "
+                "`draws_url_expires_at`. Components are `outcome`, `baseline`, each channel, each "
+                "control, "
                 "`latent` and active `indirect:*` rows.\n\n"
-                "`mean`, `p05` and `p95` are totals over the whole forecast. `window_mean` is also a total, not a "
-                "weekly mean: the mean over draws of the total over the window. `mean_difference` is a paired "
-                "mean difference from the base plan. There is no interval for a difference between scenarios. "
+                "`mean`, `p05` and `p95` are totals over the whole forecast. `window_mean` is also "
+                "a total, not a "
+                "weekly mean: the mean over draws of the total over the window. `mean_difference` "
+                "is a paired "
+                "mean difference from the base plan. There is no interval for a difference between "
+                "scenarios. "
                 "Quote `labels` when you share a result.",
             ),
             (
                 "Backtest fields",
-                "A backtest's result also has `context` (`start`, `end`, `query_end`, `channels`, `controls`), "
-                '`fit` and `response_curves`. `fit` is `{"context": ..., "query": ...}`, one for the input weeks '
-                "and one for the predicted weeks. Each has `dates`, `actual`, `mean`, `p05`, `p95`, `r2` and "
-                '`mape` (`{"value", "sd"}`; `r2` is `null` when the outcome never changes), `crps` and '
-                '`shares`. `response_curves` is `[{"channel", "spend", "points": [{"level", "value", '
-                '"p05", "p95"}]}]`, where `spend` is the baseline spend of the channel in the predicted weeks. '
-                "Numbers are `null` where a level was not asked or its run failed. A plan's result has `null` in "
-                "`context`, `fit` and `response_curves`. Every result has `input_usage`: the input token counts "
+                "A backtest's result also has `context` (`start`, `end`, `query_end`, `channels`, "
+                "`controls`), "
+                '`fit` and `response_curves`. `fit` is `{"context": ..., "query": ...}`, one for '
+                "the input weeks "
+                "and one for the predicted weeks. Each has `dates`, `actual`, `mean`, `p05`, "
+                "`p95`, `r2` and "
+                '`mape` (`{"value", "sd"}`; `r2` is `null` when the outcome never changes), `crps` '
+                "and "
+                '`shares`. `response_curves` is `[{"channel", "spend", "points": [{"level", '
+                '"value", '
+                '"p05", "p95"}]}]`, where `spend` is the baseline spend of the channel in the '
+                "predicted weeks. "
+                "Numbers are `null` where a level was not asked or its run failed. A plan's result "
+                "has `null` in "
+                "`context`, `fit` and `response_curves`. Every result has `input_usage`: the input "
+                "token counts "
                 "of the model for the baseline run, or `null` before it is done.",
             ),
             (
                 "Draws files",
                 "Each plan's draws file is netCDF4 (float32, schema `river-draws/1`). Open it with "
-                '`xarray.open_dataset(path, engine="h5netcdf")`. A signed `draws_url` lasts about an hour. '
-                "If its download answers `403`, fetch the result again for new links. Never send the API key "
-                "to a `draws_url`. With the same seed, draw `i` of two plans is numerically coupled, so "
-                "`sd(d_i) / sqrt(draws)` is the standard error of the mean difference. It is still not a joint "
+                '`xarray.open_dataset(path, engine="h5netcdf")`. A signed `draws_url` lasts about '
+                "an hour. "
+                "If its download answers `403`, fetch the result again for new links. Never send "
+                "the API key "
+                "to a `draws_url`. With the same seed, draw `i` of two plans is numerically "
+                "coupled, so "
+                "`sd(d_i) / sqrt(draws)` is the standard error of the mean difference. It is still "
+                "not a joint "
                 "posterior sample.",
             ),
         ),
@@ -395,8 +448,8 @@ DETAILS: dict[tuple[str, str], Detail] = {
         lead="Read the weekly rows of one plan of an analysis.",
         response='{\n  "scenario_id": "baseline",\n  "rows": [\n'
         '    {"date": "2026-11-09", "component": "outcome", "mean": 1043.2, "p05": 981.4, "p95": 1107.9}\n  ]\n}',
-        curl='curl -sS "$MFM_API_URL/v1/analyses/an_123/weekly?scenario_id=baseline" \\\n'
-        '  -H "Authorization: Bearer $MFM_API_KEY"',
+        curl='curl -sS "$MKTFM_API_URL/v1/analyses/an_123/weekly?scenario_id=baseline" \\\n'
+        '  -H "Authorization: Bearer $MKTFM_API_KEY"',
         python=CLIENT + '\nclient.get("an_123").weekly("baseline")',
     ),
     ("GET", "/v1/analyses/{id}/export"): Detail(
@@ -437,28 +490,40 @@ STATUS_ROWS = (
     ),
     (
         "410",
-        "The resource was deleted or expired. Do not retry. A repeat of a create call whose earlier analysis "
+        "The resource was deleted or expired. Do not retry. A repeat of a create call whose "
+        "earlier analysis "
         "was deleted also answers `410`. Only a new `Idempotency-Key` starts new work.",
     ),
     ("413", "The body is too large. Send fewer weeks, scenarios or curves in one call."),
     (
         "422",
-        "The service refused the request, and nothing started. Read `error.code`, `error.field` and "
+        "The service refused the request, and nothing started. Read `error.code`, `error.field` "
+        "and "
         "`error.message`, then fix the request. See Refusals. Do not loop on a `422`.",
     ),
     (
         "429, 502, 503, 504",
-        "Wait `Retry-After` seconds, or back off from 2 seconds with a cap of 60, and repeat with the same key. "
-        "`rate_limited` waits 60 seconds. `overloaded_user_analyses` means 20 unfinished analyses and "
-        "`overloaded_user_runs` means 200 unfinished runs: wait, or delete one. `503 unavailable` and `503 busy` "
-        "mean the service is busy. `503 maintenance` means the service takes no new analysis for now; a preview "
+        "Wait `Retry-After` seconds, or back off from 2 seconds with a cap of 60, and repeat with "
+        "the same key. "
+        "`rate_limited` waits 60 seconds. `overloaded_user_analyses` means 20 unfinished analyses "
+        "and "
+        "`overloaded_user_runs` means 200 unfinished runs: wait, or delete one. `503 unavailable` "
+        "and `503 busy` "
+        "mean the service is busy. `503 maintenance` means the service takes no new analysis for "
+        "now; a preview "
         "and a repeat of an earlier create call still work.",
     ),
 )
 
-ERROR_BODY = '{\n  "error": {\n    "code": "...",\n    "message": "...",\n    "field": "...",\n    "request_id": "req_..."\n  }\n}'
-REFUSAL_BODY = '{\n  "error": {\n    "code": "steps_removed",\n    "message": "...",\n    "field": "scenarios[0].steps",\n    "request_id": "req_..."\n  }\n}'
-ENV_BLOCK = 'export MFM_API_URL="<your service URL>"\nexport MFM_API_KEY="<your key>"'
+ERROR_BODY = (
+    '{\n  "error": {\n    "code": "...",\n    "message": "...",\n    "field": "...",\n    '
+    '"request_id": "req_..."\n  }\n}'
+)
+REFUSAL_BODY = (
+    '{\n  "error": {\n    "code": "steps_removed",\n    "message": "...",\n    "field": '
+    '"scenarios[0].steps",\n    "request_id": "req_..."\n  }\n}'
+)
+ENV_BLOCK = 'export MKTFM_API_URL="<your service URL>"\nexport MKTFM_API_KEY="<your key>"'
 
 #: The ``failure_code`` of a plan that has no result, and what to do.
 FAILURE_ROWS = (

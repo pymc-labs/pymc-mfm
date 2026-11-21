@@ -1,7 +1,7 @@
 """Drift tests: the SDK, its test fakes, the committed contract and the public HTTP reference agree.
 
 ``contract.json`` lists the routes, error codes and wire fields the SDK relies on.
-``skills/mfm/reference/http.md`` is the public reference for the same API. These tests read only
+``skills/mktfm/reference/http.md`` is the public reference for the same API. These tests read only
 those two files and the SDK source, never a service. When the API changes, change both in the
 same pull request; a failure here names what drifted. A response key that a fake returns but the
 contract lacks fails here, and so does a contract key that ``http.md`` does not name.
@@ -16,10 +16,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from pymc_mfm.client import _client, errors
-from pymc_mfm.client import analysis as analysis_module
-from pymc_mfm.client._http import FRESH_KEY_PREFIX, RETRY_STATUSES, content_idempotency_key
-from pymc_mfm.client.errors import ApiError, NotReady, error_from_response
+from pymc_mktfm.client import _client, errors
+from pymc_mktfm.client import analysis as analysis_module
+from pymc_mktfm.client._http import FRESH_KEY_PREFIX, RETRY_STATUSES, content_idempotency_key
+from pymc_mktfm.client.errors import ApiError, NotReady, error_from_response
 
 from . import client_fixtures as fakes
 from . import local_service

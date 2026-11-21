@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from pymc_mfm.client._dates import check_plan_follows_history, check_weekly_dates
+from pymc_mktfm.client._dates import check_plan_follows_history, check_weekly_dates
 
 WEEKS = ["2024-07-01", "2024-07-08", "2024-07-15", "2024-07-22"]
 

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-from pymc_mfm import from_pretrained
+from pymc_mktfm import from_pretrained
 
 model = from_pretrained("workflow/run/model", device="cpu")
 frame = pd.DataFrame({
@@ -108,7 +108,7 @@ def check_archive(path: Path, allowed_top_level: set[str]) -> None:
             ".npy",
         }, name
         if path.suffix == ".whl":
-            assert parts[0] == "pymc_mfm" or parts[0].endswith(".dist-info"), name
+            assert parts[0] in {"pymc_mktfm", "pymc_mfm"} or parts[0].endswith(".dist-info"), name
         else:
             assert len(parts) > 1 and parts[1] in allowed_top_level | {"PKG-INFO"}, name
 
@@ -187,13 +187,18 @@ def main() -> None:
             """
 import pathlib
 import sys
-import pymc_mfm
+import pymc_mktfm
 if sys.argv[1] != "base":
-    from pymc_mfm.training._provenance import code_record
+    from pymc_mktfm.training._provenance import code_record
     assert code_record()["revision_status"] == "not_available"
-p = pathlib.Path(pymc_mfm.__file__).resolve()
+p = pathlib.Path(pymc_mktfm.__file__).resolve()
 assert p.is_relative_to(pathlib.Path(sys.prefix).resolve()), p
 print(p)
+import pymc_mfm.client
+import pymc_mktfm.client
+assert pymc_mfm is pymc_mktfm
+assert pymc_mfm.client is pymc_mktfm.client
+assert sys.modules['pymc_mfm.client'] is sys.modules['pymc_mktfm.client']
 """,
             name,
             cwd=out,
@@ -271,7 +276,7 @@ print(p)
         "-c",
         """
 import sys
-from pymc_mfm.inference import DecompositionResult
+from pymc_mktfm.inference import DecompositionResult
 for window in ("context", "query"):
     result = DecompositionResult.load(f"local-inference/{window}")
     tree = result.to_datatree()
@@ -290,8 +295,8 @@ assert "arviz_stats" not in sys.modules
         "-c",
         """
 import importlib.util
-from pymc_mfm.inference import DecompositionResult
-from pymc_mfm.diagnostics import build_report, render_report
+from pymc_mktfm.inference import DecompositionResult
+from pymc_mktfm.diagnostics import build_report, render_report
 assert all(
     importlib.util.find_spec(name) is None
     for name in ("pymc_generator", "mlflow", "huggingface_hub")
@@ -320,7 +325,7 @@ assert tree["posterior"]["components"].sizes["draw"] == result.n_samples
         """
 import importlib.util
 import arviz_stats
-from pymc_mfm.inference import DecompositionResult
+from pymc_mktfm.inference import DecompositionResult
 trees = {}
 for window in ("query", "context"):
     result = DecompositionResult.load(f"local-inference/{window}")

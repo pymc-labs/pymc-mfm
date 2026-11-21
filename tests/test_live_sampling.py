@@ -15,11 +15,11 @@ import threading
 import pytest
 import torch
 
-import pymc_mfm.model.flow as flow
-from pymc_mfm.model import _metal
-from pymc_mfm.model.encoder import BiAttentionBlock
-from pymc_mfm.model.flow import _LiveVelocity
-from pymc_mfm.model.graph import EdgeSlotLayout
+import pymc_mktfm.model.flow as flow
+from pymc_mktfm.model import _metal
+from pymc_mktfm.model.encoder import BiAttentionBlock
+from pymc_mktfm.model.flow import _LiveVelocity
+from pymc_mktfm.model.graph import EdgeSlotLayout
 
 ROUND_OFF = {"rtol": 1e-10, "atol": 1e-12}
 #: Sampling and the encoder's kernels on an Apple GPU need PyTorch ``_metal.MIN_TORCH``;

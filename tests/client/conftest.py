@@ -4,7 +4,7 @@ import httpx
 import pandas as pd
 import pytest
 
-from pymc_mfm.client import Client
+from pymc_mktfm.client import Client
 
 from .client_fixtures import BASE_URL, FakeService
 

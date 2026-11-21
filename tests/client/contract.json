@@ -35,7 +35,7 @@
     {"status": 503, "code": "busy"}
   ],
   "http_reference": {
-    "file": "skills/mfm/reference/http.md",
+    "file": "skills/mktfm/reference/http.md",
     "about": "The public HTTP reference names every response key below, and the table row of each SDK route names only keys listed under that route's response types (plus the words below).",
     "not_keys": ["preview", "not_ready", "null"]
   },

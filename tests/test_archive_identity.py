@@ -10,12 +10,12 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.inference import from_pretrained, save_pretrained
-from pymc_mfm.inference._artifact_schema import SHA256_PATTERN
-from pymc_mfm.inference._digest import digest_bytes, json_bytes
-from pymc_mfm.training import archive_identity, evaluate_rows
-from pymc_mfm.training._provenance import corpus_identity, export_lineage, verified_prior_sha256
-from pymc_mfm.training.archive import _corpus_records, _model_identity, _sidecar_seed
+from pymc_mktfm.inference import from_pretrained, save_pretrained
+from pymc_mktfm.inference._artifact_schema import SHA256_PATTERN
+from pymc_mktfm.inference._digest import digest_bytes, json_bytes
+from pymc_mktfm.training import archive_identity, evaluate_rows
+from pymc_mktfm.training._provenance import corpus_identity, export_lineage, verified_prior_sha256
+from pymc_mktfm.training.archive import _corpus_records, _model_identity, _sidecar_seed
 
 #: The bundle formula's hash of ``_bound()``'s prior, pinned at the extraction.
 GOLDEN_PRIOR = "5531545293ec5e915c18f60191b5a2c72ed170781b90aa6a5390c3cfb89497d3"

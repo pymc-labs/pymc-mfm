@@ -9,7 +9,7 @@ from urllib.request import urlopen
 import numpy as np
 import pytest
 
-from pymc_mfm.diagnostics import (
+from pymc_mktfm.diagnostics import (
     DiagnosticError,
     build_report,
     calibration_summary,
@@ -24,7 +24,7 @@ from pymc_mfm.diagnostics import (
     sbc_report,
     write_calibration_report,
 )
-from pymc_mfm.inference.result import DecompositionResult
+from pymc_mktfm.inference.result import DecompositionResult
 
 
 def make_result():
@@ -339,7 +339,7 @@ def test_training_and_auxiliary_metrics_preserve_names_and_undefined_records():
 
 def test_report_rerender_uses_stored_values_without_scoring(tmp_path, monkeypatch):
     pytest.importorskip("matplotlib")
-    from pymc_mfm.diagnostics import report as reporting
+    from pymc_mktfm.diagnostics import report as reporting
 
     result = make_result()
     truth = result.components.mean(0)
@@ -392,7 +392,7 @@ def test_report_rerender_uses_stored_values_without_scoring(tmp_path, monkeypatc
 
 def test_render_failure_is_persisted_and_strict_reports_raise(tmp_path, monkeypatch):
     pytest.importorskip("matplotlib")
-    from pymc_mfm.plotting import panels
+    from pymc_mktfm.plotting import panels
 
     original = panels.plot_panel
 
@@ -440,7 +440,7 @@ def test_malformed_scoring_has_visible_status_even_without_strict_mode(tmp_path)
 def test_evaluator_captures_existing_paired_draws_in_natural_units(model, monkeypatch):
     from conftest import make_synthetic_corpus
 
-    from pymc_mfm.training.evaluation import evaluate_rows
+    from pymc_mktfm.training.evaluation import evaluate_rows
 
     corpus = make_synthetic_corpus()
     rows = [(0, 0)]
@@ -543,7 +543,7 @@ def test_manifest_cannot_relabel_verified_result_identity(tmp_path):
 
 
 def test_missing_renderer_dependency_is_visible_not_an_empty_success(tmp_path, monkeypatch):
-    from pymc_mfm.plotting import panels
+    from pymc_mktfm.plotting import panels
 
     def absent(*args, **kwargs):
         raise ImportError("matplotlib renderer not installed")
@@ -558,7 +558,7 @@ def test_missing_renderer_dependency_is_visible_not_an_empty_success(tmp_path, m
 def test_standalone_sbc_card_rerenders_saved_null_bands_without_resimulation(tmp_path, monkeypatch):
     pytest.importorskip("scipy")
     pytest.importorskip("matplotlib")
-    from pymc_mfm.diagnostics import calibration
+    from pymc_mktfm.diagnostics import calibration
 
     card = sbc_report(
         np.zeros((20, 4, 1)),
@@ -860,7 +860,7 @@ JOINT_COVERAGE_TRUTH = {"baseline": [10, 10], "channel:a": [2, 2], "channel:b": 
 def test_simultaneous_window_coverage_is_the_studentized_live_family_event(
     a_truth, joint, pointwise_live
 ):
-    from pymc_mfm.training.metrics import simultaneous_coverage
+    from pymc_mktfm.training.metrics import simultaneous_coverage
 
     result = effect_world(JOINT_COVERAGE_DRAWS, scale=None)
     truth = effect_truth({**JOINT_COVERAGE_TRUTH, "channel:a": [a_truth, a_truth]}, 2)
@@ -958,7 +958,7 @@ def test_simultaneous_window_coverage_preserves_unavailable_statuses(
 
 def test_window_totals_panel_displays_joint_miss_beside_pointwise_share():
     pytest.importorskip("matplotlib")
-    from pymc_mfm.plotting.panels import plot_window_totals
+    from pymc_mktfm.plotting.panels import plot_window_totals
 
     report = compute_diagnostics(
         effect_world(JOINT_COVERAGE_DRAWS, scale=None),
@@ -990,7 +990,7 @@ def test_window_totals_panel_marks_joint_unavailability_with_its_reason(
     graph_truth, constant_effect, reason
 ):
     pytest.importorskip("matplotlib")
-    from pymc_mfm.plotting.panels import plot_window_totals
+    from pymc_mktfm.plotting.panels import plot_window_totals
 
     draws = {
         **JOINT_COVERAGE_DRAWS,
@@ -1015,9 +1015,9 @@ def test_legacy_window_totals_summary_retains_pointwise_bars_without_rescoring(
     tmp_path, monkeypatch
 ):
     pytest.importorskip("matplotlib")
-    from pymc_mfm.diagnostics import core
-    from pymc_mfm.plotting.panels import plot_window_totals
-    from pymc_mfm.training import metrics as scoring
+    from pymc_mktfm.diagnostics import core
+    from pymc_mktfm.plotting.panels import plot_window_totals
+    from pymc_mktfm.training import metrics as scoring
 
     summary = compute_diagnostics(
         effect_world(TEMPORAL_DRAWS),
@@ -1075,7 +1075,7 @@ def test_share_errors_divide_group_totals_by_the_outcome_magnitude():
 
 
 def test_graph_metrics_named_like_evaluator_metrics_carry_their_units():
-    from pymc_mfm.training.evaluation import METRIC_UNITS
+    from pymc_mktfm.training.evaluation import METRIC_UNITS
 
     result = make_result()
     units = compute_diagnostics(result, graph_truth=np.asarray(result.graphs[0]))["metric_units"]

@@ -1,4 +1,4 @@
-name: pymc-mfm
+name: pymc-mktfm
 channels:
   - conda-forge
   - nodefaults

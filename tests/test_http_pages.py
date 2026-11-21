@@ -1,4 +1,4 @@
-"""The HTTP API pages of the docs site are generated from skills/mfm/reference/http.md."""
+"""The HTTP API pages of the docs site are generated from skills/mktfm/reference/http.md."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ def test_error_lists_come_from_the_spec(generated):
     page = (generated / "analyses-create.qmd").read_text(encoding="utf-8")
     for code in ("idempotency_conflict", "maintenance", "unavailable", "overloaded_user_runs"):
         assert f"`{code}`" in page
-    assert "[503]{.mfm-status}" in page and "[408]{.mfm-status}" in page
+    assert "[503]{.mktfm-status}" in page and "[408]{.mktfm-status}" in page
 
 
 def test_the_idempotency_key_is_optional_on_every_page(generated):
@@ -308,14 +308,14 @@ def test_each_analysis_form_has_its_own_body_table(generated):
     stored = body_section(page, "plan form on a stored dataset")
     inline = body_section(page, "plan form on an inline dataset")
     weeks = body_section(page, "weeks form")
-    assert "`dataset_id` [string]{.mfm-type} [required]{.mfm-req}" in stored
-    assert "`plan` [object (PlanBody)]{.mfm-type} [required]{.mfm-req}" in stored
-    assert "`history` [object (DatasetCreate)]{.mfm-type} [required]{.mfm-req}" in inline
+    assert "`dataset_id` [string]{.mktfm-type} [required]{.mktfm-req}" in stored
+    assert "`plan` [object (PlanBody)]{.mktfm-type} [required]{.mktfm-req}" in stored
+    assert "`history` [object (DatasetCreate)]{.mktfm-type} [required]{.mktfm-req}" in inline
     assert (
-        "`dataset_id` [null]{.mfm-type}\n" in inline
+        "`dataset_id` [null]{.mktfm-type}\n" in inline
         and "[required]" not in inline.split("`dataset_id` [null]")[1].split("\n")[0]
     )
-    assert "`context` [object (ContextBody)]{.mfm-type} [required]{.mfm-req}" in weeks
+    assert "`context` [object (ContextBody)]{.mktfm-type} [required]{.mktfm-req}" in weeks
     assert not re.search(r"^`(plan|history)` \[", weeks, re.MULTILINE)  # no such field here
     # The objects under the fields follow, so an inline analysis can be built from the page.
     assert "### `DatasetCreate`" in page and "### `PlanBody`" in page

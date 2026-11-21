@@ -13,7 +13,7 @@ listing:
   fields: [title, name, date, summary, image, badge, specs, status, order]
 page-layout: article
 toc: false
-body-classes: mfm-models-page
+body-classes: mktfm-models-page
 css: ../assets/styles/model.css
 ---
 
@@ -27,7 +27,7 @@ PyMC Labs publishes models as profiles of a Hugging Face Hub repository, and any
 of them loads with one call:
 
 ```python
-from pymc_mfm import from_pretrained
+from pymc_mktfm import from_pretrained
 
 model = from_pretrained("pymc-labs/mfm", profile="river-1")
 ```

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pymc_mfm.client import frame_content_hash
+from pymc_mktfm.client import frame_content_hash
 
 from .client_fixtures import dataset_record
 

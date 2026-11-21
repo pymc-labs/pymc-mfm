@@ -87,17 +87,17 @@ $callout-color-warning: $ink-2;
 
 /*-- scss:rules --*/
 body.quarto-dark {
-  --mfm-bg: #{$body-bg};
-  --mfm-ink: #{$ink};
-  --mfm-ink-2: #{$ink-2};
-  --mfm-navy: #0c1f40;
-  --mfm-heading: #{$heading};
-  --mfm-accent: #{$accent};
-  --mfm-tone-1: rgba(255, 255, 255, 0.05);
-  --mfm-tone-2: rgba(255, 255, 255, 0.09);
-  --mfm-danger: #{$danger};
-  --mfm-on-navy: #{$navy-deep};
-  --mfm-console-bg: #f2f5fa;
-  --mfm-console-fg: #0c1f40;
-  --mfm-console-hover: #ffffff;
+  --mktfm-bg: #{$body-bg};
+  --mktfm-ink: #{$ink};
+  --mktfm-ink-2: #{$ink-2};
+  --mktfm-navy: #0c1f40;
+  --mktfm-heading: #{$heading};
+  --mktfm-accent: #{$accent};
+  --mktfm-tone-1: rgba(255, 255, 255, 0.05);
+  --mktfm-tone-2: rgba(255, 255, 255, 0.09);
+  --mktfm-danger: #{$danger};
+  --mktfm-on-navy: #{$navy-deep};
+  --mktfm-console-bg: #f2f5fa;
+  --mktfm-console-fg: #0c1f40;
+  --mktfm-console-hover: #ffffff;
 }

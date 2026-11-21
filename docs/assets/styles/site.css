@@ -1,5 +1,5 @@
 /* Shared chrome and type for every page. Colours, radii, fonts and motion come from the
-   --mfm-* tokens that light.scss and dark.scss define; Quarto's own components follow the
+   --mktfm-* tokens that light.scss and dark.scss define; Quarto's own components follow the
    theme through Bootstrap's variables, so most rules here only add layout and detail.
    Landing-only and page-specific rules live in landing.css, model.css and the other page sheets.
 
@@ -10,11 +10,11 @@
    never a line or a shadow. No dot separators in titles or labels. */
 
 html {
-  scroll-padding-top: calc(var(--mfm-nav-h) + 1rem);
+  scroll-padding-top: calc(var(--mktfm-nav-h) + 1rem);
 }
 
 body {
-  font-family: var(--mfm-font-sans);
+  font-family: var(--mktfm-font-sans);
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -26,13 +26,13 @@ b {
 }
 
 :focus-visible {
-  outline: 2px solid var(--mfm-accent);
+  outline: 2px solid var(--mktfm-accent);
   outline-offset: 2px;
-  border-radius: var(--mfm-r-chip);
+  border-radius: var(--mktfm-r-chip);
 }
 
 ::selection {
-  background: var(--mfm-tone-2);
+  background: var(--mktfm-tone-2);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -45,13 +45,13 @@ b {
 /* One title block on every docs page: Archivo title, a plain lead, the same spacing. */
 main h1,
 .quarto-title h1.title {
-  font-family: var(--mfm-font-display);
+  font-family: var(--mktfm-font-display);
   font-weight: 400;
   font-stretch: 125%;
   font-size: clamp(2.2rem, 3.4vw, 3.1rem);
   line-height: 1.06;
   letter-spacing: -0.03em;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 /* Bootstrap hides the page title below 992px, where Quarto's second bar showed it. That bar
@@ -74,7 +74,7 @@ main h1,
   margin-top: 1.35rem;
   font-size: 1.15rem;
   line-height: 1.55;
-  color: var(--mfm-ink);
+  color: var(--mktfm-ink);
 }
 
 #title-block-header .quarto-title-meta {
@@ -86,11 +86,11 @@ main h3,
 main h4,
 main h5,
 main h6 {
-  font-family: var(--mfm-font-sans);
+  font-family: var(--mktfm-font-sans);
   font-weight: 500;
   font-stretch: 100%;
   letter-spacing: -0.01em;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
   border: 0;
 }
 
@@ -99,7 +99,7 @@ main h2 {
   margin-top: 3.25rem;
   margin-bottom: 0.9rem;
   padding-bottom: 0;
-  font-family: var(--mfm-font-display);
+  font-family: var(--mktfm-font-display);
   font-stretch: 125%;
   font-size: 1.4rem;
   line-height: 1.2;
@@ -125,21 +125,21 @@ main h6 {
 
 /* Running text: 72ch on article pages. Tables, figures and code use the full column. */
 .page-layout-article main :is(p, ul, ol, dl, blockquote) {
-  max-width: var(--mfm-measure);
+  max-width: var(--mktfm-measure);
 }
 
 main p,
 main li,
 main dd {
-  color: var(--mfm-ink);
+  color: var(--mktfm-ink);
 }
 
 main :is(p, li, dd, td, blockquote) a:not(.btn, .nav-link, .anchorjs-link) {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.2em;
-  text-decoration-color: color-mix(in srgb, var(--mfm-accent) 45%, transparent);
-  transition: text-decoration-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+  text-decoration-color: color-mix(in srgb, var(--mktfm-accent) 45%, transparent);
+  transition: text-decoration-color var(--mktfm-dur) var(--mktfm-ease), color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 main :is(p, li, dd, td, blockquote) a:not(.btn, .nav-link, .anchorjs-link):hover {
@@ -151,20 +151,20 @@ code,
 pre,
 kbd,
 samp {
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: code font for code and kbd */
+  font-family: var(--mktfm-font-mono); /* taste-skill-ignore: code font for code and kbd */
   font-weight: 400;
 }
 
 :not(pre) > code {
   padding: 0;
   font-size: 0.88em;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
   background: none;
 }
 
 .figure img,
 .quarto-figure img {
-  border-radius: var(--mfm-r);
+  border-radius: var(--mktfm-r);
 }
 
 /* Phones: a wide table scrolls inside itself; the page never scrolls sideways. */
@@ -179,12 +179,12 @@ samp {
 /* Real tables keep their quiet row rules. */
 main table {
   --bs-table-bg: transparent;
-  --bs-table-border-color: var(--mfm-tone-2);
+  --bs-table-border-color: var(--mktfm-tone-2);
 }
 
 main table thead th {
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
   border-bottom-width: 1px;
 }
 
@@ -197,21 +197,21 @@ main table td:first-child > p > a {
 /* Navbar ---------------------------------------------------------------------- */
 /* Glass: the bar stays pinned and the page shows through it, blurred, as it scrolls under. */
 #quarto-header .navbar {
-  --bs-navbar-color: var(--mfm-ink-2);
-  --bs-navbar-hover-color: var(--mfm-heading);
-  --bs-navbar-active-color: var(--mfm-heading);
-  --bs-navbar-brand-color: var(--mfm-heading);
-  --bs-navbar-brand-hover-color: var(--mfm-heading);
+  --bs-navbar-color: var(--mktfm-ink-2);
+  --bs-navbar-hover-color: var(--mktfm-heading);
+  --bs-navbar-active-color: var(--mktfm-heading);
+  --bs-navbar-brand-color: var(--mktfm-heading);
+  --bs-navbar-brand-hover-color: var(--mktfm-heading);
   --bs-navbar-toggler-icon-bg: none;
-  min-height: var(--mfm-nav-h);
+  min-height: var(--mktfm-nav-h);
   padding-top: 0;
   padding-bottom: 0;
   border: 0;
   box-shadow: none; /* taste-skill-ignore: removes Bootstrap's shadow */
-  background: color-mix(in srgb, var(--mfm-bg) 72%, transparent);
+  background: color-mix(in srgb, var(--mktfm-bg) 72%, transparent);
   -webkit-backdrop-filter: saturate(140%) blur(12px);
   backdrop-filter: saturate(140%) blur(12px);
-  transition: background-color calc(var(--mfm-dur) * 2) var(--mfm-ease);
+  transition: background-color calc(var(--mktfm-dur) * 2) var(--mktfm-ease);
 }
 
 .navbar .navbar-brand-container {
@@ -228,7 +228,7 @@ main table td:first-child > p > a {
   height: 26px;
   max-height: 26px;
   margin-right: 0;
-  transition: transform calc(var(--mfm-dur) * 2) var(--mfm-ease);
+  transition: transform calc(var(--mktfm-dur) * 2) var(--mktfm-ease);
 }
 
 .navbar-brand:hover .navbar-logo {
@@ -243,27 +243,27 @@ body.quarto-dark .navbar-logo {
   padding: 0.5rem 0.85rem;
   font-size: 0.95rem;
   font-weight: 400;
-  color: var(--mfm-ink-2);
-  transition: color var(--mfm-dur) var(--mfm-ease);
+  color: var(--mktfm-ink-2);
+  transition: color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 .navbar .navbar-nav .nav-link:hover,
 .navbar .navbar-nav .nav-link:focus-visible,
 .navbar .navbar-nav .nav-link.show {
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 .navbar .navbar-nav .nav-link.active {
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 /* A short underline under the current section; it also slides in on hover. */
-.navbar .navbar-nav .nav-link:not([data-mfm]) .menu-text {
+.navbar .navbar-nav .nav-link:not([data-mktfm]) .menu-text {
   position: relative;
 }
 
-.navbar .navbar-nav .nav-link:not([data-mfm]) .menu-text::after {
+.navbar .navbar-nav .nav-link:not([data-mktfm]) .menu-text::after {
   content: "";
   position: absolute;
   left: 0;
@@ -271,14 +271,14 @@ body.quarto-dark .navbar-logo {
   bottom: -5px;
   height: 2px;
   border-radius: 1px;
-  background: var(--mfm-accent);
+  background: var(--mktfm-accent);
   transform: scaleX(0);
   transform-origin: left;
-  transition: transform calc(var(--mfm-dur) * 1.5) var(--mfm-ease);
+  transition: transform calc(var(--mktfm-dur) * 1.5) var(--mktfm-ease);
 }
 
-.navbar .navbar-nav .nav-link:not([data-mfm]):hover .menu-text::after,
-.navbar .navbar-nav .nav-link.active:not([data-mfm]) .menu-text::after {
+.navbar .navbar-nav .nav-link:not([data-mktfm]):hover .menu-text::after,
+.navbar .navbar-nav .nav-link.active:not([data-mktfm]) .menu-text::after {
   transform: scaleX(1);
 }
 
@@ -329,15 +329,15 @@ body.quarto-dark .navbar-logo {
   height: 40px;
   padding: 0;
   border: 0;
-  border-radius: var(--mfm-r);
+  border-radius: var(--mktfm-r);
   background: none;
-  color: var(--mfm-ink-2);
-  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+  color: var(--mktfm-ink-2);
+  transition: background-color var(--mktfm-dur) var(--mktfm-ease), color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 #quarto-header :is(.quarto-color-scheme-toggle, #quarto-search .aa-DetachedSearchButton):is(:hover, :focus-visible) {
-  background: var(--mfm-tone-1);
-  color: var(--mfm-heading);
+  background: var(--mktfm-tone-1);
+  color: var(--mktfm-heading);
 }
 
 #quarto-header .quarto-color-scheme-toggle .bi {
@@ -403,21 +403,21 @@ body.quarto-dark .navbar-logo {
   }
 
   /* GitHub and Open Console: the icon alone; the label stays for screen readers. */
-  .navbar .navbar-nav .nav-link:is([data-mfm="console"], :has(> .bi)) {
+  .navbar .navbar-nav .nav-link:is([data-mktfm="console"], :has(> .bi)) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 40px;
     height: 40px;
     padding: 0;
-    border-radius: var(--mfm-r);
+    border-radius: var(--mktfm-r);
   }
 
   .navbar .navbar-nav .nav-link:has(> .bi):is(:hover, :focus-visible) {
-    background: var(--mfm-tone-1);
+    background: var(--mktfm-tone-1);
   }
 
-  .navbar .navbar-nav .nav-link:is([data-mfm="console"], :has(> .bi)) .menu-text {
+  .navbar .navbar-nav .nav-link:is([data-mktfm="console"], :has(> .bi)) .menu-text {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -426,7 +426,7 @@ body.quarto-dark .navbar-logo {
     white-space: nowrap;
   }
 
-  #quarto-header .navbar .navbar-nav .nav-link[data-mfm="console"]::after {
+  #quarto-header .navbar .navbar-nav .nav-link[data-mktfm="console"]::after {
     content: none;
   }
 }
@@ -440,33 +440,33 @@ body.quarto-dark .navbar-logo {
    html body: they must outrank Quarto's own id-level search rules. The theme tokens live on
    body (light.scss, dark.scss), so these do too. */
 body {
-  --mfm-search-field: var(--mfm-tone-1);
-  --mfm-search-field-focus: #ffffff;
-  --mfm-search-surface: #ffffff;
-  --mfm-search-ink: #0c1f40;
-  --mfm-search-ink-2: #4d5b78;
-  --mfm-search-accent: #2650c8;
-  --mfm-search-tone-1: #f1f4fa;
-  --mfm-search-tone-2: #e3e9f4;
-  --mfm-search-shadow: 0 12px 32px rgba(12, 31, 64, 0.16), 0 2px 6px rgba(12, 31, 64, 0.08);
+  --mktfm-search-field: var(--mktfm-tone-1);
+  --mktfm-search-field-focus: #ffffff;
+  --mktfm-search-surface: #ffffff;
+  --mktfm-search-ink: #0c1f40;
+  --mktfm-search-ink-2: #4d5b78;
+  --mktfm-search-accent: #2650c8;
+  --mktfm-search-tone-1: #f1f4fa;
+  --mktfm-search-tone-2: #e3e9f4;
+  --mktfm-search-shadow: 0 12px 32px rgba(12, 31, 64, 0.16), 0 2px 6px rgba(12, 31, 64, 0.08);
 }
 
-body.quarto-dark:not(.mfm-landing) {
-  --mfm-search-field-focus: rgba(255, 255, 255, 0.12);
-  --mfm-search-surface: #0c1f40;
-  --mfm-search-ink: #f2f5fa;
-  --mfm-search-ink-2: #9aa7bd;
-  --mfm-search-accent: #8fa9ff;
-  --mfm-search-tone-1: rgba(255, 255, 255, 0.06);
-  --mfm-search-tone-2: rgba(255, 255, 255, 0.1);
-  --mfm-search-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+body.quarto-dark:not(.mktfm-landing) {
+  --mktfm-search-field-focus: rgba(255, 255, 255, 0.12);
+  --mktfm-search-surface: #0c1f40;
+  --mktfm-search-ink: #f2f5fa;
+  --mktfm-search-ink-2: #9aa7bd;
+  --mktfm-search-accent: #8fa9ff;
+  --mktfm-search-tone-1: rgba(255, 255, 255, 0.06);
+  --mktfm-search-tone-2: rgba(255, 255, 255, 0.1);
+  --mktfm-search-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 .navbar #quarto-search {
   display: none;
 }
 
-body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
+body.nav-sidebar:not(.mktfm-river-page) .navbar #quarto-search {
   display: flex;
   align-items: center;
 }
@@ -496,16 +496,16 @@ body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
   align-items: center;
   height: 36px;
   border: 0;
-  border-radius: var(--mfm-r);
-  background: var(--mfm-search-field);
+  border-radius: var(--mktfm-r);
+  background: var(--mktfm-search-field);
   box-shadow: none; /* taste-skill-ignore: removes Quarto's field ring */
-  transition: background-color var(--mfm-dur) var(--mfm-ease);
+  transition: background-color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 :is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form:focus-within {
-  background: var(--mfm-search-field-focus);
+  background: var(--mktfm-search-field-focus);
   box-shadow: none; /* taste-skill-ignore: the outline below replaces Quarto's ring */
-  outline: 2px solid var(--mfm-accent);
+  outline: 2px solid var(--mktfm-accent);
   outline-offset: 0;
 }
 
@@ -526,7 +526,7 @@ body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
 /* Quarto's magnifier and clear icons give way to Phosphor masks. */
@@ -556,13 +556,13 @@ body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
   padding: 0 34px 0 36px;
   border: 0;
   background: transparent;
-  color: var(--mfm-heading);
-  font: 400 14px/1.4 var(--mfm-font-sans);
+  color: var(--mktfm-heading);
+  font: 400 14px/1.4 var(--mktfm-font-sans);
   outline: none;
 }
 
 :is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapper .aa-Input::placeholder {
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
   opacity: 1;
 }
 
@@ -583,9 +583,9 @@ body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
   margin-right: 2px;
   padding: 0;
   border: 0;
-  border-radius: var(--mfm-r-chip);
+  border-radius: var(--mktfm-r-chip);
   background: none;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
   opacity: 1;
 }
 
@@ -594,7 +594,7 @@ body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
 }
 
 :is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperSuffix .aa-ClearButton:hover {
-  background: var(--mfm-tone-2);
+  background: var(--mktfm-tone-2);
 }
 
 :is(.aa-Autocomplete, .aa-DetachedFormContainer) .aa-Form .aa-InputWrapperSuffix .aa-ClearButton::before {
@@ -608,20 +608,20 @@ body.nav-sidebar:not(.mfm-river-page) .navbar #quarto-search {
 
 /* The sheet's field sits on white even in dark mode, so it keeps the panel's colours. */
 .aa-DetachedFormContainer .aa-Form {
-  --mfm-heading: var(--mfm-search-ink);
-  --mfm-ink-2: var(--mfm-search-ink-2);
-  --mfm-tone-2: var(--mfm-search-tone-2);
-  --mfm-search-field: var(--mfm-search-tone-1);
-  --mfm-search-field-focus: var(--mfm-search-surface);
+  --mktfm-heading: var(--mktfm-search-ink);
+  --mktfm-ink-2: var(--mktfm-search-ink-2);
+  --mktfm-tone-2: var(--mktfm-search-tone-2);
+  --mktfm-search-field: var(--mktfm-search-tone-1);
+  --mktfm-search-field-focus: var(--mktfm-search-surface);
 }
 
 /* Results panel. */
 html body .aa-Panel {
   border: 0;
-  border-radius: var(--mfm-r-card);
-  background: var(--mfm-search-surface);
-  box-shadow: var(--mfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
-  color: var(--mfm-search-ink);
+  border-radius: var(--mktfm-r-card);
+  background: var(--mktfm-search-surface);
+  box-shadow: var(--mktfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
+  color: var(--mktfm-search-ink);
   overflow: auto;
 }
 
@@ -650,8 +650,8 @@ html body .aa-List {
 :is(#quarto-search-results, .aa-DetachedOverlay) .aa-SourceHeader .search-result-header {
   padding: 8px 10px 6px;
   background: none;
-  color: var(--mfm-search-ink-2);
-  font: 500 13px/1.4 var(--mfm-font-sans);
+  color: var(--mktfm-search-ink-2);
+  font: 500 13px/1.4 var(--mktfm-font-sans);
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) .aa-Item .search-result-doc-section,
@@ -665,8 +665,8 @@ html body .aa-List {
   height: auto;
   padding: 8px 10px;
   justify-content: flex-start;
-  color: var(--mfm-search-ink-2);
-  font: 400 14px/1.5 var(--mfm-font-sans);
+  color: var(--mktfm-search-ink-2);
+  font: 400 14px/1.5 var(--mktfm-font-sans);
 }
 
 /* A row: title, path line, snippet. The selected row is a tone fill with a cobalt title;
@@ -676,14 +676,14 @@ html body .aa-List {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--mfm-r-chip);
+  border-radius: var(--mktfm-r-chip);
   background: transparent;
   box-shadow: none; /* taste-skill-ignore: removes any side bar */
-  color: var(--mfm-search-ink);
+  color: var(--mktfm-search-ink);
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected="true"] .search-item {
-  background: var(--mfm-search-tone-1);
+  background: var(--mktfm-search-tone-1);
 }
 
 /* Quarto paints the selected row's parts cobalt with white text; they stay plain here, and only
@@ -692,17 +692,17 @@ html body .aa-List {
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-text,
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-text-container {
   background: transparent;
-  color: var(--mfm-search-ink-2);
+  color: var(--mktfm-search-ink-2);
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-section,
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item .search-result-title-container {
   background: transparent;
-  color: var(--mfm-search-ink);
+  color: var(--mktfm-search-ink);
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected="true"] .search-item :is(.search-result-title, .search-result-section) {
-  color: var(--mfm-search-accent);
+  color: var(--mktfm-search-accent);
 }
 
 .search-result-link,
@@ -727,33 +727,33 @@ html body .aa-List {
   display: flex;
   order: 1;
   padding: 0;
-  color: var(--mfm-search-ink);
+  color: var(--mktfm-search-ink);
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) .search-item :is(.search-result-title, .search-result-section) {
   order: 1;
   margin: 0;
   padding: 0;
-  color: var(--mfm-search-ink);
-  font: 500 15px/1.35 var(--mfm-font-sans);
+  color: var(--mktfm-search-ink);
+  font: 500 15px/1.35 var(--mktfm-font-sans);
 }
 
-.mfm-search-path {
+.mktfm-search-path {
   order: 2;
   margin: 1px 0 0;
-  color: var(--mfm-search-ink-2);
-  font: 400 13px/1.4 var(--mfm-font-sans);
+  color: var(--mktfm-search-ink-2);
+  font: 400 13px/1.4 var(--mktfm-font-sans);
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-text-container {
   order: 3;
   margin: 0;
   padding: 0;
-  color: var(--mfm-search-ink-2);
+  color: var(--mktfm-search-ink-2);
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-text,
-.mfm-search-snippet {
+.mktfm-search-snippet {
   order: 3;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -761,61 +761,61 @@ html body .aa-List {
   overflow: hidden;
   margin: 3px 0 0;
   max-height: none;
-  color: var(--mfm-search-ink-2);
-  font: 400 14px/1.45 var(--mfm-font-sans);
+  color: var(--mktfm-search-ink-2);
+  font: 400 14px/1.45 var(--mktfm-font-sans);
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
 /* On API and reference rows search.js shows the first sentence of the description instead. */
-:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-text:has(+ .mfm-search-snippet) {
+:is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-text:has(+ .mktfm-search-snippet) {
   display: none;
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item[aria-selected] .search-item :is(mark.search-match, .search-match.mark),
-.mfm-search-snippet mark {
+.mktfm-search-snippet mark {
   padding: 0;
   background: none;
-  color: var(--mfm-search-ink);
+  color: var(--mktfm-search-ink);
   font-weight: 500;
 }
 
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item.search-result-more,
 :is(#quarto-search-results, .aa-DetachedOverlay) li.aa-Item .search-item .search-result-more {
   padding: 4px 12px 8px 14px;
-  color: var(--mfm-search-ink-2);
-  font: 400 13px/1.4 var(--mfm-font-sans);
+  color: var(--mktfm-search-ink-2);
+  font: 400 13px/1.4 var(--mktfm-font-sans);
 }
 
 /* No results: the query and two places to start (search.js), in place of Quarto's line. */
-:is(#quarto-search-results, .aa-DetachedOverlay) .aa-SourceNoResults:has(+ .mfm-search-empty) {
+:is(#quarto-search-results, .aa-DetachedOverlay) .aa-SourceNoResults:has(+ .mktfm-search-empty) {
   display: none;
 }
 
-.mfm-search-empty {
+.mktfm-search-empty {
   padding: 4px 10px 10px;
-  color: var(--mfm-search-ink-2);
-  font: 400 14px/1.5 var(--mfm-font-sans);
+  color: var(--mktfm-search-ink-2);
+  font: 400 14px/1.5 var(--mktfm-font-sans);
 }
 
-.mfm-search-empty p {
+.mktfm-search-empty p {
   margin: 0 0 6px;
 }
 
-.mfm-search-empty a {
+.mktfm-search-empty a {
   margin-right: 14px;
-  color: var(--mfm-search-accent);
+  color: var(--mktfm-search-accent);
   font-weight: 500;
 }
 
 /* The sheet: full screen on phones; from 680px Quarto's modal, styled below as a floating panel. */
 html body .aa-DetachedOverlay {
-  background: var(--mfm-search-surface);
+  background: var(--mktfm-search-surface);
 }
 
 html body .aa-DetachedContainer {
   border-radius: 0;
-  background: var(--mfm-search-surface);
+  background: var(--mktfm-search-surface);
   box-shadow: none; /* taste-skill-ignore: removes Quarto's sheet outline */
 }
 
@@ -825,7 +825,7 @@ html body .aa-DetachedFormContainer {
   gap: 8px;
   padding: 12px;
   border: 0;
-  background: var(--mfm-search-surface);
+  background: var(--mktfm-search-surface);
 }
 
 html body .aa-DetachedFormContainer .aa-Form {
@@ -842,7 +842,7 @@ html body .aa-DetachedCancelButton {
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: var(--mfm-r);
+  border-radius: var(--mktfm-r);
   background: none;
   color: transparent;
   font-size: 0;
@@ -855,19 +855,19 @@ html body .aa-DetachedCancelButton::before {
   margin: auto;
   width: 20px;
   height: 20px;
-  background: var(--mfm-search-ink);
+  background: var(--mktfm-search-ink);
   mask: url("../icons/phosphor/x.svg") center / contain no-repeat;
   -webkit-mask: url("../icons/phosphor/x.svg") center / contain no-repeat;
 }
 
 html body .aa-DetachedCancelButton:hover,
 html body .aa-DetachedCancelButton:focus-visible {
-  background: var(--mfm-search-tone-1);
+  background: var(--mktfm-search-tone-1);
   box-shadow: none; /* taste-skill-ignore: removes Quarto's button ring */
 }
 
 html body .aa-DetachedCancelButton:focus-visible {
-  outline: 2px solid var(--mfm-accent);
+  outline: 2px solid var(--mktfm-accent);
 }
 
 html body .aa-DetachedContainer .aa-Panel {
@@ -875,7 +875,7 @@ html body .aa-DetachedContainer .aa-Panel {
   width: auto;
   max-height: none;
   border-radius: 0;
-  background: var(--mfm-search-surface);
+  background: var(--mktfm-search-surface);
   box-shadow: none; /* taste-skill-ignore: the sheet is the surface */
 }
 
@@ -887,8 +887,8 @@ html body .aa-DetachedOverlay:has(.aa-DetachedContainer--modal) {
 html body .aa-DetachedContainer--modal {
   max-width: 640px;
   overflow: hidden;
-  border-radius: var(--mfm-r-card);
-  box-shadow: var(--mfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
+  border-radius: var(--mktfm-r-card);
+  box-shadow: var(--mktfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
 }
 
 html body .aa-DetachedContainer--modal .aa-PanelLayout {
@@ -898,36 +898,36 @@ html body .aa-DetachedContainer--modal .aa-PanelLayout {
 
 /* Open Console: the one action. Navy with white text on light pages (light on navy on dark
    ones): Phosphor TerminalWindow, label, an ArrowRight that moves 3px on hover; on wide screens
-   a 40px square with the icon alone. site.js sets data-mfm. */
-.navbar .navbar-nav .nav-link[data-mfm="console"] {
+   a 40px square with the icon alone. site.js sets data-mktfm. */
+.navbar .navbar-nav .nav-link[data-mktfm="console"] {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   height: 40px;
   padding: 0 1rem;
-  border-radius: var(--mfm-r);
-  background: var(--mfm-console-bg);
-  color: var(--mfm-console-fg);
+  border-radius: var(--mktfm-r);
+  background: var(--mktfm-console-bg);
+  color: var(--mktfm-console-fg);
   font-weight: 500;
-  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease), scale var(--mfm-dur);
+  transition: background-color var(--mktfm-dur) var(--mktfm-ease), color var(--mktfm-dur) var(--mktfm-ease), scale var(--mktfm-dur);
 }
 
-.navbar .navbar-nav .nav-link[data-mfm="console"]:hover,
-.navbar .navbar-nav .nav-link[data-mfm="console"]:focus-visible {
-  background: var(--mfm-console-hover);
-  color: var(--mfm-console-fg);
+.navbar .navbar-nav .nav-link[data-mktfm="console"]:hover,
+.navbar .navbar-nav .nav-link[data-mktfm="console"]:focus-visible {
+  background: var(--mktfm-console-hover);
+  color: var(--mktfm-console-fg);
 }
 
-.navbar .navbar-nav .nav-link[data-mfm="console"]:hover {
-  color: var(--mfm-on-navy);
+.navbar .navbar-nav .nav-link[data-mktfm="console"]:hover {
+  color: var(--mktfm-on-navy);
 }
 
-.navbar .navbar-nav .nav-link[data-mfm="console"]:active {
+.navbar .navbar-nav .nav-link[data-mktfm="console"]:active {
   scale: 0.97;
 }
 
-.navbar .navbar-nav .nav-link[data-mfm="console"]::before,
-.navbar .navbar-nav .nav-link[data-mfm="console"]::after {
+.navbar .navbar-nav .nav-link[data-mktfm="console"]::before,
+.navbar .navbar-nav .nav-link[data-mktfm="console"]::after {
   content: "";
   flex: none;
   width: 20px;
@@ -937,92 +937,92 @@ html body .aa-DetachedContainer--modal .aa-PanelLayout {
   -webkit-mask: center / contain no-repeat;
 }
 
-.navbar .navbar-nav .nav-link[data-mfm="console"]::before {
+.navbar .navbar-nav .nav-link[data-mktfm="console"]::before {
   mask-image: url("../icons/phosphor/terminal-window.svg");
   -webkit-mask-image: url("../icons/phosphor/terminal-window.svg");
 }
 
-.navbar .navbar-nav .nav-link[data-mfm="console"]::after {
+.navbar .navbar-nav .nav-link[data-mktfm="console"]::after {
   mask-image: url("../icons/phosphor/arrow-right.svg");
   -webkit-mask-image: url("../icons/phosphor/arrow-right.svg");
-  transition: transform var(--mfm-dur) var(--mfm-ease);
+  transition: transform var(--mktfm-dur) var(--mktfm-ease);
 }
 
-.navbar .navbar-nav .nav-link[data-mfm="console"]:hover::after {
+.navbar .navbar-nav .nav-link[data-mktfm="console"]:hover::after {
   transform: translateX(3px);
 }
 
 /* Dark chrome pages (the landing page): the same tokens as dark mode, whichever mode is stored,
    and the light Console button on the navy bar. */
-body.mfm-landing:is(.quarto-light, .quarto-dark) {
-  --mfm-bg: #07142a;
-  --mfm-ink: #dde3ee;
-  --mfm-ink-2: #9aa7bd;
-  --mfm-heading: #f2f5fa;
-  --mfm-accent: #8fa9ff;
-  --mfm-tone-1: rgba(255, 255, 255, 0.05);
-  --mfm-tone-2: rgba(255, 255, 255, 0.09);
-  --mfm-console-bg: #f2f5fa;
-  --mfm-console-fg: #0c1f40;
-  --mfm-console-hover: #ffffff;
-  --mfm-on-navy: #0c1f40;
+body.mktfm-landing:is(.quarto-light, .quarto-dark) {
+  --mktfm-bg: #07142a;
+  --mktfm-ink: #dde3ee;
+  --mktfm-ink-2: #9aa7bd;
+  --mktfm-heading: #f2f5fa;
+  --mktfm-accent: #8fa9ff;
+  --mktfm-tone-1: rgba(255, 255, 255, 0.05);
+  --mktfm-tone-2: rgba(255, 255, 255, 0.09);
+  --mktfm-console-bg: #f2f5fa;
+  --mktfm-console-fg: #0c1f40;
+  --mktfm-console-hover: #ffffff;
+  --mktfm-on-navy: #0c1f40;
 }
 
 /* A clear bar over a dark hero (River's, while the hero is under the bar; river.js sets the
    class): no glass, and the dark chrome tokens on the header alone. */
-body.mfm-nav-clear #quarto-header {
-  --mfm-bg: #07142a;
-  --mfm-ink: #dde3ee;
-  --mfm-ink-2: #c9d3e6;
-  --mfm-heading: #f2f5fa;
-  --mfm-accent: #8fa9ff;
-  --mfm-tone-1: rgba(255, 255, 255, 0.08);
-  --mfm-tone-2: rgba(255, 255, 255, 0.12);
-  --mfm-console-bg: #f2f5fa;
-  --mfm-console-fg: #0c1f40;
-  --mfm-console-hover: #ffffff;
-  --mfm-on-navy: #0c1f40;
+body.mktfm-nav-clear #quarto-header {
+  --mktfm-bg: #07142a;
+  --mktfm-ink: #dde3ee;
+  --mktfm-ink-2: #c9d3e6;
+  --mktfm-heading: #f2f5fa;
+  --mktfm-accent: #8fa9ff;
+  --mktfm-tone-1: rgba(255, 255, 255, 0.08);
+  --mktfm-tone-2: rgba(255, 255, 255, 0.12);
+  --mktfm-console-bg: #f2f5fa;
+  --mktfm-console-fg: #0c1f40;
+  --mktfm-console-hover: #ffffff;
+  --mktfm-on-navy: #0c1f40;
 }
 
-body.mfm-nav-clear #quarto-header .navbar {
+body.mktfm-nav-clear #quarto-header .navbar {
   background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
-body.mfm-nav-clear .navbar-logo {
+body.mktfm-nav-clear .navbar-logo {
   filter: brightness(0) invert(0.97);
 }
 
-/* Models menu (site.js adds .mfm-models-menu): a tone surface, no line ------- */
-.mfm-models-menu .dropdown-header {
+/* Models menu (site.js adds .mktfm-models-menu): a tone surface, no line ------- */
+.mktfm-models-menu .dropdown-header {
   padding: 0.25rem 0.75rem 0.55rem;
   font-size: 0.85rem;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
-.mfm-models-menu .dropdown-item {
+.mktfm-models-menu .dropdown-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.55rem 0.75rem;
-  border-radius: var(--mfm-r);
+  border-radius: var(--mktfm-r);
   font-size: 0.95rem;
   font-weight: 400;
-  color: var(--mfm-ink);
+  color: var(--mktfm-ink);
 }
 
-.mfm-models-menu .dropdown-item:hover,
-.mfm-models-menu .dropdown-item:focus {
-  background: var(--mfm-tone-2);
-  color: var(--mfm-heading);
+.mktfm-models-menu .dropdown-item:hover,
+.mktfm-models-menu .dropdown-item:focus {
+  background: var(--mktfm-tone-2);
+  color: var(--mktfm-heading);
 }
 
 /* Phosphor ArrowRight, or ArrowUpRight for a link that leaves the site. */
-.mfm-models-menu .dropdown-item::after {
+.mktfm-models-menu .dropdown-item::after {
   content: "";
   flex: none;
   width: 16px;
@@ -1032,52 +1032,52 @@ body.mfm-nav-clear .navbar-logo {
   mask: url("../icons/phosphor/arrow-right.svg") center / contain no-repeat;
   -webkit-mask: url("../icons/phosphor/arrow-right.svg") center / contain no-repeat;
   opacity: 0.55;
-  transition: transform var(--mfm-dur) var(--mfm-ease), opacity var(--mfm-dur) var(--mfm-ease);
+  transition: transform var(--mktfm-dur) var(--mktfm-ease), opacity var(--mktfm-dur) var(--mktfm-ease);
 }
 
-.mfm-models-menu .dropdown-item.is-external::after {
+.mktfm-models-menu .dropdown-item.is-external::after {
   mask-image: url("../icons/phosphor/arrow-up-right.svg");
   -webkit-mask-image: url("../icons/phosphor/arrow-up-right.svg");
 }
 
-.mfm-models-menu .dropdown-item:hover::after {
+.mktfm-models-menu .dropdown-item:hover::after {
   opacity: 1;
   transform: translateX(3px);
 }
 
 /* Announced models: listed, greyed, not links (site.js builds them from " SOON" items). */
-.mfm-models-menu .dropdown-item.is-soon {
+.mktfm-models-menu .dropdown-item.is-soon {
   cursor: default;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
-.mfm-models-menu .dropdown-item.is-soon::after {
+.mktfm-models-menu .dropdown-item.is-soon::after {
   content: none;
 }
 
-.mfm-badge {
+.mktfm-badge {
   padding: 0.1rem 0.4rem;
-  border-radius: var(--mfm-r-chip);
-  background: var(--mfm-tone-2);
-  color: var(--mfm-accent);
+  border-radius: var(--mktfm-r-chip);
+  background: var(--mktfm-tone-2);
+  color: var(--mktfm-accent);
   font-size: 0.72rem;
   font-weight: 500;
 }
 
-.mfm-badge--soon {
-  color: var(--mfm-ink-2);
+.mktfm-badge--soon {
+  color: var(--mktfm-ink-2);
 }
 
-.navbar .dropdown-menu.mfm-models-menu {
+.navbar .dropdown-menu.mktfm-models-menu {
   border: 0;
-  border-radius: var(--mfm-r-card);
-  background: var(--mfm-tone-1);
+  border-radius: var(--mktfm-r-card);
+  background: var(--mktfm-tone-1);
   box-shadow: none; /* taste-skill-ignore: removes Bootstrap's shadow */
 }
 
 @media (min-width: 992px) {
   /* Two columns, as headers and the divider in _quarto.yml lay them out. */
-  .navbar .dropdown-menu.mfm-models-menu {
+  .navbar .dropdown-menu.mktfm-models-menu {
     min-width: 34rem;
     margin-top: 0.4rem;
     padding: 1rem 0.5rem;
@@ -1085,12 +1085,12 @@ body.mfm-nav-clear .navbar-logo {
     column-gap: 0;
   }
 
-  .mfm-models-menu > li {
+  .mktfm-models-menu > li {
     padding: 0 0.55rem;
     break-inside: avoid;
   }
 
-  .mfm-models-menu > li:has(> .dropdown-divider) {
+  .mktfm-models-menu > li:has(> .dropdown-divider) {
     height: 0;
     margin: 0;
     padding: 0;
@@ -1099,31 +1099,31 @@ body.mfm-nav-clear .navbar-logo {
   }
 
   /* A tone step on a white page is faint; the open menu sits on the page tone-2 edge instead. */
-  body.quarto-light .navbar .dropdown-menu.mfm-models-menu {
-    background: var(--mfm-tone-1);
+  body.quarto-light .navbar .dropdown-menu.mktfm-models-menu {
+    background: var(--mktfm-tone-1);
   }
 
   /* On dark chrome the menu is solid navy: the page must not show through it. */
-  body:is(.quarto-dark, .mfm-landing, .mfm-nav-clear) .navbar .dropdown-menu.mfm-models-menu {
+  body:is(.quarto-dark, .mktfm-landing, .mktfm-nav-clear) .navbar .dropdown-menu.mktfm-models-menu {
     background: #0c1f40;
   }
 }
 
-body.mfm-landing .mfm-models-menu .dropdown-item {
+body.mktfm-landing .mktfm-models-menu .dropdown-item {
   color: rgba(247, 247, 247, 0.88);
 }
 
-body.mfm-landing .mfm-models-menu .dropdown-item:hover {
+body.mktfm-landing .mktfm-models-menu .dropdown-item:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #ffffff;
 }
 
-body.mfm-landing .mfm-models-menu .dropdown-header {
+body.mktfm-landing .mktfm-models-menu .dropdown-header {
   color: rgba(247, 247, 247, 0.5);
 }
 
-body.mfm-landing .mfm-models-menu .dropdown-item.is-soon,
-body.mfm-landing .mfm-badge--soon {
+body.mktfm-landing .mktfm-models-menu .dropdown-item.is-soon,
+body.mktfm-landing .mktfm-badge--soon {
   color: rgba(247, 247, 247, 0.45);
 }
 
@@ -1142,7 +1142,7 @@ body.mfm-landing .mfm-badge--soon {
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 #quarto-sidebar .sidebar-item {
@@ -1158,41 +1158,41 @@ body.mfm-landing .mfm-badge--soon {
 }
 
 #quarto-sidebar a.sidebar-link:not(.text-start),
-.mfm-phone-pages a.sidebar-link:not(.text-start) {
+.mktfm-phone-pages a.sidebar-link:not(.text-start) {
   display: block;
   padding: 0.3rem 0;
   font-weight: 400;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
   background: none;
   text-decoration: none;
-  transition: color var(--mfm-dur) var(--mfm-ease), transform var(--mfm-dur) var(--mfm-ease);
+  transition: color var(--mktfm-dur) var(--mktfm-ease), transform var(--mktfm-dur) var(--mktfm-ease);
 }
 
 #quarto-sidebar a.sidebar-link:not(.text-start):hover {
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
   transform: translateX(3px);
 }
 
 #quarto-sidebar a.sidebar-link.active,
 #quarto-sidebar a.sidebar-link[aria-current="page"],
-.mfm-phone-pages a.sidebar-link.active {
+.mktfm-phone-pages a.sidebar-link.active {
   font-weight: 500;
-  color: var(--mfm-accent);
+  color: var(--mktfm-accent);
   background: none;
   text-decoration: none;
 }
 
 /* Contents: the current section in cobalt, with a small dot; no rule down the side. */
 #TOC {
-  --mfm-toc-pad: 1.1rem;
+  --mktfm-toc-pad: 1.1rem;
 }
 
 #TOC #toc-title {
   margin-bottom: 0.6rem;
-  font-family: var(--mfm-font-sans);
+  font-family: var(--mktfm-font-sans);
   font-size: 0.95rem;
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 .quarto-secondary-nav-title,
@@ -1265,16 +1265,16 @@ body.mfm-landing .mfm-badge--soon {
 #TOC .nav-link,
 #TOC ul > li > a {
   position: relative;
-  padding: 0.22rem 0 0.22rem var(--mfm-toc-pad);
+  padding: 0.22rem 0 0.22rem var(--mktfm-toc-pad);
   border: 0;
   font-size: 0.875rem;
   font-weight: 400;
-  color: var(--mfm-ink-2);
-  transition: color var(--mfm-dur) var(--mfm-ease);
+  color: var(--mktfm-ink-2);
+  transition: color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 #TOC .nav-link:hover {
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 #TOC .nav-link::before {
@@ -1286,15 +1286,15 @@ body.mfm-landing .mfm-badge--soon {
   height: 6px;
   margin-top: -3px;
   border-radius: 50%;
-  background: var(--mfm-accent);
+  background: var(--mktfm-accent);
   opacity: 0;
   transform: scale(0.6);
-  transition: transform var(--mfm-dur) var(--mfm-ease), opacity var(--mfm-dur) var(--mfm-ease);
+  transition: transform var(--mktfm-dur) var(--mktfm-ease), opacity var(--mktfm-dur) var(--mktfm-ease);
 }
 
 #TOC .nav-link.active {
   font-weight: 400;
-  color: var(--mfm-accent);
+  color: var(--mktfm-accent);
   border: 0;
 }
 
@@ -1307,24 +1307,24 @@ body.mfm-landing .mfm-badge--soon {
 /* A block is a tone surface with a head row (language label left, Copy right) and a body that
    scrolls sideways. The scroll cue is an edge fade that shows only where more code lies. */
 :root {
-  --mfm-code-bg: #f1f4fa;
+  --mktfm-code-bg: #f1f4fa;
 }
 
 body.quarto-dark {
-  --mfm-code-bg: #121f35;
+  --mktfm-code-bg: #121f35;
 }
 
 div.sourceCode {
   position: relative;
   margin: 1.4rem 0;
   border: 0;
-  border-radius: var(--mfm-r-card);
-  background: var(--mfm-code-bg);
+  border-radius: var(--mktfm-r-card);
+  background: var(--mktfm-code-bg);
   /* Only the code body scrolls; the language label and Copy stay on the wrapper. */
   overflow: visible;
 }
 
-div.sourceCode.mfm-code {
+div.sourceCode.mktfm-code {
   padding-top: 2.6rem;
 }
 
@@ -1333,8 +1333,8 @@ pre.sourceCode,
 main pre {
   margin: 0;
   border: 0;
-  border-radius: var(--mfm-r-card);
-  color: var(--mfm-ink);
+  border-radius: var(--mktfm-r-card);
+  color: var(--mktfm-ink);
   font-size: 0.86rem;
   line-height: 1.65;
 }
@@ -1350,8 +1350,8 @@ div.sourceCode pre.sourceCode {
 
 /* The scroll cue: an edge fade over the code, only on the side that has more (site.js sets the
    can-scroll classes). It starts below the head row, so it never covers the label or Copy. */
-div.sourceCode.mfm-code::before,
-div.sourceCode.mfm-code::after {
+div.sourceCode.mktfm-code::before,
+div.sourceCode.mktfm-code::after {
   content: "";
   position: absolute;
   top: 2.6rem;
@@ -1359,23 +1359,23 @@ div.sourceCode.mfm-code::after {
   width: 3.5rem;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--mfm-dur) var(--mfm-ease);
+  transition: opacity var(--mktfm-dur) var(--mktfm-ease);
 }
 
-div.sourceCode.mfm-code::before {
+div.sourceCode.mktfm-code::before {
   left: 0;
-  border-radius: 0 0 0 var(--mfm-r-card);
-  background: linear-gradient(to right, var(--mfm-code-bg) 20%, transparent); /* taste-skill-ignore: edge fade over code that scrolls, not a fill */
+  border-radius: 0 0 0 var(--mktfm-r-card);
+  background: linear-gradient(to right, var(--mktfm-code-bg) 20%, transparent); /* taste-skill-ignore: edge fade over code that scrolls, not a fill */
 }
 
-div.sourceCode.mfm-code::after {
+div.sourceCode.mktfm-code::after {
   right: 0;
-  border-radius: 0 0 var(--mfm-r-card) 0;
-  background: linear-gradient(to left, var(--mfm-code-bg) 20%, transparent); /* taste-skill-ignore: edge fade over code that scrolls, not a fill */
+  border-radius: 0 0 var(--mktfm-r-card) 0;
+  background: linear-gradient(to left, var(--mktfm-code-bg) 20%, transparent); /* taste-skill-ignore: edge fade over code that scrolls, not a fill */
 }
 
-div.sourceCode.mfm-code.can-scroll-left::before,
-div.sourceCode.mfm-code.can-scroll-right::after {
+div.sourceCode.mktfm-code.can-scroll-left::before,
+div.sourceCode.mktfm-code.can-scroll-right::after {
   opacity: 1;
 }
 
@@ -1385,7 +1385,7 @@ main pre:not(.sourceCode) {
   margin: 1.4rem 0;
   padding: 1rem 1.1rem;
   overflow-x: auto;
-  background: var(--mfm-code-bg);
+  background: var(--mktfm-code-bg);
 }
 
 div.sourceCode pre code {
@@ -1396,7 +1396,7 @@ div.sourceCode pre code {
   background: none;
 }
 
-.mfm-code-label {
+.mktfm-code-label {
   position: absolute;
   top: 0;
   left: 0;
@@ -1406,72 +1406,72 @@ div.sourceCode pre code {
   height: 2.6rem;
   padding: 0 1.1rem;
   font-size: 0.85rem;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
-.mfm-lang-mark {
+.mktfm-lang-mark {
   display: inline-block;
   width: 16px;
   height: 16px;
   background: center / contain no-repeat;
 }
 
-.mfm-code-label[data-lang="python"] .mfm-lang-mark {
+.mktfm-code-label[data-lang="python"] .mktfm-lang-mark {
   background-image: url("../img/logo/python.svg");
 }
 
-.mfm-code-label[data-lang="curl"] .mfm-lang-mark,
+.mktfm-code-label[data-lang="curl"] .mktfm-lang-mark,
 .panel-tabset .nav-link[data-lang="curl"]::before {
   background: currentColor;
   mask: url("../img/logo/curl.svg") center / contain no-repeat;
   -webkit-mask: url("../img/logo/curl.svg") center / contain no-repeat;
 }
 
-.mfm-code-label[data-lang="shell"] .mfm-lang-mark,
-.mfm-code-label[data-lang="json"] .mfm-lang-mark,
+.mktfm-code-label[data-lang="shell"] .mktfm-lang-mark,
+.mktfm-code-label[data-lang="json"] .mktfm-lang-mark,
 .panel-tabset .nav-link[data-lang="shell"]::before,
 .panel-tabset .nav-link[data-lang="json"]::before {
   width: auto;
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: code font for the language mark { } */
+  font-family: var(--mktfm-font-mono); /* taste-skill-ignore: code font for the language mark { } */
   font-size: 0.85rem;
   line-height: 16px;
   text-align: center;
 }
 
-.mfm-code-label[data-lang="shell"] .mfm-lang-mark::before,
+.mktfm-code-label[data-lang="shell"] .mktfm-lang-mark::before,
 .panel-tabset .nav-link[data-lang="shell"]::before {
   content: "$";
 }
 
-.mfm-code-label[data-lang="json"] .mfm-lang-mark::before,
+.mktfm-code-label[data-lang="json"] .mktfm-lang-mark::before,
 .panel-tabset .nav-link[data-lang="json"]::before {
   content: "{ }";
 }
 
-.mfm-code-label[data-lang="none"] .mfm-lang-mark {
+.mktfm-code-label[data-lang="none"] .mktfm-lang-mark {
   display: none;
 }
 
 /* Copy: icon and "Copy", then a check and "Copied". One look for Quarto's own code button and
-   for <button class="mfm-copy" data-copy="..." aria-label="...">, which the page sheets use for
+   for <button class="mktfm-copy" data-copy="..." aria-label="...">, which the page sheets use for
    text that is not a code block (the landing install line). */
 .code-copy-button,
-.mfm-copy {
+.mktfm-copy {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   height: 2rem;
   padding: 0 0.6rem;
   border: 0;
-  border-radius: var(--mfm-r);
+  border-radius: var(--mktfm-r);
   background: none;
-  color: var(--mfm-ink-2);
-  font-family: var(--mfm-font-sans);
+  color: var(--mktfm-ink-2);
+  font-family: var(--mktfm-font-sans);
   font-size: 0.85rem;
   font-weight: 400;
   line-height: 1;
   cursor: pointer;
-  transition: background-color var(--mfm-dur) var(--mfm-ease), color var(--mfm-dur) var(--mfm-ease);
+  transition: background-color var(--mktfm-dur) var(--mktfm-ease), color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 .code-copy-button {
@@ -1482,13 +1482,13 @@ div.sourceCode pre code {
 }
 
 .code-copy-button:hover,
-.mfm-copy:hover {
-  background: var(--mfm-tone-2);
-  color: var(--mfm-heading);
+.mktfm-copy:hover {
+  background: var(--mktfm-tone-2);
+  color: var(--mktfm-heading);
 }
 
 .code-copy-button::before,
-.mfm-copy::before {
+.mktfm-copy::before {
   content: "";
   width: 14px;
   height: 14px;
@@ -1498,7 +1498,7 @@ div.sourceCode pre code {
 }
 
 .code-copy-button::after,
-.mfm-copy::after {
+.mktfm-copy::after {
   content: "Copy";
 }
 
@@ -1508,19 +1508,19 @@ div.sourceCode pre code {
 }
 
 .code-copy-button.code-copy-button-checked,
-.mfm-copy.is-copied {
-  color: var(--mfm-accent);
+.mktfm-copy.is-copied {
+  color: var(--mktfm-accent);
 }
 
 .code-copy-button.code-copy-button-checked::before,
-.mfm-copy.is-copied::before {
+.mktfm-copy.is-copied::before {
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E");
   -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8.5l3.2 3.2L13 4.5'/%3E%3C/svg%3E");
-  animation: mfm-pop calc(var(--mfm-dur) * 1.6) var(--mfm-ease);
+  animation: mktfm-pop calc(var(--mktfm-dur) * 1.6) var(--mktfm-ease);
 }
 
 .code-copy-button.code-copy-button-checked::after,
-.mfm-copy.is-copied::after {
+.mktfm-copy.is-copied::after {
   content: "Copied";
 }
 
@@ -1529,7 +1529,7 @@ div.sourceCode pre code {
   display: none;
 }
 
-@keyframes mfm-pop {
+@keyframes mktfm-pop {
   from {
     transform: scale(0.6);
   }
@@ -1550,8 +1550,8 @@ div.sourceCode pre code {
   margin: 1.2rem 0 0.4rem;
   padding: 3px;
   border: 0;
-  border-radius: var(--mfm-r);
-  background: var(--mfm-tone-1);
+  border-radius: var(--mktfm-r);
+  background: var(--mktfm-tone-1);
 }
 
 .panel-tabset > ul.nav-tabs .nav-link {
@@ -1562,21 +1562,21 @@ div.sourceCode pre code {
   gap: 0.45rem;
   padding: 0.35rem 0.85rem;
   border: 0;
-  border-radius: var(--mfm-r-chip);
+  border-radius: var(--mktfm-r-chip);
   background: none;
   font-size: 0.9rem;
   font-weight: 400;
-  color: var(--mfm-ink-2);
-  transition: color var(--mfm-dur) var(--mfm-ease);
+  color: var(--mktfm-ink-2);
+  transition: color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 .panel-tabset > ul.nav-tabs .nav-link:hover {
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 .panel-tabset > ul.nav-tabs .nav-link.active {
-  color: var(--mfm-heading);
-  background: var(--mfm-bg);
+  color: var(--mktfm-heading);
+  background: var(--mktfm-bg);
 }
 
 .panel-tabset > ul.nav-tabs .nav-link[data-lang="python"]::before {
@@ -1594,7 +1594,7 @@ div.sourceCode pre code {
 
 .panel-tabset > ul.nav-tabs .nav-link[data-lang="shell"]::before,
 .panel-tabset > ul.nav-tabs .nav-link[data-lang="json"]::before {
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: code font for the language mark { } */
+  font-family: var(--mktfm-font-mono); /* taste-skill-ignore: code font for the language mark { } */
 }
 
 /* With the marker in place the active tab needs no fill of its own. */
@@ -1602,18 +1602,18 @@ div.sourceCode pre code {
   background: none;
 }
 
-.mfm-tab-mark {
+.mktfm-tab-mark {
   position: absolute;
   top: 3px;
   bottom: 3px;
   left: 0;
-  border-radius: var(--mfm-r-chip);
-  background: var(--mfm-bg);
+  border-radius: var(--mktfm-r-chip);
+  background: var(--mktfm-bg);
   pointer-events: none;
 }
 
-.panel-tabset > ul.nav-tabs.is-ready .mfm-tab-mark {
-  transition: transform calc(var(--mfm-dur) * 1.6) var(--mfm-ease), width calc(var(--mfm-dur) * 1.6) var(--mfm-ease);
+.panel-tabset > ul.nav-tabs.is-ready .mktfm-tab-mark {
+  transition: transform calc(var(--mktfm-dur) * 1.6) var(--mktfm-ease), width calc(var(--mktfm-dur) * 1.6) var(--mktfm-ease);
 }
 
 .panel-tabset > .tab-content {
@@ -1628,8 +1628,8 @@ div.sourceCode pre code {
 /* Callouts: a tone surface, no frame, no side bar. The icon keeps the accent. */
 .callout.callout-style-default {
   border: 0;
-  border-radius: var(--mfm-r-card);
-  background: var(--mfm-tone-1);
+  border-radius: var(--mktfm-r-card);
+  background: var(--mktfm-tone-1);
 }
 
 /* Bootstrap colours each callout type's header with a rule of this weight. */
@@ -1639,7 +1639,7 @@ div.callout[class*="callout-"].callout-style-default > .callout-header {
 
 .callout.callout-style-default .callout-title-container {
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 .callout.callout-style-default .callout-body-container {
@@ -1659,7 +1659,7 @@ footer.footer .nav-footer {
   padding: 0 30px;
   border: 0;
   font-size: 0.875rem;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
 footer.footer .nav-footer-center {
@@ -1679,15 +1679,15 @@ footer.footer .nav-footer p {
 footer.footer .nav-footer a {
   color: inherit;
   text-decoration: none;
-  transition: color var(--mfm-dur) var(--mfm-ease);
+  transition: color var(--mktfm-dur) var(--mktfm-ease);
 }
 
 footer.footer .nav-footer a:hover {
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 /* The landing page is dark already and carries no footer. */
-body.mfm-landing footer.footer {
+body.mktfm-landing footer.footer {
   display: none;
 }
 
@@ -1700,7 +1700,7 @@ body.mfm-landing footer.footer {
 
 .quarto-listing-default .quarto-post .listing-title {
   margin-bottom: 0.35rem;
-  font-family: var(--mfm-font-sans);
+  font-family: var(--mktfm-font-sans);
   font-size: 1.45rem;
   font-weight: 500;
   letter-spacing: -0.015em;
@@ -1710,12 +1710,12 @@ body.mfm-landing footer.footer {
 .quarto-listing-default .quarto-post .listing-date,
 .quarto-listing-default .quarto-post .listing-author {
   font-size: 1rem;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
 .quarto-listing-default .quarto-post .thumbnail img,
 .quarto-listing-default .quarto-post .thumbnail-image {
-  border-radius: var(--mfm-r-card);
+  border-radius: var(--mktfm-r-card);
   object-fit: contain; /* figures, not photos: show them whole */
 }
 
@@ -1728,7 +1728,7 @@ body.mfm-landing footer.footer {
   font-size: 0.9rem;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
 /* Cross-document page transitions where the browser supports them ---------------------- */
@@ -1744,8 +1744,8 @@ body.mfm-landing footer.footer {
 /* Phone: one menu ------------------------------------------------------------------------ */
 /* Below 992px Quarto's second bar (page title and sidebar toggle) is gone. The navbar panel
    lists the main links, Open Console, then the pages of the current section (site.js clones
-   them into .mfm-phone-pages). */
-.mfm-phone-pages {
+   them into .mktfm-phone-pages). */
+.mktfm-phone-pages {
   display: none;
 }
 
@@ -1753,7 +1753,7 @@ body.mfm-landing footer.footer {
   :root {
     /* One gutter for the bar and the page, so the mark and the icons line up with the text:
        Quarto's page grid puts text 1.5em (3em from 768px) in from the edge, at the 17px body size. */
-    --mfm-phone-gutter: 25.5px;
+    --mktfm-phone-gutter: 25.5px;
   }
 
   .quarto-secondary-nav {
@@ -1771,7 +1771,7 @@ body.mfm-landing footer.footer {
 
   #quarto-header .navbar .navbar-container {
     flex-wrap: nowrap;
-    padding-inline: var(--mfm-phone-gutter);
+    padding-inline: var(--mktfm-phone-gutter);
   }
 
   /* The bar keeps one height: each item fills it, and the menu opens as a sheet below it. The
@@ -1780,7 +1780,7 @@ body.mfm-landing footer.footer {
   .navbar .navbar-brand-container {
     display: flex;
     align-items: center;
-    height: var(--mfm-nav-h);
+    height: var(--mktfm-nav-h);
     order: 1;
     margin: 0;
   }
@@ -1795,7 +1795,7 @@ body.mfm-landing footer.footer {
     margin-left: auto;
   }
 
-  body.nav-sidebar:not(.mfm-river-page) .navbar .quarto-navbar-tools {
+  body.nav-sidebar:not(.mktfm-river-page) .navbar .quarto-navbar-tools {
     margin-left: 0;
   }
 
@@ -1817,8 +1817,8 @@ body.mfm-landing footer.footer {
     margin-right: -10px;
     padding: 0;
     border: 0;
-    border-radius: var(--mfm-r);
-    color: var(--mfm-heading);
+    border-radius: var(--mktfm-r);
+    color: var(--mktfm-heading);
   }
 
   #quarto-header .navbar-toggler:focus {
@@ -1826,7 +1826,7 @@ body.mfm-landing footer.footer {
   }
 
   #quarto-header .navbar-toggler:focus-visible {
-    outline: 2px solid var(--mfm-accent);
+    outline: 2px solid var(--mktfm-accent);
     outline-offset: 0;
   }
 
@@ -1848,23 +1848,23 @@ body.mfm-landing footer.footer {
      makes it the containing block. */
   #navbarCollapse {
     position: fixed;
-    top: var(--mfm-nav-h);
+    top: var(--mktfm-nav-h);
     left: 0;
     right: 0;
-    height: calc(100dvh - var(--mfm-nav-h));
-    padding: 0.5rem var(--mfm-phone-gutter) 2.5rem;
+    height: calc(100dvh - var(--mktfm-nav-h));
+    padding: 0.5rem var(--mktfm-phone-gutter) 2.5rem;
     overflow-y: auto;
     overscroll-behavior: contain;
-    background: var(--mfm-bg);
+    background: var(--mktfm-bg);
   }
 
   #navbarCollapse.collapsing {
-    height: calc(100dvh - var(--mfm-nav-h));
+    height: calc(100dvh - var(--mktfm-nav-h));
     transition: none;
   }
 
   #navbarCollapse.show {
-    animation: mfm-sheet-in calc(var(--mfm-dur) * 1.5) var(--mfm-ease);
+    animation: mktfm-sheet-in calc(var(--mktfm-dur) * 1.5) var(--mktfm-ease);
   }
 
   #navbarCollapse .navbar-nav {
@@ -1881,12 +1881,12 @@ body.mfm-landing footer.footer {
   }
 
   /* The Open Console button keeps its own colours. */
-  #navbarCollapse .navbar-nav .nav-link:not([data-mfm]) {
-    color: var(--mfm-ink);
+  #navbarCollapse .navbar-nav .nav-link:not([data-mktfm]) {
+    color: var(--mktfm-ink);
   }
 
-  #navbarCollapse .navbar-nav .nav-link.active:not([data-mfm]) {
-    color: var(--mfm-accent);
+  #navbarCollapse .navbar-nav .nav-link.active:not([data-mktfm]) {
+    color: var(--mktfm-accent);
   }
 
   #navbarCollapse .navbar-nav .nav-link .menu-text::after,
@@ -1895,11 +1895,11 @@ body.mfm-landing footer.footer {
   }
 
   /* On a phone "Models" goes straight to the Models page (site.js); no menu inside the menu. */
-  #navbarCollapse .dropdown-menu.mfm-models-menu {
+  #navbarCollapse .dropdown-menu.mktfm-models-menu {
     display: none;
   }
 
-  #navbarCollapse .navbar-nav .nav-link[data-mfm="console"] {
+  #navbarCollapse .navbar-nav .nav-link[data-mktfm="console"] {
     justify-content: center;
     width: 100%;
     min-height: 3rem;
@@ -1909,40 +1909,40 @@ body.mfm-landing footer.footer {
   }
 
   /* The current section's pages, after the main links. */
-  .mfm-phone-pages {
+  .mktfm-phone-pages {
     display: block;
     margin-top: 2rem;
   }
 
-  .mfm-phone-pages .sidebar-menu-container {
+  .mktfm-phone-pages .sidebar-menu-container {
     padding: 0;
   }
 
-  .mfm-phone-pages ul {
+  .mktfm-phone-pages ul {
     margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  .mfm-phone-pages .sidebar-item-section {
+  .mktfm-phone-pages .sidebar-item-section {
     margin-bottom: 1.25rem;
   }
 
-  .mfm-phone-pages .sidebar-section {
+  .mktfm-phone-pages .sidebar-section {
     display: block;
     height: auto;
     padding: 0;
   }
 
-  .mfm-phone-pages .sidebar-item-section > .sidebar-item-container .sidebar-item-text {
+  .mktfm-phone-pages .sidebar-item-section > .sidebar-item-container .sidebar-item-text {
     display: block;
     padding: 0 0 0.25rem;
     font-size: 0.875rem;
     font-weight: 500;
-    color: var(--mfm-ink-2);
+    color: var(--mktfm-ink-2);
   }
 
-  .mfm-phone-pages a.sidebar-link:not(.text-start) {
+  .mktfm-phone-pages a.sidebar-link:not(.text-start) {
     display: flex;
     align-items: center;
     min-height: 2.5rem;
@@ -1950,8 +1950,8 @@ body.mfm-landing footer.footer {
     font-size: 1rem;
   }
 
-  .mfm-phone-pages a.sidebar-link:not(.text-start, .active) {
-    color: var(--mfm-ink);
+  .mktfm-phone-pages a.sidebar-link:not(.text-start, .active) {
+    color: var(--mktfm-ink);
   }
 
   #quarto-content {
@@ -1961,32 +1961,32 @@ body.mfm-landing footer.footer {
 
 @media (min-width: 768px) and (max-width: 991.98px) {
   :root {
-    --mfm-phone-gutter: 51px;
+    --mktfm-phone-gutter: 51px;
   }
 }
 
-html.mfm-menu-open,
-html.mfm-menu-open body {
+html.mktfm-menu-open,
+html.mktfm-menu-open body {
   overflow: hidden;
 }
 
-@keyframes mfm-sheet-in {
+@keyframes mktfm-sheet-in {
   from {
     opacity: 0;
     transform: translateY(-6px);
   }
 }
 
-/* Reduced motion: every transition and animation above runs on --mfm-dur, which drops to
+/* Reduced motion: every transition and animation above runs on --mktfm-dur, which drops to
    nothing here; the nudges and the arrow stay still. -------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --mfm-dur: 0.01ms;
+    --mktfm-dur: 0.01ms;
   }
 
   #quarto-sidebar a.sidebar-link:not(.text-start):hover,
-  .mfm-models-menu .dropdown-item:hover::after,
-  .navbar .navbar-nav .nav-link[data-mfm="console"]:hover::after,
+  .mktfm-models-menu .dropdown-item:hover::after,
+  .navbar .navbar-nav .nav-link[data-mktfm="console"]:hover::after,
   .navbar-brand:hover .navbar-logo {
     transform: none;
   }

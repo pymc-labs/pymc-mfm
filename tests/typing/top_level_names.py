@@ -1,7 +1,7 @@
 """Static check, not a test: pyright reads this file and never runs it.
 
 The six deprecated top-level names must keep their real types for editors. Without the
-`TYPE_CHECKING` declarations in `pymc_mfm/__init__.py`, each name is `Any` and every
+`TYPE_CHECKING` declarations in `pymc_mktfm/__init__.py`, each name is `Any` and every
 `assert_type` below fails. Run: `pyright tests/typing`. Remove this file with the shims.
 """
 
@@ -11,9 +11,9 @@ from typing import TypeVar, assert_type
 
 import torch
 
-import pymc_mfm
-from pymc_mfm.inference.result import DecompositionResult
-from pymc_mfm.model import MFM, ModelConfig
+import pymc_mktfm
+from pymc_mktfm.inference.result import DecompositionResult
+from pymc_mktfm.model import MFM, ModelConfig
 
 T = TypeVar("T")
 
@@ -28,9 +28,9 @@ def model_arg(function: Callable[[T, str], object]) -> T:
     raise NotImplementedError
 
 
-assert_type(pymc_mfm.ModelConfig, type[ModelConfig])
-assert_type(pymc_mfm.DecompositionResult, type[DecompositionResult])
-assert_type(returns(pymc_mfm.decompose), DecompositionResult)
-assert_type(returns(pymc_mfm.save_pretrained), Path)
-assert_type(returns(pymc_mfm.observation_batch), dict[str, torch.Tensor])
-assert_type(model_arg(pymc_mfm.push_to_hub), MFM)  # no return annotation to check
+assert_type(pymc_mktfm.ModelConfig, type[ModelConfig])
+assert_type(pymc_mktfm.DecompositionResult, type[DecompositionResult])
+assert_type(returns(pymc_mktfm.decompose), DecompositionResult)
+assert_type(returns(pymc_mktfm.save_pretrained), Path)
+assert_type(returns(pymc_mktfm.observation_batch), dict[str, torch.Tensor])
+assert_type(model_arg(pymc_mktfm.push_to_hub), MFM)  # no return annotation to check

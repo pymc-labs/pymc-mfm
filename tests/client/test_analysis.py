@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pymc_mfm.client import (
+from pymc_mktfm.client import (
     Analysis,
     ApiConnectionError,
     Client,

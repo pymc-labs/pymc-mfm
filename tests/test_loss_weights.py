@@ -7,8 +7,8 @@ import torch
 from conftest import make_synthetic_corpus
 from test_training import TINY, reduced
 
-from pymc_mfm.model import LossWeights
-from pymc_mfm.training import TrackingConfig, TrainingConfig, train
+from pymc_mktfm.model import LossWeights
+from pymc_mktfm.training import TrackingConfig, TrainingConfig, train
 
 RECIPE = {
     "struct_weight": 0.7,

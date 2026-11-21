@@ -12,12 +12,12 @@ import numpy as np
 import pytest
 import torch
 
-from pymc_mfm.data.corpus import corpus_batch
-from pymc_mfm.inference.api import decompose, observation_batch
-from pymc_mfm.inference.checkpoint import save_pretrained
-from pymc_mfm.inference.hub import from_pretrained
-from pymc_mfm.inference.result import DecompositionResult, result_from_batch
-from pymc_mfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.data.corpus import corpus_batch
+from pymc_mktfm.inference.api import decompose, observation_batch
+from pymc_mktfm.inference.checkpoint import save_pretrained
+from pymc_mktfm.inference.hub import from_pretrained
+from pymc_mktfm.inference.result import DecompositionResult, result_from_batch
+from pymc_mktfm.model.graph import EdgeSlotLayout
 
 
 def observed(corpus, row=0):
@@ -485,8 +485,8 @@ def test_loading_and_sampling_import_no_compiler_stack(model, synthetic_corpus, 
     code = (
         "import sys\n"
         "import numpy as np\n"
-        "from pymc_mfm import from_pretrained\n"
-        "from pymc_mfm.inference import decompose\n"
+        "from pymc_mktfm import from_pretrained\n"
+        "from pymc_mktfm.inference import decompose\n"
         "model = from_pretrained(sys.argv[1])\n"
         "decompose(model, dict(np.load(sys.argv[2])), n_samples=3)\n"
         "loaded = [name for name in ('torch._dynamo', 'sympy') if name in sys.modules]\n"
@@ -583,8 +583,8 @@ def test_decomposition_restores_units_without_changing_graphs(
 
 
 def test_default_draw_count_is_2000_on_every_public_sampling_signature():
-    from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, JointFlowHead
-    from pymc_mfm.model.model import MFM
+    from pymc_mktfm.model.flow import DEFAULT_N_SAMPLES, JointFlowHead
+    from pymc_mktfm.model.model import MFM
 
     assert DEFAULT_N_SAMPLES == 2000
     for fn in (

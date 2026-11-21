@@ -15,15 +15,15 @@ are separate artifacts: models load from a local folder or from the Hugging Face
 Python 3.13 or newer.
 
 ```bash
-pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+pip install "pymc-mktfm[local] @ git+https://github.com/pymc-labs/pymc-mktfm.git"
 ```
 
 The default install, without `[local]`, is a light client for the River API (NumPy,
-pandas, httpx and packaging; about 130 MB, no PyTorch). `pymc_mfm.client` is the only
+pandas, httpx and packaging; about 130 MB, no PyTorch). `pymc_mktfm.client` is the only
 part that runs there; see "Call the River API". The `[local]` extra adds PyTorch,
 safetensors, xarray and ArviZ Base for local models and complete in-memory inference trees.
 Names such as `from_pretrained` and `MFM` load on first use and raise an `ImportError` that names
-`pymc-mfm[local]` when PyTorch is missing. Optional extras:
+`pymc-mktfm[local]` when PyTorch is missing. Optional extras:
 
 | Extra | Adds |
 | --- | --- |
@@ -39,7 +39,7 @@ Names such as `from_pretrained` and `MFM` load on first use and raise an `Import
 | `generation` | `local`, and `pymc-generator`, to simulate corpora and read `.npz` corpora |
 | `examples` | `local`, and `pymc-marketing`, for the example notebook |
 
-Every extra that runs the model includes `local`, so installing `pymc-mfm[hub]` still
+Every extra that runs the model includes `local`, so installing `pymc-mktfm[hub]` still
 installs PyTorch.
 
 ## Decompose a time series
@@ -48,7 +48,7 @@ installs PyTorch.
 import numpy as np
 import pandas as pd
 
-from pymc_mfm import from_pretrained
+from pymc_mktfm import from_pretrained
 
 model = from_pretrained("models/my-model")  # a model folder; see "Load a trained model"
 
@@ -154,7 +154,7 @@ model.plot.fit(backend="plotly")  # interactive: hover, zoom, click a legend ent
 | `response_curves()` | The latest `model.response_curves(...)`: contribution by media covariate level, observed level marked | `channels`, `truth` |
 
 Every chart takes `backend=` (`"matplotlib"` or `"plotly"`; set a session default with
-`pymc_mfm.set_backend`), `title=` and, where it summarizes draws, `interval=`
+`pymc_mktfm.set_backend`), `title=` and, where it summarizes draws, `interval=`
 (default 0.9). Charts with one axes also take matplotlib `ax=`. Matplotlib charts return a
 `Figure` that notebooks show without pyplot; plotly charts return a
 `plotly.graph_objects.Figure`. `window` is `"context"` (history weeks), `"query"`
@@ -266,8 +266,8 @@ conversion while leaving the stored analysis unchanged. There is no history-only
 model tree or chart state.
 
 File export is explicit: install `[draws]`, write with
-`pymc_mfm.save_idata(model.idata, "analysis.nc")` (it never overwrites) and read
-with `pymc_mfm.load_idata("analysis.nc")`. Result evidence
+`pymc_mktfm.save_idata(model.idata, "analysis.nc")` (it never overwrites) and read
+with `pymc_mktfm.load_idata("analysis.nc")`. Result evidence
 `query.save(...)` / `DecompositionResult.load(...)` is separate from tree export;
 neither restores a runnable dataframe session. Trees can contain sensitive
 outcomes, covariates and labels; review them before sharing.
@@ -277,7 +277,7 @@ Lower-level `result.to_datatree()` and archive exports retain their generic
 
 ### Lower-level array inputs
 
-`pymc_mfm.inference.decompose(model, observations, window="query", ...)` remains available for
+`pymc_mktfm.inference.decompose(model, observations, window="query", ...)` remains available for
 array/tensor callers; `window="context"` selects the observed window instead.
 It requires the explicit padded observation mapping below.
 `model.predict_batch(batch, ...)` is the separate tensor-level joint sampler.
@@ -357,7 +357,7 @@ retain their named active nodes; padded nodes are omitted. Configured channel/co
 column names appear with their role prefixes, and the target is labeled `outcome`.
 
 The same methods are available on `result.diagnostics(...).plot`; the standalone
-`pymc_mfm.plotting.plot_dag(summary, graph=...)`, `graph_to_dot(summary, graph=...)`
+`pymc_mktfm.plotting.plot_dag(summary, graph=...)`, `graph_to_dot(summary, graph=...)`
 and `plot_graph_inspector(summary)` also accept saved diagnostic summaries.
 The inspector and DOT exports show prediction graphs only, even when diagnostics
 include graph truth; `dag()` retains its separate truth comparison.
@@ -405,8 +405,8 @@ training, conversion or installed compiler; the first CUDA call in a process com
 kernels (see below):
 
 ```python
-from pymc_mfm import from_pretrained
-from pymc_mfm.inference import decompose
+from pymc_mktfm import from_pretrained
+from pymc_mktfm.inference import decompose
 
 model = from_pretrained("pymc-labs/mfm", profile="river-1", device="mps")  # Apple silicon
 model = from_pretrained("pymc-labs/mfm", profile="river-1", device="cuda")  # NVIDIA GPU
@@ -482,8 +482,8 @@ compiled calls ran about 1.4 times as fast as eager calls on four test inputs; t
 compilation took 20–30 s.
 
 ```python
-from pymc_mfm import from_pretrained
-from pymc_mfm.inference import decompose, warm_up_sampling
+from pymc_mktfm import from_pretrained
+from pymc_mktfm.inference import decompose, warm_up_sampling
 
 model = from_pretrained("pymc-labs/mfm", profile="river-1").to("cuda")
 model.compile_sampling()  # opt-in; sampling stays eager until this call
@@ -508,27 +508,27 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 ## Call the River API
 
-`pymc_mfm.client` is an HTTP client for the River API v3.1. It needs no PyTorch.
-Give it the service URL and an API key as arguments or in `MFM_API_URL` and
-`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots. It needs Python 3.13
+`pymc_mktfm.client` is an HTTP client for the River API v3.1. It needs no PyTorch.
+Give it the service URL and an API key as arguments or in `MKTFM_API_URL` and
+`MKTFM_API_KEY` (the old names `MFM_API_URL` and `MFM_API_KEY` still work). Install `pymc-mktfm[client]` to read draws and draw plots. It needs Python 3.13
 or newer and read access to the repository on GitHub; `uv` can fetch Python 3.13:
 
 ```bash
 uv venv -p 3.13
-uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+uv pip install "pymc-mktfm[client] @ git+https://github.com/pymc-labs/pymc-mktfm.git"
 ```
 
 The service keeps a dataset 7 days after its last use, at most 30 days after upload. Deleting a
 dataset deletes its analyses.
 
-An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md).
+An agent skill for the client is in [`skills/mktfm/SKILL.md`](skills/mktfm/SKILL.md).
 
 ```python
 import pandas as pd
 
-from pymc_mfm.client import Client, amount, curve, grid, scenario
+from pymc_mktfm.client import Client, amount, curve, grid, scenario
 
-client = Client("https://api.example.com")  # key from MFM_API_KEY
+client = Client("https://api.example.com")  # key from MKTFM_API_KEY
 
 # `history` is a weekly DataFrame; `plan` has the forecast weeks of the same columns.
 dataset = client.datasets.create(
@@ -675,17 +675,17 @@ The graph `g` concatenates these edge blocks, each ordered source-major:
 | `cc` | channel → channel, no self-loops | `K·(K-1)` |
 | `zz` | control → control, no self-loops | `M·(M-1)` |
 
-`pymc_mfm.model.graph.EdgeSlotLayout(K, M, J).n_slots` gives `L`.
+`pymc_mktfm.model.graph.EdgeSlotLayout(K, M, J).n_slots` gives `L`.
 
 ### Run training
 
 ```bash
-pip install "pymc-mfm[training] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+pip install "pymc-mktfm[training] @ git+https://github.com/pymc-labs/pymc-mktfm.git"
 ```
 
 ```python
-from pymc_mfm.model import ModelConfig
-from pymc_mfm.training import TrainingConfig, train
+from pymc_mktfm.model import ModelConfig
+from pymc_mktfm.training import TrainingConfig, train
 
 result = train(
     [corpus],  # one or more corpora with the same K, M, J and T
@@ -714,7 +714,7 @@ model = result.model
 - MLflow tracking is on by default and writes to a local SQLite store in
   `out_dir` (or `MLFLOW_TRACKING_URI`). Disable it with
   `train(..., tracking=TrackingConfig(enabled=False))`.
-- `python -m pymc_mfm.training --help` lists the same options as a CLI. The CLI
+- `python -m pymc_mktfm.training --help` lists the same options as a CLI. The CLI
   reads `.npz` corpora and needs the `generation` extra.
 - For bitwise-repeatable CPU runs, set `OMP_NUM_THREADS=1`.
 
@@ -735,9 +735,9 @@ Checkpoints hold no optimizer state, so a run cannot be resumed.
 A model folder holds `config.json`, `model.safetensors` and `manifest.json`.
 
 ```python
-from pymc_mfm import from_pretrained
-from pymc_mfm.inference import save_pretrained
-from pymc_mfm.training import load_checkpoint
+from pymc_mktfm import from_pretrained
+from pymc_mktfm.inference import save_pretrained
+from pymc_mktfm.training import load_checkpoint
 
 model = from_pretrained("runs/my-model/model", device="cpu")  # final model
 
@@ -754,7 +754,7 @@ and never unpickles code.
 Needs the `hub` extra.
 
 ```python
-from pymc_mfm import from_pretrained, list_profiles
+from pymc_mktfm import from_pretrained, list_profiles
 
 list_profiles("pymc-labs/mfm")  # models in the repository
 model = from_pretrained(
@@ -771,7 +771,7 @@ model = from_pretrained(
 - `cache_dir=` sets the download folder; `local_files_only=True` loads from the
   cache without network access.
 - `model.provenance["hub_revision"]` records the commit that was loaded.
-- `pymc_mfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
+- `pymc_mktfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
   a model and returns the commit id. New repositories are private.
 
 [`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a
@@ -881,7 +881,7 @@ path. The library never needs it:
 
 ```text
 <parent>/
-├── pymc-mfm/            this repository: install, test and build here
+├── pymc-mktfm/            this repository: install, test and build here
 │   ├── .private ──┐     ignored link, maintainers only
 │   └── .venv/     │     one environment for both checkouts
 └── <companion>/  ◄┘     private repository with its own setup.sh

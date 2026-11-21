@@ -1,4 +1,4 @@
-"""The main example in skills/mfm/SKILL.md runs against a fake service.
+"""The main example in skills/mktfm/SKILL.md runs against a fake service.
 
 A client change that breaks the skill's example fails here. The example reads
 history.csv and plan.csv from the working directory and writes compare.png.
@@ -29,10 +29,10 @@ from .client_fixtures import (
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 
-SKILL_DIR = Path(__file__).resolve().parents[2] / "skills" / "mfm"
+SKILL_DIR = Path(__file__).resolve().parents[2] / "skills" / "mktfm"
 SKILL = SKILL_DIR / "SKILL.md"
 EXAMPLE = r"<!-- skill-example: {name} -->\n```python\n(.*?)```"
-ALLOWED_URLS = ("https://github.com/pymc-labs/pymc-mfm.git",)
+ALLOWED_URLS = ("https://github.com/pymc-labs/pymc-mktfm.git",)
 GRID_IDS = (
     "tv_0.5__search_0.5",
     "tv_0.5__search_1.5",
@@ -113,8 +113,8 @@ def workdir(tmp_path, monkeypatch, service):
     for name in ("history.csv", "plan.csv"):
         shutil.copy(SKILL_DIR / "examples" / name, tmp_path / name)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MFM_API_URL", BASE_URL)
-    monkeypatch.setenv("MFM_API_KEY", "test-key")
+    monkeypatch.setenv("MKTFM_API_URL", BASE_URL)
+    monkeypatch.setenv("MKTFM_API_KEY", "test-key")
     real_client = httpx.Client
     monkeypatch.setattr(
         httpx,
@@ -229,7 +229,7 @@ def test_skill_files_name_no_service_address():
     text = "".join(path.read_text() for path in SKILL_DIR.rglob("*.md"))
     urls = set(re.findall(r"https?://[^\s)\"'`>]+", text))
     assert urls <= set(ALLOWED_URLS)
-    assert "MFM_API_URL" in text and "MFM_API_KEY" in text
+    assert "MKTFM_API_URL" in text and "MKTFM_API_KEY" in text
 
 
 def test_example_data_fits_the_example():

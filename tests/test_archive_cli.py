@@ -1,4 +1,4 @@
-"""``python -m pymc_mfm.training evaluate`` and ``--holdout-archives``: archives from the CLI."""
+"""``python -m pymc_mktfm.training evaluate`` and ``--holdout-archives``: archives from the CLI."""
 
 import importlib.util
 import json
@@ -9,16 +9,16 @@ import torch
 from conftest import make_synthetic_corpus
 from test_training import TINY, reduced
 
-from pymc_mfm.data.recipes import load_corpora, prior_sidecar_path, provenance
-from pymc_mfm.diagnostics import EvaluationArchive
-from pymc_mfm.inference import save_pretrained
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import TrackingConfig, TrainingConfig, load_checkpoint, train
-from pymc_mfm.training import archive as training_archive
-from pymc_mfm.training.__main__ import main
-from pymc_mfm.training._provenance import verified_prior_sha256
-from pymc_mfm.training.archive import _model_identity
-from pymc_mfm.training.checkpoint import file_sha256
+from pymc_mktfm.data.recipes import load_corpora, prior_sidecar_path, provenance
+from pymc_mktfm.diagnostics import EvaluationArchive
+from pymc_mktfm.inference import save_pretrained
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import TrackingConfig, TrainingConfig, load_checkpoint, train
+from pymc_mktfm.training import archive as training_archive
+from pymc_mktfm.training.__main__ import main
+from pymc_mktfm.training._provenance import verified_prior_sha256
+from pymc_mktfm.training.archive import _model_identity
+from pymc_mktfm.training.checkpoint import file_sha256
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("pymc_generator") is None, reason="pymc_generator not installed"

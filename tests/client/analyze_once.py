@@ -6,7 +6,7 @@ waits at most one short poll. The analysis never ends because the stub holds its
 
 import sys
 
-from pymc_mfm.client import Client
+from pymc_mktfm.client import Client
 
 base_url = sys.argv[1]
 seed = int(sys.argv[2]) if len(sys.argv) > 2 else 7

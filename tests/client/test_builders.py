@@ -1,6 +1,6 @@
 import pytest
 
-from pymc_mfm.client import amount, curve, grid, scenario
+from pymc_mktfm.client import amount, curve, grid, scenario
 
 
 def test_amount_sets_a_channel_total():

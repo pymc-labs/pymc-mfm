@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 import torch
 
-from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts._data import IdataReader, Window
-from pymc_mfm.plotting.charts._style import CAVEAT, COLORS, caption, series_colors
-from pymc_mfm.plotting.charts.shares import GRID_POINTS, prepare, prepare_window
+from pymc_mktfm.plotting.charts import _backend
+from pymc_mktfm.plotting.charts._data import IdataReader, Window
+from pymc_mktfm.plotting.charts._style import CAVEAT, COLORS, caption, series_colors
+from pymc_mktfm.plotting.charts.shares import GRID_POINTS, prepare, prepare_window
 
 pytest.importorskip("matplotlib")
 

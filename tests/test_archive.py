@@ -26,8 +26,8 @@ from test_diagnostics import make_result
 from test_inference import observed
 from test_result_persistence import nested
 
-from pymc_mfm.data.observations import observation_identity
-from pymc_mfm.diagnostics import (
+from pymc_mktfm.data.observations import observation_identity
+from pymc_mktfm.diagnostics import (
     WINDOW_TOTAL_FAMILIES,
     ArchiveIntegrityError,
     EvaluationArchive,
@@ -37,17 +37,17 @@ from pymc_mfm.diagnostics import (
     sbc_report,
     strata_summary,
 )
-from pymc_mfm.diagnostics import archive as archive_module
-from pymc_mfm.inference._digest import digest_bytes, json_bytes
-from pymc_mfm.inference.api import decompose
-from pymc_mfm.inference.result import DecompositionResult
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.flow import FLOW_STEPS_SAMPLE
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import evaluation as training_evaluation
-from pymc_mfm.training._provenance import corpus_identity
-from pymc_mfm.training.evaluation import evaluate_rows
-from pymc_mfm.training.stream import batches_for_rows
+from pymc_mktfm.diagnostics import archive as archive_module
+from pymc_mktfm.inference._digest import digest_bytes, json_bytes
+from pymc_mktfm.inference.api import decompose
+from pymc_mktfm.inference.result import DecompositionResult
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.flow import FLOW_STEPS_SAMPLE
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import evaluation as training_evaluation
+from pymc_mktfm.training._provenance import corpus_identity
+from pymc_mktfm.training.evaluation import evaluate_rows
+from pymc_mktfm.training.stream import batches_for_rows
 
 TINY = {
     "d_model": 8,
@@ -1051,11 +1051,11 @@ def test_archive_tree_attributes_name_the_archive_and_only_the_recorded_model_ke
 )
 def test_an_archive_export_without_the_arviz_extra_names_the_extra(built, monkeypatch, hidden):
     # Import the export module anew with the extra hidden: its own imports must not need it.
-    monkeypatch.delitem(sys.modules, "pymc_mfm.inference._datatree", raising=False)
-    monkeypatch.setattr(sys.modules["pymc_mfm.inference"], "_datatree", None, raising=False)
+    monkeypatch.delitem(sys.modules, "pymc_mktfm.inference._datatree", raising=False)
+    monkeypatch.setattr(sys.modules["pymc_mktfm.inference"], "_datatree", None, raising=False)
     for name in hidden:
         monkeypatch.setitem(sys.modules, name, None)
-    with pytest.raises(ImportError, match=re.escape("pymc-mfm[arviz]")):
+    with pytest.raises(ImportError, match=re.escape("pymc-mktfm[arviz]")):
         built["archived"].archive.to_datatree("query")
 
 
@@ -1482,7 +1482,7 @@ def test_a_writer_that_is_never_closed_leaves_no_staging(built, tmp_path):
     target = tmp_path / "at-exit" / "archive"
     code = (
         "import json, os, sys\n"
-        "from pymc_mfm.diagnostics import EvaluationArchive\n"
+        "from pymc_mktfm.diagnostics import EvaluationArchive\n"
         "writer = EvaluationArchive.create(sys.argv[1], json.load(sys.stdin))\n"
         "print(len(os.listdir(os.path.dirname(sys.argv[1]))))\n"
     )
@@ -1501,7 +1501,7 @@ def test_a_writer_that_is_never_closed_leaves_no_staging(built, tmp_path):
 def test_a_forked_child_never_removes_its_parents_staging(built, tmp_path):
     code = (
         "import os, sys\n"
-        "from pymc_mfm.diagnostics import EvaluationArchive\n"
+        "from pymc_mktfm.diagnostics import EvaluationArchive\n"
         "source = EvaluationArchive.load(sys.argv[1])\n"
         "records = list(source)\n"
         "writer = EvaluationArchive.create(sys.argv[2], source.identity)\n"
@@ -2730,7 +2730,7 @@ def test_reports_from_an_archive_never_call_the_model(built, monkeypatch):
 def test_diagnostics_verifies_and_reads_archives_without_importing_training(built):
     code = (
         "import sys\n"
-        "from pymc_mfm.diagnostics import EvaluationArchive, family_window_totals\n"
+        "from pymc_mktfm.diagnostics import EvaluationArchive, family_window_totals\n"
         "archive = EvaluationArchive.load(sys.argv[1])\n"
         "records = list(archive.records())\n"
         "result, truth, _, _ = archive.record(0)\n"
@@ -2742,7 +2742,7 @@ def test_diagnostics_verifies_and_reads_archives_without_importing_training(buil
         "assert inputs['world_ids'] == conditional['world_ids']\n"
         "assert inputs['world_ids'] == [entry.world_id for entry in selected]\n"
         "assert draws.shape == (result.n_samples, 5) and totals.shape == (5,)\n"
-        "loaded = sorted(name for name in sys.modules if name.startswith('pymc_mfm.training'))\n"
+        "loaded = sorted(name for name in sys.modules if name.startswith('pymc_mktfm.training'))\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run(

@@ -3,7 +3,7 @@ import re
 import httpx
 import pytest
 
-from pymc_mfm.client import (
+from pymc_mktfm.client import (
     ApiConnectionError,
     Client,
     Conflict,
@@ -17,7 +17,7 @@ from pymc_mfm.client import (
     Unauthorized,
     ValidationError,
 )
-from pymc_mfm.client._http import MAX_RETRY_WAIT, parse_retry_after
+from pymc_mktfm.client._http import MAX_RETRY_WAIT, parse_retry_after
 
 from .client_fixtures import BASE_URL, dataset_record, error_body
 
@@ -37,8 +37,8 @@ def test_requests_carry_the_bearer_key(client, service, history):
 
 
 def test_url_and_key_come_from_the_environment(monkeypatch, service):
-    monkeypatch.setenv("MFM_API_URL", "https://api.example.com/")
-    monkeypatch.setenv("MFM_API_KEY", "env-key")
+    monkeypatch.setenv("MKTFM_API_URL", "https://api.example.com/")
+    monkeypatch.setenv("MKTFM_API_KEY", "env-key")
     service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
     with Client(transport=httpx.MockTransport(service)) as client:
         client.datasets.get("ds_123")
@@ -47,11 +47,11 @@ def test_url_and_key_come_from_the_environment(monkeypatch, service):
 
 
 def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
-    monkeypatch.delenv("MFM_API_URL", raising=False)
-    monkeypatch.delenv("MFM_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="MFM_API_URL"):
+    monkeypatch.delenv("MKTFM_API_URL", raising=False)
+    monkeypatch.delenv("MKTFM_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="MKTFM_API_URL"):
         Client(api_key="k")
-    with pytest.raises(ValueError, match="MFM_API_KEY"):
+    with pytest.raises(ValueError, match="MKTFM_API_KEY"):
         Client(BASE_URL)
 
 

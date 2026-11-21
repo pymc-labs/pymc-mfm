@@ -7,7 +7,7 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.diagnostics import (
+from pymc_mktfm.diagnostics import (
     TrainingRun,
     effect_rows,
     misclassification_summary,
@@ -18,11 +18,11 @@ from pymc_mfm.diagnostics import (
     strata_summary,
     stratified_summary,
 )
-from pymc_mfm.diagnostics.strata import CELL_METRICS
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import metrics
-from pymc_mfm.training.evaluation import evaluate_rows
+from pymc_mktfm.diagnostics.strata import CELL_METRICS
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import metrics
+from pymc_mktfm.training.evaluation import evaluate_rows
 
 
 def row(world, family, truth, mean, *, live=True, p=0.5, active=2, lives=1, spread=1.0):
@@ -277,7 +277,7 @@ def test_strata_figure_draws_cell_values_and_marks_unavailable_strata():
     pytest.importorskip("matplotlib")
     from matplotlib.figure import Figure
 
-    from pymc_mfm.plotting import plot_strata_table
+    from pymc_mktfm.plotting import plot_strata_table
 
     table, rows = strata_table()
     figure = Figure()

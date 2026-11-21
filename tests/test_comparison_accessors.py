@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from test_comparisons import omission_pair, posterior_evidence, record, reference
 
-from pymc_mfm.diagnostics import CalibrationReport, Comparison, sbc_report
+from pymc_mktfm.diagnostics import CalibrationReport, Comparison, sbc_report
 
 NAMES = ("baseline", "channel:a", "channel:off") + tuple(f"control:z{i}" for i in range(5))
 FAMILIES = ("baseline", "channel", "channel") + ("control",) * 5
@@ -267,13 +267,13 @@ def test_every_comparison_figure_and_evidence_report_stays_off_pyplot(tmp_path):
     plt = pytest.importorskip("matplotlib.pyplot")
     from matplotlib.figure import Figure
 
-    from pymc_mfm.diagnostics import build_report
-    from pymc_mfm.diagnostics.comparisons import (
+    from pymc_mktfm.diagnostics import build_report
+    from pymc_mktfm.diagnostics.comparisons import (
         corpus_support_summary,
         input_support_summary,
         reference_diagnostics,
     )
-    from pymc_mfm.plotting import comparisons as plots
+    from pymc_mktfm.plotting import comparisons as plots
 
     before = plt.get_fignums()
     # An explicit method pair beside the automatic graph-averaging one draws ab.
@@ -354,8 +354,8 @@ COMPARISON_FIGURES = {
 
 
 def test_each_comparison_method_draws_its_documented_figure(monkeypatch):
-    from pymc_mfm.diagnostics.comparison_accessors import ComparisonPlots
-    from pymc_mfm.plotting import comparisons as plots
+    from pymc_mktfm.diagnostics.comparison_accessors import ComparisonPlots
+    from pymc_mktfm.plotting import comparisons as plots
 
     drawn = []
     for function in COMPARISON_FIGURES.values():
@@ -384,7 +384,7 @@ def test_each_comparison_method_draws_its_documented_figure(monkeypatch):
 def test_calibration_report_redraws_and_persists_the_saved_sbc_card(tmp_path):
     pytest.importorskip("scipy")
     pytest.importorskip("matplotlib")
-    from pymc_mfm.diagnostics import render_report
+    from pymc_mktfm.diagnostics import render_report
 
     card = sbc_report(
         np.zeros((20, 4, 1)),

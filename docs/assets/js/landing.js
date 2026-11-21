@@ -9,9 +9,9 @@
 (() => {
   "use strict";
 
-  const root = document.querySelector(".mfm");
+  const root = document.querySelector(".mktfm");
   if (!root) return;
-  root.classList.add("mfm-js");
+  root.classList.add("mktfm-js");
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const hasGsap = () => Boolean(window.gsap && window.ScrollTrigger);
@@ -146,7 +146,7 @@
     const uFade = u("uFade");
     const uGlitch = u("uGlitch");
     const uCopy = u("uCopy");
-    const copy = hero.querySelector(".mfm-hero__copy");
+    const copy = hero.querySelector(".mktfm-hero__copy");
 
     // Thin lines need full resolution; cap the pixel ratio to bound the cost.
     const resize = () => {
@@ -245,10 +245,10 @@
       }
       set(to);
     };
-    const mark = hero.querySelector('[data-mfm="mark"]');
+    const mark = hero.querySelector('[data-mktfm="mark"]');
     // The line under the title wraps to the name's width (landing.css): hold that width while
     // the longer word shows, so the line does not reflow.
-    const name = hero.querySelector('[data-mfm="name"]');
+    const name = hero.querySelector('[data-mktfm="name"]');
     const burst = async (from, to, ms) => {
       word.classList.add("is-glitching");
       mark?.classList.add("is-glitching");
@@ -281,7 +281,7 @@
   // Hero copy: the words rise out of a blur on load ------------------------------------
   function heroCopy(hero) {
     const html = document.documentElement;
-    const done = () => html.classList.remove("mfm-intro");
+    const done = () => html.classList.remove("mktfm-intro");
     if (reduceMotion || !hasGsap()) {
       done();
       return;
@@ -290,20 +290,20 @@
     done();
     gsap
       .timeline({ defaults: { ease: "power3.out" } })
-      .from(".mfm-hero__mark", { autoAlpha: 0, y: 14, scale: 0.92, filter: "blur(12px)", duration: 0.8, clearProps: "filter" }, 0)
-      .from(".mfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 0.8, stagger: 0.1 }, 0.1)
-      .from(".mfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 0.9 }, 0.55)
-      .from(".mfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8);
+      .from(".mktfm-hero__mark", { autoAlpha: 0, y: 14, scale: 0.92, filter: "blur(12px)", duration: 0.8, clearProps: "filter" }, 0)
+      .from(".mktfm-hero__word", { autoAlpha: 0, y: 46, filter: "blur(16px)", duration: 0.8, stagger: 0.1 }, 0.1)
+      .from(".mktfm-hero__line", { autoAlpha: 0, y: 12, filter: "blur(8px)", duration: 0.9 }, 0.55)
+      .from(".mktfm-hero__actions > *", { autoAlpha: 0, y: 10, duration: 0.7, stagger: 0.08 }, 0.8);
   }
 
   // 2. The notebook ----------------------------------------------------------------
   // Its outputs are static HTML and matplotlib SVGs from a real River 1.0 run; this only
   // plays the run: cells execute in turn, outputs reveal, the editor follows along.
   function notebook(ide) {
-    const cells = [...ide.querySelectorAll(".mfm-cell")];
-    const scroller = ide.querySelector('[data-mfm="cells"]');
-    const runAll = ide.querySelector('[data-mfm="run-all"]');
-    const cellOf = ide.querySelector('[data-mfm="cell-of"]');
+    const cells = [...ide.querySelectorAll(".mktfm-cell")];
+    const scroller = ide.querySelector('[data-mktfm="cells"]');
+    const runAll = ide.querySelector('[data-mktfm="run-all"]');
+    const cellOf = ide.querySelector('[data-mktfm="cell-of"]');
     if (reduceMotion) return;
 
     let runId = 0;
@@ -355,7 +355,7 @@
 
   // Reveal sections, copy button -------------------------------------------------------
   function reveal() {
-    const items = root.querySelectorAll(".mfm-reveal");
+    const items = root.querySelectorAll(".mktfm-reveal");
     if (reduceMotion || !("IntersectionObserver" in window)) {
       items.forEach((el) => el.classList.add("is-visible"));
       return;
@@ -392,10 +392,10 @@
     });
   }
 
-  const hero = root.querySelector(".mfm-hero");
-  const fieldCanvas = root.querySelector('[data-mfm="field"]');
-  const glitchWord = root.querySelector('[data-mfm="glitch"]');
-  const ide = root.querySelector('[data-mfm="notebook"]');
+  const hero = root.querySelector(".mktfm-hero");
+  const fieldCanvas = root.querySelector('[data-mktfm="field"]');
+  const glitchWord = root.querySelector('[data-mktfm="glitch"]');
+  const ide = root.querySelector('[data-mktfm="notebook"]');
 
   if (fieldCanvas && hero) field(fieldCanvas, hero);
   if (glitchWord && hero) titleGlitch(glitchWord, hero);

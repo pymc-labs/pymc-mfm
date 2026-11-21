@@ -49,12 +49,12 @@ The listed components plus `outcome_noise` add to `outcome_raw`. Worlds with `is
 Install the training extra, then call [train](../reference/training.train.qmd) with a new output directory. Pass a [ModelConfig](../reference/model.ModelConfig.qmd) for architecture and corpus geometry plus a [TrainingConfig](../reference/training.TrainingConfig.qmd) for the run budget.
 
 ```bash
-pip install "pymc-mfm[training] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+pip install "pymc-mktfm[training] @ git+https://github.com/pymc-labs/pymc-mktfm.git"
 ```
 
 ```python
-from pymc_mfm.model import ModelConfig
-from pymc_mfm.training import TrainingConfig, train
+from pymc_mktfm.model import ModelConfig
+from pymc_mktfm.training import TrainingConfig, train
 
 result = train(
     [corpus],
@@ -105,7 +105,7 @@ For shorter runs, reduce `warmup_steps`, `eval_every`, and `milestone_steps` tog
 MLflow tracking is enabled by default. Local JSON evidence remains authoritative; MLflow receives a projection of it. By default its SQLite store is in `out_dir`; set `MLFLOW_TRACKING_URI` or [TrackingConfig](../reference/training.TrackingConfig.qmd) `tracking_uri` to choose another backend. Disable tracking with `tracking=TrackingConfig(enabled=False)`.
 
 ```bash
-python -m pymc_mfm.training --help
+python -m pymc_mktfm.training --help
 ```
 
 The CLI exposes the same training options. It reads `.npz` corpora and requires the `generation` extra.

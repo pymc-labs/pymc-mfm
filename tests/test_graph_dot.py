@@ -11,9 +11,9 @@ from xml.etree import ElementTree
 import numpy as np
 import pytest
 
-from pymc_mfm.inference.result import DecompositionResult
-from pymc_mfm.plotting import GraphvizGraph, graph_to_dot, plot_dag
-from pymc_mfm.plotting._graphviz import _render_svg_batch
+from pymc_mktfm.inference.result import DecompositionResult
+from pymc_mktfm.plotting import GraphvizGraph, graph_to_dot, plot_dag
+from pymc_mktfm.plotting._graphviz import _render_svg_batch
 
 ENDPOINTS = (
     ("feature", "target"),
@@ -381,7 +381,7 @@ def test_missing_dot_is_explicit_but_dot_export_still_works(monkeypatch):
     def missing(*args, **kwargs):
         raise FileNotFoundError("dot")
 
-    monkeypatch.setattr("pymc_mfm.plotting._graphviz.subprocess.run", missing)
+    monkeypatch.setattr("pymc_mktfm.plotting._graphviz.subprocess.run", missing)
     result = graph_result()
     artifact = result.plot.dag()
     assert artifact.source == result.plot.dot()
@@ -411,7 +411,7 @@ def test_svg_batch_preserves_complete_documents_order_and_bytes_in_one_process(m
         calls.append(None)
         return run(*args, **kwargs)
 
-    monkeypatch.setattr("pymc_mfm.plotting._graphviz.subprocess.run", counting)
+    monkeypatch.setattr("pymc_mktfm.plotting._graphviz.subprocess.run", counting)
     documents = _render_svg_batch(sources)
     assert "".join(documents) == expected
     assert [

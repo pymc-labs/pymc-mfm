@@ -16,13 +16,13 @@
       Everything pauses off screen; reduced motion draws one still frame and no numbers.
       Without WebGL the picture shows as it is.
       The hero fills the first screen under the navbar, which stays clear (no glass, light
-      ink) while the hero is under it: body.mfm-nav-clear, site.css.
+      ink) while the hero is under it: body.mktfm-nav-clear, site.css.
    2. Article: the charts, numbers and resource lists reveal as they scroll into view.
       Their colours are in model.css (data-series), so they follow light and dark mode. */
 (() => {
   "use strict";
 
-  const hero = document.querySelector(".mfm-river__hero");
+  const hero = document.querySelector(".mktfm-river__hero");
   if (!hero) return;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -268,10 +268,10 @@
         });
 
   function river(hero) {
-    const picture = hero.querySelector('[data-mfm="picture"]');
-    const sceneCanvas = hero.querySelector('[data-mfm="river"]');
-    const veilCanvas = hero.querySelector('[data-mfm="veil"]');
-    const title = hero.querySelector(".mfm-river__title");
+    const picture = hero.querySelector('[data-mktfm="picture"]');
+    const sceneCanvas = hero.querySelector('[data-mktfm="river"]');
+    const veilCanvas = hero.querySelector('[data-mktfm="veil"]');
+    const title = hero.querySelector(".mktfm-river__title");
     if (!picture || !sceneCanvas) return;
     const scene = layer(sceneCanvas, SCENE, ["uRes", "uTime", "uFade", "uScroll", "uGlitch", "uImage", "uImageSize", "uWater"], {
       alpha: false,
@@ -417,7 +417,7 @@
     [...text].map((ch, i) => (/\d/.test(ch) && i >= shown * text.length ? String(Math.floor(Math.random() * 10)) : ch)).join("");
 
   function numbers(hero) {
-    const field = hero.querySelector(".mfm-river__numbers");
+    const field = hero.querySelector(".mktfm-river__numbers");
     if (!field || reduceMotion) return;
     let onScreen = false;
     whenVisible(hero, (visible) => {
@@ -434,7 +434,7 @@
         y = 14 + Math.random() * 66;
       } while (Math.abs(x - 50) < 24 && Math.abs(y - 50) < 15);
       const el = document.createElement("span");
-      el.className = "mfm-river__number";
+      el.className = "mktfm-river__number";
       el.style.left = `${x.toFixed(1)}%`;
       el.style.top = `${y.toFixed(1)}%`;
       el.textContent = scramble(text, 0);
@@ -475,14 +475,14 @@
 
   // 2. Scroll: the title recedes; the navbar is clear while the hero is under it ------
   function onScroll(hero) {
-    const title = hero.querySelector(".mfm-river__title");
-    const hint = hero.querySelector(".mfm-river__scroll");
+    const title = hero.querySelector(".mktfm-river__title");
+    const hint = hero.querySelector(".mktfm-river__scroll");
     const bar = document.getElementById("quarto-header");
     let ticking = false;
     const update = () => {
       ticking = false;
       const barHeight = bar ? bar.offsetHeight : 0;
-      document.body.classList.toggle("mfm-nav-clear", hero.getBoundingClientRect().bottom > barHeight);
+      document.body.classList.toggle("mktfm-nav-clear", hero.getBoundingClientRect().bottom > barHeight);
       const height = Math.max(1, hero.offsetHeight);
       if (reduceMotion || !title) return;
       const p = clamp01(window.scrollY / (height * 0.7));
@@ -510,7 +510,7 @@
 (() => {
   "use strict";
 
-  const items = document.querySelectorAll(".mfm-reveal");
+  const items = document.querySelectorAll(".mktfm-reveal");
   if (!items.length) return;
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -520,7 +520,7 @@
   }
 
   // The bars start collapsed only once scripts run; without them they show in full.
-  document.documentElement.classList.add("mfm-js");
+  document.documentElement.classList.add("mktfm-js");
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {

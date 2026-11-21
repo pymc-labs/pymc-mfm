@@ -7,8 +7,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from pymc_mfm.diagnostics import comparisons
-from pymc_mfm.diagnostics.comparisons import (
+from pymc_mktfm.diagnostics import comparisons
+from pymc_mktfm.diagnostics.comparisons import (
     ComparisonRecord,
     build_comparison_report,
     c2st_from_predictions,
@@ -23,7 +23,7 @@ from pymc_mfm.diagnostics.comparisons import (
     run_c2st,
     score_record,
 )
-from pymc_mfm.inference.result import DecompositionResult
+from pymc_mktfm.inference.result import DecompositionResult
 
 
 def record(*, method="A", case="base", world="0", draws=None, names=None, families=None, **kwargs):
@@ -363,7 +363,7 @@ def test_input_support_retains_raw_location_scale_and_constant_undefined():
 
 
 def test_public_decompose_result_enters_comparison_without_identity_translation(model):
-    from pymc_mfm.inference.api import decompose
+    from pymc_mktfm.inference.api import decompose
 
     observations = {
         "spend": np.ones((5, 2)),
@@ -411,7 +411,7 @@ def test_saved_report_round_trip_and_pure_replot(saved_report, tmp_path, monkeyp
         == "available"
     )
     stored = json.loads((saved_report / "summary.json").read_text())
-    from pymc_mfm.plotting.comparisons import plot_world_comparison
+    from pymc_mktfm.plotting.comparisons import plot_world_comparison
 
     figure = plot_world_comparison(stored, case="base", world="0")
     np.testing.assert_array_equal(
@@ -528,7 +528,7 @@ def test_report_metrics_preserve_normalized_units_paired_deltas_and_uncertainty(
 
 def test_report_persists_failed_panel_status_before_strict_error(tmp_path, monkeypatch):
     pytest.importorskip("matplotlib")
-    from pymc_mfm.plotting import comparisons as plots
+    from pymc_mktfm.plotting import comparisons as plots
 
     def fail(*args, **kwargs):
         raise RuntimeError("unrenderable test evidence")
@@ -544,7 +544,7 @@ def test_report_persists_failed_panel_status_before_strict_error(tmp_path, monke
 
 def test_posterior_sbc_and_c2st_figures_use_saved_numerical_evidence():
     pytest.importorskip("matplotlib")
-    from pymc_mfm.plotting.comparisons import plot_c2st, plot_posterior_sbc
+    from pymc_mktfm.plotting.comparisons import plot_c2st, plot_posterior_sbc
 
     summary = posterior_sbc_from_draws(**posterior_evidence(), seed=4)
     figure = plot_posterior_sbc(summary)
@@ -572,7 +572,7 @@ def test_real_comparison_report_delivers_scalars_or_withholds_every_private_arti
 ):
     pytest.importorskip("matplotlib")
     mlflow = pytest.importorskip("mlflow")
-    from pymc_mfm.training.tracking import MlflowTrainingObserver, TrackingConfig
+    from pymc_mktfm.training.tracking import MlflowTrainingObserver, TrackingConfig
 
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     first = record()
@@ -683,7 +683,7 @@ def test_omission_bootstrap_weights_worlds_not_retained_component_counts():
 
 def test_corpus_support_preserves_world_level_location_scale_and_plot_values():
     pytest.importorskip("matplotlib")
-    from pymc_mfm.plotting.comparisons import plot_corpus_support
+    from pymc_mktfm.plotting.comparisons import plot_corpus_support
 
     summary = comparisons.corpus_support_summary({"first": [98, 102], "second": [15, 25]})
     assert summary["worlds"] == [

@@ -19,10 +19,10 @@ import xarray as xr
 from conftest import CHART_ROLES
 from xarray.backends.common import BackendArray
 
-import pymc_mfm
-from pymc_mfm import load_idata, save_idata, validate_idata
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.plotting.charts._data import IdataReader, unique_names
+import pymc_mktfm
+from pymc_mktfm import load_idata, save_idata, validate_idata
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.plotting.charts._data import IdataReader, unique_names
 
 
 @pytest.fixture
@@ -110,7 +110,7 @@ def test_validate_accepts_variables_stored_in_another_dim_order(tree):
 
 def test_validate_rejects_a_newer_schema_with_an_upgrade_hint(tree):
     tree.attrs["schema_version"] = 2
-    with pytest.raises(ValueError, match=r"^/: schema_version 2 is newer.*upgrade pymc-mfm"):
+    with pytest.raises(ValueError, match=r"^/: schema_version 2 is newer.*upgrade pymc-mktfm"):
         validate_idata(tree)
 
 
@@ -419,7 +419,7 @@ def test_a_seeded_file_validates_with_torch_blocked(seeded, tmp_path):
         import sys
 
         sys.modules["torch"] = None
-        from pymc_mfm import load_idata, validate_idata
+        from pymc_mktfm import load_idata, validate_idata
 
         for path, root, curves in ((sys.argv[1], 11, 12), (sys.argv[2], 0, 2**31 - 1)):
             tree = load_idata(path)
@@ -1033,11 +1033,11 @@ def test_validate_does_not_read_numeric_draws(tree):
 
 
 def test_the_names_are_top_level_exports():
-    assert {"save_idata", "load_idata", "validate_idata"} <= set(pymc_mfm.__all__)
+    assert {"save_idata", "load_idata", "validate_idata"} <= set(pymc_mktfm.__all__)
 
 
 def _run(script, *args):
-    src = str(Path(pymc_mfm.__file__).parents[1])  # the code under test, not another install
+    src = str(Path(pymc_mktfm.__file__).parents[1])  # the code under test, not another install
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(script), *args],
         env={"MPLBACKEND": "Agg", "PATH": "", "PYTHONPATH": src},
@@ -1056,7 +1056,7 @@ def test_a_file_loads_with_torch_and_matplotlib_blocked(tree, tmp_path):
 
         for name in ("torch", "matplotlib"):
             sys.modules[name] = None  # any import now raises ImportError
-        from pymc_mfm import load_idata, validate_idata
+        from pymc_mktfm import load_idata, validate_idata
 
         tree = load_idata(sys.argv[1])
         validate_idata(tree)
@@ -1075,7 +1075,7 @@ def test_a_file_draws_a_chart_with_torch_blocked(tree, tmp_path):
         import sys
 
         sys.modules["torch"] = None
-        from pymc_mfm import Plots, load_idata
+        from pymc_mktfm import Plots, load_idata
 
         Plots(load_idata(sys.argv[1])).fit()
         """,
@@ -1094,7 +1094,7 @@ def test_without_a_file_backend_the_error_names_the_draws_extra(tree, tmp_path, 
         import sys
 
         sys.modules[sys.argv[1]] = None
-        from pymc_mfm import load_idata, save_idata, validate_idata
+        from pymc_mktfm import load_idata, save_idata, validate_idata
 
         tree = pickle.load(open(sys.argv[2], "rb"))
         validate_idata(tree)  # memory only: needs no file backend
@@ -1102,7 +1102,7 @@ def test_without_a_file_backend_the_error_names_the_draws_extra(tree, tmp_path, 
             try:
                 call()
             except ImportError as error:
-                assert 'pip install "pymc-mfm[draws]"' in str(error), error
+                assert 'pip install "pymc-mktfm[draws]"' in str(error), error
             else:
                 raise SystemExit("a file call ran without " + sys.argv[1])
         """,

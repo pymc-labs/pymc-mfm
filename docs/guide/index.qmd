@@ -12,10 +12,10 @@ PyMC MFM trains and runs amortized neural networks for marketing-mix decompositi
 PyMC MFM requires Python 3.13 or newer. Install local inference from Git:
 
 ```bash
-pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+pip install "pymc-mktfm[local] @ git+https://github.com/pymc-labs/pymc-mktfm.git"
 ```
 
-A base install is the light River API client: it has NumPy, pandas, httpx, and packaging, but no PyTorch. [pymc_mfm.client](../reference/client.Client.qmd) is the only part that runs with that install.
+A base install is the light River API client: it has NumPy, pandas, httpx, and packaging, but no PyTorch. [pymc_mktfm.client](../reference/client.Client.qmd) is the only part that runs with that install.
 
 | Extra | Adds |
 | --- | --- |
@@ -31,7 +31,7 @@ A base install is the light River API client: it has NumPy, pandas, httpx, and p
 | `generation` | `local`, `pymc-generator`, and `.npz` corpus support |
 | `examples` | `local` and `pymc-marketing` for the example notebook |
 
-Every extra that runs a model includes `local`. For example, `pymc-mfm[hub]` also installs PyTorch.
+Every extra that runs a model includes `local`. For example, `pymc-mktfm[hub]` also installs PyTorch.
 
 ## Decompose a time series
 
@@ -41,7 +41,7 @@ Load a local model folder with [from_pretrained](../reference/inference.from_pre
 import numpy as np
 import pandas as pd
 
-from pymc_mfm import from_pretrained
+from pymc_mktfm import from_pretrained
 
 model = from_pretrained("models/my-model")
 

@@ -1,9 +1,9 @@
 /* Shared behaviour for every page. Each init* function below sets up one piece of site chrome
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
-     initConsoleButton marks the "Open Console" navbar link with data-mfm="console" (site.css draws it)
+     initConsoleButton marks the "Open Console" navbar link with data-mktfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
-     initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
+     initCopyButtons   <button class="mktfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
      initCodeLabels    a language label with its logo on every code block (Python, curl, shell, JSON)
      initCodeScroll    marks blocks that scroll sideways, so site.css can fade the edge with more code
@@ -33,13 +33,13 @@
     const all = menu && menu.querySelector('a.dropdown-item[href$="models/index.html"]');
     if (!menu || !all) return;
 
-    menu.classList.add("mfm-models-menu");
+    menu.classList.add("mktfm-models-menu");
     menu.querySelectorAll(".dropdown-text").forEach((span) => {
       const match = span.textContent.match(/^(.*\S)\s+NEW$/);
       if (!match) return;
       span.textContent = match[1];
       const badge = document.createElement("span");
-      badge.className = "mfm-badge";
+      badge.className = "mktfm-badge";
       badge.textContent = "New";
       span.after(badge);
     });
@@ -53,7 +53,7 @@
       name.className = "dropdown-text";
       name.textContent = match[1];
       const badge = document.createElement("span");
-      badge.className = "mfm-badge mfm-badge--soon";
+      badge.className = "mktfm-badge mktfm-badge--soon";
       badge.textContent = "Coming soon";
       entry.append(name, badge);
       header.className = "";
@@ -103,7 +103,7 @@
     const links = document.querySelectorAll("#navbarCollapse .navbar-nav.ms-auto .nav-link");
     const link = links[links.length - 1];
     if (!link) return;
-    link.dataset.mfm = "console";
+    link.dataset.mktfm = "console";
     link.title = "Open Console";
   }
 
@@ -112,7 +112,7 @@
      and icon links (GitHub) draw their own icons. */
   function initExternalLinks() {
     document.querySelectorAll("#navbarCollapse .navbar-nav > .nav-item > a.nav-link").forEach((link) => {
-      if (link.dataset.mfm || link.querySelector(".bi") || link.host === window.location.host) return;
+      if (link.dataset.mktfm || link.querySelector(".bi") || link.host === window.location.host) return;
       link.classList.add("is-external");
     });
   }
@@ -143,7 +143,7 @@
       button.setAttribute("aria-label", "Copy code");
     });
     document.addEventListener("click", (event) => {
-      const button = event.target.closest("button.mfm-copy[data-copy]");
+      const button = event.target.closest("button.mktfm-copy[data-copy]");
       if (!button) return;
       copyText(button.dataset.copy).then(() => {
         button.classList.add("is-copied");
@@ -173,17 +173,17 @@
   function initCodeLabels() {
     document.querySelectorAll("div.sourceCode").forEach((box) => {
       const pre = box.querySelector(":scope > pre");
-      if (!pre || box.querySelector(":scope > .mfm-code-label")) return;
-      box.classList.add("mfm-code");
+      if (!pre || box.querySelector(":scope > .mktfm-code-label")) return;
+      box.classList.add("mktfm-code");
       // Inside a tab set the tab already names the language.
       if (box.closest(".panel-tabset")) return;
       const info = describeBlock(pre);
       if (!info) return;
       const label = document.createElement("div");
-      label.className = "mfm-code-label";
+      label.className = "mktfm-code-label";
       label.dataset.lang = info.key;
       const mark = document.createElement("span");
-      mark.className = "mfm-lang-mark";
+      mark.className = "mktfm-lang-mark";
       mark.setAttribute("aria-hidden", "true");
       const name = document.createElement("span");
       name.textContent = info.name;
@@ -217,7 +217,7 @@
   function initTabs() {
     document.querySelectorAll(".panel-tabset > ul.nav-tabs").forEach((tabs) => {
       const mark = document.createElement("span");
-      mark.className = "mfm-tab-mark";
+      mark.className = "mktfm-tab-mark";
       mark.setAttribute("aria-hidden", "true");
       tabs.append(mark);
       tabs.querySelectorAll(".nav-link").forEach((link) => {
@@ -232,7 +232,7 @@
       };
       tabs.addEventListener("shown.bs.tab", () => {
         place();
-        tabs.closest(".panel-tabset").querySelectorAll(".mfm-copy, .code-copy-button").forEach(resetCopied);
+        tabs.closest(".panel-tabset").querySelectorAll(".mktfm-copy, .code-copy-button").forEach(resetCopied);
       });
       window.addEventListener("resize", place);
       place();
@@ -247,7 +247,7 @@
     const side = document.querySelector("#quarto-sidebar .sidebar-menu-container");
     if (!panel || !side) return;
     const nav = document.createElement("nav");
-    nav.className = "mfm-phone-pages";
+    nav.className = "mktfm-phone-pages";
     nav.setAttribute("aria-label", "Pages in this section");
     const copy = side.cloneNode(true);
     // The clone is a plain list: no duplicated ids, and no Bootstrap toggles that would
@@ -277,15 +277,15 @@
     const panel = document.getElementById("navbarCollapse");
     if (!panel) return;
     const root = document.documentElement;
-    panel.addEventListener("show.bs.collapse", () => root.classList.add("mfm-menu-open"));
-    panel.addEventListener("hidden.bs.collapse", () => root.classList.remove("mfm-menu-open"));
+    panel.addEventListener("show.bs.collapse", () => root.classList.add("mktfm-menu-open"));
+    panel.addEventListener("hidden.bs.collapse", () => root.classList.remove("mktfm-menu-open"));
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !panel.classList.contains("show") || !window.bootstrap) return;
       window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
       document.querySelector(".navbar-toggler")?.focus();
     });
     window.matchMedia("(min-width: 992px)").addEventListener("change", (event) => {
-      if (event.matches) root.classList.remove("mfm-menu-open");
+      if (event.matches) root.classList.remove("mktfm-menu-open");
     });
   }
 

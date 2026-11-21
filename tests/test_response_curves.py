@@ -6,14 +6,14 @@ import pytest
 import torch
 from conftest import CHART_ROLES
 
-import pymc_mfm.inference as inference
-from pymc_mfm.inference import api as api_module
-from pymc_mfm.inference import curves as curves_module
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.plotting.charts import _backend
-from pymc_mfm.plotting.charts import curves as curve_charts
-from pymc_mfm.plotting.charts._data import IdataReader
-from pymc_mfm.plotting.charts._style import CAVEAT
+import pymc_mktfm.inference as inference
+from pymc_mktfm.inference import api as api_module
+from pymc_mktfm.inference import curves as curves_module
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.plotting.charts import _backend
+from pymc_mktfm.plotting.charts import curves as curve_charts
+from pymc_mktfm.plotting.charts._data import IdataReader
+from pymc_mktfm.plotting.charts._style import CAVEAT
 
 CHANNELS = list(CHART_ROLES["channel_columns"])
 
@@ -448,7 +448,7 @@ def test_failed_sweeps_preserve_the_entire_complete_inference(
 ):
     import xarray as xr
 
-    from pymc_mfm.inference import _datatree
+    from pymc_mktfm.inference import _datatree
 
     curves = forecast_model.response_curves(levels=[0, 1], weeks=1) if keep_curves else None
     tree = forecast_model.idata

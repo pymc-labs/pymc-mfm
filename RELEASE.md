@@ -7,6 +7,20 @@ distribution prerequisites, not an approved or published release.
 
 ## Current changes
 
+- **Renamed to `pymc-mktfm`.** The distribution is `pymc-mktfm` and the import package is
+  `pymc_mktfm`; the extras are `pymc-mktfm[client]`, `pymc-mktfm[local]` and the rest. The old
+  import path still works: `import pymc_mfm` and `from pymc_mfm.x.y import z` resolve to the same
+  module objects through a small alias package in the same distribution. The client reads
+  `MKTFM_API_URL` and `MKTFM_API_KEY` first and falls back to `MFM_API_URL` and `MFM_API_KEY`;
+  `MKTFM_LEGACY_AB_BUNDLES` falls back to `MFM_LEGACY_AB_BUNDLES` in the same way. The agent skill
+  moved to `skills/mktfm`. The repository is `github.com/pymc-labs/pymc-mktfm`. The format strings
+  `mfm-dataset-v1` and `mfm-analysis-export-v1`, the Hugging Face repository `pymc-labs/mfm`, the
+  tracking tags `mfm.*` and the model class `MFM` keep their names. If the old `pymc-mfm`
+  distribution is installed, uninstall it first (`pip uninstall pymc-mfm`) and then install
+  `pymc-mktfm`. Both distributions ship `pymc_mfm/__init__.py`, so uninstalling the old one after
+  the new one deletes the alias; `pip install --force-reinstall --no-deps pymc-mktfm` restores it.
+  The entries below describe earlier work and keep the old names.
+
 - **Complete paired inference and automatic idata.**
   `model.inference(context, query, date_column=..., target_column=...,
   channel_columns=..., control_columns=...)` samples query and context and

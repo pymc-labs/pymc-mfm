@@ -6,8 +6,8 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from pymc_mfm.diagnostics import CalibrationReport, conditional_sbc_report, render_report
-from pymc_mfm.inference.result import DecompositionResult
+from pymc_mktfm.diagnostics import CalibrationReport, conditional_sbc_report, render_report
+from pymc_mktfm.inference.result import DecompositionResult
 
 PROVENANCE = {
     "independent_worlds": True,
@@ -334,7 +334,7 @@ def test_saved_card_replay_needs_no_model_or_rank_recomputation(tmp_path, monkey
     rng = np.random.default_rng(21)
     card = _card([_record(rng) for _ in range(20)])
     json.dumps(card, allow_nan=False)
-    from pymc_mfm.diagnostics import calibration
+    from pymc_mktfm.diagnostics import calibration
 
     manifest = CalibrationReport(card).report(tmp_path / "card")
     saved = json.loads((tmp_path / "card" / "calibration.json").read_text())

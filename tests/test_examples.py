@@ -14,7 +14,7 @@ import pytest
 import torch
 from test_graph_dot import native_dot, native_topology, svg_topology
 
-from pymc_mfm.plotting.charts._data import IdataReader
+from pymc_mktfm.plotting.charts._data import IdataReader
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 NOTEBOOK = EXAMPLES / "dev" / "diagnostics.ipynb"
@@ -120,10 +120,10 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
     pytest.importorskip("pymc_marketing")
     if shutil.which("dot") is None:
         pytest.skip("The quickstart's native SVG export requires Graphviz")
-    import pymc_mfm
-    from pymc_mfm import MFM
-    from pymc_mfm.inference import DecompositionResult
-    from pymc_mfm.model import ModelConfig
+    import pymc_mktfm
+    from pymc_mktfm import MFM
+    from pymc_mktfm.inference import DecompositionResult
+    from pymc_mktfm.model import ModelConfig
 
     requests = []
     exports = {}
@@ -154,7 +154,7 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
 
     monkeypatch.setattr(MFM, "_sample_context", capture_context)
     monkeypatch.setattr("tempfile.TemporaryDirectory", CapturedWorkspace)
-    monkeypatch.setattr(pymc_mfm, "from_pretrained", stand_in)
+    monkeypatch.setattr(pymc_mktfm, "from_pretrained", stand_in)
     monkeypatch.setenv("MPLBACKEND", "Agg")
     monkeypatch.chdir(tmp_path)
     namespace = run_code_cells(QUICKSTART)

@@ -9,11 +9,11 @@ import numpy as np
 import pytest
 from test_diagnostics import make_result
 
-from pymc_mfm.diagnostics import compute_diagnostics, record_series
-from pymc_mfm.inference.result import result_from_batch
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.plotting import (
+from pymc_mktfm.diagnostics import compute_diagnostics, record_series
+from pymc_mktfm.inference.result import result_from_batch
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.plotting import (
     plot_attribution,
     plot_calibration,
     plot_channel_totals,
@@ -33,7 +33,7 @@ from pymc_mfm.plotting import (
     plot_window_totals,
     plot_zero_atoms,
 )
-from pymc_mfm.training.evaluation import GRAPH_METRICS
+from pymc_mktfm.training.evaluation import GRAPH_METRICS
 
 pytest.importorskip("matplotlib")
 
@@ -931,7 +931,7 @@ def unnamed_run(root):
     """A two-evaluation run recorded without a name, as ``train()`` and the CLI default to."""
     from test_training_run import write_run
 
-    from pymc_mfm.diagnostics import TrainingRun
+    from pymc_mktfm.diagnostics import TrainingRun
 
     write_run(root, evaluations=(2, 4))
     record = json.loads((root / "run.json").read_text())

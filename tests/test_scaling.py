@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pymc_mfm.data.observations import encode_observations
+from pymc_mktfm.data.observations import encode_observations
 
 
 @pytest.fixture

@@ -12,9 +12,9 @@ from types import SimpleNamespace
 import pytest
 from conftest import make_synthetic_corpus
 
-import pymc_mfm.data.__main__ as cli
-from pymc_mfm.data.profiles import PROFILE_A, PROFILE_B
-from pymc_mfm.data.recipes import (
+import pymc_mktfm.data.__main__ as cli
+from pymc_mktfm.data.profiles import PROFILE_A, PROFILE_B
+from pymc_mktfm.data.recipes import (
     PROFILE_A_PRIOR,
     SHARD_PLANS,
     ShardPlan,
@@ -108,7 +108,7 @@ def test_import_does_not_load_the_generator():
         [
             sys.executable,
             "-c",
-            "import pymc_mfm.data.recipes, sys; assert 'pymc_generator' not in sys.modules",
+            "import pymc_mktfm.data.recipes, sys; assert 'pymc_generator' not in sys.modules",
         ],
         check=True,
     )
@@ -165,7 +165,7 @@ def test_load_corpora_reports_identity_and_sidecar(tmp_path):
 
 
 def test_synthetic_sharing_permission_requires_hash_bound_origin(tmp_path):
-    from pymc_mfm.data.recipes import LoadedCorpus
+    from pymc_mktfm.data.recipes import LoadedCorpus
 
     path = tmp_path / "corpus.npz"
     loaded = LoadedCorpus(str(path), "a" * 64, 2, 1, 1, (6,), {})

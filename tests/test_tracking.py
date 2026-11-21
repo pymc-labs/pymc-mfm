@@ -15,11 +15,11 @@ import torch
 from conftest import make_synthetic_corpus
 from test_training import TINY, reduced
 
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import MlflowTrainingObserver, TrackingConfig, train
-from pymc_mfm.training import trainer as trainer_module
-from pymc_mfm.training.checkpoint import file_sha256
-from pymc_mfm.training.stream import batches_for_rows
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import MlflowTrainingObserver, TrackingConfig, train
+from pymc_mktfm.training import trainer as trainer_module
+from pymc_mktfm.training.checkpoint import file_sha256
+from pymc_mktfm.training.stream import batches_for_rows
 
 
 @pytest.fixture(autouse=True)
@@ -35,9 +35,9 @@ def preserve_python_numpy_rng():
 def test_installed_code_identity_ignores_an_enclosing_applications_git_history(
     tmp_path, monkeypatch
 ):
-    from pymc_mfm.training import _provenance
+    from pymc_mktfm.training import _provenance
 
-    module = tmp_path / ".venv/lib/site-packages/pymc_mfm/training/_provenance.py"
+    module = tmp_path / ".venv/lib/site-packages/pymc_mktfm/training/_provenance.py"
     module.parent.mkdir(parents=True)
     module.write_text("# Installed source content\n")
     monkeypatch.setattr(_provenance, "__file__", str(module))
@@ -668,7 +668,7 @@ def test_interrupt_during_terminal_artifact_upload_is_honestly_finalized(tmp_pat
 
 
 def test_first_step_nonfinite_trace_and_loss_are_retained(tmp_path, monkeypatch):
-    from pymc_mfm.training import TrainingError
+    from pymc_mktfm.training import TrainingError
 
     original = MFM.loss_terms
 
@@ -732,7 +732,7 @@ def test_saved_calibration_report_delivers_scalars_and_files_or_withholds_them(
     pytest.importorskip("scipy")
     pytest.importorskip("matplotlib")
     mlflow = pytest.importorskip("mlflow")
-    from pymc_mfm.diagnostics import sbc_report, write_calibration_report
+    from pymc_mktfm.diagnostics import sbc_report, write_calibration_report
 
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     provenance = {"independent_worlds": True, "data_sha256": "c" * 64, "prior": "point mass"}
@@ -830,7 +830,7 @@ def test_credential_bearing_report_withholds_html_and_figures_too(
 
 @pytest.mark.parametrize("hook", ["on_step", pytest.param("on_diagnostic", marks=pytest.mark.slow)])
 def test_observer_exception_credentials_never_enter_failure_artifacts(tmp_path, monkeypatch, hook):
-    from pymc_mfm.training import TrainingObserver
+    from pymc_mktfm.training import TrainingObserver
 
     mlflow = pytest.importorskip("mlflow")
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)

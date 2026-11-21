@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from pymc_mfm.training import metrics
+from pymc_mktfm.training import metrics
 
 
 def test_auprc_steps_once_per_distinct_score():

@@ -8,12 +8,12 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.inference._artifact_schema import semantic_schema
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import check_recorded_evaluation, compatibility
-from pymc_mfm.training.evaluation import evaluate_rows, flatten_evaluation, metric_aggregation
+from pymc_mktfm.inference._artifact_schema import semantic_schema
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import check_recorded_evaluation, compatibility
+from pymc_mktfm.training.evaluation import evaluate_rows, flatten_evaluation, metric_aggregation
 
 SHARDS = (530001, 530002)
 MIXED_SHARD = 530003

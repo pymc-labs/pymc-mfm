@@ -35,9 +35,9 @@ import numpy as np
 import pytest
 import torch
 
-from pymc_mfm.inference.api import observation_batch
-from pymc_mfm.model import MFM, LossWeights, ModelConfig
-from pymc_mfm.model.graph import EdgeSlotLayout, binary_graphs_from_flow
+from pymc_mktfm.inference.api import observation_batch
+from pymc_mktfm.model import MFM, LossWeights, ModelConfig
+from pymc_mktfm.model.graph import EdgeSlotLayout, binary_graphs_from_flow
 
 GOLDEN = Path(__file__).resolve().parent / "data" / "architecture_lock.json"
 MODEL = {
@@ -234,7 +234,7 @@ def lock_outputs() -> tuple[dict[str, object], float]:
 def producer() -> dict[str, object]:
     return {
         "python": platform.python_version(),
-        "pymc-mfm": version("pymc-mfm"),
+        "pymc-mktfm": version("pymc-mktfm"),
         "torch": torch.__version__,
         "numpy": np.__version__,
         "system": platform.system(),

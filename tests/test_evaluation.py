@@ -8,10 +8,10 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.data.corpus import corpus_batch
-from pymc_mfm.model.graph import STRUCT_EDGE_KEYS, EdgeSlotLayout
-from pymc_mfm.training import evaluation, metrics
-from pymc_mfm.training.evaluation import (
+from pymc_mktfm.data.corpus import corpus_batch
+from pymc_mktfm.model.graph import STRUCT_EDGE_KEYS, EdgeSlotLayout
+from pymc_mktfm.training import evaluation, metrics
+from pymc_mktfm.training.evaluation import (
     COUNT_METRICS,
     DECOMPOSITION_METRICS,
     EDGE_METRICS,

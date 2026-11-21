@@ -36,11 +36,11 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-from pymc_mfm.inference._artifact_schema import file_record
-from pymc_mfm.inference._digest import digest_bytes, json_bytes
-from pymc_mfm.inference.checkpoint import save_pretrained
-from pymc_mfm.inference.hub import from_pretrained
-from pymc_mfm.model import MFM, ModelConfig
+from pymc_mktfm.inference._artifact_schema import file_record
+from pymc_mktfm.inference._digest import digest_bytes, json_bytes
+from pymc_mktfm.inference.checkpoint import save_pretrained
+from pymc_mktfm.inference.hub import from_pretrained
+from pymc_mktfm.model import MFM, ModelConfig
 
 LEGACY = Path(__file__).resolve().parent / "data" / "golden_bundle_v1"
 WEIGHTS = "model.safetensors"
@@ -192,9 +192,9 @@ def test_current_bundle_preserves_recorded_training_evaluation(current_bundle):
 def test_loading_a_recorded_training_evaluation_imports_no_training_code(current_bundle):
     code = (
         "import sys\n"
-        "from pymc_mfm import from_pretrained\n"
+        "from pymc_mktfm import from_pretrained\n"
         f"from_pretrained(sys.argv[1], profile={PROFILE!r})\n"
-        "loaded = sorted(name for name in sys.modules if name.startswith('pymc_mfm.training'))\n"
+        "loaded = sorted(name for name in sys.modules if name.startswith('pymc_mktfm.training'))\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run(

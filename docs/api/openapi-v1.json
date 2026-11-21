@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "MFM HTTP API",
+    "title": "PyMC Marketing Foundational Models HTTP API",
     "description": "Upload a weekly history, run an analysis and read the result. Every request carries `Authorization: Bearer <key>`. Error bodies are `{\"error\": {\"code\", \"message\", \"request_id\", \"field\"?}}`; the 409 `not_ready` body also has a top-level `status`.",
     "version": "1"
   },

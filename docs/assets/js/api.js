@@ -1,8 +1,8 @@
 /* API overview: the sidebar group of the section in view takes the accent colour (scroll-spy).
    Groups are matched by title: the section "Datasets" of the page and the sidebar group "Datasets".
-   Loaded by api/_metadata.yml. Pages other than the overview have no `.mfm-api-overview`. */
+   Loaded by api/_metadata.yml. Pages other than the overview have no `.mktfm-api-overview`. */
 (() => {
-  const overview = document.querySelector(".mfm-api-overview");
+  const overview = document.querySelector(".mktfm-api-overview");
   if (!overview || !("IntersectionObserver" in window)) return;
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -22,12 +22,12 @@
     const group = section ? groups.get(section.querySelector("h2").textContent.trim()) : null;
     if (group === current) return;
     if (current) {
-      current.classList.remove("mfm-spy-current");
+      current.classList.remove("mktfm-spy-current");
       current.querySelector(".sidebar-item-text")?.removeAttribute("aria-current");
     }
     current = group;
     if (!current) return;
-    current.classList.add("mfm-spy-current");
+    current.classList.add("mktfm-spy-current");
     current.querySelector(".sidebar-item-text")?.setAttribute("aria-current", "location");
     current.scrollIntoView({ block: "nearest", behavior: reduceMotion.matches ? "auto" : "smooth" });
   };

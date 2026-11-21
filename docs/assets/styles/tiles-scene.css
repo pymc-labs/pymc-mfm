@@ -16,7 +16,7 @@
   height: 390vh;
   background: var(--ts-ground);
   color: var(--ts-ink);
-  font-family: var(--mfm-font-sans, "Inter", system-ui, sans-serif);
+  font-family: var(--mktfm-font-sans, "Inter", system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
 }
 .tiles-scene *, .tiles-scene *::before, .tiles-scene *::after { box-sizing: border-box; }

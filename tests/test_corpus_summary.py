@@ -9,11 +9,11 @@ import torch
 from conftest import GENERATOR_EDGE_TYPES, make_synthetic_corpus
 from test_training import TINY, reduced
 
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import TrackingConfig, train
-from pymc_mfm.training.summary import corpus_summary, corpus_support, parameter_counts
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import TrackingConfig, train
+from pymc_mktfm.training.summary import corpus_summary, corpus_support, parameter_counts
 
 LAYOUT = EdgeSlotLayout(3, 2, 1)
 MODULES = ("encoder", "router", "structure_head", "graph_conditioner", "conditional_head")
@@ -210,7 +210,7 @@ def test_corpus_support_skips_unusable_worlds_instead_of_failing():
     unusable = corpus_support(corpora)
     assert unusable["worlds"] == []
     pytest.importorskip("matplotlib")
-    from pymc_mfm.plotting.comparisons import plot_corpus_support
+    from pymc_mktfm.plotting.comparisons import plot_corpus_support
 
     # The refusal states how many kept worlds were skipped, and why.
     with pytest.raises(ValueError) as refused:

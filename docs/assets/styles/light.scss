@@ -1,7 +1,7 @@
 /*-- scss:defaults --*/
 // MFM docs theme, light: Cobalt. White pages, navy text, one cobalt accent, blue-grey tone steps.
 // Each token is set once here as a Sass variable. Bootstrap and Quarto read the variables, so their
-// own components follow the theme without overrides. The same values leave as --mfm-* custom
+// own components follow the theme without overrides. The same values leave as --mktfm-* custom
 // properties (rules section) for site.css and the page stylesheets. dark.scss mirrors this file.
 
 $navy: #0c1f40;
@@ -91,30 +91,30 @@ $callout-color-warning: $ink-2;
 
 /*-- scss:rules --*/
 body.quarto-light {
-  --mfm-bg: #{$body-bg};
-  --mfm-ink: #{$ink};
-  --mfm-ink-2: #{$ink-2};
-  --mfm-navy: #{$navy};
-  --mfm-heading: #{$navy};
-  --mfm-accent: #{$accent};
-  --mfm-tone-1: #{$tone-1};
-  --mfm-tone-2: #{$tone-2};
-  --mfm-danger: #{$danger};
-  --mfm-on-navy: #ffffff;
-  --mfm-console-bg: #{$navy};
-  --mfm-console-fg: #ffffff;
-  --mfm-console-hover: #{$accent};
+  --mktfm-bg: #{$body-bg};
+  --mktfm-ink: #{$ink};
+  --mktfm-ink-2: #{$ink-2};
+  --mktfm-navy: #{$navy};
+  --mktfm-heading: #{$navy};
+  --mktfm-accent: #{$accent};
+  --mktfm-tone-1: #{$tone-1};
+  --mktfm-tone-2: #{$tone-2};
+  --mktfm-danger: #{$danger};
+  --mktfm-on-navy: #ffffff;
+  --mktfm-console-bg: #{$navy};
+  --mktfm-console-fg: #ffffff;
+  --mktfm-console-hover: #{$accent};
 }
 
 :root {
-  --mfm-r-chip: 6px;
-  --mfm-r: 8px;
-  --mfm-r-card: 12px;
-  --mfm-font-sans: #{$font-sans};
-  --mfm-font-mono: #{$font-mono}; /* taste-skill-ignore: code font */
-  --mfm-font-display: #{$font-display};
-  --mfm-measure: 72ch;
-  --mfm-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --mfm-dur: 0.18s;
-  --mfm-nav-h: 64px;
+  --mktfm-r-chip: 6px;
+  --mktfm-r: 8px;
+  --mktfm-r-card: 12px;
+  --mktfm-font-sans: #{$font-sans};
+  --mktfm-font-mono: #{$font-mono}; /* taste-skill-ignore: code font */
+  --mktfm-font-display: #{$font-display};
+  --mktfm-measure: 72ch;
+  --mktfm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mktfm-dur: 0.18s;
+  --mktfm-nav-h: 64px;
 }

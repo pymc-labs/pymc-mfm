@@ -5,12 +5,12 @@ description: "Use the torch-free HTTP client to upload a history, run River API 
 
 ## Create a client
 
-[pymc_mfm.client](../reference/client.Client.qmd) is the torch-free HTTP client for River API v3.1. It works with the light base install; install `pymc-mfm[client]` to read per-draw files and create client plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
+[pymc_mktfm.client](../reference/client.Client.qmd) is the torch-free HTTP client for River API v3.1. It works with the light base install; install `pymc-mktfm[client]` to read per-draw files and create client plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MKTFM_API_URL` and `MKTFM_API_KEY` when those arguments are omitted (the old names `MFM_API_URL` and `MFM_API_KEY` still work).
 
 ```python
-from pymc_mfm.client import Client
+from pymc_mktfm.client import Client
 
-client = Client("https://api.example.com")  # API key from MFM_API_KEY
+client = Client("https://api.example.com")  # API key from MKTFM_API_KEY
 ```
 
 A `Client` closes its connection pool with `close()` and can be used as a context manager.
@@ -22,7 +22,7 @@ A [Dataset](../reference/client.Dataset.qmd) stores a weekly history and its col
 ```python
 import pandas as pd
 
-from pymc_mfm.client import Client, amount, curve, grid, scenario
+from pymc_mktfm.client import Client, amount, curve, grid, scenario
 
 client = Client("https://api.example.com")
 dataset = client.datasets.create(

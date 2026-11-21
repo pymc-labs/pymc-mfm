@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from pymc_mfm.data.corpus import corpus_batch
+from pymc_mktfm.data.corpus import corpus_batch
 
 
 @pytest.fixture

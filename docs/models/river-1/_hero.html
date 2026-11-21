@@ -1,24 +1,24 @@
-<section class="mfm-river__hero" aria-labelledby="mfm-river-title">
+<section class="mktfm-river__hero" aria-labelledby="mktfm-river-title">
   <!-- The Orinoco at night, one still picture; river.js draws it through the canvas above
        with moving water, light, cloud, mist and a glitch now and then. data-water is where
        the river is in the picture. -->
-  <img class="mfm-river__picture" data-mfm="picture" src="../../assets/img/river/river-hero.webp" data-water="../../assets/img/river/river-hero-water.png" alt="" aria-hidden="true" decoding="async" fetchpriority="high">
-  <canvas class="mfm-river__canvas" data-mfm="river" aria-hidden="true"></canvas>
-  <div class="mfm-river__numbers" aria-hidden="true"></div>
-  <div class="mfm-grain" aria-hidden="true"></div>
-  <h1 id="mfm-river-title" class="mfm-river__title">River <span class="mfm-river__version">v1.0.0</span></h1>
-  <canvas class="mfm-river__veil" data-mfm="veil" aria-hidden="true"></canvas>
-  <a class="mfm-river__scroll" href="#what">Scroll to read<span aria-hidden="true"></span></a>
+  <img class="mktfm-river__picture" data-mktfm="picture" src="../../assets/img/river/river-hero.webp" data-water="../../assets/img/river/river-hero-water.png" alt="" aria-hidden="true" decoding="async" fetchpriority="high">
+  <canvas class="mktfm-river__canvas" data-mktfm="river" aria-hidden="true"></canvas>
+  <div class="mktfm-river__numbers" aria-hidden="true"></div>
+  <div class="mktfm-grain" aria-hidden="true"></div>
+  <h1 id="mktfm-river-title" class="mktfm-river__title">River <span class="mktfm-river__version">v1.0.0</span></h1>
+  <canvas class="mktfm-river__veil" data-mktfm="veil" aria-hidden="true"></canvas>
+  <a class="mktfm-river__scroll" href="#what">Scroll to read<span aria-hidden="true"></span></a>
 </section>
 <script>
   // Quarto puts this block inside the article column. Lift it above the page columns so the
   // hero spans the full width and the sidebars start below it. Without scripts the hero
   // stays hidden (model.css) and the page keeps its own title.
   (() => {
-    const hero = document.querySelector(".mfm-river__hero");
+    const hero = document.querySelector(".mktfm-river__hero");
     const page = document.getElementById("quarto-content");
     if (!hero || !page) return;
     page.before(hero);
-    document.body.classList.add("mfm-river-hero-on");
+    document.body.classList.add("mktfm-river-hero-on");
   })();
 </script>

@@ -12,9 +12,9 @@ import numpy as np
 import pytest
 from test_diagnostics import make_result
 
-from pymc_mfm.diagnostics import build_report
-from pymc_mfm.diagnostics import report as reporting
-from pymc_mfm.inference.result import DecompositionResult
+from pymc_mktfm.diagnostics import build_report
+from pymc_mktfm.diagnostics import report as reporting
+from pymc_mktfm.inference.result import DecompositionResult
 
 pytest.importorskip("matplotlib")
 from matplotlib.figure import Figure  # noqa: E402
@@ -54,7 +54,7 @@ def test_result_figures_state_head_window_mode_units_and_draws():
 
 
 def test_result_dag_returns_a_native_artifact_of_its_prediction_export():
-    from pymc_mfm.plotting import GraphvizGraph
+    from pymc_mktfm.plotting import GraphvizGraph
 
     result = make_result()
     artifact = result.plot.dag()
@@ -308,7 +308,7 @@ def test_reconstruction_with_observations_draws_the_observation_residual():
 def test_input_support_describes_the_active_raw_inputs_decompose_saw(model):
     from conftest import make_synthetic_corpus
 
-    from pymc_mfm.inference.api import decompose
+    from pymc_mktfm.inference.api import decompose
 
     corpus = make_synthetic_corpus()
     context = int(corpus["support_mask"][0].sum())
@@ -349,9 +349,9 @@ def test_decompose_and_diagnostics_import_no_matplotlib_until_a_figure_is_drawn(
 import sys
 import numpy as np
 import torch
-from pymc_mfm import MFM
-from pymc_mfm.inference import decompose
-from pymc_mfm.model import ModelConfig
+from pymc_mktfm import MFM
+from pymc_mktfm.inference import decompose
+from pymc_mktfm.model import ModelConfig
 
 torch.manual_seed(0)
 config = ModelConfig(
@@ -382,10 +382,10 @@ def test_figures_pickle_as_plain_matplotlib_figures_and_copies_stay_displayable(
     figure = make_result().plot.components()
     path = tmp_path / "figure.pickle"
     path.write_bytes(pickle.dumps(figure))
-    # The pickle loads where pymc_mfm cannot be imported.
+    # The pickle loads where pymc_mktfm cannot be imported.
     code = f"""
 import io, pickle, sys
-sys.modules["pymc_mfm"] = None
+sys.modules["pymc_mktfm"] = None
 from matplotlib.figure import Figure
 with open({str(path)!r}, "rb") as handle:
     figure = pickle.load(handle)

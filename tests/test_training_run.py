@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.diagnostics import TrainingRun
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.training.evaluation import HEAD_LABELS, metric_units
+from pymc_mktfm.diagnostics import TrainingRun
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.training.evaluation import HEAD_LABELS, metric_units
 
 pytest.importorskip("matplotlib")
 
@@ -151,7 +151,7 @@ def test_evaluation_figures_state_each_heads_label_window_units_and_draws(tmp_pa
 
 
 def test_a_recorded_metric_this_release_does_not_define_draws_without_a_unit(tmp_path):
-    from pymc_mfm.training.evaluation import METRIC_UNITS
+    from pymc_mktfm.training.evaluation import METRIC_UNITS
 
     root = write_run(tmp_path / "run", evaluations=None)
     # A metric recorded by another release, which this one has no unit for.
@@ -466,8 +466,8 @@ def test_progress_comes_from_records_not_the_run_summary(tmp_path):
 def test_reduced_train_records_reload_through_the_training_result(tmp_path):
     from test_training import TINY, reduced
 
-    from pymc_mfm.training import TrackingConfig, train
-    from pymc_mfm.training.trainer import LOSS_TERMS
+    from pymc_mktfm.training import TrackingConfig, train
+    from pymc_mktfm.training.trainer import LOSS_TERMS
 
     corpus = make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=3)
     result = train(

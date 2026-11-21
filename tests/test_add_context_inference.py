@@ -12,11 +12,11 @@ from conftest import needs_arviz
 from safetensors import safe_open
 from safetensors.torch import load_file
 
-from pymc_mfm.inference.api import _decompose, decompose, observation_batch
-from pymc_mfm.inference.checkpoint import save_pretrained
-from pymc_mfm.inference.hub import from_pretrained
-from pymc_mfm.inference.result import DecompositionResult
-from pymc_mfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.inference.api import _decompose, decompose, observation_batch
+from pymc_mktfm.inference.checkpoint import save_pretrained
+from pymc_mktfm.inference.hub import from_pretrained
+from pymc_mktfm.inference.result import DecompositionResult
+from pymc_mktfm.model.graph import EdgeSlotLayout
 
 CHANNELS = ("search", "tv")
 CONTROLS = ("temperature",)
@@ -145,7 +145,7 @@ def _assert_named_posterior(posterior, result):
 def _inject_inference_failure(monkeypatch, model, stage):
     """Fail after real sampling, or at conversion, without inventing candidate draws."""
     if stage == "conversion":
-        from pymc_mfm.inference import _datatree
+        from pymc_mktfm.inference import _datatree
 
         def fail(*args, **kwargs):
             raise RuntimeError("conversion failed")
@@ -1543,8 +1543,8 @@ def test_a_failed_seeded_call_leaves_the_generator_unchanged(model, history, fut
 
 
 def _second_model():
-    from pymc_mfm.model.config import ModelConfig
-    from pymc_mfm.model.model import MFM
+    from pymc_mktfm.model.config import ModelConfig
+    from pymc_mktfm.model.model import MFM
 
     torch.manual_seed(77)
     config = ModelConfig(
@@ -1730,8 +1730,8 @@ def test_the_seed_is_in_the_tree_and_not_in_saved_evidence_or_its_digest(
 
 def test_a_rejected_request_starts_no_noise_prefetch(model, history, future, monkeypatch):
     # Force the GPU path's prefetch on the CPU: noise is "drawn elsewhere" than the device.
-    from pymc_mfm.model import flow
-    from pymc_mfm.model import model as model_module
+    from pymc_mktfm.model import flow
+    from pymc_mktfm.model import model as model_module
 
     requests = []
     request = flow._NoisePrefetch.request

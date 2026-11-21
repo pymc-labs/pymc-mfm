@@ -4,7 +4,7 @@
 an overview, Authentication, Errors, one page for each route and ``_sidebar.yml``.
 Generated files are ignored by Git. The routes, the field tables and the error list come
 from ``docs/api/openapi-v1.json`` (the exported spec of the service); the prose and the
-samples come from ``http_content.py``. ``skills/mfm/reference/http.md`` must agree with the
+samples come from ``http_content.py``. ``skills/mktfm/reference/http.md`` must agree with the
 spec: its "Endpoints" table lists the same routes and each row names the keys the server
 sends. If the spec, ``http.md`` and ``http_content.py`` disagree, or the structure of
 ``http.md`` changes, ``generate`` raises ``HttpDocsError`` and writes nothing.
@@ -27,7 +27,7 @@ import http_content as content
 from http_content import Detail, Param
 
 DOCS = Path(__file__).resolve().parent.parent
-HTTP_MD = DOCS.parent / "skills" / "mfm" / "reference" / "http.md"
+HTTP_MD = DOCS.parent / "skills" / "mktfm" / "reference" / "http.md"
 API_DIR = DOCS / "api"
 SPEC = API_DIR / "openapi-v1.json"
 
@@ -486,7 +486,7 @@ class Route:
 
     @property
     def verb(self) -> str:
-        return f"[{self.method}]{{.mfm-verb .mfm-verb-{self.method.lower()}}}"
+        return f"[{self.method}]{{.mktfm-verb .mktfm-verb-{self.method.lower()}}}"
 
 
 # ---- Reading http.md ---------------------------------------------------------------------
@@ -572,9 +572,9 @@ def definition_list(items: list[tuple[str, str]], css_class: str) -> str:
 def param_term(param: Param) -> str:
     term = f"`{param.name}`"
     if param.kind:
-        term += f" [{param.kind}]{{.mfm-type}}"
+        term += f" [{param.kind}]{{.mktfm-type}}"
     if param.required:
-        term += " [required]{.mfm-req}"
+        term += " [required]{.mktfm-req}"
     return term
 
 
@@ -582,7 +582,7 @@ def params_section(heading: str, params: tuple[Param, ...]) -> str:
     if not params:
         return ""
     items = [(param_term(p), p.text) for p in params]
-    return f"## {heading}\n\n" + definition_list(items, "mfm-params")
+    return f"## {heading}\n\n" + definition_list(items, "mktfm-params")
 
 
 def code_block(language: str, code: str) -> str:
@@ -591,9 +591,9 @@ def code_block(language: str, code: str) -> str:
 
 def code_panel(blocks: list[tuple[str, list[tuple[str, str, str]]]]) -> str:
     """One panel: one block for each entry; several (label, language, code) tabs make a tabset."""
-    out = ["::: {.mfm-api-code}\n"]
+    out = ["::: {.mktfm-api-code}\n"]
     for title, tabs in blocks:
-        out.append(f"::: {{.mfm-code-block}}\n[{title}]{{.mfm-code-title}}\n\n")
+        out.append(f"::: {{.mktfm-code-block}}\n[{title}]{{.mktfm-code-title}}\n\n")
         if len(tabs) == 1:
             out.append(code_block(tabs[0][1], tabs[0][2]))
         else:
@@ -608,10 +608,10 @@ def code_panel(blocks: list[tuple[str, list[tuple[str, str, str]]]]) -> str:
 def two_columns(head: str, text: str, panel: str, extra_class: str = "") -> str:
     """The lead, the sections and the code panel. On a wide screen the panel sits on the right;
     on a narrow one it follows the lead, so a reader meets the sample first."""
-    classes = f".mfm-api-grid .{extra_class}" if extra_class else ".mfm-api-grid"
+    classes = f".mktfm-api-grid .{extra_class}" if extra_class else ".mktfm-api-grid"
     return (
-        f"::: {{{classes}}}\n::: {{.mfm-api-head}}\n\n{head}:::\n\n{panel}"
-        f"::: {{.mfm-api-text}}\n\n{text}:::\n:::\n"
+        f"::: {{{classes}}}\n::: {{.mktfm-api-head}}\n\n{head}:::\n\n{panel}"
+        f"::: {{.mktfm-api-text}}\n\n{text}:::\n:::\n"
     )
 
 
@@ -620,7 +620,7 @@ def error_items(rows: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return [
         (
             re.sub(
-                r"^([\d, ]+)", lambda m: f"[{m.group(1).strip()}]{{.mfm-status}} ", term
+                r"^([\d, ]+)", lambda m: f"[{m.group(1).strip()}]{{.mktfm-status}} ", term
             ).strip(),
             text,
         )
@@ -646,7 +646,7 @@ def field_tables(
         if params:
             out.append(
                 f"### {title}\n\n"
-                + definition_list([(param_term(p), p.text) for p in params], "mfm-params")
+                + definition_list([(param_term(p), p.text) for p in params], "mktfm-params")
             )
         pending = [
             child
@@ -665,7 +665,7 @@ def field_tables(
             out.append(
                 heading
                 + "\n\n"
-                + definition_list([(param_term(p), p.text) for p in rows], "mfm-params")
+                + definition_list([(param_term(p), p.text) for p in rows], "mktfm-params")
             )
             pending.extend(
                 c
@@ -712,7 +712,7 @@ def error_section(spec: dict[str, Any], route: Route) -> str:
         return ""
     return (
         "## Errors\n\nSee [Errors](errors.qmd) for the body and for retries.\n\n"
-        + definition_list(error_items(items), "mfm-errors")
+        + definition_list(error_items(items), "mktfm-errors")
     )
 
 
@@ -732,7 +732,7 @@ def body_sections(spec: dict[str, Any], schema: dict[str, Any]) -> str:
             title, _, note = (form.get("description") or name).partition(":")
             out.append(f"## Body: {title.strip().removeprefix('The ')}\n\n")
             out.append(f"Send {note.strip()}\n\n" if note else "")
-            out.append(definition_list([(param_term(p), p.text) for p in params], "mfm-params"))
+            out.append(definition_list([(param_term(p), p.text) for p in params], "mktfm-params"))
         pending += [c for prop in form["properties"].values() for c in child_schemas(spec, prop)]
         shown.add(name)
     while pending:
@@ -747,7 +747,7 @@ def body_sections(spec: dict[str, Any], schema: dict[str, Any]) -> str:
         out.append(
             heading
             + "\n\n"
-            + definition_list([(param_term(p), p.text) for p in rows], "mfm-params")
+            + definition_list([(param_term(p), p.text) for p in rows], "mktfm-params")
         )
         pending.extend(
             c for prop in child.get("properties", {}).values() for c in child_schemas(spec, prop)
@@ -763,7 +763,7 @@ def child_members(spec: dict[str, Any], schema: dict[str, Any]) -> list[tuple[st
 
 def route_page(route: Route, spec: dict[str, Any]) -> str:
     d = route.detail
-    head = f"::: {{.mfm-endpoint}}\n{route.verb} `{route.path}`\n:::\n\n{d.lead}\n\n"
+    head = f"::: {{.mktfm-endpoint}}\n{route.verb} `{route.path}`\n:::\n\n{d.lead}\n\n"
     headers, parameters, body_title = route_inputs(route, spec)
     request = route.operation.get("requestBody", {}).get("content", {}).get("application/json", {})
     text = [params_section("Headers", headers)]
@@ -776,7 +776,7 @@ def route_page(route: Route, spec: dict[str, Any]) -> str:
     for status in statuses:
         response = route.operation["responses"][str(status)]
         text.append(
-            f"## Response\n\n[{status}]{{.mfm-status}} {STATUS_TEXT.get(status, '')}\n\n"
+            f"## Response\n\n[{status}]{{.mktfm-status}} {STATUS_TEXT.get(status, '')}\n\n"
             f"{response.get('description', '')}\n\n"
         )
     if d.response_text:
@@ -824,12 +824,12 @@ def overview_page(routes: list[Route]) -> str:
         items = [
             (
                 f"{r.verb} `{r.short_path}`",
-                f"[{r.detail.title}]({r.page}){{.mfm-route-link}}\n{r.detail.summary}",
+                f"[{r.detail.title}]({r.page}){{.mktfm-route-link}}\n{r.detail.summary}",
             )
             for r in routes
             if r.group == group
         ]
-        text.append(f"## {group} {{#{group.lower()}}}\n\n" + definition_list(items, "mfm-routes"))
+        text.append(f"## {group} {{#{group.lower()}}}\n\n" + definition_list(items, "mktfm-routes"))
     listing = next(r for r in routes if (r.method, r.path) == ("GET", "/v1/datasets")).detail
     panel = code_panel(
         [
@@ -838,7 +838,7 @@ def overview_page(routes: list[Route]) -> str:
         ]
     )
     return front_matter("MFM API", "The HTTP API of MFM: routes, keys and errors.") + two_columns(
-        head, "".join(text), panel, "mfm-api-overview"
+        head, "".join(text), panel, "mktfm-api-overview"
     )
 
 
@@ -849,11 +849,11 @@ def authentication_page() -> str:
     )
     text = (
         "## Set the base URL and the key\n\n"
-        "Keep both in the environment: `MFM_API_URL` holds the base URL "
-        "and `MFM_API_KEY` holds the key. "
+        "Keep both in the environment: `MKTFM_API_URL` holds the base URL "
+        "and `MKTFM_API_KEY` holds the key. "
         "The Python client reads the same two variables.\n\n"
         "## Send the key\n\n"
-        "Send `Authorization: Bearer $MFM_API_KEY` with every request. Create calls also send "
+        "Send `Authorization: Bearer $MKTFM_API_KEY` with every request. Create calls also send "
         "`Content-Type: application/json`. The body is JSON only.\n\n"
         "## Keep the key private\n\n"
         "Never print the key, and never write the URL or the key into a file. "
@@ -871,9 +871,11 @@ def authentication_page() -> str:
                 ),
             ]
         ),
-        "mfm-errors",
+        "mktfm-errors",
     )
-    request = 'curl -sS "$MFM_API_URL/v1/datasets" \\\n  -H "Authorization: Bearer $MFM_API_KEY"'
+    request = (
+        'curl -sS "$MKTFM_API_URL/v1/datasets" \\\n  -H "Authorization: Bearer $MKTFM_API_KEY"'
+    )
     panel = code_panel(
         [
             ("Base URL and key", [("shell", "bash", content.ENV_BLOCK)]),
@@ -895,21 +897,21 @@ def errors_page(refusals: list[tuple[str, str]], code_groups: list[tuple[str, st
     )
     text = (
         "## Statuses\n\n"
-        + definition_list(error_items(list(content.STATUS_ROWS)), "mfm-errors")
+        + definition_list(error_items(list(content.STATUS_ROWS)), "mktfm-errors")
         + "## Retries\n\n"
         "After a timeout or a connection error, repeat the same create call with the same key "
         "and body. This never starts the work twice.\n\n"
         "## Refusals\n\n"
         "The service rejects these before any run, with `422`. Warnings are never refusals. "
         "The service also refuses negative spend and unknown series names.\n\n"
-        + definition_list(refusals, "mfm-errors")
+        + definition_list(refusals, "mktfm-errors")
         + "## Refusal codes\n\nEvery code of a `422`, by where it arises.\n\n"
-        + definition_list(code_groups, "mfm-errors")
+        + definition_list(code_groups, "mktfm-errors")
         + "## Failed plans\n\nA failed plan is not an HTTP error. The status call answers `200`. "
         "The export gives `failure_code` for that plan; its result rows have `status` `failed` "
         "and no numbers. To send a failed analysis again, use a new `Idempotency-Key` "
         "(Python client: `fresh=True`). The same key returns the failed analysis.\n\n"
-        + definition_list(list(content.FAILURE_ROWS), "mfm-errors")
+        + definition_list(list(content.FAILURE_ROWS), "mktfm-errors")
     )
     panel = code_panel(
         [
@@ -929,11 +931,11 @@ def sidebar_yaml(routes: list[Route]) -> str:
         return {"href": href} if text is None else {"text": text, "href": href}
 
     def route_row(route: Route) -> dict[str, str]:
-        verb = f'<span class="mfm-verb mfm-verb-{route.method.lower()}">{route.method}</span>'
+        verb = f'<span class="mktfm-verb mktfm-verb-{route.method.lower()}">{route.method}</span>'
         breakable = "/" + route.short_path[1:].replace(
             "/", "/<wbr>"
         )  # a long path wraps after a slash
-        return page(f"api/{route.page}", f'{verb}<span class="mfm-side-path">{breakable}</span>')
+        return page(f"api/{route.page}", f'{verb}<span class="mktfm-side-path">{breakable}</span>')
 
     sections = [
         {

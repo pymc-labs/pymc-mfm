@@ -7,7 +7,7 @@
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
 reason = "Paired-inference migration of the reviewed synthetic-data quickstart: editable source/markdown cells now use explicit input_usage and complete inference with model.query_result, document return_idata and isolated predict, and retain every graph catalog/topology/DOT/SVG example. The 15 previously reviewed PNG outputs and unchanged numeric/text output representations are preserved; no weights were downloaded and no outputs regenerated for this source-only migration. Headless runtime acceptance uses a synthetic stand-in and native Graphviz. These exact bytes are pinned; reruns require a new review/hash in the same pull request. Malformed-image findings are never covered."
-sha256 = "e18759ab22e7753cf803617d10e10d83d259a14e13da37a5fdc1b5865a589b3b"
+sha256 = "16c5179df9488c6975243499033421770af1e19989787ce8b8f56c1ac2f28fca"
 max_bytes = 3000000
 
 [[allow]]
@@ -161,7 +161,7 @@ reason = "Self-hosted website font: Archivo at width 125 (Archivo Expanded, PyMC
 sha256 = "14a195060ccf8f460abd5dd0417e3b45ae28638dd9de6a5e0a5c7f6a2571c1f0"
 
 [[allow]]
-path = "docs/assets/img/social/mfm-social.jpg"
+path = "docs/assets/img/social/mktfm-social.jpg"
 rules = ["binary"]
 reason = "Website share image (Open Graph and X card) for every page: the MFM mark, 'PyMC MFM', 'Train once, decompose many.' and painted tiles with bell curves, rendered from the site's own V2 hero canvas (1200x630 JPEG, 99 kB). No photograph or third-party asset. These exact bytes are pinned; a new image needs a new review."
 sha256 = "98da23e175d74f987284841ef5ddd045ad44cbc0406ce606b747a2f41f86485a"

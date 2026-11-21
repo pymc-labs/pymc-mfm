@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 import torch
 
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.model.model import MFM
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.model.model import MFM
 
 # One intra-op thread for every test. On many-core machines PyTorch's default thread
 # count makes the tiny test models several times slower. Tests that need more threads
@@ -20,7 +20,7 @@ GENERATOR_EDGE_TYPES = ["cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz"]
 #: Skips optional statistics checks unless the ``arviz`` extra is installed.
 needs_arviz = pytest.mark.skipif(
     any(find_spec(name) is None for name in ("xarray", "arviz_base", "arviz_stats")),
-    reason="needs the pymc-mfm[arviz] extra",
+    reason="needs the pymc-mktfm[arviz] extra",
 )
 
 

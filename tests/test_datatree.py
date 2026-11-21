@@ -12,8 +12,8 @@ from conftest import CHART_ROLES, make_synthetic_corpus, needs_arviz
 from test_diagnostics import make_result
 from test_inference import observed
 
-import pymc_mfm
-from pymc_mfm.inference.api import decompose
+import pymc_mktfm
+from pymc_mktfm.inference.api import decompose
 
 #: Provenance keys a hand-built result need not record.
 OPTIONAL_PROVENANCE = (
@@ -107,7 +107,7 @@ def test_a_tree_holds_the_active_slots_of_its_window_and_keeps_truth_apart_from_
         "mcmc_diagnostics": "not_applicable",
     }
     # These and the three notes, nothing else: a fresh model records no state digest.
-    standard = set(arviz_base.make_attrs(inference_library=pymc_mfm, sample_dims=()))
+    standard = set(arviz_base.make_attrs(inference_library=pymc_mktfm, sample_dims=()))
     for attrs in (tree.attrs, posterior.attrs):
         assert expected.items() <= attrs.items()
         assert set(attrs) - standard == {*expected, "graph_draws", "sampling", "marginal_windows"}
@@ -337,7 +337,7 @@ def test_saved_boolean_time_labels_select_the_original_evidence_rows(tmp_path, l
     result = replace(
         original, time=np.array(labels), components=original.components[:, : len(labels)]
     )
-    result = pymc_mfm.inference.DecompositionResult.load(result.save(tmp_path / "result"))
+    result = pymc_mktfm.inference.DecompositionResult.load(result.save(tmp_path / "result"))
     truth = aligned_truth(result)
     observations = np.arange(len(labels)) + 10
     tree = result.to_datatree(truth=truth, observed=observations)
@@ -430,11 +430,11 @@ def test_the_export_layout_ignores_arviz_rcparams():
 )
 def test_an_export_without_the_arviz_extra_names_the_extra(monkeypatch, hidden):
     # Import the export module anew with the extra hidden: its own imports must not need it.
-    monkeypatch.delitem(sys.modules, "pymc_mfm.inference._datatree", raising=False)
-    monkeypatch.setattr(pymc_mfm.inference, "_datatree", None, raising=False)
+    monkeypatch.delitem(sys.modules, "pymc_mktfm.inference._datatree", raising=False)
+    monkeypatch.setattr(pymc_mktfm.inference, "_datatree", None, raising=False)
     for name in hidden:
         monkeypatch.setitem(sys.modules, name, None)
-    with pytest.raises(ImportError, match=re.escape("pymc-mfm[arviz]")):
+    with pytest.raises(ImportError, match=re.escape("pymc-mktfm[arviz]")):
         make_result().to_datatree()
 
 
@@ -446,10 +446,10 @@ from importlib.util import find_spec
 import numpy as np
 import torch
 
-import pymc_mfm.diagnostics
-from pymc_mfm import MFM
-from pymc_mfm.inference import DecompositionResult, decompose
-from pymc_mfm.model import ModelConfig
+import pymc_mktfm.diagnostics
+from pymc_mktfm import MFM
+from pymc_mktfm.inference import DecompositionResult, decompose
+from pymc_mktfm.model import ModelConfig
 
 torch.manual_seed(0)
 config = ModelConfig(
@@ -475,7 +475,7 @@ else:
     try:
         loaded.to_datatree()
     except ImportError as exc:
-        assert "pymc-mfm[arviz]" in str(exc), exc
+        assert "pymc-mktfm[arviz]" in str(exc), exc
     else:
         raise AssertionError("to_datatree() ran without the arviz extra")
 """
@@ -513,9 +513,9 @@ class MissingAnalysisExtras:
 
 sys.meta_path.insert(0, MissingAnalysisExtras())
 
-from pymc_mfm import MFM
-from pymc_mfm.inference import DecompositionResult
-from pymc_mfm.model import ModelConfig
+from pymc_mktfm import MFM
+from pymc_mktfm.inference import DecompositionResult
+from pymc_mktfm.model import ModelConfig
 
 torch.manual_seed(0)
 model = MFM(ModelConfig(
@@ -549,8 +549,8 @@ assert not imported, imported
 def test_named_and_curve_posteriors_preserve_consumer_visible_uncertainty(
     model, chart_frames, scale
 ):
-    from pymc_mfm.inference._datatree import attach_response_curves, prediction_datatree
-    from pymc_mfm.inference.curves import ResponseCurves
+    from pymc_mktfm.inference._datatree import attach_response_curves, prediction_datatree
+    from pymc_mktfm.inference.curves import ResponseCurves
 
     history, future = chart_frames
     model.inference(history, future, **CHART_ROLES, n_samples=5)

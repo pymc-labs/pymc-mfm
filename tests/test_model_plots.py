@@ -8,8 +8,8 @@ import pytest
 import torch
 from conftest import CHART_ROLES
 
-from pymc_mfm.plotting import set_backend
-from pymc_mfm.plotting.charts import (
+from pymc_mktfm.plotting import set_backend
+from pymc_mktfm.plotting.charts import (
     _backend,
     contributions,
     curves,
@@ -19,8 +19,8 @@ from pymc_mfm.plotting.charts import (
     shares,
     totals,
 )
-from pymc_mfm.plotting.charts._data import IdataReader
-from pymc_mfm.plotting.charts._style import compact
+from pymc_mktfm.plotting.charts._data import IdataReader
+from pymc_mktfm.plotting.charts._style import compact
 
 
 @pytest.fixture(autouse=True)
@@ -236,7 +236,7 @@ def test_backend_choice_and_its_install_hint(predicted_model, monkeypatch):
     with pytest.raises(ValueError, match="backend must be one of"):
         predicted_model.plot.inputs(backend="bokeh")
     monkeypatch.setitem(sys.modules, "plotly", None)
-    with pytest.raises(ImportError, match=r'pip install "pymc-mfm\[interactive\]"'):
+    with pytest.raises(ImportError, match=r'pip install "pymc-mktfm\[interactive\]"'):
         predicted_model.plot.inputs(backend="plotly")
     set_backend("plotly")
     with pytest.raises(ImportError, match="interactive"):

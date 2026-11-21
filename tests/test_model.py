@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from pymc_mfm.model.graph import EdgeSlotLayout, empirical_full_graph_mode
+from pymc_mktfm.model.graph import EdgeSlotLayout, empirical_full_graph_mode
 
 
 def test_complete_objective_trains_every_active_component(model, batch):

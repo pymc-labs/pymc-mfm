@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from pymc_mfm.client import dataset_content_hash, frame_content_hash
+from pymc_mktfm.client import dataset_content_hash, frame_content_hash
 
 VECTORS = json.loads((Path(__file__).parents[1] / "data" / "dataset-hash-vectors.json").read_text())
 BY_CASE = {vector["case"]: vector for vector in VECTORS["vectors"]}

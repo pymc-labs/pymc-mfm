@@ -23,9 +23,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import pymc_mfm.data.__main__ as cli
-from pymc_mfm.data.corpus import corpus_batch
-from pymc_mfm.data.recipes import SHARD_PLANS, load_corpora, prior_sidecar_path, provenance
+import pymc_mktfm.data.__main__ as cli
+from pymc_mktfm.data.corpus import corpus_batch
+from pymc_mktfm.data.recipes import SHARD_PLANS, load_corpora, prior_sidecar_path, provenance
 
 RECORD = Path(__file__).resolve().parent / "data" / "generator_probes.json"
 PROBE_CELLS = 2

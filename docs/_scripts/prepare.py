@@ -6,7 +6,7 @@
 2. Writes the Python reference into ``docs/reference/`` from the package docstrings,
    using the ``quartodoc`` section of ``_quarto.yml``, and gives its sidebar the
    "Python library" entry first.
-3. Writes the HTTP API pages into ``docs/api/`` from ``skills/mfm/reference/http.md``
+3. Writes the HTTP API pages into ``docs/api/`` from ``skills/mktfm/reference/http.md``
    (see ``http_pages.py``).
 
 Quarto runs this from ``docs/``. Run the build inside the project environment so
@@ -28,7 +28,7 @@ REFERENCE = DOCS / "reference"
 # Applies to every generated reference page: the reference sidebar and the API styles.
 REFERENCE_METADATA = """\
 sidebar: reference
-body-classes: mfm-ref
+body-classes: mktfm-ref
 format:
   html:
     css: ../assets/styles/api.css

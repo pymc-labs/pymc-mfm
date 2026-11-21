@@ -2859,7 +2859,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pymc-mfm"
+name = "pymc-mktfm"
 version = "0.0.1.dev0"
 source = { editable = "." }
 dependencies = [
@@ -2977,13 +2977,13 @@ requires-dist = [
     { name = "plotly", marker = "extra == 'interactive'", specifier = ">=6,<7" },
     { name = "pymc-generator", marker = "extra == 'generation'", git = "https://github.com/pymc-labs/pymc-generator.git?rev=main" },
     { name = "pymc-marketing", marker = "extra == 'examples'", specifier = ">=1.1,<2" },
-    { name = "pymc-mfm", extras = ["draws", "plot"], marker = "extra == 'client'" },
-    { name = "pymc-mfm", extras = ["local"], marker = "extra == 'arviz'" },
-    { name = "pymc-mfm", extras = ["local"], marker = "extra == 'diagnostics'" },
-    { name = "pymc-mfm", extras = ["local"], marker = "extra == 'examples'" },
-    { name = "pymc-mfm", extras = ["local"], marker = "extra == 'generation'" },
-    { name = "pymc-mfm", extras = ["local"], marker = "extra == 'hub'" },
-    { name = "pymc-mfm", extras = ["local"], marker = "extra == 'training'" },
+    { name = "pymc-mktfm", extras = ["draws", "plot"], marker = "extra == 'client'" },
+    { name = "pymc-mktfm", extras = ["local"], marker = "extra == 'arviz'" },
+    { name = "pymc-mktfm", extras = ["local"], marker = "extra == 'diagnostics'" },
+    { name = "pymc-mktfm", extras = ["local"], marker = "extra == 'examples'" },
+    { name = "pymc-mktfm", extras = ["local"], marker = "extra == 'generation'" },
+    { name = "pymc-mktfm", extras = ["local"], marker = "extra == 'hub'" },
+    { name = "pymc-mktfm", extras = ["local"], marker = "extra == 'training'" },
     { name = "safetensors", marker = "extra == 'local'", specifier = ">=0.6.2,<1" },
     { name = "scikit-learn", marker = "extra == 'diagnostics'", specifier = ">=1.6" },
     { name = "scikit-learn", marker = "extra == 'training'", specifier = ">=1.6" },

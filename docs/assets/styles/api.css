@@ -1,29 +1,29 @@
 /* HTTP API pages (docs/api/) and the Python reference (docs/reference/).
    Loaded per folder by api/_metadata.yml and reference/_metadata.yml (written by prepare.py).
-   Colours, corners and fonts come from the --mfm-* tokens of the theme. */
+   Colours, corners and fonts come from the --mktfm-* tokens of the theme. */
 
 /* Method labels: coloured text, no chips. Used on pages, in the sidebar and on the overview. */
-.mfm-verb {
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
+.mktfm-verb {
+  font-family: var(--mktfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
   font-size: max(0.85em, 13px);
   font-weight: 400; /* colour marks the method, not weight */
   letter-spacing: 0.02em;
 }
 
-.mfm-verb-get {
-  color: var(--mfm-accent);
+.mktfm-verb-get {
+  color: var(--mktfm-accent);
 }
 
-.mfm-verb-post {
-  color: var(--mfm-heading);
+.mktfm-verb-post {
+  color: var(--mktfm-heading);
 }
 
-.mfm-verb-delete {
-  color: var(--mfm-danger);
+.mktfm-verb-delete {
+  color: var(--mktfm-danger);
 }
 
 /* Sidebar rows: the method in a fixed column, the path beside it; a long path wraps under itself. */
-.sidebar-item .menu-text:has(.mfm-verb) {
+.sidebar-item .menu-text:has(.mktfm-verb) {
   display: flex;
   gap: 0.4rem;
 }
@@ -31,72 +31,72 @@
 /* Method and path share one small mono size, so the longest path ("/analyses/{id}/result")
    fits one line at desktop widths, as in the agreed design. Every page and the overview show
    the same paths at full size. */
-.sidebar-item .mfm-verb {
+.sidebar-item .mktfm-verb {
   flex: none;
   min-width: 3.7em;
   font-size: 0.78em; /* taste-skill-ignore: sidebar path labels, see above */
 }
 
-.sidebar-item .mfm-side-path {
+.sidebar-item .mktfm-side-path {
   min-width: 0;
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
+  font-family: var(--mktfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
   font-size: 0.78em;
   overflow-wrap: break-word;
 }
 
 /* The sidebar group that holds the section in view (set by api.js on the overview). */
-.sidebar-item-section.mfm-spy-current > .sidebar-item-container .menu-text {
-  color: var(--mfm-accent);
+.sidebar-item-section.mktfm-spy-current > .sidebar-item-container .menu-text {
+  color: var(--mktfm-accent);
 }
 
 /* Two columns: lead and sections on the left, one sticky code panel on the right. On a narrow
    screen the order is lead, panel, sections. */
-.mfm-api-grid {
+.mktfm-api-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0 2.5rem;
   align-items: start;
 }
 
-.mfm-api-grid > * {
+.mktfm-api-grid > * {
   min-width: 0;
 }
 
-.mfm-api-head,
-.mfm-api-text {
-  max-width: var(--mfm-measure);
+.mktfm-api-head,
+.mktfm-api-text {
+  max-width: var(--mktfm-measure);
 }
 
-.mfm-api-text {
+.mktfm-api-text {
   container-type: inline-size;
 }
 
-.mfm-api-text h2 {
+.mktfm-api-text h2 {
   margin-top: 2.5rem;
 }
 
-.mfm-api-code {
+.mktfm-api-code {
   margin: 0.5rem 0 1rem;
 }
 
-.mfm-endpoint {
+.mktfm-endpoint {
   margin: 0 0 1rem;
   font-size: 1.15rem;
 }
 
-.mfm-endpoint p {
+.mktfm-endpoint p {
   margin: 0;
 }
 
-.mfm-endpoint code {
+.mktfm-endpoint code {
   background: none;
   padding: 0;
   font-size: inherit;
-  color: var(--mfm-ink);
+  color: var(--mktfm-ink);
 }
 
 @media (min-width: 1200px) {
-  .mfm-api-grid {
+  .mktfm-api-grid {
     grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem);
     grid-template-areas:
       "head code"
@@ -104,65 +104,65 @@
     grid-template-rows: auto 1fr;
   }
 
-  .mfm-api-head {
+  .mktfm-api-head {
     grid-area: head;
   }
 
-  .mfm-api-text {
+  .mktfm-api-text {
     grid-area: text;
   }
 
-  .mfm-api-code {
+  .mktfm-api-code {
     grid-area: code;
     position: sticky;
-    top: calc(var(--mfm-nav-h) + 1.5rem);
-    max-height: calc(100vh - var(--mfm-nav-h) - 3rem);
+    top: calc(var(--mktfm-nav-h) + 1.5rem);
+    max-height: calc(100vh - var(--mktfm-nav-h) - 3rem);
     overflow-y: auto;
   }
 }
 
 /* One panel: a tone surface; its blocks are separated by space, not by boxes or rules. */
-.mfm-api-code {
+.mktfm-api-code {
   padding: 1.25rem 1.5rem 0.5rem;
-  border-radius: var(--mfm-r-card);
-  background: var(--mfm-tone-1);
-  color: var(--mfm-ink);
+  border-radius: var(--mktfm-r-card);
+  background: var(--mktfm-tone-1);
+  color: var(--mktfm-ink);
 }
 
-.mfm-code-block {
+.mktfm-code-block {
   margin-bottom: 1.5rem;
 }
 
-.mfm-code-title {
+.mktfm-code-title {
   display: block;
   margin-bottom: 0.5rem;
   font-size: 0.85rem;
   font-weight: 500;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
-.mfm-api-code .panel-tabset {
+.mktfm-api-code .panel-tabset {
   margin: 0;
 }
 
-.mfm-api-code .tab-content {
+.mktfm-api-code .tab-content {
   padding: 0;
   border: 0;
 }
 
-.mfm-api-code div.sourceCode,
-.mfm-api-code pre {
+.mktfm-api-code div.sourceCode,
+.mktfm-api-code pre {
   margin: 0 0 0.5rem;
   border: 0;
   background: transparent;
 }
 
-.mfm-api-code pre {
+.mktfm-api-code pre {
   padding: 0.5rem 0;
 }
 
-.mfm-api-code pre code {
-  font-family: var(--mfm-font-mono);
+.mktfm-api-code pre code {
+  font-family: var(--mktfm-font-mono);
   font-size: 0.8rem;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -172,169 +172,169 @@
 /* In the API panel, samples wrap instead of scrolling: the panel is narrow, and a cut line
    hides the part a reader copies (site.css scrolls code everywhere else, so this needs its
    specificity). No scroll fade is needed when nothing scrolls. */
-.mfm-api-code div.sourceCode pre.sourceCode,
-.mfm-api-code div.sourceCode pre code {
+.mktfm-api-code div.sourceCode pre.sourceCode,
+.mktfm-api-code div.sourceCode pre code {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.mfm-api-code div.sourceCode pre.sourceCode {
+.mktfm-api-code div.sourceCode pre.sourceCode {
   overflow-x: visible !important;
   padding-inline: 0.9rem;
 }
 
 /* Each code line is its own span (Quarto): a hanging indent sets wrapped continuations in by
    four characters, so they never read as new lines. */
-.mfm-api-code div.sourceCode pre code > span {
+.mktfm-api-code div.sourceCode pre code > span {
   display: inline-block; /* full width, so the newline after each span ends its line without adding one */
   width: 100%;
   padding-left: 4ch;
   text-indent: -4ch;
 }
 
-.mfm-api-code div.sourceCode.mfm-code::before,
-.mfm-api-code div.sourceCode.mfm-code::after {
+.mktfm-api-code div.sourceCode.mktfm-code::before,
+.mktfm-api-code div.sourceCode.mktfm-code::after {
   display: none;
 }
 
 /* Phones: the panel runs to the screen edges, so the samples get the full width. */
 @media (max-width: 767.98px) {
-  .mfm-api-code {
-    margin-inline: calc(-1 * var(--mfm-phone-gutter, 25.5px));
-    padding: 1.25rem var(--mfm-phone-gutter, 25.5px) 0.5rem;
+  .mktfm-api-code {
+    margin-inline: calc(-1 * var(--mktfm-phone-gutter, 25.5px));
+    padding: 1.25rem var(--mktfm-phone-gutter, 25.5px) 0.5rem;
     border-radius: 0;
   }
 
-  .mfm-api-code div.sourceCode pre.sourceCode {
+  .mktfm-api-code div.sourceCode pre.sourceCode {
     padding-inline: 0;
   }
 }
 
 /* Definition lists: parameters, errors and routes share one look ----------------------------- */
-.mfm-params dl,
-.mfm-errors dl,
-.mfm-routes dl {
+.mktfm-params dl,
+.mktfm-errors dl,
+.mktfm-routes dl {
   margin: 0 0 1rem;
 }
 
-.mfm-params dt,
-.mfm-errors dt,
-.mfm-routes dt {
+.mktfm-params dt,
+.mktfm-errors dt,
+.mktfm-routes dt {
   font-weight: 400;
-  color: var(--mfm-ink);
+  color: var(--mktfm-ink);
 }
 
-.mfm-params dt code,
-.mfm-routes dt code {
+.mktfm-params dt code,
+.mktfm-routes dt code {
   background: none;
   padding: 0;
   font-size: 0.9em;
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
-.mfm-params dd,
-.mfm-errors dd,
-.mfm-routes dd {
+.mktfm-params dd,
+.mktfm-errors dd,
+.mktfm-routes dd {
   margin: 0.15rem 0 1rem;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
-.mfm-type,
-.mfm-req {
+.mktfm-type,
+.mktfm-req {
   margin-left: 0.5rem;
   font-size: 0.85em;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
-.mfm-req {
+.mktfm-req {
   font-weight: 500;
 }
 
-.mfm-status {
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
+.mktfm-status {
+  font-family: var(--mktfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
 /* Errors and routes: a narrow term column beside the text, when the text column is wide enough. */
 @container (min-width: 28rem) {
-  .mfm-errors dl,
-  .mfm-routes dl {
+  .mktfm-errors dl,
+  .mktfm-routes dl {
     display: grid;
     grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr);
     column-gap: 1.5rem;
   }
 
-  .mfm-routes dl {
+  .mktfm-routes dl {
     grid-template-columns: minmax(12rem, 14rem) minmax(0, 1fr);
   }
 }
 
-.mfm-errors dt,
-.mfm-routes dt {
+.mktfm-errors dt,
+.mktfm-routes dt {
   padding-top: 0.15rem;
 }
 
-.mfm-routes dd {
+.mktfm-routes dd {
   margin-bottom: 1.25rem;
 }
 
-.mfm-route-link {
+.mktfm-route-link {
   display: block;
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
   text-decoration: none;
-  transition: color var(--mfm-dur) var(--mfm-ease), transform var(--mfm-dur) var(--mfm-ease);
+  transition: color var(--mktfm-dur) var(--mktfm-ease), transform var(--mktfm-dur) var(--mktfm-ease);
 }
 
-.mfm-route-link:hover {
-  color: var(--mfm-accent);
+.mktfm-route-link:hover {
+  color: var(--mktfm-accent);
   transform: translateX(3px);
 }
 
 /* Both page kinds: weights stay at 500 or less, and long names break instead of widening the page. */
-.mfm-api main :is(h2, h3, strong),
-.mfm-ref main :is(h2, h3, strong) {
+.mktfm-api main :is(h2, h3, strong),
+.mktfm-ref main :is(h2, h3, strong) {
   font-weight: 500;
 }
 
-.mfm-api main div.sourceCode span,
-.mfm-ref main div.sourceCode span {
+.mktfm-api main div.sourceCode span,
+.mktfm-ref main div.sourceCode span {
   font-weight: 400;
 }
 
-.mfm-api main :is(h1, h2, h3),
-.mfm-ref main :is(h1, h2, h3) {
+.mktfm-api main :is(h1, h2, h3),
+.mktfm-ref main :is(h1, h2, h3) {
   overflow-wrap: anywhere;
 }
 
 /* Python reference ----------------------------------------------------------------------- */
-.mfm-ref main h1 {
+.mktfm-ref main h1 {
   margin-bottom: 1.5rem;
 }
 
-.mfm-ref main h2,
-.mfm-ref main h3 {
+.mktfm-ref main h2,
+.mktfm-ref main h3 {
   margin-top: 2.5rem;
 }
 
 /* The index and the "Methods" table read as a list: a name, then its description. */
-.mfm-ref table {
+.mktfm-ref table {
   display: block;
   margin: 0 0 1.5rem;
   border: 0;
 }
 
-.mfm-ref table thead {
+.mktfm-ref table thead {
   display: none;
 }
 
-.mfm-ref table tbody {
+.mktfm-ref table tbody {
   display: block;
 }
 
-.mfm-ref table tr {
+.mktfm-ref table tr {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.15rem;
@@ -343,90 +343,90 @@
   background: none;
 }
 
-.mfm-ref table td {
+.mktfm-ref table td {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
   overflow-wrap: anywhere;
 }
 
-.mfm-ref table td:first-child a {
-  font-family: var(--mfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
+.mktfm-ref table td:first-child a {
+  font-family: var(--mktfm-font-mono); /* taste-skill-ignore: literal code (HTTP method, path, status code or identifier) */
   font-size: 0.9rem;
   font-weight: 500;
   text-decoration: none;
   overflow-wrap: anywhere;
 }
 
-.mfm-ref table td:first-child a:hover {
+.mktfm-ref table td:first-child a:hover {
   text-decoration: underline;
 }
 
 @media (min-width: 768px) {
-  .mfm-ref table tr {
+  .mktfm-ref table tr {
     grid-template-columns: minmax(11rem, 17rem) minmax(0, 1fr);
     column-gap: 2rem;
   }
 }
 
 /* Signatures in mono; long ones wrap instead of running off the page. */
-.mfm-ref div.sourceCode pre,
-.mfm-ref div.sourceCode code {
-  font-family: var(--mfm-font-mono);
+.mktfm-ref div.sourceCode pre,
+.mktfm-ref div.sourceCode code {
+  font-family: var(--mktfm-font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.mfm-ref div.sourceCode pre {
+.mktfm-ref div.sourceCode pre {
   max-width: 100%;
 }
 
 /* Long object names in the sidebar break instead of running under the page. */
-.mfm-ref #quarto-sidebar .menu-text {
+.mktfm-ref #quarto-sidebar .menu-text {
   overflow-wrap: anywhere;
 }
 
 /* The previous and next links carry long names (inference.warm_up_observations); let them wrap. */
-.mfm-ref .page-navigation {
+.mktfm-ref .page-navigation {
   gap: 1rem;
 }
 
-.mfm-ref .nav-page {
+.mktfm-ref .nav-page {
   min-width: 0;
 }
 
-.mfm-ref .nav-page-text {
+.mktfm-ref .nav-page-text {
   overflow-wrap: anywhere;
 }
 
-.mfm-ref dl {
+.mktfm-ref dl {
   margin: 0 0 1rem;
 }
 
-.mfm-ref dt {
+.mktfm-ref dt {
   font-weight: 400;
-  color: var(--mfm-ink);
+  color: var(--mktfm-ink);
 }
 
-.mfm-ref dt code {
+.mktfm-ref dt code {
   background: none;
   padding: 0;
   font-weight: 500;
-  color: var(--mfm-heading);
+  color: var(--mktfm-heading);
 }
 
-.mfm-ref dd {
+.mktfm-ref dd {
   margin: 0.15rem 0 1rem;
-  color: var(--mfm-ink-2);
+  color: var(--mktfm-ink-2);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mfm-route-link {
+  .mktfm-route-link {
     transition: none;
   }
 
-  .mfm-route-link:hover {
+  .mktfm-route-link:hover {
     transform: none;
   }
 }

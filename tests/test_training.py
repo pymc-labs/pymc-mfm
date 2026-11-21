@@ -8,10 +8,10 @@ import pytest
 import torch
 from conftest import make_synthetic_corpus
 
-from pymc_mfm.inference import from_pretrained
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import (
+from pymc_mktfm.inference import from_pretrained
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import (
     TrackingConfig,
     TrainingConfig,
     TrainingError,
@@ -20,9 +20,9 @@ from pymc_mfm.training import (
     selection_metrics,
     train,
 )
-from pymc_mfm.training import trainer as trainer_module
-from pymc_mfm.training.stream import CorpusStream
-from pymc_mfm.training.trainer import LOSS_TERMS, _select_checkpoint
+from pymc_mktfm.training import trainer as trainer_module
+from pymc_mktfm.training.stream import CorpusStream
+from pymc_mktfm.training.trainer import LOSS_TERMS, _select_checkpoint
 
 HEADS = ("conditional", "joint")
 
@@ -442,7 +442,7 @@ def test_reduced_run_records_everything_and_reloads(tmp_path):
         for a, b in zip(milestone.state_dict().values(), reloaded.state_dict().values())
     )
 
-    from pymc_mfm.training.stream import batches_for_rows
+    from pymc_mktfm.training.stream import batches_for_rows
 
     holdout = [(0, int(row)) for row in corpus["is_val"].nonzero()[0][:2]]
     batch, _ = batches_for_rows([corpus], holdout, device="cpu")[0]
@@ -902,7 +902,7 @@ def test_run_directory_and_geometry_are_guarded(tmp_path):
 
 def _pretend_torch(monkeypatch, label):
     """Make loading, export and training see torch ``label`` installed."""
-    import pymc_mfm.inference.checkpoint as checkpoint
+    import pymc_mktfm.inference.checkpoint as checkpoint
 
     installed = checkpoint.version
     monkeypatch.setattr(
@@ -992,7 +992,7 @@ def test_checkpoint_loader_rejects_foreign_payloads(tmp_path):
 def test_cli_trains_from_saved_corpora_with_recorded_provenance(tmp_path, capsys):
     from pymc_generator import save_corpus
 
-    from pymc_mfm.training.__main__ import main
+    from pymc_mktfm.training.__main__ import main
 
     corpus = make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=9)
     path = tmp_path / "corpus.npz"

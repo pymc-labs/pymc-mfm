@@ -7,9 +7,9 @@ import json
 import numpy as np
 import pytest
 
-from pymc_mfm.diagnostics import TrainingRun, build_report, render_report
-from pymc_mfm.diagnostics.comparisons import _estimate
-from pymc_mfm.diagnostics.coverage import coverage_intervals, evaluation_coverage_intervals
+from pymc_mktfm.diagnostics import TrainingRun, build_report, render_report
+from pymc_mktfm.diagnostics.comparisons import _estimate
+from pymc_mktfm.diagnostics.coverage import coverage_intervals, evaluation_coverage_intervals
 
 POINTWISE = "conditional/query/timeavg_contribution_cov80_live"
 SIMULTANEOUS = "conditional/query/timeavg_contribution_simcov80_live"

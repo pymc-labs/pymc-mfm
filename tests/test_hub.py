@@ -16,24 +16,24 @@ import pytest
 import torch
 from packaging.version import Version
 
-from pymc_mfm.inference._artifact_schema import recorded_outputs_bytes
-from pymc_mfm.inference.checkpoint import save_pretrained
-from pymc_mfm.inference.hub import (
+from pymc_mktfm.inference._artifact_schema import recorded_outputs_bytes
+from pymc_mktfm.inference.checkpoint import save_pretrained
+from pymc_mktfm.inference.hub import (
     HubArtifactError,
     from_pretrained,
     list_profiles,
     push_to_hub,
     write_model_cards,
 )
-from pymc_mfm.model.flow import DECOMPOSITION_FIXED_TARGETS
-from pymc_mfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.model.flow import DECOMPOSITION_FIXED_TARGETS
+from pymc_mktfm.model.graph import EdgeSlotLayout
 
 hf = pytest.importorskip("huggingface_hub")
 hf_errors = pytest.importorskip("huggingface_hub.errors")
 
 COMMIT_A = "a" * 40
 COMMIT_B = "b" * 40
-REPO = "test-owner/mfm-artifacts"
+REPO = "test-owner/mktfm-artifacts"
 
 
 def _assert_same_draws(original, restored, batch):
@@ -94,7 +94,7 @@ def _sidecar(state_sha256, *, n_controls=2, n_demand=2):
         "cases": cases,
         "producer": {
             "python": "3.13.9",
-            "pymc-mfm": "0.0.1.dev0",
+            "pymc-mktfm": "0.0.1.dev0",
             "pymc-generator": "0.0.2",
             "torch": "2.8.0+cpu",
             "numpy": "2.4.6",
@@ -114,7 +114,7 @@ def _state_sha256(model):
 
 
 def test_local_and_cli_profile_layout_do_not_require_hub(model, batch, tmp_path, monkeypatch):
-    import pymc_mfm.inference.hub as transport
+    import pymc_mktfm.inference.hub as transport
 
     save_pretrained(model, tmp_path / "profiles" / "A", profile="A")
     save_pretrained(model, tmp_path / "profiles" / "B", profile="B")
@@ -153,7 +153,7 @@ def test_mutable_revision_is_resolved_once_and_only_selected_files_arrive(
         commit = COMMIT_A if requested == "release" and len(calls) == 1 else requested
         if requested == "release" and len(calls) > 1:
             commit = COMMIT_B
-        destination = cache / "models--test-owner--mfm-artifacts" / "snapshots" / commit
+        destination = cache / "models--test-owner--mktfm-artifacts" / "snapshots" / commit
         destination.mkdir(parents=True, exist_ok=True)
         for file in source.rglob("*"):
             if file.is_file() and any(
@@ -172,7 +172,7 @@ def test_mutable_revision_is_resolved_once_and_only_selected_files_arrive(
     assert all(call["token"] == token and call["cache_dir"] == cache for call in calls)
     assert loaded.provenance["hub_revision"] == COMMIT_A
     assert token not in json.dumps(loaded.artifact_metadata)
-    snapshot = cache / "models--test-owner--mfm-artifacts" / "snapshots" / COMMIT_A
+    snapshot = cache / "models--test-owner--mktfm-artifacts" / "snapshots" / COMMIT_A
     assert {
         file.relative_to(snapshot).as_posix() for file in snapshot.rglob("*") if file.is_file()
     } == {
@@ -188,7 +188,7 @@ def test_mutable_revision_is_resolved_once_and_only_selected_files_arrive(
 @pytest.mark.parametrize("profile", [None, "B"])
 def test_real_sdk_offline_cache_and_cli_snapshot_are_identical(model, batch, tmp_path, profile):
     cache = tmp_path / "cache"
-    repo = cache / "models--test-owner--mfm-artifacts"
+    repo = cache / "models--test-owner--mktfm-artifacts"
     snapshot = repo / "snapshots" / COMMIT_A
     bundle = snapshot if profile is None else snapshot / "profiles" / profile
     save_pretrained(model, bundle, profile=profile)
@@ -216,7 +216,7 @@ def test_real_sdk_offline_cache_and_cli_snapshot_are_identical(model, batch, tmp
 def test_offline_partial_cache_never_loads_random_missing_weights(model, tmp_path):
     cache = tmp_path / "cache"
     snapshot = save_pretrained(
-        model, cache / "models--test-owner--mfm-artifacts" / "snapshots" / COMMIT_A
+        model, cache / "models--test-owner--mktfm-artifacts" / "snapshots" / COMMIT_A
     )
     (snapshot / "model.safetensors").unlink()
     with pytest.raises(FileNotFoundError):
@@ -276,7 +276,7 @@ def test_auth_revision_and_transport_errors_do_not_leak_credentials(
             hf_errors.RepositoryNotFoundError,
             hf_errors.RevisionNotFoundError,
         ):
-            url = "https://huggingface.co/api/models/test-owner/mfm-artifacts"
+            url = "https://huggingface.co/api/models/test-owner/mktfm-artifacts"
             status = 403 if error_type is hf_errors.GatedRepoError else 404
             if Version(hf.__version__).major >= 1:
                 import httpx
@@ -302,7 +302,7 @@ def test_auth_revision_and_transport_errors_do_not_leak_credentials(
 def test_publication_is_explicit_license_gated_and_preserves_complete_state(
     model, batch, tmp_path, monkeypatch
 ):
-    import pymc_mfm.inference.hub as transport
+    import pymc_mktfm.inference.hub as transport
 
     def no_transport():
         pytest.fail("unapproved publication arguments must fail before any Hub operation")
@@ -396,7 +396,7 @@ def test_publication_is_explicit_license_gated_and_preserves_complete_state(
     for path in ("README.md", "profiles/A/README.md"):
         card = hf.ModelCard((published / path).read_text())
         assert card.data.license == "apache-2.0"
-        assert card.data.library_name == "pymc-mfm"
+        assert card.data.library_name == "pymc-mktfm"
         assert not getattr(card.data, "pipeline_tag", None)
     root = _card_facts(hf.ModelCard((published / "README.md").read_text()).text)
     assert "profiles/A/README.md" in root["A"][0]
@@ -690,8 +690,8 @@ def _evaluation(*worlds):
 
 
 def test_local_cards_describe_each_profile_and_index_the_collection(model, tmp_path, monkeypatch):
-    import pymc_mfm.inference.hub as transport
-    from pymc_mfm.data.recipes import SHARD_PLANS, recipe_for
+    import pymc_mktfm.inference.hub as transport
+    from pymc_mktfm.data.recipes import SHARD_PLANS, recipe_for
 
     def unavailable():
         pytest.fail("rendering local cards must not require Hub transport")
@@ -751,9 +751,9 @@ def test_local_cards_describe_each_profile_and_index_the_collection(model, tmp_p
         }
         assert {key: json.loads(facts[key][0]) for key in expected} == expected
         # The regeneration command is a complete CLI call for the plan's shards.
-        [command] = re.findall(r"`(python -m pymc_mfm\.data [^`]*)`", text)
+        [command] = re.findall(r"`(python -m pymc_mktfm\.data [^`]*)`", text)
         tokens = shlex.split(command)
-        assert tokens[:4] == ["python", "-m", "pymc_mfm.data", "generate"]
+        assert tokens[:4] == ["python", "-m", "pymc_mktfm.data", "generate"]
         options = dict(zip(tokens[4::2], tokens[5::2], strict=True))
         assert options.keys() == {"--profile", "--shard", "--out"}
         assert options["--profile"] == name
@@ -826,7 +826,7 @@ def test_cards_never_name_a_plan_that_the_recorded_worlds_contradict(
 
 
 def test_cards_accept_the_last_row_of_the_last_shard(model, tmp_path):
-    from pymc_mfm.data.recipes import SHARD_PLANS
+    from pymc_mktfm.data.recipes import SHARD_PLANS
 
     plan = SHARD_PLANS["B"]
     first = {"shard_seed": plan.seed(0), "row": 0}

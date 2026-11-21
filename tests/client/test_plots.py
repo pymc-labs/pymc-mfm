@@ -7,7 +7,7 @@ matplotlib.use("Agg")
 
 from matplotlib.figure import Figure  # noqa: E402
 
-from pymc_mfm.client.plots import curve_points  # noqa: E402
+from pymc_mktfm.client.plots import curve_points  # noqa: E402
 
 
 @pytest.fixture
@@ -72,7 +72,7 @@ def test_plots_without_matplotlib_name_the_extra(done, monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
-    with pytest.raises(ImportError, match=r"pymc-mfm\[plot\]"):
+    with pytest.raises(ImportError, match=r"pymc-mktfm\[plot\]"):
         done.plot_curves()
 
 

@@ -13,9 +13,9 @@ import numpy as np
 import pytest
 import torch
 
-import pymc_mfm.model.compiled as compiled_module
-from pymc_mfm.inference import decompose, warm_up_observations, warm_up_sampling
-from pymc_mfm.model import SamplingStatus
+import pymc_mktfm.model.compiled as compiled_module
+from pymc_mktfm.inference import decompose, warm_up_observations, warm_up_sampling
+from pymc_mktfm.model import SamplingStatus
 
 ROUND_OFF = {"rtol": 1e-5, "atol": 1e-6}
 

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pymc_mfm.diagnostics import graph_support_diagnostics
+from pymc_mktfm.diagnostics import graph_support_diagnostics
 
 
 def test_unsigned_graph_arrays_score_count_error_without_wraparound():

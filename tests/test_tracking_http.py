@@ -20,9 +20,9 @@ import pytest
 import torch
 from test_tracking import events, tiny_run
 
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import MlflowTrainingObserver, TrackingConfig, TrainingObserver
-from pymc_mfm.training.checkpoint import file_sha256
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import MlflowTrainingObserver, TrackingConfig, TrainingObserver
+from pymc_mktfm.training.checkpoint import file_sha256
 
 mlflow_environment = pytest.importorskip("mlflow.environment_variables")
 
@@ -229,7 +229,11 @@ class _Handler(BaseHTTPRequestHandler):
                 fields = json.loads(request)
                 server.runs[fields["run_id"]]["status"] = fields["status"]
             if path.endswith("/experiments/get-by-name"):
-                experiment = {"experiment_id": "1", "name": "pymc-mfm", "lifecycle_stage": "active"}
+                experiment = {
+                    "experiment_id": "1",
+                    "name": "pymc-mktfm",
+                    "lifecycle_stage": "active",
+                }
                 payload = {"experiment": experiment}
             elif path.endswith(("/runs/create", "/runs/get")):
                 payload = {"run": server.run(server.run_id)}

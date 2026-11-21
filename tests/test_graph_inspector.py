@@ -13,10 +13,10 @@ from xml.etree import ElementTree
 import numpy as np
 import pytest
 
-from pymc_mfm.inference.result import DecompositionResult, result_from_batch
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.graph import EdgeSlotLayout
-from pymc_mfm.plotting import graph_to_dot, plot_dag, plot_graph_inspector
+from pymc_mktfm.inference.result import DecompositionResult, result_from_batch
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.graph import EdgeSlotLayout
+from pymc_mktfm.plotting import graph_to_dot, plot_dag, plot_graph_inspector
 
 pytestmark = pytest.mark.skipif(
     shutil.which("dot") is None, reason="Native Graphviz is not installed"

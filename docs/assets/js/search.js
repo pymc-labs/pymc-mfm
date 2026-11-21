@@ -108,21 +108,21 @@
   function decorateItem(item) {
     const link = item.querySelector("a.search-result-link");
     if (!link || !pages) {
-      item.querySelectorAll(".mfm-search-path, .mfm-search-snippet").forEach((el) => el.remove());
+      item.querySelectorAll(".mktfm-search-path, .mktfm-search-snippet").forEach((el) => el.remove());
       return;
     }
     const key = pageKey(link.getAttribute("href"));
     const page = pages.get(key.split("#")[0].split("?")[0]);
     const host = item.querySelector(".search-result-container") || link;
 
-    item.querySelectorAll(".mfm-search-path").forEach((el) => el.parentElement !== host && el.remove());
+    item.querySelectorAll(".mktfm-search-path").forEach((el) => el.parentElement !== host && el.remove());
     const label = `${sectionLabel(key)}, ${page ? page.title : ""}`.replace(/, $/, "");
-    const path = upsert(host, "mfm-search-path", () => document.createElement("p"));
+    const path = upsert(host, "mktfm-search-path", () => document.createElement("p"));
     if (path.textContent !== label) path.textContent = label;
 
     const isDocRow = Boolean(item.querySelector(".search-result-container"));
     const sentence = isDocRow && page && /^(api|reference)\//.test(key) ? firstSentence(page) : "";
-    const existing = item.querySelector(".mfm-search-snippet");
+    const existing = item.querySelector(".mktfm-search-snippet");
     if (!sentence) {
       if (existing) existing.remove();
       return;
@@ -130,7 +130,7 @@
     const original = item.querySelector(".search-result-text");
     if (!original) return;
     const snippet = existing || document.createElement("p");
-    snippet.className = "mfm-search-snippet";
+    snippet.className = "mktfm-search-snippet";
     const stamp = `${sentence}|${queryWords().join(" ")}`;
     if (snippet.dataset.text !== stamp) {
       snippet.dataset.text = stamp;
@@ -140,7 +140,7 @@
   }
 
   function decorateEmpty() {
-    const stale = document.querySelector(".mfm-search-empty");
+    const stale = document.querySelector(".mktfm-search-empty");
     const none = document.querySelector(".aa-SourceNoResults");
     // An empty field shows Quarto's hidden "no-query" line; nothing to replace then.
     if (!none || none.querySelector(".no-query")) {
@@ -148,7 +148,7 @@
       return;
     }
     const block = stale || document.createElement("div");
-    block.className = "mfm-search-empty";
+    block.className = "mktfm-search-empty";
     const message = `No results for “${queryWords().join(" ")}”.`;
     if (block.dataset.message !== message) {
       block.dataset.message = message;

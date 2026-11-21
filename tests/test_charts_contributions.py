@@ -6,10 +6,10 @@ import pytest
 import torch
 from conftest import CHART_ROLES
 
-from pymc_mfm.plotting.charts import _backend, contributions
-from pymc_mfm.plotting.charts._data import IdataReader, Window, summarize
-from pymc_mfm.plotting.charts._style import COLORS
-from pymc_mfm.plotting.charts.contributions import contributions_over_time
+from pymc_mktfm.plotting.charts import _backend, contributions
+from pymc_mktfm.plotting.charts._data import IdataReader, Window, summarize
+from pymc_mktfm.plotting.charts._style import COLORS
+from pymc_mktfm.plotting.charts.contributions import contributions_over_time
 
 pytest.importorskip("matplotlib")
 

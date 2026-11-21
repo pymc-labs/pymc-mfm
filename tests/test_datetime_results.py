@@ -12,16 +12,16 @@ from test_comparisons import omission_pair, record, reference
 from test_diagnostics import make_result
 from test_inference import observed
 
-from pymc_mfm.diagnostics import build_report, compute_diagnostics, render_report
-from pymc_mfm.diagnostics.comparisons import (
+from pymc_mktfm.diagnostics import build_report, compute_diagnostics, render_report
+from pymc_mktfm.diagnostics.comparisons import (
     comparison_summary,
     matched_omission,
     reference_diagnostics,
     score_record,
 )
-from pymc_mfm.diagnostics.core import json_safe
-from pymc_mfm.inference.api import decompose
-from pymc_mfm.inference.result import DecompositionResult
+from pymc_mktfm.diagnostics.core import json_safe
+from pymc_mktfm.inference.api import decompose
+from pymc_mktfm.inference.result import DecompositionResult
 
 ISO_DATES = [
     "2024-01-01T12:00:00.123456789",
@@ -176,7 +176,7 @@ def test_date_time_series_render_on_a_date_axis_instead_of_string_categories(pan
     pytest.importorskip("matplotlib")
     from matplotlib.dates import AutoDateLocator, date2num
 
-    from pymc_mfm.plotting.panels import plot_panel
+    from pymc_mktfm.plotting.panels import plot_panel
 
     result = replace(make_result(), time=DATES)
     truth = result.components.mean(axis=0)
@@ -231,7 +231,7 @@ def test_date_boundaries_follow_the_window_and_use_one_day_for_a_single_point(wi
 
 def test_date_report_persists_iso_evidence_and_rerenders_without_rescoring(tmp_path, monkeypatch):
     pytest.importorskip("matplotlib")
-    from pymc_mfm.diagnostics import report as reporting
+    from pymc_mktfm.diagnostics import report as reporting
 
     result = replace(make_result(), time=DATES)
     truth = result.components.mean(axis=0)
@@ -280,7 +280,7 @@ def test_comparison_and_reference_json_dates_render_on_native_date_axes():
     pytest.importorskip("matplotlib")
     from matplotlib.dates import AutoDateLocator, date2num
 
-    from pymc_mfm.plotting.comparisons import plot_reference_comparison, plot_world_comparison
+    from pymc_mktfm.plotting.comparisons import plot_reference_comparison, plot_world_comparison
 
     original = record()
     item = replace(original, result=replace(original.result, time=DATES[:2]))

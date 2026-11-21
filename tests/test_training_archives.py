@@ -16,11 +16,11 @@ from conftest import make_synthetic_corpus
 from test_archive import assert_same_result
 from test_training import TINY, reduced
 
-import pymc_mfm.diagnostics
-from pymc_mfm.diagnostics import EvaluationArchive
-from pymc_mfm.inference import from_pretrained
-from pymc_mfm.inference import result as result_module
-from pymc_mfm.training import (
+import pymc_mktfm.diagnostics
+from pymc_mktfm.diagnostics import EvaluationArchive
+from pymc_mktfm.inference import from_pretrained
+from pymc_mktfm.inference import result as result_module
+from pymc_mktfm.training import (
     TrackingConfig,
     TrainingObserver,
     archive_identity,
@@ -28,9 +28,9 @@ from pymc_mfm.training import (
     load_checkpoint,
     train,
 )
-from pymc_mfm.training import trainer as trainer_module
-from pymc_mfm.training.archive import _model_identity
-from pymc_mfm.training.checkpoint import file_sha256
+from pymc_mktfm.training import trainer as trainer_module
+from pymc_mktfm.training.archive import _model_identity
+from pymc_mktfm.training.checkpoint import file_sha256
 
 #: Evaluates at steps 2 and 4 and promotes at both.
 TRAINING = reduced(steps=4, eval_every=2, prefetch_batches=0)
@@ -330,7 +330,7 @@ def test_archives_chain_with_diagnostics_without_changing_their_reports(tmp_path
         delivered.append((key, digests(result.components, truth, graph_truth, observed)))
         return manifest
 
-    monkeypatch.setattr(pymc_mfm.diagnostics, "build_report", build_report)
+    monkeypatch.setattr(pymc_mktfm.diagnostics, "build_report", build_report)
     runs = {}
     for name, kwargs in (("plain", {}), ("archived", {"holdout_archives": ("terminal",)})):
         delivered.clear()

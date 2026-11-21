@@ -12,15 +12,15 @@ from conftest import make_synthetic_corpus
 from test_archive import TINY, assert_same_result, canonical
 from test_archive_identity import _bound
 
-from pymc_mfm.diagnostics import EvaluationArchive
-from pymc_mfm.inference import from_pretrained, save_pretrained
-from pymc_mfm.inference import result as result_module
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training import archive as training_archive
-from pymc_mfm.training import archive_identity, evaluate_into_archive, evaluate_rows
-from pymc_mfm.training.archive import _corpus_records, _world_records
-from pymc_mfm.training.evaluation import DECOMPOSITION_HEADS
+from pymc_mktfm.diagnostics import EvaluationArchive
+from pymc_mktfm.inference import from_pretrained, save_pretrained
+from pymc_mktfm.inference import result as result_module
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training import archive as training_archive
+from pymc_mktfm.training import archive_identity, evaluate_into_archive, evaluate_rows
+from pymc_mktfm.training.archive import _corpus_records, _world_records
+from pymc_mktfm.training.evaluation import DECOMPOSITION_HEADS
 
 #: Seven worlds of both corpora and both context lengths ((0, 8), (0, 9) and (0, 0) have
 #: context 6, the others 9); calls of three worlds are [0, 1, 2], [3, 4, 5] and a ragged [6].
@@ -362,8 +362,9 @@ def test_malformed_requests_are_refused_before_any_work(bundle, corpora, no_work
 def test_importing_training_loads_no_diagnostics_code():
     code = (
         "import sys\n"
-        "import pymc_mfm.training\n"
-        "loaded = sorted(name for name in sys.modules if name.startswith('pymc_mfm.diagnostics'))\n"
+        "import pymc_mktfm.training\n"
+        "loaded = sorted(name for name in sys.modules if "
+        "name.startswith('pymc_mktfm.diagnostics'))\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

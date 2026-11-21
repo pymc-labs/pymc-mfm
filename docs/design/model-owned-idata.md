@@ -1,6 +1,6 @@
 # Design: one-call inference and model-owned idata
 
-Status: implementation contract. The paired-inference workflow supersedes the earlier two-step API from [PR #115](https://github.com/pymc-labs/pymc-mfm/pull/115).
+Status: implementation contract. The paired-inference workflow supersedes the earlier two-step API from [PR #115](https://github.com/pymc-labs/pymc-mktfm/pull/115).
 
 ## Public API
 
@@ -31,11 +31,11 @@ The `query_result` reader is needed because existing diagnostics, graph inspecti
 
 Historical motivation from the PR #115 base (not the current API):
 
-- [`MFM.add_context`](../../src/pymc_mfm/model/model.py) validates/stores history; `MFM.inference` samples query only and retains `_PredictionSnapshot`.
+- [`MFM.add_context`](../../src/pymc_mktfm/model/model.py) validates/stores history; `MFM.inference` samples query only and retains `_PredictionSnapshot`.
 - `MFM.build_idata` samples missing context draws and converts the windows; only `store=True` populates idata.
-- [`ModelSource.window`](../../src/pymc_mfm/plotting/charts/_data.py) also triggers that context sampling on the first context chart.
-- [`prediction_datatree`](../../src/pymc_mfm/inference/_datatree.py) already separates the two posterior marginals, but omits input covariates and query observations.
-- [`observation_batch`](../../src/pymc_mfm/inference/api.py) requires a nonempty query. Context draws depend on the actual context-plus-query encoder input, including future covariates and relative time positions.
+- [`ModelSource.window`](../../src/pymc_mktfm/plotting/charts/_data.py) also triggers that context sampling on the first context chart.
+- [`prediction_datatree`](../../src/pymc_mktfm/inference/_datatree.py) already separates the two posterior marginals, but omits input covariates and query observations.
+- [`observation_batch`](../../src/pymc_mktfm/inference/api.py) requires a nonempty query. Context draws depend on the actual context-plus-query encoder input, including future covariates and relative time positions.
 
 Changing a future plan or its horizon can therefore change context draws even when history is unchanged. Accepting both inputs at the sampling boundary makes this dependency explicit. Never manufacture future rows, silently hold out history, or use dummy covariates to obtain context draws.
 

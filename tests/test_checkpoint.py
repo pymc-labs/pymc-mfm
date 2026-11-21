@@ -17,13 +17,13 @@ from packaging.requirements import Requirement
 from packaging.specifiers import SpecifierSet
 from safetensors.torch import load_file, save_file
 
-from pymc_mfm.inference._artifact_schema import COMPATIBILITY
-from pymc_mfm.inference.api import decompose
-from pymc_mfm.inference.checkpoint import save_pretrained
-from pymc_mfm.inference.hub import from_pretrained
-from pymc_mfm.model.config import ModelConfig
-from pymc_mfm.model.model import MFM
-from pymc_mfm.training.checkpoint import load_checkpoint, save_checkpoint
+from pymc_mktfm.inference._artifact_schema import COMPATIBILITY
+from pymc_mktfm.inference.api import decompose
+from pymc_mktfm.inference.checkpoint import save_pretrained
+from pymc_mktfm.inference.hub import from_pretrained
+from pymc_mktfm.model.config import ModelConfig
+from pymc_mktfm.model.model import MFM
+from pymc_mktfm.training.checkpoint import load_checkpoint, save_checkpoint
 
 
 def _json_bytes(value):
@@ -325,7 +325,7 @@ def test_incompatible_metadata_cannot_reinterpret_valid_weights(model, tmp_path,
 
 def _pretend_installed(monkeypatch, versions):
     """Make loading and export see ``versions`` as the installed package versions."""
-    import pymc_mfm.inference.checkpoint as checkpoint
+    import pymc_mktfm.inference.checkpoint as checkpoint
 
     monkeypatch.setattr(
         checkpoint, "version", lambda name: versions.get(name) or installed_version(name)
@@ -334,8 +334,8 @@ def _pretend_installed(monkeypatch, versions):
 
 #: Package versions the loader sees as installed, and the producer versions of a
 #: bundle an earlier release exported.
-INSTALLED = {"pymc-mfm": "0.0.2", "numpy": "2.4.6", "torch": "2.12.0", "safetensors": "0.8.0"}
-PRODUCER = {"pymc-mfm": "0.0.1.dev0", "numpy": "2.4.6", "torch": "2.12.0", "safetensors": "0.8.0"}
+INSTALLED = {"pymc-mktfm": "0.0.2", "numpy": "2.4.6", "torch": "2.12.0", "safetensors": "0.8.0"}
+PRODUCER = {"pymc-mktfm": "0.0.1.dev0", "numpy": "2.4.6", "torch": "2.12.0", "safetensors": "0.8.0"}
 
 
 def _rerecord(path, compatibility):
@@ -348,11 +348,11 @@ def _rerecord(path, compatibility):
 
 
 def test_recorded_upper_bounds_never_make_a_bundle_unloadable(model, tmp_path, monkeypatch):
-    import pymc_mfm.inference.checkpoint as checkpoint
+    import pymc_mktfm.inference.checkpoint as checkpoint
 
     path = save_pretrained(model, tmp_path / "model")
     # An upper bound the producing release recorded, which the installed version exceeds.
-    _rerecord(path, {"pymc-mfm": ">=0.0.1.dev0,<0.0.2"})
+    _rerecord(path, {"pymc-mktfm": ">=0.0.1.dev0,<0.0.2"})
     _pretend_installed(monkeypatch, INSTALLED)
     from_pretrained(path)
     # The installed release's own ranges still bound the environment...
@@ -399,7 +399,7 @@ INVALID_COMPATIBILITY = {
     "build_label_on_numpy": lambda metadata: metadata["producer"].update(numpy="2.4.6+cpu"),
     # The installed 0.0.2 meets the recorded minimum; the producer does not.
     "producer_below_its_range": lambda metadata: metadata["compatibility"].update(
-        {"pymc-mfm": ">=0.0.2"}
+        {"pymc-mktfm": ">=0.0.2"}
     ),
     # Upper bounds are not enforced on the installed version, but bind the producer.
     "producer_above_its_range": lambda metadata: metadata["compatibility"].update(
@@ -446,7 +446,7 @@ def test_versions_no_export_may_record_still_load_bundles(model, tmp_path, monke
 
 
 def test_the_python_version_comes_from_the_interpreter(model, tmp_path, monkeypatch):
-    import pymc_mfm.inference._artifact_schema as schema
+    import pymc_mktfm.inference._artifact_schema as schema
 
     # A CPython built from an untagged commit reports "3.13.9+", no PEP 440 version.
     monkeypatch.setattr(platform, "python_version", lambda: "3.13.9+")
@@ -700,7 +700,7 @@ def test_loading_does_not_advance_the_sampling_rng(model, tmp_path):
 
 
 def test_failed_serialization_never_exposes_partial_bundle(model, tmp_path, monkeypatch):
-    import pymc_mfm.inference.checkpoint as checkpoint
+    import pymc_mktfm.inference.checkpoint as checkpoint
 
     def fail_save(tensors, filename, **kwargs):
         from pathlib import Path

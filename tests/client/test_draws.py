@@ -4,7 +4,7 @@ import httpx
 import numpy as np
 import pytest
 
-from pymc_mfm.client import Forbidden
+from pymc_mktfm.client import Forbidden
 
 from .client_fixtures import FakeService, result_record, result_rows, status_record
 
@@ -150,5 +150,5 @@ def test_draws_never_start_a_run(analysis, service):
 
 def test_draws_without_xarray_name_the_extra(analysis, monkeypatch):
     monkeypatch.setitem(sys.modules, "xarray", None)
-    with pytest.raises(ImportError, match=r"pymc-mfm\[draws\]"):
+    with pytest.raises(ImportError, match=r"pymc-mktfm\[draws\]"):
         analysis.get("an_1").draws()
