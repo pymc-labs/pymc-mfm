@@ -86,7 +86,21 @@ records the seed; the result of `predict` or `decompose` does not. Without `rand
 a call draws from PyTorch's global generator and advances it, so each call gives new draws.
 `predict` and `response_curves` take the same keyword.
 
-`idata` is the complete stored `xarray.DataTree`, with separate context and query marginals. It has one group per window. Pass one window to ArviZ calls, for example `idata["query"]`; the root has no `posterior`. The `chain` dimension has length 1 as a storage convention. No MCMC runs, so r_hat and ESS (effective sample size) do not apply. `save_idata` and `load_idata` read and write pymc-mfm trees, not arbitrary ArviZ files. `query` is the exact query [DecompositionResult](../reference/inference.DecompositionResult.qmd); its components, diagnostics and graph helpers reuse those draws. `return_idata=False` returns `None` instead but still stores the complete tree. For another query-only calculation, `model.predict(future, n_samples=200)` returns an independent result without replacing the stored tree, query result, charts or response curves. Model charts never sample. The synthetic data exercises the API and is not an attribution-calibration example.
+`idata` is the complete stored `xarray.DataTree`, with separate context and query marginals. It has one group per window, and the root has no `posterior`. The `chain` dimension has length 1 as a storage convention. No MCMC runs, so r_hat and ESS (effective sample size) do not apply.
+
+With the `arviz` extra installed, summarize one window with the statistics only:
+
+```python
+import arviz_stats
+
+arviz_stats.summary(idata["query"], kind="stats")  # mean, sd and an 89% interval
+```
+
+The default `kind` adds MCMC diagnostics such as r_hat, which are undefined for one chain. A window has no `posterior_predictive` group, so posterior predictive checks do not run on it. A window is not a drop-in PyMC-Marketing MMM artifact.
+
+Writing a tree to a file is separate and needs the `draws` extra. `save_idata` and `load_idata` read and write pymc-mfm trees, not arbitrary ArviZ files.
+
+`query` is the exact query [DecompositionResult](../reference/inference.DecompositionResult.qmd); its components, diagnostics and graph helpers reuse those draws. `return_idata=False` returns `None` instead but still stores the complete tree. For another query-only calculation, `model.predict(future, n_samples=200)` returns an independent result without replacing the stored tree, query result, charts or response curves. Model charts never sample. The synthetic data exercises the API and is not an attribution-calibration example.
 
 ## Where next
 
