@@ -63,6 +63,71 @@ def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
     )
 
 
+def refused_url_message(scheme: str, host: str) -> str:
+    return (
+        "The service URL must start with https:// and name a host, so the API key is never "
+        f"sent in clear text; got scheme {scheme!r} and host {host!r}. Use the https:// "
+        "URL exactly as the Connect page of the River API console shows it."
+    )
+
+
+def test_a_plain_http_service_url_is_refused_before_any_request(service):
+    with pytest.raises(ValueError) as caught:
+        Client("http://api.example.com", "test-key", transport=httpx.MockTransport(service))
+    assert str(caught.value) == (
+        "The service URL must start with https:// and name a host, so the API key is never "
+        "sent in clear text; got scheme 'http' and host 'api.example.com'. Use the https:// "
+        "URL exactly as the Connect page of the River API console shows it."
+    )
+    assert service.requests == []
+
+
+@pytest.mark.parametrize(
+    ("url", "scheme", "host"),
+    [
+        ("HTTP://API.example.com/v1", "http", "api.example.com"),
+        ("http://192.0.2.10:8000", "http", "192.0.2.10"),
+        ("http://localhost.example.com", "http", "localhost.example.com"),
+        ("http://user:secret@api.example.com", "http", "api.example.com"),
+        ("ftp://api.example.com", "ftp", "api.example.com"),
+        ("api.example.com", "", ""),
+        ("https:///v1", "https", ""),
+    ],
+)
+def test_a_service_url_that_is_not_https_or_has_no_host_is_refused(service, url, scheme, host):
+    with pytest.raises(ValueError) as caught:
+        Client(url, "test-key", transport=httpx.MockTransport(service))
+    assert str(caught.value) == refused_url_message(scheme, host)
+    assert service.requests == []
+
+
+def test_a_plain_http_url_in_the_environment_is_refused(monkeypatch, service):
+    monkeypatch.setenv("MFM_API_URL", "http://api.example.com")
+    monkeypatch.setenv("MFM_API_KEY", "env-key")
+    with pytest.raises(ValueError) as caught:
+        Client(transport=httpx.MockTransport(service))
+    assert str(caught.value) == refused_url_message("http", "api.example.com")
+    assert service.requests == []
+
+
+@pytest.mark.parametrize(
+    ("url", "sent_to"),
+    [
+        (BASE_URL, f"{BASE_URL}/v1/datasets/ds_123"),
+        ("HTTPS://api.example.com", f"{BASE_URL}/v1/datasets/ds_123"),
+        ("http://127.0.0.1:8000", "http://127.0.0.1:8000/v1/datasets/ds_123"),
+        ("http://localhost", "http://localhost/v1/datasets/ds_123"),
+        ("http://[::1]:8000/", "http://[::1]:8000/v1/datasets/ds_123"),
+    ],
+)
+def test_https_and_loopback_http_service_urls_are_accepted(service, url, sent_to):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
+    with Client(url, "test-key", transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    assert [str(r.url) for r in service.requests] == [sent_to]
+    assert service.requests[0].headers["Authorization"] == "Bearer test-key"
+
+
 @pytest.mark.parametrize(
     ("message", "shown"),
     [
