@@ -317,18 +317,17 @@ def test_wait_polls_a_failed_analysis_until_every_run_ends(client, service):
         (200, status_record("failed", runs_done=1, runs_failed=1, runs_cancelled=1)),
     )
     analysis = client.get("an_1")
-    analysis.wait(poll=0)
+    assert analysis.wait(poll=0, announce=False) is analysis
+    # One read by get, then one per poll until the third record: no early return.
+    assert len(service.sent("GET", "/v1/analyses/an_1")) == 3
     assert analysis.status().runs_cancelled == 1
 
 
 @pytest.mark.parametrize(
     ("record", "state"),
     [
-        (status_record("running"), "still 'running' after waiting, with 1 of 3 runs ended"),
-        (
-            status_record("failed", runs_done=0, runs_failed=1),
-            "still 'failed' after waiting, with 1 of 3 runs ended",
-        ),
+        (status_record("running"), "'running'"),
+        (status_record("failed", runs_done=0, runs_failed=1), "'failed'"),
     ],
 )
 def test_wait_times_out_and_says_how_to_resume(client, service, record, state):
@@ -336,9 +335,10 @@ def test_wait_times_out_and_says_how_to_resume(client, service, record, state):
     analysis = client.get("an_1")
     with pytest.raises(TimeoutError) as caught:
         analysis.wait(timeout=0, poll=0.01)
-    assert state in str(caught.value)
-    assert "client.get('an_1').wait()" in str(caught.value)
-    assert "keeps running" in str(caught.value)
+    assert str(caught.value) == (
+        f"Analysis an_1 is still {state} after waiting, with 1 of 3 runs ended. It keeps "
+        "running. Do not start it again: resume with client.get('an_1').wait()"
+    )
 
 
 def test_wait_prints_the_id_before_it_blocks(client, service, capsys):
