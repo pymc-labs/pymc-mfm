@@ -599,8 +599,10 @@ def test_inference_rejects_invalid_role_schemas_before_rng_consumption(
         "no-channels": "channel_columns needs at least one column name",
         "no-controls": "control_columns needs at least one column name",
     }
-    with pytest.raises(ValueError, match=needs_one.get(request.node.callspec.id)):
+    with pytest.raises(ValueError) as caught:
         model.inference(history, future, **{**COLUMN_ROLES, **roles}, n_samples=2)
+    if request.node.callspec.id in needs_one:
+        assert str(caught.value) == needs_one[request.node.callspec.id]
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -625,10 +627,14 @@ def test_inference_rejects_invalid_context_table_shapes(model, history, future, 
 @pytest.mark.parametrize(
     ("column", "value", "message"),
     [
-        ("search", -1e-50, r"negative values in \['search'\]"),
-        ("sales", 0.0, "'sales' has zero or negative values"),
-        ("temperature", np.inf, r"\['temperature'\] must contain finite"),
-        ("tv", 1 + 2j, "'tv' must contain finite"),
+        ("search", -1e-50, "channel spend must be nonnegative; negative values in ['search']"),
+        ("sales", 0.0, "context outcomes must be positive; 'sales' has zero or negative values"),
+        (
+            "temperature",
+            np.inf,
+            "['temperature'] must contain finite real numeric values (no NaN or infinity)",
+        ),
+        ("tv", 1 + 2j, "'tv' must contain finite real numeric values"),
     ],
 )
 def test_inference_validates_raw_context_numeric_domains(
@@ -640,8 +646,9 @@ def test_inference_validates_raw_context_numeric_domains(
     values[0] = value
     history[column] = values
     before = torch.get_rng_state()
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError) as caught:
         model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    assert str(caught.value) == message
     assert torch.equal(torch.get_rng_state(), before)
 
 

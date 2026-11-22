@@ -153,8 +153,8 @@ css:
     <div class="mfm-cell__box">
       <span class="mfm-cell__bar" aria-hidden="true"></span>
 <pre class="mfm-cell__code"><code><span class="v">idata</span> <span class="o">=</span> <span class="v">model</span>.<span class="f">inference</span>(<span class="v">history</span>, <span class="v">future</span>, <span class="o">**</span><span class="v">roles</span>, <span class="p">n_samples</span><span class="o">=</span><span class="n">1_000</span>)
-<span class="c"># River conditions on the history plus the query weeks' spend and promo, not their sales.</span>
-<span class="c"># Weeks whose sales conditioned inference: idata["context"].</span>
+<span class="c"># River conditions on the history plus the query weeks' spend and promo,</span>
+<span class="c"># not their sales. Weeks whose sales it conditioned on: idata["context"].</span>
 <span class="c"># The query weeks' sales stay in idata["query/observed_data"] for comparison.</span>
 <span class="v">query</span> <span class="o">=</span> <span class="v">model</span>.<span class="v">query_result</span>  <span class="c"># exact query draws for diagnostics and graphs</span>
 <span class="v">query</span>.<span class="v">components</span>.<span class="v">shape</span>  <span class="c"># draws, weeks, components</span></code></pre>

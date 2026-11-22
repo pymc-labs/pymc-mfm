@@ -110,7 +110,8 @@ without modifying the dataframe. Queries must start at the next context period
 and follow its cadence without gaps. Calendar frequency is inferred when
 possible; two-row histories use their fixed interval.
 
-River 1 was trained on weekly data with 75 to 207 context weeks, 1 to 10 channels and 1 to 10 controls. The library does not warn outside this range.
+River-1 was trained on weekly data with 75 to 207 context weeks, 1 to 10 channels
+and 1 to 10 controls. The library does not warn outside this range.
 
 Each successful complete call atomically replaces the stored run and clears its
 response curves; failures preserve the previous complete run. Changing a future

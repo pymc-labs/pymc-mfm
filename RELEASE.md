@@ -61,6 +61,16 @@ distribution prerequisites, not an approved or published release.
   preserves reviewed numeric/chart outputs and every graph analysis/export;
   its headless acceptance uses a synthetic stand-in without downloading weights.
   No runtime context, result, curve or idata is captured in weight bundles.
+- **First-use errors and docs.** Inference errors say what to change: an empty role
+  list, the columns with negative spend or non-finite values, a target with zero or
+  negative outcomes, and for irregular context dates the observed intervals or the
+  calendar frequency they break, without extrapolated dates. `decompose` given a
+  DataFrame points to `model.inference`. `validate_idata` and `load_idata` say when a
+  tree has no `schema_version` (for example an ArviZ file), and the `FileExistsError` of
+  `save_idata` names the target, not its temporary file. The guide shows the ArviZ
+  summary that works on a window, `docs/migration.md` lists the removed `add_context`,
+  `build_idata` and `inference(query)` calls with `model.query_result` for the old
+  return value, and the README states River-1's training range.
 - **Compatibility break: `ModelPlots` is now a function.** `ModelPlots(model)` still works and
   warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
   `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
