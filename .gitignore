@@ -33,6 +33,7 @@ CLAUDE.local.md
 # Website build (docs/): rendered site, Quarto cache and pages generated at pre-render.
 # Quarto also writes docs/.gitignore, but the sdist build reads only this file.
 /docs/_site/
+/docs/_site-pilot/
 /docs/.quarto/
 /docs/guide/examples/
 /docs/reference/

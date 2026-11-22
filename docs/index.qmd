@@ -38,6 +38,10 @@ css:
 </section>
 
 <!-- 2. The library at work: a notebook in an editor --------------------------------- -->
+```
+
+::: {.content-hidden when-profile="pilot"}
+```{=html}
 <section class="mfm-show" aria-labelledby="mfm-show-title">
   <header class="mfm-show__head mfm-reveal">
     <h2 id="mfm-show-title">From a DataFrame to a posterior.</h2>
@@ -282,6 +286,16 @@ css:
     <!-- Cell outputs come from running these cells with River 1.0 (pinned revision, torch
          seed 0) on a synthetic weekly dataset; the figures are the matplotlib SVGs. -->
   </figure>
+```
+:::
+
+::: {.content-visible when-profile="pilot"}
+```{=html}
+<section class="mfm-show" aria-label="Install the client">
+```
+:::
+
+```{=html}
 
   <div class="mfm-show__install mfm-reveal">
     <!-- The path for invited testers: the hosted River API and the Python client, no weights. -->
@@ -291,7 +305,15 @@ css:
       <code class="mfm-install__cmd">pip install pymc-mfm</code>
       <button class="mfm-copy" type="button" data-copy="pip install pymc-mfm" aria-label="Copy install command"></button>
     </div>
+```
+
+::: {.content-hidden when-profile="pilot"}
+```{=html}
     <p class="mfm-show__note">The install line gives the client for the hosted River API. The notebook above runs River 1.0 locally on synthetic data; that needs the River weights, which are shared by invitation. <a href="guide/examples/river_1_quickstart.html">See the full quickstart <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a></p>
+```
+:::
+
+```{=html}
   </div>
 </section>
 
@@ -322,21 +344,48 @@ css:
     <div class="mfm-release__body">
       <p>PyMC Labs' first published network: 2.4M parameters, 1 to 10 channels, posterior
         draws in seconds on a CPU.</p>
+```
+
+::: {.content-hidden when-profile="pilot"}
+```{=html}
       <p class="mfm-release__links">
         <a href="models/river-1/index.html">Release notes <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a>
       </p>
+```
+:::
+
+```{=html}
     </div>
   </div>
 </section>
 
 <!-- 5. Explore ----------------------------------------------------------------- -->
 <section class="mfm-section mfm-reveal" aria-label="Explore the documentation">
+```
+
+::: {.content-hidden when-profile="pilot"}
+```{=html}
   <nav class="mfm-explore" aria-label="Explore">
     <a href="guide/index.html"><span class="mfm-explore__title">Docs <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Install, concepts and worked notebooks.</span></a>
     <a href="reference/index.html"><span class="mfm-explore__title">Python reference <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">The client for the hosted River API, and the library.</span></a>
     <a href="models/index.html"><span class="mfm-explore__title">Models <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Trained networks and their release notes.</span></a>
     <a href="https://www.pymc-labs.com/blog-posts"><span class="mfm-explore__title">Blog <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Posts from the PyMC Labs team.</span></a>
   </nav>
+```
+:::
+
+::: {.content-visible when-profile="pilot"}
+```{=html}
+  <!-- Pilot site: two cards, so two columns (one on a phone). -->
+  <style>.mfm-explore--pilot { grid-template-columns: repeat(2, minmax(0, 1fr)); } @media (max-width: 640px) { .mfm-explore--pilot { grid-template-columns: minmax(0, 1fr); } }</style>
+  <nav class="mfm-explore mfm-explore--pilot" aria-label="Explore">
+    <a href="guide/index.html"><span class="mfm-explore__title">Docs <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">Get started with the hosted River API from Python.</span></a>
+    <a href="reference/index.html"><span class="mfm-explore__title">Python reference <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></span><span class="mfm-explore__text">The client for the hosted River API.</span></a>
+  </nav>
+```
+:::
+
+```{=html}
 </section>
 
 <section class="mfm-outro mfm-reveal">

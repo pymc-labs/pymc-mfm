@@ -872,7 +872,15 @@ CI pins 1.7.31) and the `docs` dependency group:
 uv sync --locked --group docs
 uv run --no-sync quarto preview docs   # live preview
 uv run --no-sync quarto render docs    # writes docs/_site/
+uv run --no-sync quarto render docs --profile pilot   # writes docs/_site-pilot/
 ```
+
+`docs/_quarto.yml` holds the settings both sites share. The full site (the default
+profile) takes its pages, menus and sidebars from `docs/_quarto-full.yml`. The pilot site
+carries only the path of an invited tester (landing page, Get started, the client guide and
+the client reference); `docs/_quarto-pilot.yml` lists it. Text for one site only sits in
+`::: {.content-hidden when-profile="pilot"}` or `::: {.content-visible when-profile="pilot"}`
+blocks.
 
 Before each render, `docs/_scripts/prepare.py` copies `examples/*.ipynb` into the Guide
 and writes the API reference from the docstrings (quartodoc). Both are generated and
@@ -883,10 +891,10 @@ button fixed. HTTP API samples wrap within their narrower panels instead.
 
 | Section | Source |
 | --- | --- |
-| Guide | `docs/guide/*.qmd`; listed in `website.sidebar` in `docs/_quarto.yml` |
+| Guide | `docs/guide/*.qmd`; listed in `website.sidebar` in `docs/_quarto-full.yml` |
 | Guide examples | every notebook in `examples/`, with its stored outputs |
 | API reference | docstrings; pages and order in the `quartodoc` section of `docs/_quarto.yml` |
-| Models | one page per released model: `docs/models/<name>/index.qmd`, with `name` (the model without its version), `order`, `badge`, `specs` and `image` in its front matter for the Models page card; announced models (cards that say "Coming soon" and do not link) in `docs/models/upcoming.yml`. Card art lives in `docs/assets/img/models/`. List each model in the Models menu in `docs/_quarto.yml` (a text-only `"<Name> SOON"` item for an announced one) |
+| Models | one page per released model: `docs/models/<name>/index.qmd`, with `name` (the model without its version), `order`, `badge`, `specs` and `image` in its front matter for the Models page card; announced models (cards that say "Coming soon" and do not link) in `docs/models/upcoming.yml`. Card art lives in `docs/assets/img/models/`. List each model in the Models menu in `docs/_quarto-full.yml` (a text-only `"<Name> SOON"` item for an announced one) |
 | Blog | one folder per post: `docs/blog/posts/<date>-<slug>/index.qmd` or `index.ipynb` |
 
 Nothing executes at build time: notebooks and posts render the outputs they were saved

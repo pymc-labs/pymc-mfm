@@ -1,0 +1,44 @@
+# The pilot site: only the path of an invited tester, who uses the hosted River API from
+# Python. `quarto render docs --profile pilot` writes it to docs/_site-pilot/. Quarto merges
+# this file over _quarto.yml instead of _quarto-full.yml.
+#
+# Pages: the landing page, Get started, the client guide and the client part of the Python
+# reference. In this profile, _scripts/prepare.py writes only the client reference pages,
+# no HTTP API pages and no example notebooks. Text that only the full site carries is in
+# `.content-hidden when-profile="pilot"` blocks; text only for the pilot is in
+# `.content-visible when-profile="pilot"` blocks.
+project:
+  # A separate folder, so no page of a full build is left in the pilot site.
+  output-dir: _site-pilot
+  # A page's `pilot-description` replaces its `description` in the built page.
+  post-render: _scripts/pilot_post.py
+  render:
+    - index.qmd
+    - guide/index.qmd
+    - guide/http-api.qmd
+    - reference/index.qmd
+    - reference/client.*.qmd
+
+website:
+  navbar:
+    left:
+      - text: Docs
+        href: guide/index.qmd
+      - text: Python reference
+        href: reference/index.qmd
+      - text: PyMC Labs
+        href: https://www.pymc-labs.com
+  sidebar:
+    - id: guide
+      title: Guide
+      style: floating
+      collapse-level: 2
+      contents:
+        - section: Get started
+          contents:
+            - guide/index.qmd
+            - guide/http-api.qmd
+        - section: Python reference
+          contents:
+            - text: River API client
+              href: reference/index.qmd

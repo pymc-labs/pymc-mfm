@@ -1,34 +1,35 @@
+# Two profiles. `quarto render docs` builds the full site (_quarto-full.yml); `quarto render
+# docs --profile pilot` builds the pilot site, the tester path only (_quarto-pilot.yml). A
+# profile adds to the lists below and cannot remove from them, so the page lists, menus and
+# sidebars are in the profile files.
+profile:
+  default: full
+
 project:
   type: website
   output-dir: _site
   # Copies examples/*.ipynb into guide/examples/ and writes the API reference
   # pages with quartodoc. Both outputs are generated and ignored by Git.
   pre-render: _scripts/prepare.py
-  render:
-    - "*.qmd"
-    - "guide/**"
-    - "api/**"
-    - "reference/**"
-    - "models/**"
-    - "migration.md"
   resources:
     - assets/js/*.js
     - assets/fonts/*
     - assets/img/show/*.svg
     - assets/img/logo/*.svg
     - assets/favicon/*
-    # The share image (Open Graph and X cards) and the old blog addresses, which now redirect
-    # to the PyMC Labs blog.
+    # The share image (Open Graph and X cards).
     - assets/img/social/*
-    - blog/index.html
-    - blog/posts/*/index.html
     # Phosphor Regular icons (MIT, @phosphor-icons/core 2.1.1), drawn as CSS masks.
     - assets/icons/phosphor/*
-    # The River 1.0 hero's picture and the map of its water (models/river-1/_hero.html).
-    - assets/img/river/*
+    # Quarto matches these lists in every folder, so keep the output of each profile out of
+    # the other's.
+    - "!_site/"
+    - "!_site-pilot/"
 
 # Both written during pre-render: the Python reference sidebar (quartodoc) and the
 # HTTP API sidebar (_scripts/http_pages.py). Quarto picks the sidebar that lists a page.
+# Quarto reads metadata-files only from this file, not from a profile; the pilot build
+# writes an empty HTTP API sidebar.
 metadata-files:
   - reference/_sidebar.yml
   - api/_sidebar.yml
@@ -72,63 +73,11 @@ website:
     collapse-below: lg
     # The bar stays on screen while the page scrolls under it (glass, site.css).
     pinned: true
-    left:
-      - text: Docs
-        href: guide/index.qmd
-      # The client and the library. The HTTP API pages (api/) are still built, but no menu
-      # links them: testers use the Python client.
-      - text: Python reference
-        href: reference/index.qmd
-      # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
-      # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge,
-      # and a text-only item ending in " SOON" a greyed "Coming soon" entry (models/upcoming.yml).
-      # Items with only `text` are column headers; "---" starts the second column.
-      - text: Models
-        menu:
-          - text: "Models"
-          - text: "River NEW"
-            href: models/river-1/index.qmd
-          - text: "Sea SOON"
-          - text: "Ocean SOON"
-          - text: "---"
-          - text: "Resources"
-          - text: "All models"
-            href: models/index.qmd
-      # pymc-labs.com, which carries the PyMC Labs blog too: MFM has no blog of its own.
-      - text: PyMC Labs
-        href: https://www.pymc-labs.com
     right:
       # Access is by invitation. This link goes to the page that says how it works. site.js marks
       # the last link of this list as the action button, so keep one link here.
       - text: "Get access"
         href: guide/index.qmd#hosted-api
-  sidebar:
-    - id: guide
-      title: Guide
-      style: floating
-      collapse-level: 2
-      contents:
-        - section: Get started
-          contents:
-            - guide/index.qmd
-            - guide/concepts.qmd
-            - migration.md
-        - section: Use a model
-          contents:
-            - guide/decompose.qmd
-            - guide/models-hub.qmd
-            - guide/http-api.qmd
-        - section: Train
-          contents:
-            - guide/training.qmd
-        # River's page is a docs page too, so it carries this sidebar.
-        - section: Models
-          contents:
-            - text: River 1.0
-              href: models/river-1/index.qmd
-        - section: Examples
-          # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
-          contents: "guide/examples/*.ipynb"
   # One quiet line. The dark-mode button is in the navbar (Quarto's own toggle, site.css).
   page-footer:
     left: |
