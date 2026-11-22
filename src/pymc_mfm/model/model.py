@@ -1,4 +1,4 @@
-"""Trainable graph-conditional Marketing Foundation Model."""
+"""Trainable graph-conditional marketing foundational model."""
 
 from __future__ import annotations
 
