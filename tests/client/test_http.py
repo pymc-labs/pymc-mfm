@@ -49,10 +49,18 @@ def test_url_and_key_come_from_the_environment(monkeypatch, service):
 def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
     monkeypatch.delenv("MFM_API_URL", raising=False)
     monkeypatch.delenv("MFM_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="MFM_API_URL"):
+    with pytest.raises(ValueError, match="MFM_API_URL.*Connect page"):
         Client(api_key="k")
-    with pytest.raises(ValueError, match="MFM_API_KEY"):
+    with pytest.raises(ValueError, match="MFM_API_KEY.*Connect page"):
         Client(BASE_URL)
+
+
+def test_a_rejected_key_says_where_the_key_comes_from(client, service):
+    service.on("GET", "/v1/datasets/ds_123", (401, error_body("unauthorized", "Bad key.")))
+    with pytest.raises(Unauthorized) as caught:
+        client.datasets.get("ds_123")
+    assert str(caught.value).startswith("HTTP 401 unauthorized: Bad key.")
+    assert "MFM_API_KEY" in str(caught.value) and "Connect page" in str(caught.value)
 
 
 def test_post_sends_a_content_derived_idempotency_key(client, service, history):

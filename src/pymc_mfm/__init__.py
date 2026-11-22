@@ -1,4 +1,4 @@
-"""PyMC Marketing Foundation Models.
+"""PyMC MFM (marketing foundational models).
 
 The base install is a light HTTP client, :mod:`pymc_mfm.client`. The model, inference
 and training code needs PyTorch: install it with ``pip install "pymc-mfm[local]"``.

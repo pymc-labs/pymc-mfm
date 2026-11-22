@@ -49,6 +49,12 @@ class ValidationError(ApiError):
 class Unauthorized(ApiError):
     """The API key is missing or wrong (401)."""
 
+    def __str__(self) -> str:
+        return (
+            f"{super().__str__()} Check the key in MFM_API_KEY (or api_key). Create or replace "
+            "your API key on the Connect page of the River API console."
+        )
+
 
 class Forbidden(ApiError):
     """The key may not do this (403)."""

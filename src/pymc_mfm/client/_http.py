@@ -72,9 +72,15 @@ class Http:
         base_url = base_url or os.environ.get("MFM_API_URL")
         api_key = api_key or os.environ.get("MFM_API_KEY")
         if not base_url:
-            raise ValueError("Pass base_url or set the MFM_API_URL environment variable.")
+            raise ValueError(
+                "Pass base_url or set the MFM_API_URL environment variable. The Connect page of "
+                "the River API console shows the service URL."
+            )
         if not api_key:
-            raise ValueError("Pass api_key or set the MFM_API_KEY environment variable.")
+            raise ValueError(
+                "Pass api_key or set the MFM_API_KEY environment variable. Create or replace "
+                "your API key on the Connect page of the River API console."
+            )
         if max_retries < 0:
             raise ValueError("max_retries must be 0 or more")
         if max_retry_after < 0:
