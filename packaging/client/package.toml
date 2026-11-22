@@ -14,7 +14,7 @@ name = "pymc-mfm"
 # this value wins for the client package. Change it only after a new test run.
 requires_python = ">=3.11"
 default_version = "0.1.0"
-description = "Python client for PyMC Marketing Foundational Models, the hosted service from PyMC Labs."
+description = "Python client for PyMC MFM (marketing foundational models), the hosted service from PyMC Labs."
 author = "PyMC Labs"
 
 [files]

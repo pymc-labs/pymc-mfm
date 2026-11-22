@@ -472,7 +472,7 @@ def test_the_real_client_names_no_extra_the_package_lacks():
 def test_the_page_text_has_the_licence_sentence_with_the_generated_version_and_no_private_name():
     plain = pkg.readme_text(pkg.config(), ">=3.11", "0.2.3")
     assert plain.startswith(
-        "# pymc-mfm\n\nPython client for PyMC Marketing Foundational Models, "
+        "# pymc-mfm\n\nPython client for PyMC MFM (marketing foundational models), "
         "the hosted service from PyMC Labs."
     )
     assert "```bash\npip install pymc-mfm\n```" in plain and "Python 3.11 or newer" in plain
@@ -486,6 +486,10 @@ def test_the_page_text_has_the_licence_sentence_with_the_generated_version_and_n
         "is under its own terms.",
         "Copyright 2026 The PyMC Labs Developers\n",
     ]
+    assert (
+        "## Help\n\nIf something fails, reply to your invitation. Include the full error text, the time, and the dataset or analysis id if you have one.\n"
+        in plain
+    )
     assert "{version}" not in plain and "{requires_python}" not in plain
     assert not pkg.FORBIDDEN.search(plain) and "http" not in plain and "@" not in plain
 

@@ -1,7 +1,7 @@
 # pymc-mfm
 
-Python client for PyMC Marketing Foundational Models, the hosted service from PyMC Labs. It
-uploads a weekly marketing history, runs a forecast or a backtest, compares budget scenarios and
+Python client for PyMC MFM (marketing foundational models), the hosted service from PyMC Labs.
+It uploads a weekly marketing history, runs a forecast or a backtest, compares budget scenarios and
 returns the results as pandas tables. The models run on the service, not on your machine.
 
 The service is in a closed pilot. You need an API key from the PyMC Labs pilot: without one the
@@ -92,7 +92,7 @@ print("result page:", analysis.url)
 
 ## Help
 
-Ask your pilot contact.
+If something fails, reply to your invitation. Include the full error text, the time, and the dataset or analysis id if you have one.
 
 Results are conditional model responses to your inputs. They are not calibrated causal lift.
 Use synthetic or internal data only.

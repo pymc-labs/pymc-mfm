@@ -413,7 +413,7 @@ def readme_text(cfg: dict, requires_python: str, version: str) -> str:
     return template.replace("{requires_python}", python).replace("{version}", version)
 
 
-ROOT_INIT = '''"""PyMC Marketing Foundational Models: the hosted client.
+ROOT_INIT = '''"""PyMC MFM: the hosted client.
 
 This distribution ships the hosted client only. Import from ``pymc_mfm.client``::
 
