@@ -9,6 +9,7 @@ import warnings
 from dataclasses import replace
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 
@@ -88,6 +89,13 @@ def test_result_replay_retains_labels_and_rejects_corruption(model, synthetic_co
 
 def test_invalid_alignment_padding_and_binary_graphs_are_rejected(model, synthetic_corpus):
     result = decompose(model, observed(synthetic_corpus), n_samples=4)
+    with pytest.raises(ValueError) as caught:
+        decompose(model, pd.DataFrame({"spend": [1.0]}), n_samples=4)
+    assert str(caught.value) == (
+        "observations must be a mapping of arrays. For pandas input, use "
+        "model.inference(context, query, date_column=..., target_column=..., "
+        "channel_columns=..., control_columns=...)"
+    )
     with pytest.raises(ValueError, match="aligned"):
         replace(result, graphs=result.graphs[:-1])
     bad_graph = result.graphs.copy()

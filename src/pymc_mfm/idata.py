@@ -6,6 +6,7 @@ A model tree is ``MFM.idata`` or a file made by :func:`save_idata`. Files need t
 
 from __future__ import annotations
 
+import errno
 import json
 import numbers
 import os
@@ -374,6 +375,12 @@ def validate_idata(idata: DataTree) -> None:
             f"expected an xarray DataTree, got {type(idata).__name__}; "
             "model.idata is None until the first complete inference",
         )
+    if "schema_version" not in idata.attrs:
+        _fail(
+            "/",
+            "attribute 'schema_version' is missing; this is not a pymc-mfm model tree "
+            "(for example, a file written by ArviZ). save_idata writes pymc-mfm trees",
+        )
     version = _integer_attr(idata, "/", "schema_version")
     if version > _SCHEMA_VERSION:
         _fail(
@@ -430,7 +437,10 @@ def save_idata(idata: DataTree, path: str | os.PathLike[str]) -> None:
         try:
             os.link(temporary, target)
         except FileExistsError:
-            raise
+            # The error from os.link names the temporary file first; name the target.
+            raise FileExistsError(
+                errno.EEXIST, "file exists; save_idata never overwrites", str(target)
+            ) from None
         except OSError:
             # A failed exclusive create made no file, so it needs no cleanup.
             out = target.open("xb")
