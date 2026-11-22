@@ -486,14 +486,11 @@ def test_the_page_text_has_the_licence_sentence_with_the_generated_version_and_n
         "is under its own terms.",
         "Copyright 2026 The PyMC Labs Developers\n",
     ]
-    assert (
     help_line = (
         "If something fails, reply to your invitation. Include the full error text, "
         "the time, and the dataset or analysis id if you have one."
     )
     assert f"## Help\n\n{help_line}\n" in plain
-        in plain
-    )
     assert "{version}" not in plain and "{requires_python}" not in plain
     assert not pkg.FORBIDDEN.search(plain) and "http" not in plain and "@" not in plain
 
