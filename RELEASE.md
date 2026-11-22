@@ -95,6 +95,11 @@ distribution prerequisites, not an approved or published release.
   prepare independent candidates; complete inference only orchestrates them and
   publishes the successful run. Prediction and preflight reuse their relevant
   stages without exposing new public setters or partial model state.
+- **Client (after `client-v0.1.0`, for the next client release): the service URL must be `https://`.** `Client()` raises
+  `ValueError` before any request when `base_url` or `MFM_API_URL` is not `https://` or
+  has no host, so the API key is never sent in clear text. Plain `http://` stays allowed
+  only to `localhost`, `127.0.0.1` and `::1`, for local tests. A caller that used an
+  `http://` URL to another host must switch to the `https://` URL.
 
 ## Historical development records
 

@@ -9,6 +9,7 @@ import os
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -23,6 +24,24 @@ BACKOFF_BASE = 0.5  # seconds; doubles on each retry when there is no Retry-Afte
 BACKOFF_CAP = 8.0
 CONTENT_KEY_PREFIX = "mfm1-"
 FRESH_KEY_PREFIX = "mfm1-fresh-"
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def check_service_url(base_url: str) -> None:
+    """Raise ``ValueError`` unless ``base_url`` is ``https://`` with a host.
+
+    Plain ``http://`` is allowed only to a loopback host, for local tests. The message names
+    the scheme and host only, never the rest of the URL.
+    """
+    parts = urlsplit(base_url)
+    host = parts.hostname or ""
+    if host and (parts.scheme == "https" or (parts.scheme == "http" and host in LOOPBACK_HOSTS)):
+        return
+    raise ValueError(
+        f"The service URL must start with https:// and name a host, so the API key is never "
+        f"sent in clear text; got scheme {parts.scheme!r} and host {host!r}. Use the https:// "
+        "URL exactly as the Connect page of the River API console shows it."
+    )
 
 
 def parse_retry_after(value: str | None, *, now: float | None = None) -> float | None:
@@ -55,8 +74,9 @@ def fresh_idempotency_key() -> str:
 class Http:
     """A small wrapper over ``httpx.Client`` for the API.
 
-    The API key goes only to ``base_url``. Signed download URLs are fetched with
-    :meth:`download`, which sends no credentials.
+    The API key goes only to ``base_url``, which must be ``https://`` (plain ``http://`` only to
+    ``localhost``, ``127.0.0.1`` or ``::1``, for local tests). Signed download URLs are fetched
+    with :meth:`download`, which sends no credentials.
     """
 
     def __init__(
@@ -76,6 +96,7 @@ class Http:
                 "Pass base_url or set the MFM_API_URL environment variable. The Connect page of "
                 "the River API console shows the service URL."
             )
+        check_service_url(base_url)
         if not api_key:
             raise ValueError(
                 "Pass api_key or set the MFM_API_KEY environment variable. Create or replace "

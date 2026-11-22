@@ -45,6 +45,10 @@ class Client:
     something sends an ``Idempotency-Key`` derived from the request content, reused on its
     retries, so a retry or a repeated call never starts the work twice.
 
+    ``base_url`` must be ``https://``, so the key is never sent in clear text. Plain
+    ``http://`` is allowed only to ``localhost``, ``127.0.0.1`` or ``::1``, for local tests.
+    Any other URL, or one without a host, raises ``ValueError`` before a request.
+
     ``transport`` replaces the network layer, for tests.
     """
 
