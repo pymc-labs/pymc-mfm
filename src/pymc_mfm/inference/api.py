@@ -148,7 +148,7 @@ def decompose(
     same thread count, a repeat gives the same result. With ``None`` the call draws from the
     global generator and advances it. The result does not record the seed; only the
     ``MFM.inference`` tree does, and there the context window continues the query window's
-    stream. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (2,000) conditional draws.
+    stream. ``n_samples`` defaults to ``DEFAULT_N_SAMPLES`` (1,000) conditional draws.
     Caller provenance may supplement, but not replace, loaded artifact identities.
     """
     return _decompose(
@@ -189,7 +189,11 @@ def _decompose(
     # Before any module mode change: a bad seed must leave the model as it was.
     random_seed = _random_seed(random_seed)
     if not isinstance(observations, Mapping):
-        raise ValueError("observations must be a mapping")
+        raise ValueError(
+            "observations must be a mapping of arrays. For pandas input, use "
+            "model.inference(context, query, date_column=..., target_column=..., "
+            "channel_columns=..., control_columns=...)"
+        )
     parameter = next(model.parameters())
     if "ctx_spend_z" in observations or "spend" not in observations:
         if not all(isinstance(key, str) for key in observations):

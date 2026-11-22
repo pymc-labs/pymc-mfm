@@ -203,6 +203,18 @@ class Analysis:
     labels, kept in ``labels`` and in each table's ``attrs``: intervals are pointwise,
     exclude observation noise and are not causal lift, and ``simulation_se`` is numerical
     precision, not model uncertainty.
+
+    ``table`` has one row per plan and component. Its columns, in order: ``scenario_id``
+    (``baseline``, a scenario id or a curve plan), ``kind``, ``base_scenario_id`` (the plan the
+    difference is measured from), ``varied_channel`` and ``level`` (of a curve plan),
+    ``multipliers``, ``run_id``, ``status`` (``failed``: the plan has no numbers),
+    ``spend_total``, ``component`` (``outcome``, ``baseline``, a channel, a control,
+    ``latent`` or ``indirect:*``), ``mean``, ``p05`` and ``p95`` (totals over the forecast),
+    ``window_mean`` (the total over the decision window), ``mean_difference`` (paired, from
+    the base plan), ``simulation_se`` (the simulation error of ``mean_difference``),
+    ``sensitivity``, ``warnings``, ``draws_url`` and ``draws_url_expires_at`` (a signed link
+    to the plan's draws file and its expiry). Columns that a newer service adds come after
+    these.
     """
 
     def __init__(
@@ -226,8 +238,10 @@ class Analysis:
 
     @property
     def expires_at(self) -> datetime:
-        """The dataset's current expiry. It can move later when the dataset is used again,
-        so call ``status()`` for the latest value instead of keeping this one."""
+        """The expiry of the analysis: the expiry of its dataset.
+
+        The hosted River API keeps a dataset 7 days after upload and does not extend it.
+        """
         return self._status.expires_at
 
     def status(self) -> AnalysisStatus:
@@ -341,7 +355,10 @@ class Analysis:
 
     @property
     def table(self) -> pd.DataFrame:
-        """One row per plan and component. Raises ``NotReady`` until the analysis ends."""
+        """One row per plan and component. Raises ``NotReady`` until the analysis ends.
+
+        The ``Analysis`` class description lists its columns.
+        """
         result = self._fetch_result()
         return result_table(result["table"], result["labels"])
 

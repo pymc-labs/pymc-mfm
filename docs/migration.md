@@ -14,6 +14,25 @@ The six `pymc_mfm.<name>` rows in the table warn on first access in a process. O
 | `pymc_mfm.observation_batch` | `pymc_mfm.inference.observation_batch` |
 | `pymc_mfm.save_pretrained` | `pymc_mfm.inference.save_pretrained` |
 | `pymc_mfm.push_to_hub` | `pymc_mfm.inference.push_to_hub` |
+| `model.add_context(history, ...)` | Removed, with no warning. Pass the history to `model.inference(context, query, date_column=..., target_column=..., channel_columns=..., control_columns=...)`. |
+| `model.build_idata()` | Removed, with no warning. `model.inference(...)` builds the tree and stores it as `model.idata`. It also returns the tree unless you pass `return_idata=False`. |
+| `model.inference(query)` | Removed, with no warning. Use `model.inference(context, query, date_column=..., target_column=..., channel_columns=..., control_columns=...)`. It returns the stored `DataTree`, or `None` with `return_idata=False`, not a `DecompositionResult`. Read the old return value from `model.query_result` after the call (example below). |
+
+Code that used `.components` or `.diagnostics()` on the old return value reads the same query draws from `model.query_result`, without resampling:
+
+```python
+idata = model.inference(
+    history,
+    future,
+    date_column="date",
+    target_column="sales",
+    channel_columns=["search", "social"],
+    control_columns=["seasonality"],
+)
+query = model.query_result  # the DecompositionResult that inference(query) returned
+query.components
+query.diagnostics()
+```
 
 ## What else changes
 

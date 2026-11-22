@@ -226,13 +226,13 @@ DETAILS: dict[tuple[str, str], Detail] = {
         slug="datasets-get",
         title="Get a dataset",
         summary="Read one dataset summary.",
-        lead="Read the summary of one dataset. Read it again when you need `expires_at`: using a dataset moves it later.",
+        lead="Read the summary of one dataset, with its deadline `expires_at`.",
         notes=(
             (
                 "Retention",
-                "The service keeps a dataset 7 days after last use, and at most 30 days after upload. "
-                "Using a dataset, for example by starting an analysis on it, moves `expires_at` later. "
-                "Do not treat it as a fixed deadline. An analysis has the `expires_at` of its dataset.",
+                "The service keeps a dataset 7 days after upload, then deletes it and its analyses. "
+                "Using the dataset does not extend this. Read the deadline from `expires_at`. "
+                "An analysis has the `expires_at` of its dataset.",
             ),
         ),
         response=DATASET_RECORD,
@@ -324,8 +324,8 @@ DETAILS: dict[tuple[str, str], Detail] = {
         slug="analyses-get",
         title="Get an analysis",
         summary="Read the status and run counts.",
-        lead="Read the status of an analysis. Poll this route every 3 seconds until `status` is `done`, "
-        "`failed` or `deleted`.",
+        lead="Read the status of an analysis. Poll this route every 3 seconds until `status` is `done` or "
+        "`deleted`, or `failed` with `runs_done + runs_failed + runs_cancelled` equal to `runs_total`.",
         notes=(
             (
                 "Status",
