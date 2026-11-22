@@ -57,6 +57,13 @@ distribution prerequisites, not an approved or published release.
   their declared tree dependencies and automatic idata instead of expecting
   exports to fail. Installed local-wheel checks cover both return modes,
   independent prediction and automatic curve attachment.
+- **Client (for `client-v0.1.0`): `wait` returns when every run has ended.** The service
+  marks an analysis `failed` as soon as its baseline fails, while other runs can still be
+  active. `AnalysisStatus.finished`, and so `Analysis.wait`, now count a `failed` analysis
+  as finished only when its done, failed and cancelled runs add up to `runs_total`, so
+  `table` no longer raises `NotReady` right after `wait`. The `TimeoutError` of `wait`
+  says how many runs have ended. A service that does not send `runs_cancelled` can keep
+  such an analysis unfinished; pass `timeout`.
 - **Private inference stages.** `_add_context`, `_add_query` and `_sample_context`
   prepare independent candidates; complete inference only orchestrates them and
   publishes the successful run. Prediction and preflight reuse their relevant
