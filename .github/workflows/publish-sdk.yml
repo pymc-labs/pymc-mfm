@@ -56,6 +56,8 @@ jobs:
             --check --check-python 3.11 --check-python 3.12 --check-python 3.13
           ls -l dist
           # The release manifest (every file and archive with its sha256) is also in the run summary.
+      - name: Check the archives with the repository's boundary scanner
+        run: python scripts/check_public_boundary.py --archive dist/*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pymc-mfm-dist
