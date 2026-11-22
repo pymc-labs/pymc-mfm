@@ -36,29 +36,31 @@ metadata-files:
 website:
   title: "PyMC MFM"
   description: "Amortized Bayesian marketing-mix decomposition with causal graphs, by PyMC Labs."
-  site-url: https://pymc-labs.github.io/pymc-mfm/
+  # No trailing slash: Quarto joins site-url and a site path such as /assets/... with no
+  # slash of its own, so a trailing slash here gives a doubled slash in share-image URLs.
+  site-url: https://pymc-labs.github.io/pymc-mfm
   repo-url: https://github.com/pymc-labs/pymc-mfm
   favicon: assets/favicon/favicon.svg
   bread-crumbs: false
   page-navigation: true
   back-to-top-navigation: false
   # A magnifier button ("/" or Ctrl/Cmd+K opens it) for Quarto's search sheet. site.css shows
-  # it only on Guide and API pages, next to the dark-mode button and Open Console.
+  # it only on Guide and API pages, next to the dark-mode button and the access link.
   # assets/js/search.js adds the result path lines and the empty-results message.
   search:
     location: navbar
     type: overlay
     keyboard-shortcut: ["/"]
-  # Share image for every page. Link previews need a full URL; it points at the staging
-  # host until there is a production address (site-url is not served yet).
+  # Share image for every page. The path starts at the site root ("/"); without it, Quarto
+  # resolves the image under the folder of each page. Quarto prefixes site-url.
   open-graph:
-    image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+    image: /assets/img/social/mfm-social.jpg
     image-width: 1200
     image-height: 630
     image-alt: "PyMC MFM: Train once, decompose many."
   twitter-card:
     card-style: summary_large_image
-    image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+    image: /assets/img/social/mfm-social.jpg
     image-width: 1200
     image-height: 630
     image-alt: "PyMC MFM: Train once, decompose many."
@@ -73,8 +75,10 @@ website:
     left:
       - text: Docs
         href: guide/index.qmd
-      - text: API
-        href: api/index.qmd
+      # The client and the library. The HTTP API pages (api/) are still built, but no menu
+      # links them: testers use the Python client.
+      - text: Python reference
+        href: reference/index.qmd
       # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
       # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge,
       # and a text-only item ending in " SOON" a greyed "Coming soon" entry (models/upcoming.yml).
@@ -101,10 +105,10 @@ website:
       - text: GitHub
         icon: github
         href: https://github.com/pymc-labs/pymc-mfm
-      # The hosted Console's sign-in page, at /sign-in/ on the same host as the site (the host root is the
-      # landing page; docs/_scripts/mount.py lays the site out that way).
-      - text: "Open Console"
-        href: https://mfm-staging.pymc-labs.com/sign-in/
+      # Access is by invitation. This link goes to the page that says how it works. site.js marks
+      # the last link of this list as the action button, so keep one link here.
+      - text: "Get access"
+        href: guide/index.qmd#hosted-api
   sidebar:
     - id: guide
       title: Guide
@@ -152,6 +156,30 @@ quartodoc:
     table_style: description-list
     show_signature_annotations: true
   sections:
+    # The client comes first: invited testers use the hosted River API from Python.
+    - title: River API client
+      desc: The client for the hosted River API. It needs no PyTorch.
+      contents:
+        - client.Client
+        # The class behind client.datasets; pymc_mfm.client does not export it.
+        - client.datasets.Datasets
+        - client.Dataset
+        - client.Analysis
+        - client.AnalysisStatus
+        - client.Preview
+        - client.scenario
+        - client.amount
+        - client.grid
+        - client.curve
+        - client.ApiError
+        - client.Unauthorized
+        - client.ValidationError
+        - client.NotReady
+        - client.Gone
+        - client.RateLimited
+        - client.NotFound
+        - client.ServerError
+        - client.ApiConnectionError
     - title: Load and share models
       desc: Read model folders and Hugging Face Hub profiles; write and publish your own.
       contents:
@@ -206,19 +234,6 @@ quartodoc:
         - inference.DecompositionResult
         - inference.warm_up_sampling
         - inference.warm_up_observations
-    - title: River API client
-      desc: A torch-free HTTP client for the hosted River API.
-      contents:
-        - client.Client
-        - client.Dataset
-        - client.Analysis
-        - client.AnalysisStatus
-        - client.Preview
-        - client.scenario
-        - client.amount
-        - client.grid
-        - client.curve
-        - client.ApiError
     - title: Training
       desc: Train an amortized network on simulated corpora.
       contents:

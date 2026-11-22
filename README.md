@@ -508,29 +508,52 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 ## Call the River API
 
-`pymc_mfm.client` is an HTTP client for the River API v3.1. It needs no PyTorch.
-Give it the service URL and an API key as arguments or in `MFM_API_URL` and
-`MFM_API_KEY`. Install `pymc-mfm[client]` to read draws and draw plots. It needs Python 3.13
-or newer and read access to the repository on GitHub; `uv` can fetch Python 3.13:
+`pymc_mfm.client` is the Python client for the hosted River API (routes under `/v1`). It needs
+no PyTorch. Access to the hosted service is by invitation. Create your API key on the Connect
+page of the River API console, which also shows your service URL. Give the client the service URL
+and the key as arguments or in `MFM_API_URL` and `MFM_API_KEY`. The client needs Python 3.11 or newer. Install it from PyPI:
 
 ```bash
-uv venv -p 3.13
-uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+pip install pymc-mfm
 ```
 
-The service keeps a dataset 7 days after its last use, at most 30 days after upload. Deleting a
-dataset deletes its analyses.
+To read every draw (`.nc` files) or draw plots, run `pip install "pymc-mfm[client]"` instead.
+
+[Get started](docs/guide/index.qmd) has a first script to copy and run.
+
+The hosted River API keeps a dataset 7 days after upload, then deletes it and its analyses. Using
+the dataset does not extend this.
 
 An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md).
 
 ```python
+import numpy as np
 import pandas as pd
 
 from pymc_mfm.client import Client, amount, curve, grid, scenario
 
-client = Client("https://api.example.com")  # key from MFM_API_KEY
+client = Client()  # reads MFM_API_URL and MFM_API_KEY
 
-# `history` is a weekly DataFrame; `plan` has the forecast weeks of the same columns.
+# Synthetic data: a weekly history of 104 weeks and a plan for the 8 weeks after it.
+# Replace `history` and `plan` with your own DataFrames of the same form.
+rng = np.random.default_rng(0)
+weeks = pd.date_range("2024-11-11", periods=104, freq="7D")
+tv = rng.gamma(4.0, 2_000.0, size=104)
+search = rng.gamma(4.0, 1_500.0, size=104)
+price = rng.normal(10.0, 0.3, size=104)
+noise = rng.normal(0, 500, size=104)
+sales = 40_000 + 0.8 * tv + 1.2 * search - 1_000 * (price - 10.0) + noise
+history = pd.DataFrame({"week": weeks, "sales": sales, "tv": tv, "search": search, "price": price})
+first_plan_week = history["week"].iloc[-1] + pd.Timedelta(weeks=1)
+plan = pd.DataFrame(
+    {
+        "week": pd.date_range(first_plan_week, periods=8, freq="7D"),
+        "tv": 8_000.0,
+        "search": 6_000.0,
+        "price": 10.0,
+    }
+)
+
 dataset = client.datasets.create(
     history,
     date="week",
@@ -547,7 +570,7 @@ analysis = client.analyze(
     plan,  # the baseline plan for the weeks after the history, a DataFrame or a dict
     scenarios=[
         scenario("half", {"tv": 0.5, "search": 0.5}),  # a number multiplies a channel's spend
-        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_000)}),  # sets a total
+        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_800)}),  # sets a total
         *grid({"tv": [0.5, 1.5], "search": [0.5, 1.5]}),
     ],
     decision_weeks=(1, 8),
@@ -595,8 +618,8 @@ count and warnings without starting anything. `client.get(analysis_id)` resumes 
 
 `client.datasets.list()` returns your stored datasets with `content_hash`, `created_at`,
 `last_used_at`, `analyses` (the live analyses) and `expires_at`. Those fields are `None` when an
-older service does not send them. `expires_at` moves later each time you use the dataset, so read
-it again instead of keeping it. The content hash covers the dates, outcome, spend and controls,
+older service does not send them. `expires_at` is the deadline the service sets, so read it
+instead of computing one. The content hash covers the dates, outcome, spend and controls,
 not the name. `client.datasets.find(frame, ...)` and `create(..., reuse=True)` reuse a stored
 dataset only when its hash equals that of the frame: never by name or by number of weeks.
 `dataset_content_hash(body)` and `frame_content_hash(frame, ...)` compute the hash locally.
@@ -628,8 +651,9 @@ a new key on its own. `AnalysisStatus` also has `runs_cancelled`, and `Dataset` 
 older service. The client retries HTTP 429, 502, 503 and 504
 and connection errors, and waits as long as `Retry-After` asks, up to `Client(max_retry_after=...)` seconds (default 60). Errors raise `NotFound`,
 `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge`, `RateLimited`, `ValidationError` and
-others, each with `code`, `message` and `field` from the service. Scenario steps were
-removed: a body with `steps` gets `422 steps_removed`.
+others, each with `code`, `message` and `field` from the service. The code `steps_removed`
+means that a scenario in the request has `steps`, which the service no longer accepts;
+`scenario` never sends them.
 
 ## Train an amortized network
 
