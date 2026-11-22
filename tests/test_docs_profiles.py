@@ -5,7 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import yaml
+import pytest
+
+# PyYAML is not a declared dependency of the base install.
+yaml = pytest.importorskip("yaml")
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 sys.path.insert(0, str(DOCS / "_scripts"))
