@@ -118,8 +118,12 @@ def test_validate_rejects_a_missing_role_attribute(tree):
     with pytest.raises(ValueError, match=r"^/: attribute 'control_columns' is missing"):
         validate_idata(_without(tree, "/", "control_columns"))
     # A tree from another tool, such as ArviZ, has no schema version at all.
-    with pytest.raises(ValueError, match=r"'schema_version' is missing; this is not a pymc-mfm"):
+    with pytest.raises(ValueError) as caught:
         validate_idata(_without(tree, "/", "schema_version"))
+    assert str(caught.value) == (
+        "/: attribute 'schema_version' is missing; this is not a pymc-mfm model tree "
+        "(for example, a file written by ArviZ). save_idata writes pymc-mfm trees"
+    )
 
 
 def test_validate_rejects_role_attributes_that_disagree_with_the_variables(tree):
