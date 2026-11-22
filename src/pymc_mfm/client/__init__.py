@@ -7,7 +7,7 @@ needs the ``draws`` extra and plots need the ``plot`` extra.
 
     from pymc_mfm.client import Client, amount, scenario
 
-    client = Client("https://api.example.com", api_key="...")  # or MFM_API_URL, MFM_API_KEY
+    client = Client()  # reads MFM_API_URL and MFM_API_KEY
     dataset = client.datasets.create(
         history, date="week", outcome="sales", spend=["tv", "search"], controls=["price"]
     )

@@ -174,6 +174,43 @@ samp {
     max-width: 100%;
     overflow-x: auto;
   }
+
+  /* A table in a ::: {.mfm-stack} div shows each row as a block instead: the first cell, then
+     every other cell under its column name (site.js copies the names into data-label). Nothing
+     hides off screen. */
+  main .mfm-stack :is(table, tbody, tr, td) {
+    display: block;
+    width: 100%;
+  }
+
+  main .mfm-stack table {
+    overflow-x: visible;
+  }
+
+  main .mfm-stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  main .mfm-stack tr {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--mfm-tone-2);
+  }
+
+  main .mfm-stack .table > tbody > tr > td {
+    padding: 0.2rem 0;
+    border: 0;
+  }
+
+  main .mfm-stack td[data-label]:not(:first-child)::before {
+    content: attr(data-label);
+    display: block;
+    font-weight: 500;
+    color: var(--mfm-heading);
+  }
 }
 
 /* Real tables keep their quiet row rules. */
@@ -363,7 +400,7 @@ body.quarto-dark .navbar-logo {
 }
 
 /* The navbar row, wide screens: mark and links on the left; GitHub, the dark-mode button,
-   search and Open Console on the right, each a 40px square. Bootstrap keeps the collapse as a
+   search as 40px squares, then the labelled Get access button. Bootstrap keeps the collapse as a
    flex box with !important; display: contents lets the link lists, the tools and the search
    button sit in one row, ordered below. The right-hand list lays out its own items in that row
    too, so the Console comes last, after search. */
@@ -402,8 +439,9 @@ body.quarto-dark .navbar-logo {
     margin-left: 0.25rem;
   }
 
-  /* GitHub and Open Console: the icon alone; the label stays for screen readers. */
-  .navbar .navbar-nav .nav-link:is([data-mfm="console"], :has(> .bi)) {
+  /* GitHub: the icon alone; the label stays for screen readers. The access button keeps its
+     label (the base rule below). */
+  .navbar .navbar-nav .nav-link:has(> .bi) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -417,17 +455,13 @@ body.quarto-dark .navbar-logo {
     background: var(--mfm-tone-1);
   }
 
-  .navbar .navbar-nav .nav-link:is([data-mfm="console"], :has(> .bi)) .menu-text {
+  .navbar .navbar-nav .nav-link:has(> .bi) .menu-text {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
-  }
-
-  #quarto-header .navbar .navbar-nav .nav-link[data-mfm="console"]::after {
-    content: none;
   }
 }
 
@@ -896,9 +930,9 @@ html body .aa-DetachedContainer--modal .aa-PanelLayout {
   overflow-y: auto;
 }
 
-/* Open Console: the one action. Navy with white text on light pages (light on navy on dark
-   ones): Phosphor TerminalWindow, label, an ArrowRight that moves 3px on hover; on wide screens
-   a 40px square with the icon alone. site.js sets data-mfm. */
+/* Get access: the one action. Navy with white text on light pages (light on navy on dark
+   ones): Phosphor TerminalWindow, label, an ArrowRight that moves 3px on hover, at every width.
+   site.js sets data-mfm. */
 .navbar .navbar-nav .nav-link[data-mfm="console"] {
   display: inline-flex;
   align-items: center;

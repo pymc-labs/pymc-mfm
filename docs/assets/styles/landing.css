@@ -452,6 +452,19 @@ body.mfm-landing .nav-footer a {
   margin-top: 2rem;
 }
 
+/* One line for invited testers, above the library install: the hosted API is their path. */
+.mfm-show__testers {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--mfm-fg-2);
+  text-align: center;
+}
+
+.mfm-show__testers a {
+  color: var(--mfm-accent-on-dark) !important;
+  white-space: nowrap;
+}
+
 .mfm-show__note {
   font-size: 0.85rem;
   color: var(--mfm-fg-3);

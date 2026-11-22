@@ -1,30 +1,61 @@
 ---
-title: "Call the River API"
-description: "Use the torch-free HTTP client to upload a history, run River API analyses and backtests, and compare budget scenarios."
+title: "Use the River API from Python"
+description: "Use the Python client to upload a history, run analyses and backtests on the hosted River API, and compare budget scenarios."
 ---
+
+## Before you start
+
+The client needs Python 3.11 or newer. Install it from PyPI:
+
+```bash
+pip install pymc-mfm
+```
+
+To read every draw (`.nc` files) or to draw plots, run `pip install "pymc-mfm[client]"` instead.
+
+Create your API key on the Connect page of the River API console, which also shows your service URL. Set them as `MFM_API_URL` and `MFM_API_KEY`, as in [Get access](index.qmd#get-access); do not write them into code or files.
+
+The code blocks on this page run in order: each one continues the blocks before it. Paste them into one file or one Python session, from the top. The first block makes the same synthetic data as [Run a first analysis](index.qmd#run-a-first-analysis).
 
 ## Create a client
 
-[pymc_mfm.client](../reference/client.Client.qmd) is the torch-free HTTP client for River API v3.1. It works with the light base install; install `pymc-mfm[client]` to read per-draw files and create client plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
+[pymc_mfm.client](../reference/client.Client.qmd) is the client for the hosted River API. It needs no PyTorch. Without the `[client]` extra (`pip install pymc-mfm`), everything but per-draw files and plots works. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
 
 ```python
-from pymc_mfm.client import Client
+import numpy as np
+import pandas as pd
 
-client = Client("https://api.example.com")  # API key from MFM_API_KEY
+from pymc_mfm.client import Client, amount, curve, grid, scenario
+
+client = Client()  # reads MFM_API_URL and MFM_API_KEY
+
+# Synthetic data: a weekly history of 104 weeks and a plan for the 8 weeks after it.
+rng = np.random.default_rng(0)
+weeks = pd.date_range("2024-11-11", periods=104, freq="7D")
+tv = rng.gamma(4.0, 2_000.0, size=104)
+search = rng.gamma(4.0, 1_500.0, size=104)
+price = rng.normal(10.0, 0.3, size=104)
+noise = rng.normal(0, 500, size=104)
+sales = 40_000 + 0.8 * tv + 1.2 * search - 1_000 * (price - 10.0) + noise
+history = pd.DataFrame({"week": weeks, "sales": sales, "tv": tv, "search": search, "price": price})
+first_plan_week = history["week"].iloc[-1] + pd.Timedelta(weeks=1)
+plan = pd.DataFrame(
+    {
+        "week": pd.date_range(first_plan_week, periods=8, freq="7D"),
+        "tv": 8_000.0,
+        "search": 6_000.0,
+        "price": 10.0,
+    }
+)
 ```
 
-A `Client` closes its connection pool with `close()` and can be used as a context manager.
+A `Client` closes its connection pool with `close()` and can be used as a context manager. To use your own data, replace `history` and `plan` with your own DataFrames (see [Use your own data](index.qmd#use-your-own-data)).
 
 ## Create a dataset and analysis
 
 A [Dataset](../reference/client.Dataset.qmd) stores a weekly history and its column roles. `history_ranges` reports the weekly 5th and 95th percentiles, maximum, zero-week share, and all-zero status for each channel and control, which helps keep plans inside the observed history range.
 
 ```python
-import pandas as pd
-
-from pymc_mfm.client import Client, amount, curve, grid, scenario
-
-client = Client("https://api.example.com")
 dataset = client.datasets.create(
     history,
     date="week",
@@ -39,7 +70,7 @@ analysis = client.analyze(
     plan,
     scenarios=[
         scenario("half", {"tv": 0.5, "search": 0.5}),
-        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_000)}),
+        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_800)}),
         *grid({"tv": [0.5, 1.5], "search": [0.5, 1.5]}),
     ],
     decision_weeks=(1, 8),
@@ -51,11 +82,11 @@ results = analysis.table
 
 `plan` is the baseline for the weeks after the history. A [scenario](../reference/client.scenario.qmd) is a named budget change against it: one multiplier per channel that changes. A number from 0 to 5 multiplies the channel's spend in the window, and [amount](../reference/client.amount.qmd) sets the channel's total spend in the window, keeping its weekly pattern; a channel with no spend in the window gets the amount split evenly over its weeks. Channels left out keep their spend. Scenarios do not change spend timing or control values. [grid](../reference/client.grid.qmd) expands channel multipliers into one scenario for every combination, and [curve](../reference/client.curve.qmd) requests spend-level response curves.
 
-The window is `decision_weeks=(i, j)` of a plan, 1-based and inclusive (default: the whole plan). Omit `draws` and `seed` to use the service defaults.
+The window is `decision_weeks=(i, j)` of a plan, 1-based and inclusive (default: the whole plan). Omit `draws` and `seed` to use the service defaults: 1,000 draws and seed 0. `draws` is the number of posterior samples per plan. The local Python library calls the same number `n_samples`.
 
 ## Run a backtest
 
-A backtest forecasts weeks that the dataset already holds, so the forecast can be scored against what happened. `context=(start, end)` gives the first and last input week, and `query_end` the last predicted week; prediction starts the week after `end`. The model does not see the outcome of the predicted weeks. The baseline is the dataset's own spend and controls in those weeks, and the predicted weeks are the scenario window.
+A backtest forecasts weeks that the dataset already holds, so the forecast can be scored against what happened. With the synthetic data above, the backtest below reads the first 91 weeks and forecasts the last 13. `context=(start, end)` gives the first and last input week, and `query_end` the last predicted week; prediction starts the week after `end`. The model does not see the outcome of the predicted weeks. The baseline is the dataset's own spend and controls in those weeks, and the predicted weeks are the scenario window.
 
 ```python
 backtest = client.analyze(
@@ -103,7 +134,7 @@ first_look = client.explore(dataset, plan, preview=True)
 
 ## Read an analysis
 
-An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until it is done or failed; `wait` raises `Gone` if the analysis is deleted or expires meanwhile. `wait` first prints the analysis id and the call that resumes it (`client.get("<id>").wait()`) to `sys.stderr`, and its `TimeoutError` gives the same call: the analysis keeps running, so resume it instead of calling `analyze` again.
+An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until it ends. A `failed` analysis (its baseline failed) can still have active runs: if reading its result raises `NotReady`, call `wait()` again. `wait` raises `Gone` if the analysis is deleted or expires meanwhile. `wait` first prints the analysis id and the call that resumes it (`client.get("<id>").wait()`) to `sys.stderr`, and its `TimeoutError` gives the same call: the analysis keeps running, so resume it instead of calling `analyze` again.
 
 | Member | Result |
 | --- | --- |
@@ -129,4 +160,4 @@ Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the resul
 
 Every request that creates a dataset or analysis carries an `Idempotency-Key` derived from the request content. Automatic retries and repeated equal calls reuse that key, so they do not start work twice; pass `fresh=True` to `analyze`, `explore`, `Analysis.again` or `datasets.create` to start new work, or your own `idempotency_key` (not both). If the earlier equal request was deleted or expired, the service answers 410 and the client raises `Gone`; pass `fresh=True` to run it again. The client never retries a 410 with a new key itself. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
 
-Service responses raise typed [ApiError](../reference/client.ApiError.qmd) subclasses. Common responses include `NotFound`, `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge` (send fewer weeks, scenarios or curves), `RateLimited`, and `ValidationError`; their errors expose the service `code`, `message`, and `field`. Scenario steps were removed: a request with `steps` gets `ValidationError` with code `steps_removed`. Exhausted connection retries raise `ApiConnectionError`, a separate `ClientError` without a service payload.
+Service responses raise typed [ApiError](../reference/client.ApiError.qmd) subclasses. Common responses include `NotFound`, `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge` (send fewer weeks, scenarios or curves), `RateLimited`, and `ValidationError`; their errors expose the service `code`, `message`, and `field`. The code `steps_removed` means that a scenario in the request has `steps`, which the service no longer accepts; [scenario](../reference/client.scenario.qmd) never sends them. Exhausted connection retries raise `ApiConnectionError`, a separate `ClientError` without a service payload.
