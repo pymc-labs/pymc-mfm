@@ -93,7 +93,8 @@ With the `arviz` extra installed, summarize one window with the statistics only:
 ```python
 import arviz_stats
 
-arviz_stats.summary(idata["query"], kind="stats")  # mean, sd and an 89% interval
+# mean, sd and an 89% interval of each variable
+arviz_stats.summary(idata["query"], kind="stats")
 ```
 
 The default `kind` adds MCMC diagnostics such as r_hat, which are undefined for one chain. A window has no `posterior_predictive` group, so posterior predictive checks do not run on it. A window is not a drop-in PyMC-Marketing MMM artifact.
