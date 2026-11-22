@@ -9,12 +9,20 @@
 3. Writes the HTTP API pages into ``docs/api/`` from ``skills/mfm/reference/http.md``
    (see ``http_pages.py``).
 
+The pilot site (``quarto render docs --profile pilot``, ``_quarto-pilot.yml``) carries
+only the client: there this script writes only the "River API client" group of the
+reference, removes the other generated reference pages, gives the attribute links of
+the class summaries a target, and writes an empty HTTP API sidebar instead of the HTTP API
+pages. It copies no notebooks.
+
 Quarto runs this from ``docs/``. Run the build inside the project environment so
 quartodoc is importable: ``uv run --group docs quarto render docs``.
 """
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -25,6 +33,9 @@ DOCS = Path(__file__).resolve().parent.parent
 EXAMPLES = DOCS.parent / "examples"
 GUIDE_EXAMPLES = DOCS / "guide" / "examples"
 REFERENCE = DOCS / "reference"
+API_SIDEBAR = DOCS / "api" / "_sidebar.yml"
+# The quartodoc group that the pilot site keeps.
+PILOT_SECTION = "River API client"
 # Applies to every generated reference page: the reference sidebar and the API styles.
 REFERENCE_METADATA = """\
 sidebar: reference
@@ -48,7 +59,12 @@ def sync_examples() -> list[str]:
     return sorted(sources)
 
 
-def build_reference() -> None:
+def pilot() -> bool:
+    """True when Quarto renders the pilot profile (it sets ``QUARTO_PROFILE``)."""
+    return "pilot" in os.environ.get("QUARTO_PROFILE", "").split(",")
+
+
+def build_reference(*, client_only: bool = False) -> None:
     try:
         from quartodoc import Builder
     except ModuleNotFoundError as error:
@@ -56,11 +72,50 @@ def build_reference() -> None:
             "quartodoc is missing. Build the site in the project environment: "
             "uv run --group docs quarto render docs"
         ) from error
-    Builder.from_quarto_config(str(DOCS / "_quarto.yml")).build()
+    import yaml
+
+    config = yaml.safe_load((DOCS / "_quarto.yml").read_text(encoding="utf-8"))
+    if client_only:
+        sections = config["quartodoc"]["sections"]
+        config["quartodoc"]["sections"] = [s for s in sections if s["title"] == PILOT_SECTION]
+        if not config["quartodoc"]["sections"]:
+            raise SystemExit(f"no quartodoc section titled {PILOT_SECTION!r} in _quarto.yml")
+        # Pages of an earlier full build would stay in reference/ otherwise.
+        for page in REFERENCE.glob("*.qmd"):
+            page.unlink()
+    Builder.from_quarto_config(config).build()
 
 
-def arrange_reference_sidebar() -> None:
-    """Give the quartodoc sidebar an id and put "Python library" first.
+# quartodoc links each attribute in a class summary to "#<qualified name>" but writes no
+# section with that id for attributes, so the link goes nowhere.
+SUMMARY_LINK = re.compile(r"\[([^\]]+)\]\(#([\w.]+)\)")
+SECTION_ID = re.compile(r"\{ #([\w.]+) \}")
+
+
+def anchor_summary_links() -> None:
+    """Turn summary links that have no target into the target: ``[name]{#id}``.
+
+    The first link to a missing id becomes a span with that id, so other links to it land
+    on the summary row. Used by the pilot build only.
+    """
+    for page in sorted(REFERENCE.glob("*.qmd")):
+        text = page.read_text(encoding="utf-8")
+        ids = set(SECTION_ID.findall(text))
+
+        def repl(match: re.Match[str]) -> str:
+            name, target = match.groups()
+            if target in ids:
+                return match.group(0)
+            ids.add(target)
+            return f"[{name}]{{#{target}}}"
+
+        fixed = SUMMARY_LINK.sub(repl, text)
+        if fixed != text:
+            page.write_text(fixed, encoding="utf-8")
+
+
+def arrange_reference_sidebar(first: str = "Python library") -> None:
+    """Give the quartodoc sidebar an id and put the index first, under ``first``.
 
     quartodoc writes the index page first, then one section for each group.
     """
@@ -76,12 +131,22 @@ def arrange_reference_sidebar() -> None:
         )
     entry["id"] = "reference"
     entry["style"] = "floating"
-    entry["contents"] = [{"section": "Python library", "contents": [index]}, *groups]
+    entry["contents"] = [{"section": first, "contents": [index]}, *groups]
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     (REFERENCE / "_metadata.yml").write_text(REFERENCE_METADATA, encoding="utf-8")
 
 
 def main() -> None:
+    if pilot():
+        build_reference(client_only=True)
+        arrange_reference_sidebar("Python reference")
+        anchor_summary_links()
+        print("prepare: pilot: client reference -> reference/", file=sys.stderr)
+        # _quarto.yml names this file in metadata-files; the pilot has no HTTP API pages.
+        API_SIDEBAR.parent.mkdir(parents=True, exist_ok=True)
+        API_SIDEBAR.write_text("{}\n", encoding="utf-8")
+        print("prepare: pilot: no HTTP API pages, no notebooks", file=sys.stderr)
+        return
     notebooks = sync_examples()
     print(f"prepare: {len(notebooks)} example notebook(s) -> guide/examples/", file=sys.stderr)
     build_reference()

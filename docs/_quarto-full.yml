@@ -1,0 +1,72 @@
+# The full site, the default profile (`profile: default: full` in _quarto.yml):
+# `quarto render docs` writes it to docs/_site/. Quarto merges this file over _quarto.yml
+# and joins the lists of both files.
+project:
+  render:
+    - "*.qmd"
+    - "guide/**"
+    - "api/**"
+    - "reference/**"
+    - "models/**"
+    - "migration.md"
+  resources:
+    # The old blog addresses, which now redirect to the PyMC Labs blog.
+    - blog/index.html
+    - blog/posts/*/index.html
+    # The River 1.0 hero's picture and the map of its water (models/river-1/_hero.html).
+    - assets/img/river/*
+
+website:
+  navbar:
+    left:
+      - text: Docs
+        href: guide/index.qmd
+      # The client and the library. The HTTP API pages (api/) are still built, but no menu
+      # links them: testers use the Python client.
+      - text: Python reference
+        href: reference/index.qmd
+      # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
+      # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge,
+      # and a text-only item ending in " SOON" a greyed "Coming soon" entry (models/upcoming.yml).
+      # Items with only `text` are column headers; "---" starts the second column.
+      - text: Models
+        menu:
+          - text: "Models"
+          - text: "River NEW"
+            href: models/river-1/index.qmd
+          - text: "Sea SOON"
+          - text: "Ocean SOON"
+          - text: "---"
+          - text: "Resources"
+          - text: "All models"
+            href: models/index.qmd
+      # pymc-labs.com, which carries the PyMC Labs blog too: MFM has no blog of its own.
+      - text: PyMC Labs
+        href: https://www.pymc-labs.com
+  sidebar:
+    - id: guide
+      title: Guide
+      style: floating
+      collapse-level: 2
+      contents:
+        - section: Get started
+          contents:
+            - guide/index.qmd
+            - guide/concepts.qmd
+            - migration.md
+        - section: Use a model
+          contents:
+            - guide/decompose.qmd
+            - guide/models-hub.qmd
+            - guide/http-api.qmd
+        - section: Train
+          contents:
+            - guide/training.qmd
+        # River's page is a docs page too, so it carries this sidebar.
+        - section: Models
+          contents:
+            - text: River 1.0
+              href: models/river-1/index.qmd
+        - section: Examples
+          # Every notebook in examples/ (copied here at pre-render), titled by its first heading.
+          contents: "guide/examples/*.ipynb"
