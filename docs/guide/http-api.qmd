@@ -5,21 +5,13 @@ description: "Use the Python client to upload a history, run analyses and backte
 
 ## Before you start
 
-The client needs Python 3.11 or newer. Install it from PyPI:
-
-```bash
-pip install pymc-mfm
-```
-
-To read every draw (`.nc` files) or to draw plots, run `pip install "pymc-mfm[client]"` instead.
-
-Create your API key on the Connect page of the River API console, which also shows your service URL. Set them as `MFM_API_URL` and `MFM_API_KEY`, as in [Get access](index.qmd#get-access); do not write them into code or files.
+Install the client as in [Install](index.qmd#install-client) (`pip install pymc-mfm`, Python 3.11 or newer). Set your service URL and API key as `MFM_API_URL` and `MFM_API_KEY`, as in [Get access](index.qmd#get-access).
 
 The code blocks on this page run in order: each one continues the blocks before it. Paste them into one file or one Python session, from the top. The first block makes the same synthetic data as [Run a first analysis](index.qmd#run-a-first-analysis).
 
 ## Create a client
 
-[pymc_mfm.client](../reference/client.Client.qmd) is the client for the hosted River API. It needs no PyTorch. Without the `[client]` extra (`pip install pymc-mfm`), everything but per-draw files and plots works. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
+[pymc_mfm.client](../reference/client.Client.qmd) is the client for the hosted River API. It needs no PyTorch. Everything but per-draw files and plots works without the `[client]` extra. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
 
 ```python
 import numpy as np
