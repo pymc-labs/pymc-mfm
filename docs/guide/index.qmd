@@ -5,7 +5,7 @@ description: "Run your first analysis on the hosted River API with the Python cl
 
 ## What PyMC MFM does
 
-You give PyMC MFM a weekly table of marketing spend, other drivers (controls, such as a price or a holiday flag) and an outcome such as sales. It estimates how much each channel contributed to the outcome as posterior draws: each draw is one plausible split of the outcome, so their spread shows how uncertain the estimate is.
+You give PyMC MFM (marketing foundational models) a weekly table of marketing spend, other drivers (controls, such as a price or a holiday flag) and an outcome such as sales. It estimates how much each channel contributed to the outcome as posterior draws: each draw is one plausible split of the outcome, so their spread shows how uncertain the estimate is.
 
 ## Use the hosted River API {#hosted-api}
 
