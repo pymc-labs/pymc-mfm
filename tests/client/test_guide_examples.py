@@ -41,7 +41,15 @@ HISTORY_START, HISTORY_END, PLAN_START = "2024-11-11", "2026-11-02", "2026-11-09
 PLAN_DATES = list(pd.date_range(PLAN_START, periods=8, freq="7D").strftime("%Y-%m-%d"))
 SCENARIOS = ("half", "tv_to_search")
 # The columns that step 4 of the Get started script prints and saves.
-OUTCOME_COLUMNS = ["scenario_id", "status", "mean", "p05", "p95", "mean_difference", "simulation_se"]
+OUTCOME_COLUMNS = [
+    "scenario_id",
+    "status",
+    "mean",
+    "p05",
+    "p95",
+    "mean_difference",
+    "simulation_se",
+]
 
 
 def guide_example(name: str) -> str:
