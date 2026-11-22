@@ -75,6 +75,10 @@ distribution prerequisites, not an approved or published release.
   warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
   `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
   see `docs/migration.md`.
+- **Client (for `client-v0.1.0`): a missing or rejected key says where to get one.**
+  `Client()` without a service URL or API key, and an `Unauthorized` (401) error, now
+  name the Connect page of the River API console, which shows the service URL and
+  creates or replaces the key. The 401 text keeps the service's code and message first.
 - **Installed-artifact CI contracts.** The bare wheel is checked separately for
   lightweight client isolation. Local and diagnostics wheels positively exercise
   their declared tree dependencies and automatic idata instead of expecting

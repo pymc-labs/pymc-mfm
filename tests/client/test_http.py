@@ -49,10 +49,36 @@ def test_url_and_key_come_from_the_environment(monkeypatch, service):
 def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
     monkeypatch.delenv("MFM_API_URL", raising=False)
     monkeypatch.delenv("MFM_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="MFM_API_URL"):
+    with pytest.raises(ValueError) as caught:
         Client(api_key="k")
-    with pytest.raises(ValueError, match="MFM_API_KEY"):
+    assert str(caught.value) == (
+        "Pass base_url or set the MFM_API_URL environment variable. The Connect page of "
+        "the River API console shows the service URL."
+    )
+    with pytest.raises(ValueError) as caught:
         Client(BASE_URL)
+    assert str(caught.value) == (
+        "Pass api_key or set the MFM_API_KEY environment variable. Create or replace "
+        "your API key on the Connect page of the River API console."
+    )
+
+
+@pytest.mark.parametrize(
+    ("message", "shown"),
+    [
+        ("Bad key.", "Bad key."),
+        ("bad key", "bad key."),  # a message without a full stop still reads as two sentences
+    ],
+)
+def test_a_rejected_key_says_where_the_key_comes_from(client, service, message, shown):
+    service.on("GET", "/v1/datasets/ds_123", (401, error_body("unauthorized", message)))
+    with pytest.raises(Unauthorized) as caught:
+        client.datasets.get("ds_123")
+    assert str(caught.value) == (
+        f"HTTP 401 unauthorized: {shown} Check the key in MFM_API_KEY (or api_key). "
+        "Create or replace your API key on the Connect page of the River API console."
+    )
+    assert caught.value.message == message
 
 
 def test_post_sends_a_content_derived_idempotency_key(client, service, history):
