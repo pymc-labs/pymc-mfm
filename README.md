@@ -570,7 +570,7 @@ analysis = client.analyze(
     plan,  # the baseline plan for the weeks after the history, a DataFrame or a dict
     scenarios=[
         scenario("half", {"tv": 0.5, "search": 0.5}),  # a number multiplies a channel's spend
-        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_000)}),  # sets a total
+        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_800)}),  # sets a total
         *grid({"tv": [0.5, 1.5], "search": [0.5, 1.5]}),
     ],
     decision_weeks=(1, 8),
