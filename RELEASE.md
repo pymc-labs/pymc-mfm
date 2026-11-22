@@ -75,11 +75,22 @@ distribution prerequisites, not an approved or published release.
   warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
   `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
   see `docs/migration.md`.
+- **Client (for `client-v0.1.0`): a missing or rejected key says where to get one.**
+  `Client()` without a service URL or API key, and an `Unauthorized` (401) error, now
+  name the Connect page of the River API console, which shows the service URL and
+  creates or replaces the key. The 401 text keeps the service's code and message first.
 - **Installed-artifact CI contracts.** The bare wheel is checked separately for
   lightweight client isolation. Local and diagnostics wheels positively exercise
   their declared tree dependencies and automatic idata instead of expecting
   exports to fail. Installed local-wheel checks cover both return modes,
   independent prediction and automatic curve attachment.
+- **Client (for `client-v0.1.0`): `wait` returns when every run has ended.** The service
+  marks an analysis `failed` as soon as its baseline fails, while other runs can still be
+  active. `AnalysisStatus.finished`, and so `Analysis.wait`, now count a `failed` analysis
+  as finished only when its done, failed and cancelled runs add up to `runs_total`, so
+  `table` no longer raises `NotReady` right after `wait`. The `TimeoutError` of `wait`
+  says how many runs have ended. A service that does not send `runs_cancelled` can keep
+  such an analysis unfinished; pass `timeout`.
 - **Private inference stages.** `_add_context`, `_add_query` and `_sample_context`
   prepare independent candidates; complete inference only orchestrates them and
   publishes the successful run. Prediction and preflight reuse their relevant
