@@ -1,0 +1,41 @@
+# What the public `pymc-mfm` client package says about itself and which library files it ships.
+# build_client_package.py reads this file, LICENSE and README.template.md, and this repository's
+# pyproject.toml (dependency bounds and extras). Nothing else decides what goes to PyPI.
+[license]
+# Apache-2.0 covers the client package only. The library's own licence is a separate decision.
+# To change it, replace LICENSE and the SPDX id (https://spdx.org/licenses/).
+spdx = "Apache-2.0"
+file = "LICENSE"
+
+[package]
+name = "pymc-mfm"
+# Lowest Python the client passes on (import and the client tests on 3.11, 3.12 and 3.13).
+# 3.10 fails: analysis.py does `from datetime import UTC`. The library itself says >=3.13;
+# this value wins for the client package. Change it only after a new test run.
+requires_python = ">=3.11"
+default_version = "0.1.0"
+description = "Python client for PyMC MFM (marketing foundational models), the hosted service from PyMC Labs."
+author = "PyMC Labs"
+
+[files]
+# The reviewed list of library files the package ships (paths under src/). Nothing else is copied.
+# A new file in client/ makes the build fail until a reviewer adds it here. The package's root
+# __init__.py is not the library's: the build generates one (see build_client_package.py).
+allowlist = [
+    "pymc_mfm/client/__init__.py",
+    "pymc_mfm/client/_client.py",
+    "pymc_mfm/client/_dates.py",
+    "pymc_mfm/client/_hash.py",
+    "pymc_mfm/client/_http.py",
+    "pymc_mfm/client/_wire.py",
+    "pymc_mfm/client/analysis.py",
+    "pymc_mfm/client/builders.py",
+    "pymc_mfm/client/datasets.py",
+    "pymc_mfm/client/errors.py",
+    "pymc_mfm/client/plots.py",
+]
+
+[extras]
+# Extras of the package. Each is read from the library's pyproject.toml, with `pymc-mfm[...]`
+# references expanded, so the package asks for the same dependencies as the library.
+names = ["draws", "plot", "client"]
