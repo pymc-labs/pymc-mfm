@@ -284,13 +284,61 @@ def test_wait_polls_until_done(client, service):
     assert analysis.status().finished
 
 
-def test_wait_times_out_and_says_how_to_resume(client, service):
-    service.on("GET", "/v1/analyses/an_1", (200, status_record("running")))
+@pytest.mark.parametrize(
+    ("status", "runs_done", "runs_failed", "runs_cancelled", "finished"),
+    [
+        ("done", 3, 0, 0, True),
+        ("done", 2, 1, 0, True),
+        ("failed", 0, 1, 0, False),  # the baseline failed; two runs are still active
+        ("failed", 1, 1, 1, True),
+        ("failed", 0, 1, 2, True),
+        ("running", 2, 1, 0, False),
+    ],
+)
+def test_finished_waits_for_every_run_of_a_failed_analysis(
+    client, service, status, runs_done, runs_failed, runs_cancelled, finished
+):
+    record = status_record(
+        status,
+        runs_done=runs_done,
+        runs_failed=runs_failed,
+        runs_cancelled=runs_cancelled,
+    )
+    service.on("GET", "/v1/analyses/an_1", (200, record))
+    assert client.get("an_1").status().finished is finished
+
+
+def test_wait_polls_a_failed_analysis_until_every_run_ends(client, service):
+    service.on(
+        "GET",
+        "/v1/analyses/an_1",
+        (200, status_record("failed", runs_done=0, runs_failed=1)),
+        (200, status_record("failed", runs_done=1, runs_failed=1)),
+        (200, status_record("failed", runs_done=1, runs_failed=1, runs_cancelled=1)),
+    )
     analysis = client.get("an_1")
-    with pytest.raises(TimeoutError, match="running") as caught:
+    assert analysis.wait(poll=0, announce=False) is analysis
+    # One read by get, then one per poll until the third record: no early return.
+    assert len(service.sent("GET", "/v1/analyses/an_1")) == 3
+    assert analysis.status().runs_cancelled == 1
+
+
+@pytest.mark.parametrize(
+    ("record", "state"),
+    [
+        (status_record("running"), "'running'"),
+        (status_record("failed", runs_done=0, runs_failed=1), "'failed'"),
+    ],
+)
+def test_wait_times_out_and_says_how_to_resume(client, service, record, state):
+    service.on("GET", "/v1/analyses/an_1", (200, record))
+    analysis = client.get("an_1")
+    with pytest.raises(TimeoutError) as caught:
         analysis.wait(timeout=0, poll=0.01)
-    assert "client.get('an_1').wait()" in str(caught.value)
-    assert "keeps running" in str(caught.value)
+    assert str(caught.value) == (
+        f"Analysis an_1 is still {state} after waiting, with 1 of 3 runs ended. It keeps "
+        "running. Do not start it again: resume with client.get('an_1').wait()"
+    )
 
 
 def test_wait_prints_the_id_before_it_blocks(client, service, capsys):

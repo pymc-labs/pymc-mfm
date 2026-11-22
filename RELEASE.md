@@ -7,6 +7,19 @@ distribution prerequisites, not an approved or published release.
 
 ## Current changes
 
+- **Default sampling is 1,000 draws.** `DEFAULT_N_SAMPLES` falls from 2,000 to 1,000.
+  Entrypoints whose `n_samples` defaults to `DEFAULT_N_SAMPLES` (`MFM.inference`,
+  `MFM.predict`, `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`,
+  `MFM.sample_disentangled`, `decompose` and the flow head's `sample`) now draw 1,000
+  samples when `n_samples` is omitted. `MFM.response_curves()` without `n_samples`
+  still inherits the draw count of the last successful inference, so it draws 1,000
+  only when that inference did. In the README's historical query-only CPU measurements
+  for River-1, 1,000 draws took 2.6, 12.3 and 34.8 s against 4.4, 22.0 and 69.8 s at
+  2,000 draws for 10, 50 and 150 query weeks. Those runs did not measure paired
+  inference, curves or GPU calls, so other calls can save less. Pass `n_samples=2_000`
+  to keep the old count. A seed alone does not reproduce a run made with the old
+  default: pass the same `random_seed` and `n_samples=2_000` to get the old draw count
+  and random stream under the same execution settings.
 - **Complete paired inference and automatic idata.**
   `model.inference(context, query, date_column=..., target_column=...,
   channel_columns=..., control_columns=...)` samples query and context and
@@ -48,15 +61,36 @@ distribution prerequisites, not an approved or published release.
   preserves reviewed numeric/chart outputs and every graph analysis/export;
   its headless acceptance uses a synthetic stand-in without downloading weights.
   No runtime context, result, curve or idata is captured in weight bundles.
+- **First-use errors and docs.** Inference errors say what to change: an empty role
+  list, the columns with negative spend or non-finite values, a target with zero or
+  negative outcomes, and for irregular context dates the observed intervals or the
+  calendar frequency they break, without extrapolated dates. `decompose` given a
+  DataFrame points to `model.inference`. `validate_idata` and `load_idata` say when a
+  tree has no `schema_version` (for example an ArviZ file), and the `FileExistsError` of
+  `save_idata` names the target, not its temporary file. The guide shows the ArviZ
+  summary that works on a window, `docs/migration.md` lists the removed `add_context`,
+  `build_idata` and `inference(query)` calls with `model.query_result` for the old
+  return value, and the README states River-1's training range.
 - **Compatibility break: `ModelPlots` is now a function.** `ModelPlots(model)` still works and
   warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
   `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
   see `docs/migration.md`.
+- **Client (for `client-v0.1.0`): a missing or rejected key says where to get one.**
+  `Client()` without a service URL or API key, and an `Unauthorized` (401) error, now
+  name the Connect page of the River API console, which shows the service URL and
+  creates or replaces the key. The 401 text keeps the service's code and message first.
 - **Installed-artifact CI contracts.** The bare wheel is checked separately for
   lightweight client isolation. Local and diagnostics wheels positively exercise
   their declared tree dependencies and automatic idata instead of expecting
   exports to fail. Installed local-wheel checks cover both return modes,
   independent prediction and automatic curve attachment.
+- **Client (for `client-v0.1.0`): `wait` returns when every run has ended.** The service
+  marks an analysis `failed` as soon as its baseline fails, while other runs can still be
+  active. `AnalysisStatus.finished`, and so `Analysis.wait`, now count a `failed` analysis
+  as finished only when its done, failed and cancelled runs add up to `runs_total`, so
+  `table` no longer raises `NotReady` right after `wait`. The `TimeoutError` of `wait`
+  says how many runs have ended. A service that does not send `runs_cancelled` can keep
+  such an analysis unfinished; pass `timeout`.
 - **Private inference stages.** `_add_context`, `_add_query` and `_sample_context`
   prepare independent candidates; complete inference only orchestrates them and
   publishes the successful run. Prediction and preflight reuse their relevant
@@ -387,7 +421,7 @@ history, not current workflow instructions.
 - **Fixed architecture.** `ModelConfig` holds only size and geometry.
   - The five loss weights and checkpoint selection (`selection_head`, conditional by default) belong to `TrainingConfig` / `LossWeights`.
   - The flow numerics are constants: 2 Fourier frequencies, 16 Euler steps, trajectory correlation 0.98.
-  - `DEFAULT_N_SAMPLES` is the draw count when `n_samples` is omitted (32 then, 2,000 now).
+  - `DEFAULT_N_SAMPLES` is the draw count when `n_samples` is omitted (32 then, 1,000 now).
   - A float64 architecture lock test pins losses, samples and every parameter's default-loss gradient of a two-layer model to outputs recorded before the refactor.
 - **A/B bundles.**
   - Original dimensional A/B weights require retraining for semantic representation 2; matching tensor shapes are not compatibility.

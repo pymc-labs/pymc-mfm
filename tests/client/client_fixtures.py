@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
 from .contract_check import check_response
 
@@ -51,6 +54,35 @@ class FakeService:
     @staticmethod
     def body(request: httpx.Request) -> Any:
         return json.loads(request.content)
+
+
+def analysis_posts(service: FakeService) -> list[dict[str, Any]]:
+    """The bodies of every ``POST /v1/analyses`` sent to ``service``, in order."""
+    return [service.body(r) for r in service.sent("POST", "/v1/analyses")]
+
+
+def route_examples_to(service: FakeService, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run a documented example as pasted, against ``service``.
+
+    An example builds its own ``Client()`` from ``MFM_API_URL`` and ``MFM_API_KEY``, so this
+    sets both and gives every new ``httpx.Client`` the fake transport.
+    """
+    monkeypatch.setenv("MFM_API_URL", BASE_URL)
+    monkeypatch.setenv("MFM_API_KEY", "test-key")
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        lambda **kwargs: real_client(**{**kwargs, "transport": httpx.MockTransport(service)}),
+    )
+
+
+def marked_example(path: Path, marker: str, name: str) -> str:
+    """The Python block after ``<!-- {marker}: {name} -->`` in a Markdown or Quarto file."""
+    pattern = rf"<!-- {marker}: {re.escape(name)} -->\n```python\n(.*?)```"
+    match = re.search(pattern, path.read_text(), re.DOTALL)
+    assert match, f"{path.name} must mark the example with '<!-- {marker}: {name} -->'"
+    return match.group(1)
 
 
 def error_body(code: str, message: str, field: str | None = None) -> dict[str, Any]:

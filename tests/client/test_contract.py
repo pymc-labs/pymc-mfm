@@ -91,6 +91,11 @@ def test_the_retry_statuses_are_the_contract_retry_statuses():
 
 def test_result_and_list_columns_follow_the_contract_in_order():
     assert list(analysis_module.TABLE_COLUMNS) == FIELDS["result_row"]["ordered"]
+    # The Analysis docstring (the Python reference page) names every column, in order.
+    listed = analysis_module.Analysis.__doc__.split("Its columns, in order:")[1]
+    named = re.findall(r"``([a-z_0-9]+)``", listed)
+    columns = [name for name in named if name in analysis_module.TABLE_COLUMNS]
+    assert list(dict.fromkeys(columns)) == list(analysis_module.TABLE_COLUMNS)
     assert list(_client.LIST_COLUMNS) == FIELDS["analysis_list_item"]["ordered"]
 
 

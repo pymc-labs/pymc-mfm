@@ -35,14 +35,13 @@ class Dataset:
     zero. Use it to keep a plan inside what the history shows. The 5th and 95th percentiles
     are warning thresholds, not the edge of the observed data; ``max`` is the largest week.
 
-    ``expires_at`` is the current deadline. The service moves it later each time you use the
-    dataset, up to a fixed maximum after upload, so read it again with ``datasets.get``
-    instead of keeping it. ``content_hash`` identifies the values (see
-    ``dataset_content_hash``). ``content_hash``, ``created_at``, ``last_used_at`` and
-    ``analyses`` (the number of live analyses), ``outcome_name`` and ``currency`` (labels from
-    the summary) are ``None`` when an older service does not
-    send them. ``warning_details`` holds the structured form of ``warnings`` and is empty when
-    the service does not send it.
+    ``expires_at`` is the deadline the service sets. The hosted River API keeps a dataset 7
+    days after upload and does not extend it, so read the deadline instead of computing it.
+    ``content_hash`` identifies the values (see ``dataset_content_hash``). ``content_hash``,
+    ``created_at``, ``last_used_at`` and ``analyses`` (the number of live analyses),
+    ``outcome_name`` and ``currency`` (labels from the summary) are ``None`` when an older
+    service does not send them. ``warning_details`` holds the structured form of ``warnings``
+    and is empty when the service does not send it.
     """
 
     dataset_id: str
