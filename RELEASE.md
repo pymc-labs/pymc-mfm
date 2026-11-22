@@ -95,6 +95,15 @@ distribution prerequisites, not an approved or published release.
   prepare independent candidates; complete inference only orchestrates them and
   publishes the successful run. Prediction and preflight reuse their relevant
   stages without exposing new public setters or partial model state.
+- **Client package `pymc-mfm` for PyPI (not published).** `packaging/client/` builds a wheel
+  and an sdist that hold only the hosted client (`pymc_mfm.client`, 11 files from a fixed
+  allowlist) and no model, training or inference code. `import pymc_mfm` in that package gives
+  the version and a clear `ImportError` for library names such as `MFM`; `pymc-mfm[local]` does
+  not exist there. The client package requires Python 3.11 or newer; the library needs 3.13.
+  The build refuses a commit where `Analysis.wait()` can return while runs are active, or where
+  a client docstring says the dataset expiry moves later on use. The manual `publish-sdk` workflow builds from
+  this checkout and publishes only from `main` with `dry_run` false. The client package is
+  Apache-2.0; the library's licence is not decided.
 
 ## Historical development records
 
