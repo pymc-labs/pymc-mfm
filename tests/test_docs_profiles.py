@@ -28,7 +28,7 @@ def test_pilot_renders_only_the_tester_pages() -> None:
     assert pilot["project"]["render"] == [
         "index.qmd",
         "guide/index.qmd",
-        "guide/http-api.qmd",
+        "guide/python-client.qmd",
         "reference/index.qmd",
         "reference/client.*.qmd",
     ]
