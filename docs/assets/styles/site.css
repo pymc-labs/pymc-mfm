@@ -4,7 +4,7 @@
    Landing-only and page-specific rules live in landing.css, model.css and the other page sheets.
 
    House rules: the PyMC Labs brand pair. Inter 400 for text, 500 only for h3 and smaller, the
-   current page, sidebar group titles, the Console button and strong; Archivo Expanded (Archivo
+   current page, sidebar group titles, the Get access button and strong; Archivo Expanded (Archivo
    at width 125) for headlines and large text: page titles at 400, section headings (h2) at 500.
    Corners 6, 8 and 12 px, no pills. No thin rules except real tables. A surface is a tone step,
    never a line or a shadow. No dot separators in titles or labels. */
@@ -403,7 +403,7 @@ body.quarto-dark .navbar-logo {
    search as 40px squares, then the labelled Get access button. Bootstrap keeps the collapse as a
    flex box with !important; display: contents lets the link lists, the tools and the search
    button sit in one row, ordered below. The right-hand list lays out its own items in that row
-   too, so the Console comes last, after search. */
+   too, so Get access comes last, after search. */
 @media (min-width: 992px) {
   .navbar-expand-lg .navbar-collapse {
     display: contents !important; /* Bootstrap sets display: flex !important here */
@@ -987,7 +987,7 @@ html body .aa-DetachedContainer--modal .aa-PanelLayout {
 }
 
 /* Dark chrome pages (the landing page): the same tokens as dark mode, whichever mode is stored,
-   and the light Console button on the navy bar. */
+   and the light Get access button on the navy bar. */
 body.mfm-landing:is(.quarto-light, .quarto-dark) {
   --mfm-bg: #07142a;
   --mfm-ink: #dde3ee;
@@ -1777,7 +1777,7 @@ body.mfm-landing footer.footer {
 
 /* Phone: one menu ------------------------------------------------------------------------ */
 /* Below 992px Quarto's second bar (page title and sidebar toggle) is gone. The navbar panel
-   lists the main links, Open Console, then the pages of the current section (site.js clones
+   lists the main links, Get access, then the pages of the current section (site.js clones
    them into .mfm-phone-pages). */
 .mfm-phone-pages {
   display: none;
@@ -1914,7 +1914,7 @@ body.mfm-landing footer.footer {
     font-size: 1.125rem;
   }
 
-  /* The Open Console button keeps its own colours. */
+  /* The Get access button keeps its own colours. */
   #navbarCollapse .navbar-nav .nav-link:not([data-mfm]) {
     color: var(--mfm-ink);
   }

@@ -109,7 +109,7 @@
   }
 
   /* Navbar text links to another host get .is-external (site.css adds an ArrowUpRight). By host,
-     not by the href text: Quarto rewrites the site's own links to full addresses. The Console
+     not by the href text: Quarto rewrites the site's own links to full addresses. Get access
      and icon links (GitHub) draw their own icons. */
   function initExternalLinks() {
     document.querySelectorAll("#navbarCollapse .navbar-nav > .nav-item > a.nav-link").forEach((link) => {
