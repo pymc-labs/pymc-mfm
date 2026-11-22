@@ -44,7 +44,7 @@ body.mfm-landing .navbar {
   --bs-navbar-brand-hover-color: #ffffff;
 }
 
-/* The Open Console button keeps the theme's light-on-navy colours. */
+/* The Get access button keeps the theme's light-on-navy colours. */
 body.mfm-landing .navbar .nav-link:not([data-mfm="console"]),
 body.mfm-landing .navbar .navbar-title,
 body.mfm-landing .navbar .bi {
