@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
+from conftest import CHART_ROLES
 
 from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.inference.api import decompose, observation_batch
@@ -590,18 +591,27 @@ def test_decomposition_restores_units_without_changing_graphs(
     assert replay.units == "rescaled sales"
 
 
-def test_default_draw_count_is_2000_on_every_public_sampling_signature():
+def test_default_draw_count_is_1000_on_every_public_sampling_signature():
     from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, JointFlowHead
     from pymc_mfm.model.model import MFM
 
-    assert DEFAULT_N_SAMPLES == 2000
+    assert DEFAULT_N_SAMPLES == 1000
     for fn in (
         decompose,
         MFM.inference,
+        MFM.predict,
         MFM.predict_batch,
         MFM.sample_context,
         MFM.sample_disentangled,
         MFM.sample,
         JointFlowHead.sample,
     ):
-        assert inspect.signature(fn).parameters["n_samples"].default == 2000, fn.__qualname__
+        assert inspect.signature(fn).parameters["n_samples"].default == 1000, fn.__qualname__
+
+
+def test_calls_that_omit_the_draw_count_sample_1000_draws(model, chart_frames):
+    history, future = chart_frames
+    tree = model.inference(history, future, **CHART_ROLES, random_seed=0)
+    assert tree["context/posterior"].sizes["draw"] == 1000
+    assert tree["query/posterior"].sizes["draw"] == 1000
+    assert model.predict(future, random_seed=0).n_samples == 1000
