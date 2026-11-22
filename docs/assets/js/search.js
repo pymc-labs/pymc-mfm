@@ -3,7 +3,7 @@
      - Ctrl/Cmd+K also opens it (Quarto handles "/").
      - Each result gets a plain path line ("Guide, Decompose a time series"); API and reference
        rows show the first sentence of the page description instead of the signature.
-     - "No results" names the query and links to the Guide and the HTTP API.
+     - "No results" names the query and links to the Guide and the Python reference.
      - ARIA: the input is a combobox; the sheet's close button is "Close search".
    Paths resolve from Quarto's quarto:offset meta, so the site works under any folder. */
 (() => {
@@ -157,10 +157,10 @@
       const guide = document.createElement("a");
       guide.href = new URL("guide/index.html", siteRoot).href;
       guide.textContent = "Guide";
-      const api = document.createElement("a");
-      api.href = new URL("api/index.html", siteRoot).href;
-      api.textContent = "HTTP API";
-      block.replaceChildren(text, guide, api);
+      const reference = document.createElement("a");
+      reference.href = new URL("reference/index.html", siteRoot).href;
+      reference.textContent = "Python reference";
+      block.replaceChildren(text, guide, reference);
     }
     if (none.nextElementSibling !== block) none.after(block);
   }

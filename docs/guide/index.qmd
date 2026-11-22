@@ -1,13 +1,244 @@
 ---
 title: "Get started"
-description: "Install PyMC MFM and produce posterior component draws for one time series."
+description: "Run your first analysis on the hosted River API with the Python client, or install the Python library for local inference."
 ---
 
 ## What PyMC MFM does
 
-PyMC MFM trains and runs amortized neural networks for marketing-mix decomposition. A network is trained once on many simulated worlds, then reads a regularly spaced time series of media spend, controls, and observed outcome. It returns posterior draws of baseline, channel, control, and unobserved-factor contributions, together with a causal graph for each draw. [inference(context, query, ...)](../reference/model.MFM.qmd) conditions on observed history without training or refitting its weights.
+You give PyMC MFM (marketing foundational models) a weekly table of marketing spend, other drivers (controls, such as a price or a holiday flag) and an outcome such as sales. It estimates how much each channel contributed to the outcome as posterior draws: each draw is one plausible split of the outcome, so their spread shows how uncertain the estimate is.
 
-## Install
+## Use the hosted River API {#hosted-api}
+
+River is the trained network behind PyMC MFM. The hosted River API runs River for you, so you need no model weights and no PyTorch. You call it from Python with the client, `pymc_mfm.client`: you send a weekly history and a plan for the weeks after it, and the service forecasts the plan and compares budget scenarios against it.
+
+### Get access
+
+Access is by invitation. Your invitation links to the River API console. Create your API key on its Connect page, which also shows your service URL. The page shows the key once; if you lose it, replace it there. Each key belongs to one person: keep it secret, and out of any file you share.
+
+Set both as environment variables, so your code never contains them. Use the `https://` service URL exactly as the Connect page shows it. The client sends your key only to that URL.
+
+```bash
+export MFM_API_URL="<your service URL>"
+export MFM_API_KEY="<your key>"
+```
+
+Use the synthetic data of the script below unless your invitation says you may upload your own.
+
+The service is a research preview. It may change, pause or reset at any time, so keep your own copy of your data and results. If something fails and this page does not explain it, reply to your invitation. Include the full error text, the time, and the dataset or analysis id if you have one.
+
+### Install {#install-client}
+
+The client needs Python 3.11 or newer, and no PyTorch:
+
+```bash
+pip install pymc-mfm
+```
+
+The examples in this section need nothing more. To read every draw (`.nc` files) or to draw plots, run `pip install "pymc-mfm[client]"` instead.
+
+### Run a first analysis
+
+The script below needs no data of yours. Step 1 makes a synthetic weekly history of 104 weeks, with two channels (`tv` and `search`) and one control (`price`), and a plan for the 8 weeks after it. Step 2 uploads the history as a dataset. Step 3 starts an analysis of the plan with two budget scenarios and waits for it to end. Step 4 prints one row per plan and the address of the result page. The data is synthetic, so the numbers show how the client works and say nothing about real marketing.
+
+A scenario changes the budget of the plan. A number multiplies the spend of a channel over the plan weeks. `amount(x)` sets the total spend of a channel over the plan weeks to `x`. A channel you leave out keeps its spend. `half` halves the spend of both channels. `tv_to_search` moves 20% of the tv budget to search: tv falls from 64,000 to 51,200 and search rises from 48,000 to 60,800, so the total stays 112,000. The plan itself is the baseline, with the id `baseline`. This `baseline` plan is not the `baseline` component in the result table, which is the model's baseline contribution to the outcome.
+
+Save the script as `first_analysis.py` and run `python first_analysis.py`.
+
+<!-- guide-example: quickstart -->
+```python
+import numpy as np
+import pandas as pd
+
+from pymc_mfm.client import Client, amount, scenario
+
+# 1. Synthetic data: a weekly history of 104 weeks and a plan for the 8 weeks after it.
+rng = np.random.default_rng(0)
+weeks = pd.date_range("2024-11-11", periods=104, freq="7D")
+tv = rng.gamma(4.0, 2_000.0, size=104)
+search = rng.gamma(4.0, 1_500.0, size=104)
+price = rng.normal(10.0, 0.3, size=104)
+noise = rng.normal(0, 500, size=104)
+sales = 40_000 + 0.8 * tv + 1.2 * search - 1_000 * (price - 10.0) + noise
+history = pd.DataFrame(
+    {"week": weeks, "sales": sales, "tv": tv, "search": search, "price": price}
+)
+first_plan_week = history["week"].iloc[-1] + pd.Timedelta(weeks=1)
+plan = pd.DataFrame(
+    {
+        "week": pd.date_range(first_plan_week, periods=8, freq="7D"),
+        "tv": 8_000.0,  # planned spend per week
+        "search": 6_000.0,
+        "price": 10.0,  # the control value per week
+    }
+)
+
+# 2. Upload the history. With reuse=True, the same data again reuses the stored dataset.
+client = Client()  # reads MFM_API_URL and MFM_API_KEY
+dataset = client.datasets.create(
+    history,
+    date="week",
+    outcome="sales",
+    spend=["tv", "search"],
+    controls=["price"],
+    name="first-look",
+    reuse=True,
+)
+print("dataset", dataset.dataset_id, "expires", dataset.expires_at)
+for warning in dataset.warnings:
+    print("dataset warning:", warning)
+
+# 3. Analyze the plan and two budget scenarios, and wait until the analysis ends.
+analysis = client.analyze(
+    dataset,
+    plan,
+    scenarios=[
+        scenario("half", {"tv": 0.5, "search": 0.5}),
+        scenario("tv_to_search", {"tv": 0.8, "search": amount(60_800)}),
+    ],
+    seed=7,
+    name="first-scenarios",
+)
+analysis.wait()
+
+# 4. Print the outcome rows, save them, and print the address of the result page.
+table = analysis.table
+outcome = table[table["component"] == "outcome"]
+columns = [
+    "scenario_id", "status", "mean", "p05", "p95", "mean_difference", "simulation_se"
+]
+print(outcome[columns].to_string(index=False))
+outcome[columns].to_csv("first_analysis.csv", index=False)
+print("result page:", analysis.url)
+```
+
+The script prints a table with one `outcome` row for the `baseline` plan and one for each scenario, and saves it as `first_analysis.csv` in the current folder. `mean`, `p05` and `p95` are totals over the forecast, and `mean_difference` is the paired change against the baseline. The service gives no interval for a difference between scenarios. `simulation_se` is the sampling error of `mean_difference` from the finite number of draws: treat a difference smaller than about twice `simulation_se` as noise, or run again with more draws. The difference between two plans is River's expected outcome under the changed plan. It is not measured causal lift. Read `analysis.labels` before you compare plans. [Analysis](../reference/client.Analysis.qmd) lists every column of the table.
+
+The last line prints `analysis.url`, the address of the result page of the analysis in the River API console. The console shows this analysis as a forward plan, without the fit on your history; the backtest below adds the fit. If the service has no site address, the script prints `None`.
+
+Before it waits, `wait()` prints the analysis id and the call that resumes it, for example `client.get('an_...').wait()`. If the script stops while it waits, the analysis keeps running on the service. Resume it with that call, or run the script again. The same upload and the same analysis request return the stored dataset and analysis, so nothing runs twice.
+
+### Check River with a backtest
+
+A backtest forecasts weeks that you already know and scores the forecast against them. Add these lines to the end of the script and run it again. The first part returns the same dataset and analysis, so only the backtest is new work. The backtest reads the history up to 13 weeks before its end and forecasts the last 13 weeks.
+
+<!-- guide-example: backtest -->
+```python
+# 5. A backtest: forecast the last 13 weeks of the history from the weeks before them.
+backtest = client.analyze(
+    dataset,
+    # The first and the last input week.
+    context=(history["week"].iloc[0], history["week"].iloc[-14]),
+    query_end=history["week"].iloc[-1],  # last forecast week
+    seed=7,
+    name="first-backtest",
+)
+backtest.wait()
+print(backtest.fit.to_string(index=False))
+print("backtest result page:", backtest.url)
+```
+
+`fit` has one row for each window (`context`: the input weeks; `query`: the forecast weeks) and `metric`: `r2`, `mape` (a fraction) and `crps` (continuous ranked probability score: the error of the whole forecast distribution; lower is better). For `r2` and `mape`, `value` scores the mean forecast and `sd` is its spread over draws. `crps` scores the draws themselves and has no `sd`. A backtest also has `shares` and `curves`; see [Use the River API from Python](http-api.qmd#run-a-backtest).
+
+### How far to trust the first result
+
+River is pretrained, so no MCMC (Markov chain Monte Carlo sampling) runs on your data. The `r_hat` and ESS (effective sample size) checks do not apply. The draws approximate a posterior under the assumptions of the simulator that made River's training data. The intervals leave out weekly noise. River is tested on simulated data only, so do not use it alone for budget decisions. Read the [Limits](../models/river-1/index.qmd#limits) of River first. To check River on your own data, run the [backtest](#check-river-with-a-backtest) on it.
+
+A plan can fail on its own. The analysis is then `done`, and the rows of that plan have `status` `failed` and no numbers. If the baseline fails, the analysis is `failed`; `wait()` still returns only after its other runs end. The same request then returns the same failed analysis. To run it again, pass `fresh=True` to `analyze`.
+
+### Use your own data
+
+Skip this part on your first run. If your invitation allows your own data, replace step 1 of the script with the block below. Replace `path/to/your_history.csv` with the path of your own CSV file; no file comes with the client. The block expects one row per week and the column names of the example: `week`, `sales`, `tv`, `search` and `price`. If your columns have other names, change them in the block, in the `datasets.create` call and in the scenarios. The block builds the plan dates itself: they start exactly 7 days after your last history date.
+
+<!-- guide-example: own-data -->
+```python
+# 1. Your data: a CSV file with one row per week. Replace the path with the path of your file.
+history = pd.read_csv("path/to/your_history.csv", parse_dates=["week"])
+history = history.sort_values("week", ignore_index=True)  # the client does not sort your data
+history = history.tail(200)  # keep the most recent weeks: history plus plan may not exceed 208
+first_plan_week = history["week"].iloc[-1] + pd.Timedelta(weeks=1)
+plan = pd.DataFrame(
+    {
+        "week": pd.date_range(first_plan_week, periods=8, freq="7D"),
+        "tv": 8_000.0,  # planned spend per week, for each channel
+        "search": 6_000.0,
+        "price": 10.0,  # the value per week, for each control
+    }
+)
+```
+
+The `tail` line keeps the most recent weeks, so a longer history does not break the limit of 208 weeks (`too_long`). It leaves a shorter history unchanged.
+
+The plan needs a column for every channel and every control, with the same names as in the history. The scenarios use your channel names: edit them, or add your own in the same form.
+
+`datasets.create` takes the history as a DataFrame. `date` names the date column, `outcome` the outcome column, `spend` the spend columns and `controls` the control columns. The client checks some rules before it sends anything, and raises `ValueError` with the first bad row or column. The service checks the others and refuses the history with `ValidationError` and the code shown. Nothing is stored in either case.
+
+::: {.mfm-stack}
+
+| Rule | If broken |
+| --- | --- |
+| The `date` column holds one date for each row, oldest first, exactly 7 days apart: the same weekday every week, with no missing or repeated week. Any weekday works. | `ValueError` from the client |
+| Years 1900 to 2199. At least one week. | `invalid_date`, `too_short` |
+| The `outcome` column, every `spend` column and every `controls` column hold a number in every row: no blanks, `NaN` or infinity. | `ValueError` from the client |
+| The outcome is greater than zero every week. | `nonpositive_outcome` |
+| `spend` names 1 to 10 columns. Spend is zero or more. | `channel_count`, `negative_spend` |
+| `controls` names 1 to 10 columns. At least one is required. | `controls_required`, `control_count` |
+| Channel and control names are 1 to 64 characters and unique across both. A name may not be `baseline`, `latent` or `outcome`, start with `indirect:` or `_pad`, contain `->`, or start with `=`, `+`, `-` or `@`. A name may not hold control or format characters, such as a newline or a zero-width space. | `invalid_name`, `duplicate_name`, `reserved_name` |
+| The client sends the `outcome` column name as the label of the outcome when it has 1 to 60 characters. The label may not hold control or format characters. The dataset `name` is 1 to 64 characters. | `invalid_outcome_name`, `invalid_name` |
+| The upload is at most 5 MB. | `PayloadTooLarge` (`body_too_large`) |
+
+:::
+
+The model was trained on 75 to 207 weeks of history. A history outside that range uploads with a warning that the results are out of sample. The history plus the plan may not exceed 208 weeks (`too_long`). The plan must start exactly 7 days after the last history date; otherwise the client raises `ValueError` and sends nothing. `draws`, the number of posterior samples per plan, is 100 to 2,000 (`draws_out_of_range`). The default is 1,000, and the script uses it. To explore faster, pass a smaller number such as `draws=300` to `analyze`. `seed` fixes the random numbers: the same request with the same seed gives the same numbers, as long as the model revision, library revision, device class, dtype and execution settings also match. The export (`analysis.export(path)`) records them. Without `seed` the service uses seed 0, so a repeat on the same service still matches. Change the seed to see how much the numbers move between runs.
+
+### Errors and limits you may meet
+
+An error answer from the service raises [ApiError](../reference/client.ApiError.qmd), most often one of the subclasses below. It has `status`, `code`, `message` and `field` (the part of the request at fault, when the service names one), and its text shows them: `HTTP <status> <code>: <message> (field: <field>)`. These are the errors a first run is most likely to meet. The error classes are in `pymc_mfm.client`; `ValueError` is Python's own.
+
+::: {.mfm-stack}
+
+| Error | Meaning | What to do |
+| --- | --- | --- |
+| `ValueError` | An environment variable is not set, a column is missing, a value is blank or not a number, or the dates are not weekly. The message names the problem. Nothing was sent. | Fix it and run the script again. |
+| `Unauthorized` (401) | The service does not accept the key. It is missing, mistyped or replaced by a newer key, or your access was removed. | Check that `MFM_API_KEY` holds the whole key with no spaces. Replace your key on the Connect page of the River API console, and set `MFM_API_KEY` again. If it still fails, reply to your invitation. |
+| `ValidationError` (400, 422) | The request breaks a limit, for example one in the table in [Use your own data](#use-your-own-data). `code` names the limit and `field` the part at fault. Nothing started or was stored. | Fix that part and run the script again. |
+| `PayloadTooLarge` (413) | The request is over the size limit. | Send fewer weeks, scenarios or curves in one call. |
+| `RateLimited` (429) | You sent too many requests in a short time (`rate_limited`), or you have 20 unfinished analyses or 200 unfinished runs (`overloaded_user_analyses`, `overloaded_user_runs`). The client already waited and tried again 3 times. | Wait a minute and run the script again. For the two `overloaded` codes, wait for your analyses to end, or delete one. |
+| `ServerError` (500 to 599) | The service failed or is busy. The client tries a `502`, `503` or `504` again 3 times before it raises the error. It does not try a `500` again. | Wait a minute and run the script again. If a `500` persists, reply to your invitation. |
+| `ApiConnectionError` | The client got no answer after 3 more tries. | Check `MFM_API_URL` and your connection. |
+| `NotReady` (409 `not_ready`) | You read a result before the analysis ended. | Call `analysis.wait()` first. |
+| `NotFound` (404) | The id is wrong, or it belongs to another user. | Check the id. |
+| `Gone` (410) | The dataset or analysis was deleted or has expired. From `datasets.create` or `analyze`, it means that you sent the same request before and its result was deleted or has expired. | To upload the history again, replace `reuse=True` with `fresh=True` in `datasets.create` for one run. To run an analysis again, pass `fresh=True` to `analyze`. Do not try the same id again. |
+
+:::
+
+Each call that uploads or starts work sends a key made from the request content, also when the client tries it again. So a repeat of the same request returns the stored dataset or analysis and starts nothing twice. A changed request gets a new key by itself. A failed analysis is not an error: `wait()` returns, and `analysis.status().status` is `failed`.
+
+### How long the service keeps your data
+
+The service keeps a dataset for 7 days after you upload it, then deletes it and its analyses. Using the dataset does not extend this. Read the deadline from `dataset.expires_at`. An analysis expires with its dataset. After expiry, a call on it raises `Gone`.
+
+You can delete your data earlier. Deleting a dataset also deletes all its analyses. Add one of these lines to the script:
+
+```python
+client.datasets.delete(dataset.dataset_id)  # the dataset and all its analyses
+analysis.delete()  # one analysis only
+```
+
+To delete later, use the ids the script prints: `client.datasets.delete("<dataset id>")` or `client.get("<analysis id>").delete()`. A later call on a deleted id raises `Gone`. That is expected.
+
+### Where next with the API
+
+- Read [Use the River API from Python](http-api.qmd) for more scenarios, response curves, backtests, previews and per-draw files.
+- Browse the [Python reference for the client](../reference/client.Client.qmd) for every argument, result and error.
+
+::: {#install}
+:::
+
+## Use the Python library
+
+The full Python library runs local inference with PyTorch. Installing it from GitHub needs read access to the `pymc-labs/pymc-mfm` repository. You do not need it for the hosted River API: the client above is enough.
+
+PyMC MFM trains and runs amortized neural networks for marketing-mix decomposition. A network is trained once on many simulated worlds, then reads a regularly spaced time series of media spend, controls, and observed outcome. It returns posterior draws of baseline, channel, control, and unobserved-factor contributions, together with a causal graph for each draw. [inference(context, query, ...)](../reference/model.MFM.qmd) conditions on observed history without training or refitting its weights.
 
 PyMC MFM requires Python 3.13 or newer. Install local inference from Git:
 
@@ -33,9 +264,9 @@ A base install is the light River API client: it has NumPy, pandas, httpx, and p
 
 Every extra that runs a model includes `local`. For example, `pymc-mfm[hub]` also installs PyTorch.
 
-## Decompose a time series
+### Decompose a time series
 
-Load a local model folder with [from_pretrained](../reference/inference.from_pretrained.qmd), then pass history and a future plan to one complete inference call. This example uses synthetic data only to demonstrate the dataframe API.
+Local inference needs a model folder on disk. The River-1 collection on the Hugging Face Hub is private to the PyMC Labs organization (see [Load and share models](models-hub.qmd)), so this page does not include weights. Load a local model folder with [from_pretrained](../reference/inference.from_pretrained.qmd), then pass history and a future plan to one complete inference call. This example uses synthetic data only to demonstrate the dataframe API.
 
 ```python
 import numpy as np
@@ -86,14 +317,29 @@ records the seed; the result of `predict` or `decompose` does not. Without `rand
 a call draws from PyTorch's global generator and advances it, so each call gives new draws.
 `predict` and `response_curves` take the same keyword.
 
-`idata` is the complete stored `xarray.DataTree`, with separate context and query marginals. `query` is the exact query [DecompositionResult](../reference/inference.DecompositionResult.qmd); its components, diagnostics and graph helpers reuse those draws. `return_idata=False` returns `None` instead but still stores the complete tree. For another query-only calculation, `model.predict(future, n_samples=200)` returns an independent result without replacing the stored tree, query result, charts or response curves. Model charts never sample. The synthetic data exercises the API and is not an attribution-calibration example.
+`idata` is the complete stored `xarray.DataTree`, with separate context and query marginals. It has one group per window, and the root has no `posterior`. The `chain` dimension has length 1 as a storage convention. No MCMC runs, so r_hat and ESS (effective sample size) do not apply.
+
+With the `arviz` extra installed, summarize one window with the statistics only:
+
+```python
+import arviz_stats
+
+# mean, sd and an 89% interval of each variable
+arviz_stats.summary(idata["query"], kind="stats")
+```
+
+The default `kind` adds MCMC diagnostics such as r_hat, which are undefined for one chain. A window has no `posterior_predictive` group, so posterior predictive checks do not run on it. A window is not a drop-in PyMC-Marketing MMM artifact.
+
+Writing a tree to a file is separate and needs the `draws` extra. `save_idata` and `load_idata` read and write pymc-mfm trees, not arbitrary ArviZ files.
+
+`query` is the exact query [DecompositionResult](../reference/inference.DecompositionResult.qmd); its components, diagnostics and graph helpers reuse those draws. `return_idata=False` returns `None` instead but still stores the complete tree. For another query-only calculation, `model.predict(future, n_samples=200)` returns an independent result without replacing the stored tree, query result, charts or response curves. Model charts never sample. The synthetic data exercises the API and is not an attribution-calibration example.
 
 ## Where next
 
 - Read [How it works](concepts.qmd) for the encoder, graph router, decoder, and draw semantics.
 - Read [Decompose a time series](decompose.qmd) for dataframe rules, array inputs, exports, and repeated sampling.
 - Read [Load and share models](models-hub.qmd) to use local folders and Hub profiles.
-- Use the [River API](http-api.qmd) when local PyTorch inference is not the interface you need.
+- Use the [hosted River API](#hosted-api) from Python with a personal key when local PyTorch inference is not the interface you need.
 - Read [Train a network](training.qmd) to prepare a simulated corpus and train a model.
 - Run the [River-1 quickstart](examples/river_1_quickstart.ipynb) for a complete simulated-data workflow.
 - Browse the [API reference](../reference/index.qmd) for signatures and parameter details.

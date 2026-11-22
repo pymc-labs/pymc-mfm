@@ -1,5 +1,7 @@
 # Shared by every page in api/ (the pages themselves are written by _scripts/http_pages.py).
 # Quarto resolves the paths below relative to this folder.
+# The hosted HTTP reference stays out of site search: the Python client is the supported way.
+search: false
 page-layout: full
 toc: false
 sidebar: api

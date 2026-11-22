@@ -43,7 +43,9 @@ you can. Large or binary files need an allowlist entry with a reason (below).
 `scripts/check_public_boundary.py` checks what Git tracks, not the working tree. It
 flags tracked symlinks, gitlinks (nested repositories, submodule pointers) and
 `.gitmodules` files, weight-like files, binary files it cannot read, files over
-1 MiB, large embedded base64 payloads, credential patterns, and `.private` anywhere
+1 MiB, large embedded base64 payloads, credential patterns, service hostnames (any
+`pymc-labs.com` host except `www`, and hosts on `fly.dev`, `run.app`, `workers.dev` and
+`modal.run`), and `.private` anywhere
 in a path. Notebooks (`*.ipynb`) may hold base64 only as code-cell image outputs
 (PNG, JPEG or GIF, at most 2 MiB each, basic structure checks only, not a full decoder); all other
 notebook strings are scanned as text. A parser cannot rule out hidden data in a valid
