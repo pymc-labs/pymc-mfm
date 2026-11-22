@@ -94,17 +94,10 @@ website:
           - text: "Resources"
           - text: "All models"
             href: models/index.qmd
-          - text: "Hugging Face"
-            href: https://huggingface.co/pymc-labs/mfm
       # pymc-labs.com, which carries the PyMC Labs blog too: MFM has no blog of its own.
       - text: PyMC Labs
         href: https://www.pymc-labs.com
     right:
-      # On wide screens site.css draws these as icon squares (the label stays for screen
-      # readers); the phone menu shows icon and label.
-      - text: GitHub
-        icon: github
-        href: https://github.com/pymc-labs/pymc-mfm
       # Access is by invitation. This link goes to the page that says how it works. site.js marks
       # the last link of this list as the action button, so keep one link here.
       - text: "Get access"
