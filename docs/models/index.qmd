@@ -1,6 +1,6 @@
 ---
 title: "Models"
-description: "Trained networks for PyMC MFM. Each released model has its own page."
+description: "Trained networks for PyMC MFM (marketing foundational models). Each released model has its own page."
 listing:
   id: releases
   contents:
