@@ -126,7 +126,7 @@ first_look = client.explore(dataset, plan, preview=True)
 
 ## Read an analysis
 
-An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until it ends. A `failed` analysis (its baseline failed) can still have active runs: if reading its result raises `NotReady`, call `wait()` again. `wait` raises `Gone` if the analysis is deleted or expires meanwhile. `wait` first prints the analysis id and the call that resumes it (`client.get("<id>").wait()`) to `sys.stderr`, and its `TimeoutError` gives the same call: the analysis keeps running, so resume it instead of calling `analyze` again.
+An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until every run has ended, also when the analysis is `failed` (its baseline failed) while other runs still run. `wait` raises `Gone` if the analysis is deleted or expires meanwhile. `wait` first prints the analysis id and the call that resumes it (`client.get("<id>").wait()`) to `sys.stderr`, and its `TimeoutError` gives the same call: the analysis keeps running, so resume it instead of calling `analyze` again.
 
 | Member | Result |
 | --- | --- |

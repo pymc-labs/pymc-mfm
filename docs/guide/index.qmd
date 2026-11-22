@@ -143,7 +143,7 @@ print("backtest result page:", backtest.url)
 
 River is pretrained, so no MCMC (Markov chain Monte Carlo sampling) runs on your data. The `r_hat` and ESS (effective sample size) checks do not apply. The draws approximate a posterior under the assumptions of the simulator that made River's training data. The intervals leave out weekly noise. River is tested on simulated data only, so do not use it alone for budget decisions. Read the [Limits](../models/river-1/index.qmd#limits) of River first. To check River on your own data, run the [backtest](#check-river-with-a-backtest) on it.
 
-A plan can fail on its own. The analysis is then `done`, and the rows of that plan have `status` `failed` and no numbers. If the baseline fails, the analysis is `failed`, and reading `analysis.table` can raise `NotReady` until its other runs end. The same request then returns the same failed analysis. To run it again, pass `fresh=True` to `analyze`.
+A plan can fail on its own. The analysis is then `done`, and the rows of that plan have `status` `failed` and no numbers. If the baseline fails, the analysis is `failed`; `wait()` still returns only after its other runs end. The same request then returns the same failed analysis. To run it again, pass `fresh=True` to `analyze`.
 
 ### Use your own data
 
