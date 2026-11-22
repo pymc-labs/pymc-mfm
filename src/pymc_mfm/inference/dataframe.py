@@ -94,25 +94,58 @@ def _numeric_columns(data: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
 
 def _show(stamp: pd.Timestamp) -> str:
     """A date without the time when the time is midnight."""
-    return str(stamp.date()) if stamp == stamp.normalize() else str(stamp)
+    # Compare time fields: ``normalize`` overflows on the first day of the Timestamp range.
+    time = (stamp.hour, stamp.minute, stamp.second, stamp.microsecond, stamp.nanosecond)
+    return str(stamp.date()) if not any(time) else str(stamp)
+
+
+def _plural(count: int, unit: str) -> str:
+    return f"{count} {unit}" + ("" if count == 1 else "s")
 
 
 def _show_interval(interval: pd.Timedelta) -> str:
-    if interval % pd.Timedelta(days=1):
-        return str(interval)
-    return f"{interval.days} day" + ("" if interval.days == 1 else "s")
+    """A positive interval in days, hours, minutes and seconds, e.g. ``1 day 6 hours``."""
+    parts, rest = [], interval
+    for unit, size in (("day", "1D"), ("hour", "1h"), ("minute", "1min")):
+        count, rest = divmod(rest, pd.Timedelta(size))
+        if count:
+            parts.append(_plural(count, unit))
+    if rest or not parts:
+        seconds, nanoseconds = divmod(rest.value, 10**9)
+        if nanoseconds:
+            parts.append(f"{seconds}.{nanoseconds:09d}".rstrip("0") + " seconds")
+        else:
+            parts.append(_plural(seconds, "second"))
+    return " ".join(parts)
 
 
-def _regular_prefix(dates: pd.DatetimeIndex) -> int:
-    """The length of the longest leading run of ``dates`` with one inferred frequency."""
+def _regular_run(dates: pd.DatetimeIndex, *, from_end: bool) -> pd.DatetimeIndex:
+    """The longest leading (or trailing) run of ``dates`` with one inferred frequency."""
     regular, irregular = 2, len(dates)
     while irregular - regular > 1:
         middle = (regular + irregular) // 2
-        if pd.infer_freq(dates[:middle]) is None:
+        run = dates[-middle:] if from_end else dates[:middle]
+        if pd.infer_freq(run) is None:
             irregular = middle
         else:
             regular = middle
-    return regular
+    return dates[-regular:] if from_end else dates[:regular]
+
+
+def _calendar_fit(offset: pd.DateOffset, dates: pd.DatetimeIndex) -> tuple[int, str]:
+    """Count dates off ``offset`` and gaps between dates on it; describe the first."""
+    count, first = 0, ""
+    on = [offset.is_on_offset(stamp) for stamp in dates]
+    for index, stamp in enumerate(dates):
+        if not on[index]:
+            problem = f"{_show(stamp)} is not on it"
+        elif index and on[index - 1] and dates[index - 1] + offset != stamp:
+            problem = f"periods are missing between {_show(dates[index - 1])} and {_show(stamp)}"
+        else:
+            continue
+        count += 1
+        first = first or problem
+    return count, f"most dates follow the {offset.freqstr!r} frequency, but {first}"
 
 
 def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
@@ -122,18 +155,44 @@ def _cadence(dates: pd.DatetimeIndex) -> pd.DateOffset:
     if frequency is not None:
         return pd.tseries.frequencies.to_offset(frequency)
     intervals = dates[1:] - dates[:-1]
-    if (intervals != intervals[0]).any():
-        # Report only observed dates: a calendar frequency such as month-end has unequal
-        # day counts, and adding an interval to a date can leave the Timestamp range.
-        middle = _regular_prefix(dates) - 1
-        first, second, third = dates[middle - 1], dates[middle], dates[middle + 1]
-        raise ValueError(
-            "context dates must follow a regular frequency without missing periods; "
-            f"the spacing changes at {_show(second)}: {_show(first)} to {_show(second)} is "
-            f"{_show_interval(second - first)}, then {_show(second)} to {_show(third)} is "
-            f"{_show_interval(third - second)}"
+    if (intervals == intervals[0]).all():
+        return pd.tseries.frequencies.to_offset(intervals[0])
+    # Name the irregularity with observed dates only: a calendar frequency such as
+    # month-end has unequal day counts, and an extrapolated date can leave the
+    # Timestamp range. Keep the explanation with the fewest irregular intervals or
+    # dates; on a tie, the fixed interval (daily dates missing a weekend are not
+    # business days with an extra Saturday).
+    best: tuple[int, str] | None = None
+    counts = intervals.value_counts()
+    if counts.iloc[0] > counts.iloc[1]:
+        usual = counts.index[0]
+        first = int(np.argmax(intervals != usual))
+        best = (
+            len(intervals) - int(counts.iloc[0]),
+            f"most consecutive dates are {_show_interval(usual)} apart, but "
+            f"{_show(dates[first])} to {_show(dates[first + 1])} is "
+            f"{_show_interval(intervals[first])}",
         )
-    return pd.tseries.frequencies.to_offset(intervals[0])
+    runs = (_regular_run(dates, from_end=False), _regular_run(dates, from_end=True))
+    codes = [pd.infer_freq(run) for run in runs if len(run) >= 3]
+    for code in filter(None, codes):
+        offset = pd.tseries.frequencies.to_offset(code)
+        try:
+            fit = _calendar_fit(offset, dates)
+        except (OverflowError, pd.errors.OutOfBoundsDatetime):  # near the Timestamp bounds
+            continue
+        if fit[0] and (best is None or fit[0] < best[0]):
+            best = fit
+    start = "context dates must follow a regular frequency without missing periods; "
+    if best is not None and 2 * best[0] < len(intervals):
+        raise ValueError(start + best[1])
+    middle = int(np.argmax(intervals[1:] != intervals[:-1])) + 1
+    first, second, third = dates[middle - 1], dates[middle], dates[middle + 1]
+    raise ValueError(
+        start + f"no frequency could be inferred; the spacing changes at {_show(second)}: "
+        f"{_show(first)} to {_show(second)} is {_show_interval(second - first)}, "
+        f"then {_show(second)} to {_show(third)} is {_show_interval(third - second)}"
+    )
 
 
 @dataclass(frozen=True)
