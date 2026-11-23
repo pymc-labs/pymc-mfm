@@ -9,10 +9,9 @@ import xarray as xr
 from pymc_mfm.client import ApiConnectionError, Forbidden, Gone
 from pymc_mfm.client.analysis import URL_RENEWAL_MARGIN
 
-from .client_fixtures import FakeService, result_record, result_rows, status_record
+from .client_fixtures import URL_EXPIRES, FakeService, result_record, result_rows, status_record
 
 N_DRAWS, N_WEEKS = 5, 2
-FUTURE = "2030-01-08T00:00:00Z"
 PAST = "2020-01-01T00:00:00Z"
 
 
@@ -48,7 +47,7 @@ def file_url(name: str, token: str) -> str:
     return f"https://files.example.com/{name}.nc?sig={token}"
 
 
-def result_with_urls(token: str, expires: str = FUTURE):
+def result_with_urls(token: str, expires: str = URL_EXPIRES):
     rows = result_rows("baseline", "baseline", url=file_url("baseline", token), url_expires=expires)
     rows += result_rows(
         "half", "scenario", base="baseline", url=file_url("half", token), url_expires=expires

@@ -3,6 +3,8 @@
 import json
 import re
 import sys
+import threading
+import time
 import traceback
 import warnings
 
@@ -19,6 +21,8 @@ from client.client_fixtures import (
     error_body,
     result_record,
     result_rows,
+    river_draws,
+    route_examples_to,
     started,
     status_record,
 )
@@ -101,28 +105,9 @@ def test_local_directory_and_hub_have_the_same_seeded_workflow(
     assert "posterior" in curve_result_local.idata["response_curves"].children
 
 
-def draws_content(tmp_path, history, future):
-    """Synthetic named-variable `river-draws/1` file, including the history marginal."""
-    xr = pytest.importorskip("xarray")
-    draws = np.arange(DRAWS, dtype=np.float32)
-    variables = {}
-    coords = {"draw": np.arange(DRAWS), "channel": ["search", "tv"], "control": ["price"]}
-    for prefix, time, frame in (("history_", "history_date", history), ("", "date", future)):
-        coords[time] = frame.date.to_numpy()
-        values = draws[:, None] + np.arange(len(frame), dtype=np.float32)[None, :]
-        variables[prefix + "baseline"] = (("draw", time), values + 450)
-        variables[prefix + "channel_contribution"] = (
-            ("draw", time, "channel"),
-            np.stack((values + 11, values + 23), axis=-1),
-        )
-        variables[prefix + "control_contribution"] = (("draw", time, "control"), values[..., None])
-        variables[prefix + "latent"] = (("draw", time), values * np.float32(0.25))
-        variables[prefix + "outcome"] = (("draw", time), 484 + values * np.float32(4.25))
-    file = tmp_path / "draws.nc"
-    xr.Dataset(variables, coords=coords, attrs={"schema": "river-draws/1"}).to_netcdf(
-        file, engine="h5netcdf"
-    )
-    return file.read_bytes()
+def draws_content(tmp_path, history, future, **options):
+    """The baseline draws file River serves for ``history`` and ``future``: ``DRAWS`` draws."""
+    return river_draws(tmp_path, history.date, future.date, draws=DRAWS, **options)
 
 
 def test_hosted_workflow_uses_only_results_and_sweeps_on_the_service(frames, tmp_path, monkeypatch):
@@ -259,6 +244,18 @@ def assert_names_analysis(error, analysis_id):
     assert f'pymc_mfm.client.Client(base_url=..., api_key=...).get("{analysis_id}")' in notes
 
 
+def raised_here(record):
+    """The messages of the UserWarnings in ``record`` that point at this file's calls.
+
+    These are River's warnings, in order; a dependency's warnings point elsewhere.
+    """
+    return [
+        str(item.message)
+        for item in record
+        if issubclass(item.category, UserWarning) and item.filename == __file__
+    ]
+
+
 def sweep(levels, *, failed=(), notes=None, base_notes=None):
     """A curve sweep result for tv and search, whose contribution is 100 times the level.
 
@@ -292,6 +289,17 @@ def numeric_labels(history, future):
     )
 
 
+HISTORY_DAYS = ("2024-07-01", "2024-07-08", "2024-07-15", "2024-07-22")
+
+
+def dated(history_days, plan_days):
+    """An ``edit`` that gives the history and the plan these calendar days."""
+    return lambda history, future: (
+        history.assign(date=pd.to_datetime(list(history_days))),
+        future.assign(date=pd.to_datetime(list(plan_days))),
+    )
+
+
 @pytest.mark.parametrize(
     ("edit", "message"),
     [
@@ -316,6 +324,42 @@ def numeric_labels(history, future):
             lambda history, future: (history, future.assign(search=[9.0, -2.0])),
             r"query channel spend must be nonnegative; negative values in \['search'\]",
         ),
+        (
+            dated(
+                ("2024-07-01", "2024-07-08", "2024-07-16", "2024-07-23"),
+                ("2024-07-30", "2024-08-06"),
+            ),
+            re.escape(
+                "Row 3 of your context has the date 2024-07-16, but row 2 has 2024-07-08. "
+                "Dates must be 7 days apart."
+            ),
+        ),
+        (
+            dated(HISTORY_DAYS, ("2024-07-22", "2024-07-29")),
+            re.escape(
+                "Your history ends on 2024-07-22. Your plan starts on 2024-07-22. "
+                "The next required date is 2024-07-29."
+            ),
+        ),
+        (
+            dated(HISTORY_DAYS, ("2024-08-05", "2024-08-12")),
+            re.escape("Your plan starts on 2024-08-05. The next required date is 2024-07-29."),
+        ),
+        (
+            dated(HISTORY_DAYS, ("2024-07-29", "2024-08-12")),
+            re.escape(
+                "Row 2 of your plan has the date 2024-08-12, but row 1 has 2024-07-29. "
+                "The next required date is 2024-08-05."
+            ),
+        ),
+        (
+            lambda history, future: (history.assign(tv=0.0), future),
+            re.escape("['tv'] are zero in every context week but not in the query"),
+        ),
+        (
+            lambda history, future: (history.assign(price=0.0), future),
+            re.escape("['price'] are zero in every context week but not in the query"),
+        ),
     ],
     ids=[
         "nan query spend",
@@ -324,6 +368,12 @@ def numeric_labels(history, future):
         "zero sales week",
         "negative history spend",
         "negative plan spend",
+        "history with one 8-day step",
+        "plan starting on the last history week",
+        "plan a week after the history ends",
+        "plan skipping a week",
+        "channel with no history spend",
+        "control zero throughout the history",
     ],
 )
 def test_hosted_refuses_bad_inputs_before_any_request(frames, monkeypatch, edit, message):
@@ -333,6 +383,19 @@ def test_hosted_refuses_bad_inputs_before_any_request(frames, monkeypatch, edit,
         model.inference(*edit(*frames), n_samples=DRAWS)
     assert service.requests == []  # no history list, upload or analysis
     assert model.result is None
+
+
+@pytest.mark.parametrize(("column", "role"), [("tv", "spend"), ("price", "controls")])
+def test_hosted_accepts_a_series_that_is_zero_in_history_and_plan(
+    frames, tmp_path, monkeypatch, column, role
+):
+    history, future = (frame.assign(**{column: 0.0}) for frame in frames)
+    service = river()
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    result = model.inference(history, future, n_samples=DRAWS)
+    assert model.result is result
+    (upload,) = [service.body(r) for r in service.sent("POST", "/v1/datasets")]
+    assert upload[role][column] == [0.0] * len(history)
 
 
 @pytest.mark.parametrize(
@@ -361,6 +424,63 @@ def test_local_load_refuses_the_river_key_as_a_hub_token(monkeypatch):
     assert RIVER_KEY not in "".join(traceback.format_exception(caught.value))
     mfm.load("river-1", token="example-hub-key", **ROLES)
     assert [call["token"] for call in hub_calls] == ["example-hub-key"]
+
+
+@pytest.mark.parametrize(
+    ("source", "options", "error", "message"),
+    [
+        ("pymc-labs/mfm", {"engine": "hosted"}, mfm.NotSupported, "currently serves 'river-1'"),
+        ("river-1", {"engine": "hosted", "profile": "river-1"}, mfm.NotSupported, "local engine"),
+        ("river-1", {"engine": "hosted", "revision": "a" * 40}, mfm.NotSupported, "local engine"),
+        ("river-1", {"engine": "hosted", "device": "cuda"}, mfm.NotSupported, "local engine"),
+        ("river-1", {"engine": "hosted", "token": False}, TypeError, "API key as a string token"),
+        ("river-1", {"base_url": BASE_URL}, ValueError, "base_url is only for the hosted engine"),
+        ("river-1", {"engine": "Hosted"}, ValueError, "engine must be 'local' or 'hosted'"),
+    ],
+    ids=[
+        "hosted source other than river-1",
+        "hosted profile",
+        "hosted revision",
+        "hosted device",
+        "hosted token=False",
+        "local base_url",
+        "engine typo",
+    ],
+)
+def test_load_refuses_unsupported_arguments_before_any_request(
+    monkeypatch, source, options, error, message
+):
+    service = FakeService()
+    route_examples_to(service, monkeypatch)  # River credentials are set
+    hub_calls = []
+    monkeypatch.setattr(mfm, "from_pretrained", lambda source, **options: hub_calls.append(source))
+    with pytest.raises(error, match=re.escape(message)):
+        mfm.load(source, **options, **ROLES)
+    assert service.requests == [] and hub_calls == []
+
+
+@pytest.mark.parametrize(
+    ("token", "hub_variables"),
+    [
+        ("hf_example0hub0token", {}),
+        ("example-hub-key", {"HF_TOKEN": "example-hub-key"}),
+        ("example-hub-key", {"HUGGING_FACE_HUB_TOKEN": " example-hub-key\n"}),
+    ],
+    ids=["hf_ form", "equal to HF_TOKEN", "equal to HUGGING_FACE_HUB_TOKEN"],
+)
+def test_hosted_load_refuses_a_hugging_face_token(monkeypatch, token, hub_variables):
+    service = FakeService()
+    route_examples_to(service, monkeypatch)
+    for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in hub_variables.items():
+        monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError, match="token is a Hugging Face token") as caught:
+        mfm.load("river-1", engine="hosted", token=token, **ROLES)
+    assert token not in "".join(traceback.format_exception(caught.value))
+    model = mfm.load("river-1", engine="hosted", token=RIVER_KEY, **ROLES)
+    assert isinstance(model, mfm.Model)  # a River key still loads
+    assert service.requests == []
 
 
 def test_hosted_keeps_caller_timestamps_and_sends_calendar_days(frames, tmp_path, monkeypatch):
@@ -457,8 +577,13 @@ def test_hosted_sweep_keeps_gaps_and_the_previous_result_when_a_curve_fails(
 
 @pytest.mark.parametrize(
     "edit",
-    [{"mean": None}, {"p95": None}, {"p05": 220.0, "p95": 180.0}],
-    ids=["missing mean", "missing p95", "p05 above p95"],
+    [
+        {"mean": None},
+        {"p95": None},
+        {"mean": None, "p05": None, "p95": None},
+        {"p05": 220.0, "p95": 180.0},
+    ],
+    ids=["missing mean", "missing p95", "no statistics", "p05 above p95"],
 )
 def test_hosted_sweep_refuses_a_successful_point_without_a_band(
     frames, tmp_path, monkeypatch, edit
@@ -523,21 +648,19 @@ def test_hosted_results_keep_river_warnings(frames, tmp_path, monkeypatch):
 
     with pytest.warns(UserWarning) as caught:
         result = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
-    assert [str(item.message) for item in caught] == [short, above]
-    assert {item.filename for item in caught} == {__file__}  # points at the caller's line
+    assert raised_here(caught) == [short, above]  # each points at the caller's line
     for window in ("context", "query"):
         provenance = json.loads(result.idata[window].attrs["provenance"])
         assert provenance["analysis_id"] == "an_1" and provenance["warnings"] == [short, above]
 
     with pytest.warns(UserWarning) as swept:
         curves = model.response_curves(levels=(0, 0.5, 1, 2), weeks=1)
-    assert [str(item.message) for item in swept] == [
+    assert raised_here(swept) == [
         "tv baseline warning",
         above,
         "tv spend is outside the history",
         "search spend is zero",
     ]
-    assert {item.filename for item in swept} == {__file__}
     node = curves.idata["/response_curves"]
     assert json.loads(node.attrs["provenance"]) == {"engine": "hosted", "analysis_id": "an_2"}
     summary = node["summary"]
@@ -564,11 +687,11 @@ def test_hosted_stores_and_emits_each_river_warning_on_one_line(frames, tmp_path
 
     with pytest.warns(UserWarning) as caught:
         result = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
-    assert [str(item.message) for item in caught] == [flat]
+    assert raised_here(caught) == [flat]
     assert json.loads(result.idata["query"].attrs["provenance"])["warnings"] == [flat]
     with pytest.warns(UserWarning) as swept:
         curves = model.response_curves(levels=(0, 1, 2), weeks=1)
-    assert [str(item.message) for item in swept] == [flat]
+    assert raised_here(swept) == [flat]
     summary = curves.idata["/response_curves/summary"]
     assert summary["warning"].sel(channel="tv", level=2.0).item() == flat
     mfm.validate_idata(curves.idata)
@@ -605,7 +728,9 @@ def test_hosted_warning_raised_as_an_error_keeps_a_result_that_can_be_swept(
     assert model.result is curves and source["analysis_id"] == "an_1"
 
 
-@pytest.mark.parametrize("failure", ["draws download", "draw count", "sweep status"])
+@pytest.mark.parametrize(
+    "failure", ["draws download", "draw count", "draws decomposition", "sweep status"]
+)
 def test_hosted_failure_after_acceptance_names_the_analysis(frames, tmp_path, monkeypatch, failure):
     history, future = frames
     content = draws_content(tmp_path, history, future)
@@ -619,6 +744,13 @@ def test_hosted_failure_after_acceptance_names_the_analysis(frames, tmp_path, mo
         model = open_river(monkeypatch, service, content)  # the file holds DRAWS draws
         with pytest.raises(ValueError, match=f"expected {2 * DRAWS} draws, got {DRAWS}") as caught:
             model.inference(history, future, n_samples=2 * DRAWS)
+    elif failure == "draws decomposition":
+        # Each outcome draw is one more than the sum of its contributions.
+        model = open_river(
+            monkeypatch, service, draws_content(tmp_path, history, future, outcome_shift=1.0)
+        )
+        with pytest.raises(ValueError, match="contributions do not sum to its outcome") as caught:
+            model.inference(history, future, n_samples=DRAWS)
     else:
         service.on("GET", "/v1/analyses/an_2", (410, error_body("gone", "Analysis expired")))
         model = open_river(monkeypatch, service, content)
@@ -630,3 +762,140 @@ def test_hosted_failure_after_acceptance_names_the_analysis(frames, tmp_path, mo
     shown = "".join(traceback.format_exception(caught.value))
     assert RIVER_KEY not in shown and "sig=" not in shown
     assert model.result is kept
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "message"),
+    [
+        ("failed", RuntimeError, "Hosted analysis 'an_1' has no successful baseline run"),
+        ("deleted", Gone, "Analysis an_1 was deleted"),
+    ],
+)
+def test_hosted_inference_stops_at_once_when_river_ends_the_analysis(
+    frames, tmp_path, monkeypatch, status, error, message
+):
+    history, future = frames
+    service = river()
+    # The baseline failed and two runs look active: this service sends no runs_cancelled.
+    service.on("GET", "/v1/analyses/an_1", (200, status_record(status, runs_done=0, runs_failed=1)))
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    monkeypatch.setattr(time, "sleep", lambda _: pytest.fail("River had ended the analysis"))
+    with pytest.raises(error, match=message) as caught:
+        model.inference(history, future, n_samples=DRAWS)
+    assert_names_analysis(caught.value, "an_1")
+    assert len(service.sent("GET", "/v1/analyses/an_1")) == 1  # one read, no polling
+    assert model.result is None
+
+
+def test_hosted_calls_during_a_running_inference_raise_model_busy(frames, tmp_path, monkeypatch):
+    history, future = frames
+    service = river()
+    entered, release = threading.Event(), threading.Event()
+    held = []
+
+    def hold_the_first_request(request):
+        if not held:
+            held.append(request)
+            entered.set()
+            release.wait(timeout=10)
+        return service(request)
+
+    model = open_river(
+        monkeypatch, hold_the_first_request, draws_content(tmp_path, history, future)
+    )
+    outcome = {}
+
+    def infer():
+        try:
+            outcome["result"] = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
+        except BaseException as error:  # checked below, in the test's thread
+            outcome["error"] = error
+
+    running = threading.Thread(target=infer)
+    running.start()
+    try:
+        assert entered.wait(timeout=10)  # the inference now waits inside its first request
+        with pytest.raises(mfm.ModelBusy):
+            model.inference(history, future, n_samples=DRAWS)
+        with pytest.raises(mfm.ModelBusy):
+            model.response_curves(levels=(0, 1, 2), weeks=1)
+        assert len(held) == 1 and service.requests == []  # neither call sent anything
+    finally:
+        release.set()
+        running.join(timeout=10)
+    assert not running.is_alive()
+    assert "error" not in outcome, outcome.get("error")
+    assert model.result is outcome["result"]
+    assert len(analysis_posts(service)) == 1
+
+
+def test_hosted_refuses_more_than_2000_draws_before_any_request(frames, tmp_path, monkeypatch):
+    history, future = frames
+    service = river()
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    with pytest.raises(mfm.NotSupported, match="draws per window"):
+        model.inference(history, future, n_samples=2001)
+    assert service.requests == [] and model.result is None
+
+    result = model.inference(history, future, n_samples=DRAWS)
+    sent = len(service.requests)
+    with pytest.raises(mfm.NotSupported, match="draws per window"):
+        model.response_curves(levels=(0, 1, 2), weeks=1, n_samples=2001)
+    assert len(service.requests) == sent and model.result is result
+
+
+def test_each_unseeded_hosted_inference_is_a_new_analysis_with_a_new_seed(
+    frames, tmp_path, monkeypatch
+):
+    history, future = frames
+    service = river(baseline_result())
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    results = [model.inference(history, future, n_samples=DRAWS) for _ in range(2)]
+
+    seeds = [body["seed"] for body in analysis_posts(service)]
+    assert all(type(seed) is int and 0 <= seed < 2**31 for seed in seeds)
+    assert seeds[0] != seeds[1]  # River's default seed would repeat the same draws
+    assert [result.idata.attrs["random_seed"] for result in results] == seeds
+    keys = [r.headers["Idempotency-Key"] for r in service.sent("POST", "/v1/analyses")]
+    assert all(key.startswith("mfm1-fresh-") for key in keys) and keys[0] != keys[1]
+
+
+def test_a_failed_hosted_inference_keeps_the_previous_result(frames, tmp_path, monkeypatch):
+    history, future = frames
+    failed = result_record(result_rows("baseline", "baseline", failed=True))
+    service = river(failed, sweep((0.0, 2.0)))  # an_2 fails, an_3 sweeps
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    first = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
+
+    corrected = history.assign(sales=history.sales * 2)
+    with pytest.raises(RuntimeError, match="'an_2' has no successful baseline run"):
+        model.inference(corrected, future, n_samples=DRAWS)
+    assert model.result is first and model.idata is first.idata
+
+    curves = model.response_curves(levels=(0, 1, 2), weeks=1)  # sweeps the kept inference
+    source = json.loads(curves.idata["/response_curves"].attrs["source_provenance"])
+    assert source["analysis_id"] == "an_1"
+    kept, refused, swept = [service.body(r) for r in service.sent("POST", "/v1/datasets")]
+    assert swept == kept != refused
+
+
+def observed_outcome(figure):
+    """The observed outcome line of a matplotlib ``plot.fit`` figure."""
+    (line,) = [line for line in figure.axes[0].lines if line.get_label() == "Observed outcome"]
+    return line.get_ydata()
+
+
+def test_model_plot_draws_the_latest_hosted_result(frames, tmp_path, monkeypatch):
+    history, future = frames
+    service = river(baseline_result())
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
+    plots = model.plot  # kept across inferences, as a notebook keeps a name
+    before = plots.fit(backend="matplotlib")
+    np.testing.assert_array_equal(observed_outcome(before), [*history.sales, *future.sales])
+
+    corrected = history.assign(sales=history.sales * 2)
+    model.inference(corrected, future, n_samples=DRAWS, random_seed=SEED)
+    for charts in (plots, model.plot):
+        figure = charts.fit(backend="matplotlib")
+        np.testing.assert_array_equal(observed_outcome(figure), [*corrected.sales, *future.sales])

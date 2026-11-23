@@ -1,6 +1,7 @@
 """The example notebooks run top to bottom without a notebook kernel."""
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -84,6 +85,7 @@ def test_river_1_quickstart_loads_the_pinned_river_1_bundle_and_runs_headless(
     ((source, options),) = hub_loads
     assert source == "pymc-labs/mfm"
     assert (options["profile"], options["revision"]) == ("river-1", _RIVER_REVISION)
+    assert re.fullmatch("[0-9a-f]{40}", options["revision"])  # a commit, not a moving branch
     assert isinstance(namespace["model"], Model)
     result = namespace["result"]
     assert isinstance(result, Result)

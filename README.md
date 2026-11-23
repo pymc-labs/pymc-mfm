@@ -48,6 +48,7 @@ the history table: one row per week with spend, controls and the observed outcom
 `query` holds the weeks to explain or forecast: the same date, spend and control columns,
 starting the week after the history ends.
 
+<!-- docs-example: first-analysis -->
 ```python
 import numpy as np
 import pandas as pd
