@@ -38,8 +38,14 @@ LIST_COLUMNS = (
 class Client:
     """Client for the hosted River API.
 
-    ``base_url`` and ``api_key`` default to the environment variables ``MFM_API_URL`` and
-    ``MFM_API_KEY``. Requests retry on 429, 502, 503, 504 and connection errors, up to
+    ``base_url`` and ``api_key`` are trimmed and default to ``MFM_API_URL`` and
+    ``MFM_API_KEY`` when omitted or blank. The service URL must be direct HTTPS,
+    with no credentials, query or fragment. Plain HTTP is allowed only for
+    ``localhost``, ``127.0.0.1`` and ``[::1]`` for local testing. Invalid settings
+    raise ``ValueError`` before a request. A 3xx response raises an ``ApiError``
+    with code ``redirect``; the client does not follow it.
+
+    Requests retry on 429, 502, 503, 504 and connection errors, up to
     ``max_retries`` times, and wait as long as ``Retry-After`` asks, up to ``max_retry_after``
     seconds (default 60) so a huge value cannot stall the call. Each call that creates
     something sends an ``Idempotency-Key`` derived from the request content, reused on its

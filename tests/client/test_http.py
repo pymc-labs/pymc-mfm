@@ -1,10 +1,13 @@
+import json
 import re
+from traceback import format_exception
 
 import httpx
 import pytest
 
 from pymc_mfm.client import (
     ApiConnectionError,
+    ApiError,
     Client,
     Conflict,
     Forbidden,
@@ -19,7 +22,8 @@ from pymc_mfm.client import (
 )
 from pymc_mfm.client._http import MAX_RETRY_WAIT, parse_retry_after
 
-from .client_fixtures import BASE_URL, dataset_record, error_body
+from .client_fixtures import BASE_URL, dataset_record, error_body, status_record
+from .local_service import API_KEY, serve
 
 
 def create(client, history):
@@ -36,23 +40,279 @@ def test_requests_carry_the_bearer_key(client, service, history):
     assert str(request.url) == f"{BASE_URL}/v1/datasets"
 
 
-def test_url_and_key_come_from_the_environment(monkeypatch, service):
-    monkeypatch.setenv("MFM_API_URL", "https://api.example.com/")
-    monkeypatch.setenv("MFM_API_KEY", "env-key")
+@pytest.mark.parametrize(
+    ("base_url", "api_key", "expected_url", "expected_key"),
+    [
+        (None, None, BASE_URL, "env-key"),
+        (" \ufeff\r\n", " \ufeff\r\n", BASE_URL, "env-key"),
+        (" \ufeffhttps://arg.example.com/\n", None, "https://arg.example.com", "env-key"),
+        (None, " \ufeffarg-key\n", BASE_URL, "arg-key"),
+    ],
+)
+def test_url_and_key_are_resolved_independently(
+    monkeypatch, service, base_url, api_key, expected_url, expected_key
+):
+    monkeypatch.setenv("MFM_API_URL", f" \ufeff{BASE_URL}/\r\n")
+    monkeypatch.setenv("MFM_API_KEY", " \ufeffenv-key\n")
     service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
-    with Client(transport=httpx.MockTransport(service)) as client:
+    with Client(base_url, api_key, transport=httpx.MockTransport(service)) as client:
         client.datasets.get("ds_123")
-    assert str(service.requests[0].url) == "https://api.example.com/v1/datasets/ds_123"
-    assert service.requests[0].headers["Authorization"] == "Bearer env-key"
+    assert str(service.requests[0].url) == f"{expected_url}/v1/datasets/ds_123"
+    assert service.requests[0].headers["Authorization"] == f"Bearer {expected_key}"
 
 
-def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
+@pytest.mark.parametrize("argument", [None, " \ufeff\r\n"])
+def test_missing_url_or_key_names_the_environment_variable(monkeypatch, argument):
     monkeypatch.delenv("MFM_API_URL", raising=False)
     monkeypatch.delenv("MFM_API_KEY", raising=False)
     with pytest.raises(ValueError, match="MFM_API_URL"):
-        Client(api_key="k")
+        Client(base_url=argument, api_key="k")
     with pytest.raises(ValueError, match="MFM_API_KEY"):
-        Client(BASE_URL)
+        Client(BASE_URL, argument)
+
+
+def test_explicit_settings_are_trimmed_and_preserve_path_prefix(monkeypatch, service):
+    monkeypatch.setenv("MFM_API_URL", "http://unused.example.com")
+    monkeypatch.setenv("MFM_API_KEY", "unused key")
+    service.on(
+        "GET",
+        "/team@org/blue/v1/datasets/ds_123",
+        (200, json.dumps(dataset_record()).encode()),
+    )
+    with Client(
+        " \ufeffHTTPS://api.example.com/team@org%2Fblue///\r\n",
+        "\ufeffarg-key \n",
+        transport=httpx.MockTransport(service),
+    ) as client:
+        client.datasets.get("ds_123")
+    (request,) = service.requests
+    assert str(request.url) == f"{BASE_URL}/team@org%2Fblue/v1/datasets/ds_123"
+    assert request.headers["Authorization"] == "Bearer arg-key"
+
+
+@pytest.mark.parametrize(
+    ("url", "hint"),
+    [
+        ("HTTP://api.example.com", "https://"),
+        ("http://localhost.example.com", "https://"),
+        ("http://127.0.0.2:8000", "https://"),
+        ("ftp://api.example.com", "https://"),
+        ("api.example.com", "https://"),
+        ("https://:443", "name a host"),
+        ("https://user:raw-marker@api.example.com", "user name or password"),
+        ("https://@api.example.com", "user name or password"),
+        ("https://api.example.com:", "port"),
+        ("https://api.example.com:abc", "port"),
+        ("https://api.example.com:0", "port"),
+        ("https://api.example.com:65536", "port"),
+        ("https://[::1]443", "port"),
+        ("https://[raw-marker", "well-formed"),
+        ("https://api.example.com\\raw-marker", "well-formed"),
+        ("https://api.example.com?", "query or fragment"),
+        ("https://api.example.com#", "query or fragment"),
+        ("https://api.example.com?token=raw-marker", "query or fragment"),
+        ("https://api.example.com#raw-marker", "query or fragment"),
+    ],
+)
+def test_invalid_service_url_is_refused_before_a_request(service, url, hint):
+    with pytest.raises(ValueError, match=hint) as caught:
+        Client(url, "test-key", transport=httpx.MockTransport(service))
+    assert "raw-marker" not in "".join(format_exception(caught.value))
+    assert "Connect page" in str(caught.value)
+    assert service.requests == []
+
+
+def test_plain_http_service_url_in_environment_is_refused(monkeypatch, service):
+    monkeypatch.setenv("MFM_API_URL", " \ufeffhttp://api.example.com\n")
+    with pytest.raises(ValueError, match="MFM_API_URL"):
+        Client(api_key="test-key", transport=httpx.MockTransport(service))
+    assert service.requests == []
+
+
+@pytest.mark.parametrize("url", ["http://localhost", "http://127.0.0.1:8000", "http://[::1]:8000"])
+def test_plain_http_is_allowed_for_literal_loopback(service, url):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
+    with Client(url, "test-key", transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    (request,) = service.requests
+    assert str(request.url) == f"{url}/v1/datasets/ds_123"
+    assert request.headers["Authorization"] == "Bearer test-key"
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+def test_loopback_http_bypasses_proxy_without_disabling_https_proxy(monkeypatch, host):
+    with serve() as (proxy_url, _):
+        # An HTTP proxy receives an absolute request target, which this origin rejects.
+        monkeypatch.delenv("ALL_PROXY", raising=False)
+        monkeypatch.delenv("all_proxy", raising=False)
+        monkeypatch.setenv("http_proxy", proxy_url)
+        monkeypatch.setenv("https_proxy", proxy_url)
+        monkeypatch.setenv("no_proxy", "")
+        url = proxy_url.replace("127.0.0.1", host, 1)
+        with Client(url, API_KEY, max_retries=0) as client:
+            assert client.list_analyses().empty
+        https_url = url.replace("http://", "https://", 1)
+        with (
+            Client(https_url, API_KEY, max_retries=0) as client,
+            pytest.raises(ApiConnectionError, match="ProxyError"),
+        ):
+            client.list_analyses()  # The stub does not implement CONNECT.
+
+
+@pytest.mark.parametrize("from_env", [False, True])
+@pytest.mark.parametrize(
+    ("key", "hint"),
+    [
+        (' "raw-marker"\n', "quote mark"),
+        ("raw-marker'", "quote mark"),
+        ("raw-marker value", "whitespace inside"),
+        ("raw-marker\nvalue", "whitespace inside"),
+        ("raw-marker\x07", "control or non-ASCII"),
+        ("raw-markeré", "control or non-ASCII"),
+        ("raw-marker\ufeffvalue", "control or non-ASCII"),
+    ],
+)
+def test_malformed_key_is_refused_without_echoing_it(monkeypatch, service, key, hint, from_env):
+    monkeypatch.setenv("MFM_API_KEY", key if from_env else "valid-env-key")
+    with pytest.raises(ValueError, match=hint) as caught:
+        Client(BASE_URL, None if from_env else key, transport=httpx.MockTransport(service))
+    assert "raw-marker" not in "".join(format_exception(caught.value))
+    assert "Connect page" in str(caught.value)
+    assert service.requests == []
+
+
+@pytest.mark.parametrize(
+    ("status", "location", "host"),
+    [
+        (
+            301,
+            "https://user:raw-marker@redirect.example.com/other?token=raw-marker",
+            "redirect.example.com",
+        ),
+        (302, "https://[raw-marker", None),
+        (302, "https://redirect.example.com\\raw-marker", None),
+        (302, "https://xn--/target", "xn--"),
+        (302, "//redirect.example.com/target?sig=raw-marker", "redirect.example.com"),
+        (304, None, None),
+        (307, "/another-path", None),
+    ],
+)
+def test_request_redirects_raise_without_following_or_retrying(
+    client, service, sleeps, status, location, host
+):
+    headers = {} if location is None else {"Location": location}
+    service.on("GET", "/v1/datasets/ds_123", (status, b"not JSON", headers))
+    with pytest.raises(ApiError) as caught:
+        client.datasets.get("ds_123")
+    error = caught.value
+    assert (error.status, error.code) == (status, "redirect")
+    assert "MFM_API_URL" in error.message
+    assert "raw-marker" not in "".join(format_exception(error))
+    if host:
+        assert host in error.message
+    assert len(service.requests) == 1
+    assert sleeps == []
+
+
+def test_create_redirect_does_not_replay_the_post(client, service, history, sleeps):
+    service.on("POST", "/v1/datasets", (307, b"", {"Location": "/other-datasets"}))
+    with pytest.raises(ApiError) as caught:
+        create(client, history)
+    assert (caught.value.status, caught.value.code) == (307, "redirect")
+    assert [(r.method, r.url.path) for r in service.requests] == [("POST", "/v1/datasets")]
+    assert sleeps == []
+
+
+@pytest.mark.parametrize("close_fails", [False, True])
+def test_redirect_ignores_ambiguous_location_and_stays_terminal(sleeps, close_fails):
+    seen = []
+
+    class ResponseBody(httpx.ByteStream):
+        def close(self) -> None:
+            if close_fails:
+                raise httpx.CloseError("raw-marker")
+
+    def handle(request):
+        seen.append(request)
+        request.headers.pop("Authorization")
+        return httpx.Response(
+            302,
+            headers=[("Location", "https://redirect.example.com"), ("Location", "raw-marker")],
+            stream=ResponseBody(b""),
+        )
+
+    with Client(BASE_URL, "test-key", transport=httpx.MockTransport(handle)) as client:
+        client._http._sleep = sleeps.append
+        with pytest.raises(ApiError) as caught:
+            client.datasets.get("ds_123")
+    error = caught.value
+    assert (error.status, error.code) == (302, "redirect")
+    assert "MFM_API_URL" in error.message
+    assert "raw-marker" not in "".join(format_exception(error))
+    assert len(seen) == 1
+    assert sleeps == []
+
+
+def test_export_redirect_does_not_write_a_file(client, service, tmp_path):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record()))
+    analysis = client.get("an_1")
+    service.on("GET", "/v1/analyses/an_1/export", (308, b"", {"Location": "/export"}))
+    path = tmp_path / "export.json"
+    with pytest.raises(ApiError) as caught:
+        analysis.export(path)
+    assert (caught.value.status, caught.value.code) == (308, "redirect")
+    assert [request.url.path for request in service.requests] == [
+        "/v1/analyses/an_1",
+        "/v1/analyses/an_1/export",
+    ]
+    assert service.requests[-1].headers["Authorization"] == "Bearer test-key"
+    assert not path.exists()
+
+
+def test_signed_download_redirect_identifies_the_storage_problem(client, service):
+    service.on("GET", "/draws.nc", (302, b"", {"Location": "/another-object?sig=raw-marker"}))
+    with pytest.raises(ApiError) as caught:
+        client._http.download(f"{BASE_URL}/draws.nc?sig=initial")
+    error = caught.value
+    assert (error.status, error.code) == (302, "redirect")
+    assert "direct signed download URL" in error.message
+    assert "MFM_API_URL" not in error.message
+    assert "raw-marker" not in error.message
+    assert [request.url.path for request in service.requests] == ["/draws.nc"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://storage.example.com/draws.nc?sig=1",
+        "storage.example.com/draws.nc",
+        "https://user:pw@storage.example.com/draws.nc",
+    ],
+)
+def test_unsafe_signed_download_url_is_refused_before_a_request(client, service, url):
+    with pytest.raises(ValueError, match="signed download URL"):
+        client._http.download(url)
+    assert service.requests == []
+
+
+@pytest.mark.parametrize("origin", [BASE_URL, "https://storage.example.com"])
+def test_signed_download_preserves_query_and_sends_no_service_credentials(client, service, origin):
+    query = "sig=abc%2fdef%20ghi&part=1&sig=%7e"
+    url = f"{origin}/draws.nc?{query}"
+    service.on(
+        "GET",
+        "/v1/datasets/ds_123",
+        (200, dataset_record(), {"Set-Cookie": "session=synthetic; Domain=example.com; Secure"}),
+    )
+    service.on("GET", "/draws.nc", (200, b"draws"))
+    client.datasets.get("ds_123")
+    assert client._http.download(url) == b"draws"
+    client.datasets.get("ds_123")
+    _, download, authenticated = service.requests
+    assert download.url.raw_path == f"/draws.nc?{query}".encode("ascii")
+    assert "Authorization" not in download.headers
+    assert "Cookie" not in download.headers
+    assert authenticated.headers["Cookie"] == "session=synthetic"
 
 
 def test_post_sends_a_content_derived_idempotency_key(client, service, history):
@@ -153,11 +413,21 @@ def test_connection_errors_are_retried(client, service, sleeps):
 
 
 def test_connection_errors_end_in_a_typed_error(client, service, sleeps):
-    service.on("GET", "/v1/datasets/ds_123", httpx.ConnectError("refused"))
-    with pytest.raises(ApiConnectionError, match="refused"):
+    failure = httpx.ConnectError("transport failed with Authorization: Bearer test-key")
+    service.on("GET", "/v1/datasets/ds_123", failure)
+    with pytest.raises(ApiConnectionError, match="api.example.com.*ConnectError") as caught:
         client.datasets.get("ds_123")
     assert len(service.requests) == 4  # one try and three retries
     assert len(sleeps) == 3
+    assert "test-key" not in "".join(format_exception(caught.value))
+
+
+def test_signed_download_transport_error_does_not_expose_the_url(client, service):
+    url = "https://storage.example.com/draws.nc?sig=raw-marker"
+    service.on("GET", "/draws.nc", httpx.ReadTimeout(f"timeout for {url}"))
+    with pytest.raises(ApiConnectionError, match="storage.example.com.*ReadTimeout") as caught:
+        client._http.download(url)
+    assert "raw-marker" not in "".join(format_exception(caught.value))
 
 
 def test_retry_after_seconds_sets_the_wait(client, service, sleeps):

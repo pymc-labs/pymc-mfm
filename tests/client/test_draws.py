@@ -1,10 +1,11 @@
 import sys
+from traceback import format_exception
 
 import httpx
 import numpy as np
 import pytest
 
-from pymc_mfm.client import Forbidden
+from pymc_mfm.client import ApiConnectionError, Forbidden
 
 from .client_fixtures import FakeService, result_record, result_rows, status_record
 
@@ -140,6 +141,29 @@ def test_a_url_rejected_again_after_renewal_is_an_error(analysis, service, stora
     with pytest.raises(Forbidden):
         done.draws(["half"])
     assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+
+
+def test_failed_draw_renewal_omits_both_signatures_from_the_traceback(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record()))
+    done = fetch(
+        client, service, result_with_urls("expired-marker"), result_with_urls("renewed-marker")
+    )
+    service.on(
+        "GET",
+        "/half.nc",
+        (403, b'{"error":{"code":"forbidden","message":"expired signature=expired-marker"}}'),
+        httpx.ReadTimeout("could not fetch signature=renewed-marker"),
+    )
+    with pytest.raises(ApiConnectionError) as caught:
+        done.draws(["half"])
+    trace = "".join(format_exception(caught.value))
+    assert "expired-marker" not in trace
+    assert "renewed-marker" not in trace
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+    assert [r.url.params["sig"] for r in service.sent("GET", "/half.nc")] == [
+        "expired-marker",
+        *(["renewed-marker"] * 4),
+    ]
 
 
 def test_draws_never_start_a_run(analysis, service):
