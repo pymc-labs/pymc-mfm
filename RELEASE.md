@@ -336,9 +336,9 @@ They are not current workflow instructions.
   images resolve on the host. The navbar and the
   landing hero link the GitHub repository, and the River quickstart installs the library
   from GitHub, as the other pages do, instead of PyPI's client-only package.
-  Text is Inter and headlines Archivo Expanded, self-hosted. The favicons are the mark
-  on a navy circle; the ICO, the Apple touch icon and the three card JPEGs are pinned in
-  the public-boundary allowlist.
+  Text is Inter and headlines Archivo Expanded, self-hosted. Browser tabs use a transparent
+  PNG of the navy MFM mark without the circle. The PNG favicon, Apple touch icon and three
+  card JPEGs are pinned in the public-boundary allowlist.
 - **Light default install and an HTTP client for the River API.** PyTorch and safetensors
   moved from the base dependencies to a new `local` extra. A plain `pip install pymc-mfm`
   now installs NumPy, pandas, httpx and packaging only, and `import pymc_mfm` no longer
