@@ -1,7 +1,7 @@
 /* Shared behaviour for every page. Each init* function below sets up one piece of site chrome
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
-     initConsoleButton marks the last right-hand navbar link with data-mfm="console" (site.css draws it)
+     initConsoleButton marks the first right-hand navbar link with data-mfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
@@ -99,12 +99,12 @@
     });
   }
 
-  /* The right-hand navbar list ends with one link, the access page. The hook is this attribute,
+  /* The right-hand navbar list starts with one link, the access page. The hook is this attribute,
      never the link's address, so the address can change without touching the styles. site.css
-     draws it as a button with its icon and label at every width. */
+     draws it as a button with its icon and label at every width. Links after it (the pilot's
+     "Sign in") stay plain text. */
   function initConsoleButton() {
-    const links = document.querySelectorAll("#navbarCollapse .navbar-nav.ms-auto .nav-link");
-    const link = links[links.length - 1];
+    const link = document.querySelector("#navbarCollapse .navbar-nav.ms-auto .nav-link");
     if (!link) return;
     link.dataset.mfm = "console";
   }
