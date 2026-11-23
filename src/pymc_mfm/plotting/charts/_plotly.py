@@ -76,6 +76,33 @@ def finish(
     return fig
 
 
+def footnote(fig: go.Figure, lines: Sequence[str]) -> go.Figure:
+    """``lines`` under the plotting area of a :func:`finish`-ed figure, each wrapped.
+
+    The bottom margin grows to hold them below the x-axis titles, and the figure grows
+    by the same amount, so the plotting area keeps its height.
+    """
+    wrapped = [part for line in lines for part in textwrap.wrap(line, CAPTION_WIDTH)]
+    if not wrapped:
+        return fig
+    bottom, extra = fig.layout.margin.b, 18 * len(wrapped) + 10
+    plot_height = fig.layout.height - fig.layout.margin.t - bottom
+    fig.update_layout(height=fig.layout.height + extra, margin={"b": bottom + extra})
+    fig.add_annotation(
+        text="<br>".join(text(part) for part in wrapped),
+        xref="paper",
+        yref="paper",
+        x=0,
+        y=-bottom / plot_height,
+        xanchor="left",
+        yanchor="top",
+        align="left",
+        showarrow=False,
+        font={"size": 11},
+    )
+    return fig
+
+
 def _half_step(dates: np.ndarray) -> pd.Timedelta:
     if len(dates) < 2:
         return pd.Timedelta(days=0.5)

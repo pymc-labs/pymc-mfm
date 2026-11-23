@@ -192,24 +192,31 @@ def _rings(ax):
     return np.concatenate([c.get_offsets() for c in found]) if found else np.empty((0, 2))
 
 
-def test_matplotlib_rings_warned_levels_and_lists_each_warning_once(inferred):
+def _notes(fig):
+    """The matplotlib chart's notes: the title of its one legend, under the panels."""
+    [legend] = fig.legends
+    return " ".join(legend.get_title().get_text().split())
+
+
+def test_matplotlib_rings_warned_levels_and_lists_each_warning_once_under_the_panels(inferred):
     fig = Plots(_summarized(inferred)).response_curves(backend="matplotlib")
     search, tv = fig.axes
     np.testing.assert_array_equal(_rings(search), [[1.5, 30.0]])
     np.testing.assert_array_equal(_rings(tv), [[0.5, 15.0]])
-    text = " ".join(fig.get_suptitle().split())
-    assert f"Warning (search, tv): {SPEND}" in text
-    assert f"Warning (tv): {SHORT}" in text
-    assert text.count(SPEND) == 1
+    notes = _notes(fig)
+    assert f"Warning (all channels): {SPEND}" in notes
+    assert f"Warning (tv): {SHORT}" in notes
+    assert notes.count(SPEND) == 1
+    assert "Warning" not in fig.get_suptitle()  # the title keeps only the chart's own caption
     [legend] = fig.legends
-    assert "Level has a warning (see caption)" in [label.get_text() for label in legend.texts]
+    assert "Level has its own warning (see notes)" in [label.get_text() for label in legend.texts]
 
     plain = Plots(_summarized(inferred, warnings=None)).response_curves(backend="matplotlib")
     assert all(_rings(ax).size == 0 for ax in plain.axes)
-    assert "Warning" not in plain.get_suptitle()
+    assert _notes(plain) == ""
 
 
-def test_plotly_rings_warned_levels_and_lists_each_warning_once(inferred):
+def test_plotly_rings_warned_levels_and_lists_each_warning_once_under_the_panels(inferred):
     fig = Plots(_summarized(inferred)).response_curves(backend="plotly")
     rings = [
         trace
@@ -222,29 +229,59 @@ def test_plotly_rings_warned_levels_and_lists_each_warning_once(inferred):
         np.testing.assert_array_equal(ring.y, [mean])
     assert rings[1].hovertext == (f"{SPEND}<br>{SHORT}",)
     assert [ring.showlegend for ring in rings] == [True, False]
-    assert f"Warning (search, tv): {SPEND}" in fig.layout.title.text
-    assert f"Warning (tv): {SHORT}" in fig.layout.title.text
+    [notes] = fig.layout.annotations[-1:]
+    assert notes.yref == "paper" and notes.y < 0  # below the plotting area
+    assert f"Warning (all channels): {SPEND}" in notes.text
+    assert f"Warning (tv): {SHORT}" in notes.text
+    assert "Warning" not in fig.layout.title.text
+    assert fig.layout.margin.b > 50 and fig.layout.height > 300 * 1 + 50 + fig.layout.margin.t
 
     plain = Plots(_summarized(inferred, warnings=None)).response_curves(backend="plotly")
     assert not [trace for trace in plain.data if trace.marker.symbol == "circle-open"]
-    assert "Warning" not in plain.layout.title.text
+    assert not any("Warning" in (note.text or "") for note in plain.layout.annotations)
+    assert plain.layout.margin.b == 50
 
 
-def test_the_caption_lists_at_most_max_warning_lines(inferred):
-    # 11 distinct warnings, only at levels with a mean: tv's levels hold two each.
+def test_a_warning_of_the_base_plan_is_one_note_and_rings_no_level(inferred):
+    # PLAN is on search's level 1 (tv has no level-1 point) and on most other levels.
+    plan = "Control price is outside every value of its history."
+    warnings = np.array(
+        [
+            [plan, plan, plan, f"{plan}\n{SPEND}", ""],
+            ["", plan, "", f"{plan}\n{SPEND}", plan],
+        ]
+    )
+    data = curve_charts.prepare(IdataReader(_summarized(inferred, warnings=warnings)))
+    assert data.notes == (f"Base plan: {plan}", f"Warning (all channels): {SPEND}")
+    # Only the levels with a warning of their own keep one, so only they get a ring.
+    np.testing.assert_array_equal(data.warnings, [["", "", "", SPEND, ""], ["", "", "", SPEND, ""]])
+
+    one = curve_charts.prepare(
+        IdataReader(_summarized(inferred, warnings=warnings)), channels=["tv"]
+    )
+    # tv has no level-1 point: only what every drawn level shares is the plan's.
+    assert one.notes == (f"Base plan: {plan}", f"Warning (tv): {SPEND}")
+
+
+def test_the_notes_list_at_most_max_warning_lines(inferred):
+    # 11 distinct warnings, only at levels with a mean: tv's levels hold two each. Search's
+    # level 1 is the unchanged plan, so its warning 2 is the base plan's and comes first.
     many = np.array(
         [
             [f"warning {i}" for i in range(5)],
             ["", "warning 5\nwarning 6", "", "warning 7\nwarning 8", "warning 9\nwarning 10"],
         ]
     )
-    caption = curve_charts.prepare(IdataReader(_summarized(inferred, warnings=many))).caption
-    listed = [line for line in caption if line.startswith("Warning (")]
-    assert listed == [
-        f"Warning ({'search' if i < 5 else 'tv'}): warning {i}" for i in range(MAX_WARNING_LINES)
+    notes = curve_charts.prepare(IdataReader(_summarized(inferred, warnings=many))).notes
+    own = [i for i in range(11) if i != 2][: MAX_WARNING_LINES - 1]
+    assert list(notes[:MAX_WARNING_LINES]) == [
+        "Base plan: warning 2",
+        *(f"Warning ({'search' if i < 5 else 'tv'}): warning {i}" for i in own),
     ]
     rest = 11 - MAX_WARNING_LINES
-    assert caption[-1] == f"{rest} more warnings: see /response_curves/summary/warning."
+    assert notes[MAX_WARNING_LINES:] == (
+        f"{rest} more warnings: see /response_curves/summary/warning.",
+    )
 
 
 def test_matplotlib_draws_a_bar_where_a_band_has_no_area(inferred):

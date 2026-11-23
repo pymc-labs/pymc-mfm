@@ -231,7 +231,9 @@ class Plots:
         Hosted curves have no draws: the tree stores River's mean and fixed 90% band in
         ``/response_curves/summary``, with no ``posterior``, so any other ``interval``
         raises ``NotSupported``. Levels River warned about are ringed and their warnings
-        listed in the caption; a level without a summary is a gap.
+        listed under the panels: a warning of the unchanged plan (level 1 in every panel)
+        is listed once as ``Base plan`` and rings no level. A level without a summary is a
+        gap.
         """
         return _curves.response_curves(
             self._source,

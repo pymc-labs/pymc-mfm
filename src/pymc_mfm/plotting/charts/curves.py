@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from pymc_mfm.inference.curves import select_channels
-from pymc_mfm.plotting.panels import COLORS, _suptitle
+from pymc_mfm.plotting.panels import COLORS, _fit, _suptitle
 
 from ._backend import check, draw
 from ._data import CurveSummary, summarize
@@ -29,7 +29,7 @@ _CURVE = COLORS["channel"]
 _REFERENCE = "#737373"
 _REFERENCE_LABEL = "Observed level (100%)"
 _XLABEL = "Media covariate, % of observed"
-_WARNING_LABEL = "Level has a warning (see caption)"
+_WARNING_LABEL = "Level has its own warning (see notes)"
 #: Width of the interval bar at a level whose neighbours are missing, where a band has no area.
 _BAR_WIDTH = 6
 
@@ -39,10 +39,10 @@ class Curves:
     """One panel per media covariate, in drawing order.
 
     ``media`` (the level times the observed total), ``mean``, ``low``, ``high``,
-    ``warnings`` and ``truth`` are ``[channel, level]``; ``warnings`` is the text a
-    hosted summary gives a level (``""`` for none, always for local draws); ``truth`` is
-    NaN where none was given and ``None`` without truth. ``actual`` indexes level 1 in
-    ``levels``, if listed.
+    ``warnings`` and ``truth`` are ``[channel, level]``; ``warnings`` holds each level's
+    own hosted warnings, without those every drawn level shares (``""`` for none, always
+    for local draws); ``truth`` is NaN where none was given and ``None`` without truth.
+    ``actual`` indexes level 1 in ``levels``, if listed. ``notes`` go under the panels.
     """
 
     channels: tuple[str, ...]
@@ -59,6 +59,7 @@ class Curves:
     ylabel: str
     title: str
     caption: tuple[str, ...]
+    notes: tuple[str, ...]
 
 
 def prepare(
@@ -94,6 +95,7 @@ def prepare(
         mean, low, high = summarize(curves.draws[rows], interval, axis=2)
         media, totals = source.curve_media()[rows], curves.media[rows]
         warnings = np.full(mean.shape, "")
+    own, notes = _warning_notes(names, curves.levels, warnings, mean)
     (actual,) = np.nonzero(curves.levels == 1.0)
     weeks = curves.weeks
     span = "a one-week plan" if weeks == 1 else f"a plan of the first {weeks} forecast weeks"
@@ -112,7 +114,7 @@ def prepare(
         high=high,
         actual=int(actual[0]) if actual.size else None,
         truth=_truth(truth, curves.levels, curves.channels, names),
-        warnings=warnings,
+        warnings=own,
         band=f"{percent(interval)} interval",
         ylabel=f"Contribution over {weeks} week{'s' if weeks > 1 else ''} (outcome)",
         title=title or _TITLE,
@@ -121,35 +123,57 @@ def prepare(
             f"Each media covariate varied separately over {span}; history and other inputs fixed.",
             *missing_note,
             CAVEAT,
-            *_warning_lines(names, warnings),
         ),
+        notes=notes,
     )
 
 
-def _warning_lines(names: tuple[str, ...], warnings: np.ndarray) -> tuple[str, ...]:
-    """One caption line per distinct warning of the drawn curves, naming their channels.
+def _warning_notes(
+    names: tuple[str, ...], levels: np.ndarray, warnings: np.ndarray, mean: np.ndarray
+) -> tuple[np.ndarray, tuple[str, ...]]:
+    """Each drawn level's own warnings, and the notes under the chart that list them all.
 
-    At most ``MAX_WARNING_LINES`` of them, as under ``client.plots.plot_curves``, then one
-    line counting the rest: a saved image keeps the warnings.
+    Level 1 is the unchanged plan in every panel, so a warning that every drawn level-1
+    point carries is about that plan, not one level (every drawn level, without level 1):
+    it gets a single ``Base plan`` note and no ring. Each other warning gets one note
+    naming its channels, or ``all channels`` when every drawn panel has it. At most
+    ``MAX_WARNING_LINES`` notes, as under ``client.plots.plot_curves``, then one counting
+    the rest: a saved image keeps the warnings. Levels without a mean draw nothing, so
+    their text is not listed.
     """
+    present = ~np.isnan(mean)
+    messages = {
+        (row, column): [message for message in str(warnings[row, column]).split("\n") if message]
+        for row, column in zip(*np.nonzero(present), strict=True)
+    }
+    base = [items for (_, column), items in messages.items() if levels[column] == 1.0]
+    groups = base or list(messages.values())
+    plan = set.intersection(*map(set, groups)) if groups else set()
+    own = np.full(mean.shape, "", dtype=object)
+    shared: dict[str, None] = {}
     found: dict[str, dict[str, None]] = {}
-    for name, row in zip(names, warnings, strict=True):
-        for text in row:
-            for message in text.split("\n"):
-                if message:
-                    found.setdefault(message, {})[name] = None
-    if not found:
-        return ()
-    from pymc_mfm.client.plots import MAX_WARNING_LINES
+    for (row, column), items in messages.items():
+        own[row, column] = "\n".join(message for message in items if message not in plan)
+        for message in items:
+            if message in plan:
+                shared.setdefault(message, None)
+            else:
+                found.setdefault(message, {})[names[row]] = None
+    notes = [f"Base plan: {message}" for message in shared]
+    for message, where in found.items():
+        label = "all channels" if len(names) > 1 and len(where) == len(names) else ", ".join(where)
+        notes.append(f"Warning ({label}): {message}")
+    if notes:
+        from pymc_mfm.client.plots import MAX_WARNING_LINES
 
-    lines = [f"Warning ({', '.join(where)}): {message}" for message, where in found.items()]
-    if len(lines) > MAX_WARNING_LINES:
-        rest = len(lines) - MAX_WARNING_LINES
-        lines = [
-            *lines[:MAX_WARNING_LINES],
-            f"{rest} more warning{'s' if rest > 1 else ''}: see /response_curves/summary/warning.",
-        ]
-    return tuple(lines)
+        if len(notes) > MAX_WARNING_LINES:
+            rest = len(notes) - MAX_WARNING_LINES
+            plural = "s" if rest > 1 else ""
+            notes = [
+                *notes[:MAX_WARNING_LINES],
+                f"{rest} more warning{plural}: see /response_curves/summary/warning.",
+            ]
+    return own.astype(str), tuple(notes)
 
 
 def _isolated(mean: np.ndarray) -> np.ndarray:
@@ -271,7 +295,8 @@ def _matplotlib(data: Curves) -> Any:
         if index + columns >= count:  # the lowest panel of its column
             ax.set_xlabel(_XLABEL, fontsize=9)
     fig.supylabel(data.ylabel, fontsize=9)
-    figure_legend(fig, axes.flat)
+    notes = _fit("\n".join(data.notes), fig.get_figwidth(), 9) if data.notes else None
+    figure_legend(fig, axes.flat, notes=notes)
     _suptitle(fig, data.title, *data.caption)
     return fig
 
@@ -433,7 +458,8 @@ def _plotly(data: Curves) -> Any:
     # Narrow panels get fewer ticks, which then stay level instead of rotating.
     fig.update_xaxes(tickformat=".0%", nticks=4 if columns > 2 else 0)
     fig.update_yaxes(title={"text": plotting.text(data.ylabel), "font": {"size": 11}}, col=1)
-    return plotting.finish(fig, title=data.title, caption=data.caption, height=300 * rows + 50)
+    fig = plotting.finish(fig, title=data.title, caption=data.caption, height=300 * rows + 50)
+    return plotting.footnote(fig, data.notes)
 
 
 def response_curves(

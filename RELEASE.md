@@ -43,8 +43,9 @@ References to `client-v0.1.0` record the earlier client release plan.
   warnings from inference and curve sweeps are emitted as `UserWarning` and stored in
   the result. A hosted `response_curves` sweep stores River's mean and fixed 90% band in
   `/response_curves/summary` (no draws, so another chart `interval=` raises
-  `NotSupported`); its charts ring the points River warned about and list the warnings
-  in the caption. It raises `RuntimeError` and keeps the previous result when a channel
+  `NotSupported`); its charts ring the levels River warned about and list the warnings
+  under the panels, a warning of the unchanged plan once as `Base plan` with no ring.
+  It raises `RuntimeError` and keeps the previous result when a channel
   has no successful varied level. A failure after River accepted an analysis carries a
   note with its ID: calling the model again starts a new analysis, and
   `pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. On
