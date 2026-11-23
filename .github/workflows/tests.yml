@@ -1,19 +1,37 @@
-name: Tests
+name: Test suite
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      approved-pr:
+        required: true
+        type: boolean
 
 permissions:
   contents: read
 
-# A newer push to the same PR cancels the older run. Every push to main keeps its own result.
-concurrency:
-  group: tests-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+          python-version: "3.13"
+      - name: Check formatting and lint without installing the package
+        run: |
+          uv sync --locked --only-group dev
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+
   contracts:
     # Test the standard installation and the repository's generation and notebook tooling.
     name: contracts (${{ matrix.installation }}, ${{ matrix.lane }})
@@ -36,9 +54,12 @@ jobs:
       MKL_NUM_THREADS: ${{ matrix.lane == 'slow' && '2' || '1' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: ${{ !inputs.approved-pr }}
           python-version: "3.13"
       - name: Install the native graph renderer
         run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
@@ -48,11 +69,6 @@ jobs:
       - name: Install the package and contributor tooling
         if: matrix.installation == 'tooling'
         run: uv sync --locked --group generation --group examples
-      - name: Check formatting and lint
-        if: matrix.installation == 'standard' && matrix.lane == 'fast'
-        run: |
-          uv run --no-sync ruff check .
-          uv run --no-sync ruff format --check .
       # Static check of the deprecated top-level names; it only reads tests/typing.
       - name: Check static types of the deprecated top-level names
         if: matrix.installation == 'standard' && matrix.lane == 'fast'
@@ -80,9 +96,12 @@ jobs:
       MPLBACKEND: Agg
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: ${{ !inputs.approved-pr }}
           python-version: "3.13"
       - name: Install the native graph renderer
         # The installed workflow check renders diagnostic graphs.
@@ -97,11 +116,9 @@ jobs:
       - name: Verify the installed sdist and wheel
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
 
-  # The single required check. It runs even when a job fails or is cancelled. A skipped job
-  # counts as passed. A failed or cancelled job fails it.
-  ci-ok:
+  result:
     if: always()
-    needs: [contracts, installed-smoke]
+    needs: [lint, contracts, installed-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -114,7 +131,7 @@ jobs:
           while IFS=$'\t' read -r job result; do
             table+=$'\n'"| $job | $result |"
             case "$result" in
-              success|skipped) ;;
+              success) ;;
               *) bad=1 ;;
             esac
           done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.result)"' <<< "$NEEDS_JSON")
