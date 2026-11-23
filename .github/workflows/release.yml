@@ -3,16 +3,11 @@ name: Release
 # Every run builds the sdist and wheel, checks them and installs the wheel the way users
 # will. Only a pushed v* tag on a commit of main, in a public repository, publishes: to
 # PyPI through trusted publishing in the `pypi` environment, then as a GitHub release.
-# Pull requests and manual runs are dry runs and report version problems as warnings.
+# Manual runs are dry runs and report version problems as warnings.
 
 on:
   push:
     tags: ["v*"]
-  pull_request:
-    paths:
-      - .github/workflows/release.yml
-      - scripts/check_release_version.py
-      - pyproject.toml
   workflow_dispatch:
 
 permissions:
@@ -24,58 +19,10 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    # Whole-job hang guard: the wheel install downloads PyTorch.
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.13"
-      - name: Check the version against the tag and PyPI
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || '' }}
-        run: |
-          if [ -n "$RELEASE_TAG" ]; then mode=(--tag "$RELEASE_TAG"); else mode=(--warn-only); fi
-          uv run --no-project --with 'packaging>=24.2' \
-            python scripts/check_release_version.py "${mode[@]}"
-      - name: Require the tagged commit to be on main
-        if: github.event_name == 'push' && github.ref_type == 'tag'
-        run: |
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-      - name: Require a public repository
-        # The package metadata, README and conda recipe link to the repository.
-        if: github.event_name == 'push' && github.ref_type == 'tag'
-        run: |
-          if [ "${{ github.event.repository.private }}" != false ]; then
-            echo "::error::Make the repository public before releasing; the package links to it."
-            exit 1
-          fi
-      - name: Build distributions
-        run: uv build
-      - name: Check the distributions
-        run: |
-          python3 scripts/check_public_boundary.py --release --archive dist/*
-          uvx twine check --strict dist/*
-      - name: Install the wheel as users will and smoke test it
-        # Resolves dependencies from PyPI, not uv.lock. Runs a client request against a
-        # fake service and a tiny training and evaluation run without the generator.
-        run: |
-          uv venv --python 3.13 "$RUNNER_TEMP/wheel"
-          python="$RUNNER_TEMP/wheel/bin/python"
-          uv pip install --python "$python" dist/*.whl 'pytest>=8.3'
-          uv pip check --python "$python"
-          "$python" -I -m pytest -q -p no:cacheprovider \
-            tests/client/test_http.py \
-            tests/test_training.py::test_cli_trains_and_evaluates_saved_corpora_without_generator
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
+    uses: ./.github/workflows/release-build.yml
+    with:
+      revision: ${{ github.sha }}
+      release-tag: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || '' }}
 
   publish:
     needs: build
