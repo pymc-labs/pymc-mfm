@@ -17,7 +17,7 @@ import httpx
 from pymc_mfm import __version__
 
 from ._wire import canonical_json, to_json
-from .errors import KEY_HINT, ApiConnectionError, ApiError, Gone, error_from_response
+from .errors import ApiConnectionError, ApiError, Gone, error_from_response
 
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_WAIT = 60.0  # seconds; default cap on a Retry-After wait
@@ -36,6 +36,10 @@ _SIGNED_DOWNLOAD = "pymc_mfm.signed_download"
 _URL_SHAPE_PROBLEM = "must be well-formed, with a host and an optional port from 1 to 65535"
 _SERVICE_URL_HINT = (
     "Set base_url or MFM_API_URL to the direct https:// URL shown on the Connect page "
+    "of the River API console."
+)
+_KEY_HINT = (
+    "Check {parameter} or MFM_API_KEY. Create or replace your API key on the Connect page "
     "of the River API console."
 )
 
@@ -75,7 +79,7 @@ def _check_url(value: str, *, service: bool) -> None:
     raise ValueError(f"The signed download URL {problem}.")
 
 
-def _check_api_key(key: str) -> None:
+def _check_api_key(key: str, parameter: str) -> None:
     if key[0] in "\"'" or key[-1] in "\"'":
         problem = "starts or ends with a quote mark. Remove the quote marks"
     elif any(char.isspace() for char in key):
@@ -84,7 +88,25 @@ def _check_api_key(key: str) -> None:
         problem = "has a control or non-ASCII character. Copy the key again as plain text"
     else:
         return
-    raise ValueError(f"The API key {problem}. {KEY_HINT}")
+    raise ValueError(f"The API key {problem}. {_KEY_HINT.format(parameter=parameter)}")
+
+
+def _service_options(
+    base_url: str | None, api_key: str | None, *, key_parameter: str = "api_key"
+) -> tuple[str, str]:
+    """Resolve and validate one service URL and its credential without opening a client.
+
+    Messages name the credential as the caller's ``key_parameter``.
+    """
+    base_url = _setting(base_url, "MFM_API_URL")
+    api_key = _setting(api_key, "MFM_API_KEY")
+    if not base_url:
+        raise ValueError("Pass base_url or set the MFM_API_URL environment variable.")
+    _check_url(base_url, service=True)
+    if not api_key:
+        raise ValueError(f"Pass {key_parameter} or set the MFM_API_KEY environment variable.")
+    _check_api_key(api_key, key_parameter)
+    return base_url.rstrip("/"), api_key
 
 
 def _omit_download_credentials(request: httpx.Request) -> None:
@@ -174,20 +196,13 @@ class Http:
         max_retry_after: float = MAX_RETRY_WAIT,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        base_url = _setting(base_url, "MFM_API_URL")
-        api_key = _setting(api_key, "MFM_API_KEY")
-        if not base_url:
-            raise ValueError("Pass base_url or set the MFM_API_URL environment variable.")
-        _check_url(base_url, service=True)
-        if not api_key:
-            raise ValueError("Pass api_key or set the MFM_API_KEY environment variable.")
-        _check_api_key(api_key)
+        base_url, api_key = _service_options(base_url, api_key)
         if max_retries < 0:
             raise ValueError("max_retries must be 0 or more")
         if max_retry_after < 0:
             raise ValueError("max_retry_after must be 0 or more")
         self.max_retry_after = max_retry_after
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url
         self.max_retries = max_retries
         self._api_key = api_key
         self._sleep = time.sleep

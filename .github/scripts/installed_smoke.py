@@ -16,15 +16,22 @@ import tomllib
 import zipfile
 from pathlib import Path
 
-#: The local wheel must produce a complete analysis without statistics or plotting.
+#: The installed wheel must run the public workflow on the bundle it saved: ``load``, paired
+#: ``inference``, a chart read from the result tree (Agg, from ``MPLBACKEND``) and curves.
 PAIRED_INFERENCE = """
+import io
+
 import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-from pymc_mfm import from_pretrained
+import pymc_mfm as mfm
 
-model = from_pretrained("workflow/run/model", device="cpu")
+roles = dict(
+    date_column="date", target_column="outcome",
+    channel_columns=["media"], control_columns=["control"],
+)
+model = mfm.load("workflow/run/model", **roles, device="cpu")
 frame = pd.DataFrame({
     "date": pd.date_range("2024-01-01", periods=7, freq="W-MON"),
     "outcome": [100., 110., 105., 115., 120., 125., 130.],
@@ -32,13 +39,11 @@ frame = pd.DataFrame({
     "control": [-1., 0., 1., 0., -1., 0., 1.],
 })
 context, query = frame.iloc[:5], frame.iloc[5:]
-roles = dict(
-    date_column="date", target_column="outcome",
-    channel_columns=["media"], control_columns=["control"],
-)
 torch.manual_seed(31)
-tree = model.inference(context, query, **roles, n_samples=4)
-assert tree is model.idata
+result = model.inference(context, query, n_samples=4)
+assert result is model.result
+tree = result.idata
+mfm.validate_idata(tree)
 assert set(tree.children) == {"context", "query"}
 assert tree["context/posterior"].sizes["date"] == len(context)
 assert tree["query/posterior"].sizes["date"] == len(query)
@@ -48,24 +53,36 @@ np.testing.assert_array_equal(
 np.testing.assert_array_equal(
     tree["query/observed_data"]["outcome"].values, query["outcome"].to_numpy()
 )
+figure = result.plot.fit(backend="matplotlib")
+assert figure.axes
+png = io.BytesIO()
+figure.savefig(png, format="png")
+assert png.getvalue()[1:4] == b"PNG"
 after = torch.get_rng_state()
 torch.manual_seed(31)
-assert model.inference(context, query, **roles, n_samples=4, return_idata=False) is None
-assert model.idata is not tree
+again = model.inference(context, query, n_samples=4)
+assert again is model.result and again is not result
 assert torch.equal(torch.get_rng_state(), after)
 for window in ("context", "query"):
-    assert model.idata[f"{window}/posterior"].sizes["draw"] == 4
-    xr.testing.assert_equal(tree[f"{window}/posterior"], model.idata[f"{window}/posterior"])
-stored, result = model.idata, model.query_result
-prediction = model.predict(query.assign(media=query["media"] * 1.2), n_samples=2)
+    assert again.idata[f"{window}/posterior"].sizes["draw"] == 4
+    xr.testing.assert_equal(tree[f"{window}/posterior"], again.idata[f"{window}/posterior"])
+network = model.network
+stored = network.query_result
+prediction = network.predict(query.assign(media=query["media"] * 1.2), n_samples=2)
 assert prediction.components.shape[:2] == (2, len(query))
-assert model.idata is stored and model.query_result is result
+assert network.idata is again.idata and network.query_result is stored
 curves = model.response_curves(levels=[0, 1], weeks=1, n_samples=2)
-assert "response_curves" not in stored.children
+assert curves is model.result
+assert "response_curves" not in again.idata.children
+mfm.validate_idata(curves.idata)
+assert dict(curves.idata["response_curves/posterior"]["contribution"].sizes) == {
+    "chain": 1, "draw": 2, "channel": 1, "level": 2
+}
 np.testing.assert_array_equal(
-    model.idata["response_curves/posterior"]["contribution"].values,
-    curves.draws.transpose(2, 0, 1)[None],
+    curves.idata["response_curves/constant_data"]["media"].values,
+    [[0.0, query["media"].iloc[0]]],
 )
+xr.testing.assert_equal(curves.idata["query/posterior"], again.idata["query/posterior"])
 """
 
 

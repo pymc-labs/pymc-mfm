@@ -9,7 +9,8 @@ The network is trained once on many simulated datasets. For a new dataset,
 `inference(context, query, ...)` conditions on observed history without training its weights.
 
 This repository is the library. Simulators, training corpora and trained weights
-are separate artifacts: models load from a local folder or from the Hugging Face Hub.
+are separate artifacts: models load from a local folder or from the Hugging Face Hub,
+or run on the hosted River API.
 
 ## Installation
 
@@ -40,7 +41,85 @@ Importing `pymc_mfm` or `pymc_mfm.client` does not load PyTorch.
 - The development version installs from Git:
   `pip install "pymc-mfm @ git+https://github.com/pymc-labs/pymc-mfm.git"`.
 
+## Run a first analysis
+
+`pymc_mfm.load` opens a model and `model.inference(context, query)` runs it. `context` is
+the history table: one row per week with spend, controls and the observed outcome.
+`query` holds the weeks to explain or forecast: the same date, spend and control columns,
+starting the week after the history ends.
+
+<!-- docs-example: first-analysis -->
+```python
+import numpy as np
+import pandas as pd
+
+import pymc_mfm as mfm
+
+# Synthetic data: 104 weeks of history and an 8-week plan after it.
+rng = np.random.default_rng(0)
+weeks = pd.date_range("2024-11-11", periods=104, freq="7D")
+tv = rng.gamma(4.0, 2_000.0, size=104)
+search = rng.gamma(4.0, 1_500.0, size=104)
+price = rng.normal(10.0, 0.3, size=104)
+noise = rng.normal(0, 500, size=104)
+sales = 40_000 + 0.8 * tv + 1.2 * search - 1_000 * (price - 10.0) + noise
+history = pd.DataFrame({"week": weeks, "sales": sales, "tv": tv, "search": search, "price": price})
+future = pd.DataFrame(
+    {
+        "week": pd.date_range(weeks[-1] + pd.Timedelta(weeks=1), periods=8, freq="7D"),
+        "tv": 8_000.0,
+        "search": 6_000.0,
+        "price": 10.0,
+    }
+)
+
+roles = {
+    "date_column": "week",
+    "target_column": "sales",
+    "channel_columns": ["tv", "search"],
+    "control_columns": ["price"],
+}
+model = mfm.load("./models/my-model", **roles)  # a bundle folder; see the table below
+result = model.inference(history, future, n_samples=100, random_seed=0)
+
+result.plot.fit()  # expected vs observed sales
+result.plot.contributions_over_time()  # weekly contribution of every component
+result.idata  # context and query draws in an xarray.DataTree
+```
+
+Change only the `load` call to choose where River runs:
+
+| Call | Runs | Needs |
+| --- | --- | --- |
+| `mfm.load("./models/my-model", **roles)` | On your machine, from a bundle folder | The bundle |
+| `mfm.load("river-1", **roles)` | On your machine, with the pinned River-1 weights from Hugging Face | Access to the PyMC Labs Hugging Face organization |
+| `mfm.load("river-1", engine="hosted", **roles)` | On the hosted River API | An invitation: `MFM_API_URL` and `MFM_API_KEY` |
+
+River-1's weights are private to the PyMC Labs Hugging Face organization. Outside PyMC
+Labs, run River-1 on the hosted API by invitation, or load a bundle that you trained or
+were given. Hosted inference checks dates, weekly cadence, missing or infinite values,
+positive outcomes, nonnegative spend, and series that are zero throughout the history but
+not in the plan locally before any request, sends the inputs to River, waits until River
+finishes (no fixed time limit; a failed or deleted analysis ends the wait) and downloads
+results, not weights. It keeps your dates and raises River's warnings from inference and
+curve sweeps as `UserWarning`, also stored in the result. A failure after River accepted
+an analysis carries a note with its ID: calling the model again starts a new analysis, and
+`pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. `token=` is
+a Hugging Face token on `engine="local"` and a River key on `engine="hosted"`; `load`
+refuses the River key (`MFM_API_KEY`) on the local engine and, on the hosted one, a River
+key (`token=` or `MFM_API_KEY`) that is a Hugging Face token.
+[Get started](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/index.qmd) and the
+[River-1 quickstart notebook](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb)
+walk through this workflow.
+
+The sections below describe the research layer, the `MFM` network that `from_pretrained`
+loads and a local model's `model.network` returns, then the lower-level hosted client and
+training.
+
 ## Decompose a time series
+
+The `MFM` network adds preflight, query-only prediction, diagnostics, sampled graphs
+and array inputs. Its methods take the column roles on each call.
 
 ```python
 import numpy as np
@@ -48,7 +127,7 @@ import pandas as pd
 
 from pymc_mfm import from_pretrained
 
-model = from_pretrained("models/my-model")  # a model folder; see "Load a trained model"
+model = from_pretrained("./models/my-model")  # a model folder; see "Load a trained model"
 
 rng = np.random.default_rng(0)
 n_weeks, n_context = 104, 80
@@ -178,9 +257,9 @@ on the inputs, not causal lift.
 
 `n_samples` defaults to 1,000 draws for each marginal in complete inference and for
 query-only prediction. Summaries from few draws change between runs: on the
-River-1 quickstart world, the posterior-mean contribution of one channel moved by
-up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws and by 3% at
-4,000 draws. Cost grows about linearly with draws. Historical **query-only**
+benchmark world of `benchmarks/inference_speed.py`, the posterior-mean contribution of
+one channel moved by up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws
+and by 3% at 4,000 draws. Cost grows about linearly with draws. Historical **query-only**
 CPU measurements for River-1 (8 threads, shared Linux x86 machine,
 `benchmarks/inference_speed.py --repeats 3`, median of 3 runs) were
 2.6, 12.3 and 34.8 s at 1,000 draws and 4.4, 22.0 and 69.8 s at 2,000 draws, for 10, 50
@@ -511,15 +590,18 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 ## Call the River API
 
-`pymc_mfm.client` calls the hosted River API (routes under `/v1`). The standard
-[installation](#installation) includes it; no model weights are needed because the
+`pymc_mfm.client` calls the hosted River API (routes under `/v1`) directly, for datasets,
+budget scenarios, backtests and previews. For the same `inference` and chart calls as a
+local model, use `mfm.load("river-1", engine="hosted", ...)` as in
+[Run a first analysis](#run-a-first-analysis). The standard
+[installation](#installation) includes the client; no model weights are needed because the
 service runs River for you.
-[Get started](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/index.qmd) has a
-first analysis to run.
 
 Hosted service access is by invitation. Use the direct HTTPS URL and API key from
 the Connect page of the River API console. Pass them to `Client`, or set
 `MFM_API_URL` and `MFM_API_KEY`. The browser console needs no Python install.
+The [River API guide](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/http-api.qmd)
+has a script for this client.
 
 The hosted River API keeps a dataset 7 days after upload, then deletes it and its analyses. Using
 the dataset does not extend this.
@@ -802,19 +884,12 @@ model = from_pretrained(
 - `pymc_mfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
   a model and returns the commit id. New repositories are private.
 
-To run
-[`examples/river_1_quickstart.ipynb`](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb),
-run `uv sync --locked --group examples` in a repository checkout and use its
-Python environment for the notebook. The example loads a model from the Hub,
-decomposes a simulated dataset and plots the result. Its context scatter overlays
-River-1's weekly posterior mean channel contributions and the simulated true
-contributions against raw spend, with one panel per channel.
-Its scenario sweep varies each channel from 0% to 200% of its actual spend path
-over eight query weeks, keeping history and other inputs fixed. It plots the
-eight-week channel contribution with pointwise 90% approximate posterior intervals
-and generator-computed truth at the same spend levels, highlighting the original
-100% spend path. These are conditional scenario responses, not identified causal
-lift curves.
+`pymc_mfm.load("river-1", ...)` loads this profile at the same pinned commit. The
+[River-1 quickstart notebook](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb)
+uses it with `model.inference(history, future)` to decompose synthetic data and read
+the results with the library's plot suite. Change only the load call to use a local
+bundle or the hosted River engine; the rest of the notebook is unchanged. Hosted
+execution sends the inputs to River and downloads results, not model weights.
 
 ## Development
 
@@ -846,9 +921,10 @@ To run the hosted SDK tests on their own:
 uv run --no-sync pytest -q tests/client --confcutdir=tests/client
 ```
 
-`benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1 on
-the quickstart data, read from the local Hugging Face cache (load River-1 once
-while logged in). `--write-reference` saves the seeded draws of one version and
+`benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1, read
+from the local Hugging Face cache (load River-1 once while logged in), on its benchmark
+world: 208 synthetic weeks with two channels, a 166-week context and 42 query weeks.
+`--write-reference` saves the seeded draws of one version and
 `--check-reference` compares another version's draws against them; a check fails on any
 flipped graph by default. Write the reference with this script while the other version is
 the one imported (for example `PYTHONPATH=<main checkout>/src`) and the same

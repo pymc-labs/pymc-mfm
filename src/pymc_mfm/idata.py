@@ -248,7 +248,11 @@ def _check_window(tree: DataTree, window: str, roles: dict[str, tuple[str, ...]]
             )
 
 
-def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
+def _curve_source(tree: DataTree) -> tuple[int, int]:
+    """``weeks`` and ``n_samples`` of the curves, which must come from the tree's inference.
+
+    Local draws and a hosted summary record the same attributes of ``/response_curves``.
+    """
     root = "/response_curves"
     node = tree["response_curves"]
     weeks = _integer_attr(node, root, "weeks")
@@ -273,6 +277,34 @@ def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
             root,
             "source_provenance differs from the provenance of /query; run response_curves again",
         )
+    return weeks, n_samples
+
+
+def _curve_dates(tree: DataTree, path: str, data: Dataset, weeks: int) -> None:
+    """The ``date`` coordinate of group ``path``: the first ``weeks`` dates of the forecast."""
+    if "date" not in data.coords:
+        _fail(path, "date coordinate is missing")
+    if data["date"].dims != ("date",):
+        _fail(path, f"date coordinate must be one-dimensional along date, got {data['date'].dims}")
+    dates = data["date"].to_numpy()
+    if not np.issubdtype(dates.dtype, np.datetime64):
+        _fail(path, f"date coordinate must hold datetime64, got {dates.dtype}")
+    query_dates = tree["query/posterior"].to_dataset(inherit=False)["date"].to_numpy()
+    if len(dates) != weeks or not np.array_equal(np.sort(dates), query_dates[:weeks]):
+        short = (
+            f"; /query/posterior has {len(query_dates)} dates" if weeks > len(query_dates) else ""
+        )
+        _fail(
+            path,
+            f"date coordinate must hold the first {weeks} dates of /query/posterior "
+            f"(attribute 'weeks'), got {len(dates)} dates{short}",
+        )
+
+
+def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
+    root = "/response_curves"
+    node = tree["response_curves"]
+    weeks, n_samples = _curve_source(tree)
     posterior = _group(tree, "response_curves", "posterior")
     constants = _group(tree, "response_curves", "constant_data")
     path = f"{root}/posterior"
@@ -316,21 +348,18 @@ def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
         _fail(path, "level coordinate needs at least one positive level")
     if len(levels) < 2 or not (levels[1:] > levels[:-1]).all():
         _fail(path, f"level coordinate needs at least 2 values, strictly increasing, got {levels}")
-    if "date" not in constants.coords:
-        _fail(f"{root}/constant_data", "date coordinate is missing")
-    dates = constants["date"].to_numpy()
-    if not np.issubdtype(dates.dtype, np.datetime64):
-        _fail(f"{root}/constant_data", f"date coordinate must hold datetime64, got {dates.dtype}")
-    query_dates = tree["query/posterior"].to_dataset(inherit=False)["date"].to_numpy()
-    if len(dates) != weeks or not np.array_equal(np.sort(dates), query_dates[:weeks]):
-        _fail(
-            f"{root}/constant_data",
-            f"date coordinate must hold the first {weeks} dates of /query/posterior "
-            f"(attribute 'weeks'), got {len(dates)} dates",
-        )
+    _curve_dates(tree, f"{root}/constant_data", constants, weeks)
     _same_coordinates(
         root, {"posterior": posterior, "constant_data": constants}, ("channel", "level")
     )
+
+
+def _check_summary(tree: DataTree) -> None:
+    """The source and dates of a hosted summary; ``IdataReader.curve_summary`` reads the rest."""
+    weeks, _ = _curve_source(tree)
+    _seed_attr(tree["response_curves"], "/response_curves")
+    summary = _group(tree, "response_curves", "summary")
+    _curve_dates(tree, "/response_curves/summary", summary, weeks)
 
 
 def _read(path: str, read: Callable[[], Any]) -> None:
@@ -356,6 +385,8 @@ def validate_idata(idata: DataTree) -> None:
     order does not matter. The check then runs the chart reads on both windows and on the
     curves, without stacking the draws. Unknown variables, groups and attributes need
     no schema entry, but their text must still be storable, so ``MFM.idata`` as built is valid.
+    Curves may include posterior draws or the hosted mean and fixed 90% band (with optional
+    warnings); either must come from the tree's own inference and its first forecast weeks.
     """
     from xarray import DataTree
 
@@ -386,14 +417,20 @@ def validate_idata(idata: DataTree) -> None:
     _check_text(idata)
     for window in WINDOWS:
         _check_window(idata, window, roles)
-    curved = "response_curves" in idata.children
-    if curved:
-        _check_curves(idata, roles)
     reader = IdataReader(idata)
+    local_curves = False
+    if "response_curves" in idata.children:
+        children = idata["response_curves"].children
+        local_curves = "summary" not in children or "posterior" in children
+        if local_curves:
+            _check_curves(idata, roles)
+        if "summary" in children:
+            _check_summary(idata)
+            _read("/response_curves/summary", reader.curve_summary)
     for window in WINDOWS:
         _read(f"/{window}", lambda window=window: reader.check_window(window))
     _read("/context/constant_data and /query/constant_data", reader.covariates)
-    if curved:
+    if local_curves:
         _read("/response_curves", reader.response_curves)
 
 

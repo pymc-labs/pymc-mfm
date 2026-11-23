@@ -18,6 +18,7 @@ from ._lazy import lazy_exports
 if TYPE_CHECKING:
     # The `X as X` imports keep editor types for the six deprecated names (see
     # `_DEPRECATED_EXPORTS`); ruff reads that form as a re-export. Remove them with the shims.
+    from ._product import Model, ModelBusy, NotSupported, Result, load
     from .idata import load_idata, save_idata, validate_idata
     from .inference import from_pretrained, list_profiles
     from .inference.api import decompose as decompose
@@ -58,10 +59,20 @@ _LIGHT_EXPORTS = {
     "save_idata": "pymc_mfm.idata",
     "load_idata": "pymc_mfm.idata",
     "validate_idata": "pymc_mfm.idata",
+    "load": "pymc_mfm._product",
+    "Model": "pymc_mfm._product",
+    "Result": "pymc_mfm._product",
+    "ModelBusy": "pymc_mfm._product",
+    "NotSupported": "pymc_mfm._product",
 }
 
 __all__ = [
     "MFM",
+    "load",
+    "Model",
+    "Result",
+    "ModelBusy",
+    "NotSupported",
     "from_pretrained",
     "list_profiles",
     "Plots",

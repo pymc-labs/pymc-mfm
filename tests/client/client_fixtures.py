@@ -8,12 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import numpy as np
 import pytest
 
 from .contract_check import check_response
 
 BASE_URL = "https://api.example.com"
 EXPIRES = "2030-01-08T00:00:00Z"
+# Signed draws links outlive every test run: the client refuses a link that has expired.
+URL_EXPIRES = "2099-01-08T00:00:00Z"
 
 Reply = tuple[int, Any] | tuple[int, Any, dict[str, str]] | Exception
 
@@ -188,7 +191,7 @@ def result_rows(
     failed: bool = False,
     spend_total: float = 300.0,
     url: str | None = None,
-    url_expires: str = EXPIRES,
+    url_expires: str = URL_EXPIRES,
     warnings: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """One plan's rows in the result table, shaped like the service's ``ResultRow``."""
@@ -274,6 +277,49 @@ def curve_result(levels: tuple[float, ...] = (0.0, 0.5, 1.5, 2.0)) -> dict[str, 
                 **means,
             )
     return result_record(rows)
+
+
+def river_draws(
+    directory: Path,
+    history_dates: Any,
+    plan_dates: Any,
+    *,
+    draws: int = 100,
+    outcome_shift: float = 0.0,
+) -> bytes:
+    """A baseline ``river-draws/1`` file in the named-variable form, as hosted inference reads it.
+
+    It holds channels search and tv and control price on the history weeks (``history_``
+    variables) and the plan weeks. Contributions sum to the outcome draws, unless
+    ``outcome_shift`` is added to the outcome. The file is written in ``directory``.
+    """
+    import xarray as xr  # here, not at the top: the local service scripts never need it
+
+    offsets = np.arange(draws, dtype=np.float32)
+    variables = {}
+    coords = {"draw": np.arange(draws), "channel": ["search", "tv"], "control": ["price"]}
+    for prefix, time, dates in (
+        ("history_", "history_date", history_dates),
+        ("", "date", plan_dates),
+    ):
+        coords[time] = np.asarray(dates, dtype="datetime64[ns]")
+        values = offsets[:, None] + np.arange(len(coords[time]), dtype=np.float32)[None, :]
+        variables[prefix + "baseline"] = (("draw", time), values + 450)
+        variables[prefix + "channel_contribution"] = (
+            ("draw", time, "channel"),
+            np.stack((values + 11, values + 23), axis=-1),
+        )
+        variables[prefix + "control_contribution"] = (("draw", time, "control"), values[..., None])
+        variables[prefix + "latent"] = (("draw", time), values * np.float32(0.25))
+        variables[prefix + "outcome"] = (
+            ("draw", time),
+            484 + outcome_shift + values * np.float32(4.25),
+        )
+    file = directory / "draws.nc"
+    xr.Dataset(variables, coords=coords, attrs={"schema": "river-draws/1"}).to_netcdf(
+        file, engine="h5netcdf"
+    )
+    return file.read_bytes()
 
 
 def weeks_status(status: str = "done", **extra: Any) -> dict[str, Any]:

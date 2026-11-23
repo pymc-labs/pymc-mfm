@@ -31,6 +31,29 @@ References to `client-v0.1.0` record the earlier client release plan.
 - **Release automation.** A pushed `v*` tag publishes to PyPI through trusted
   publishing after approval, and `conda.recipe/` builds and tests the conda package
   against conda-forge in CI. The private wheel handoff is removed.
+- **One Python workflow for local and hosted River.** `pymc_mfm.load` opens a
+  local bundle, a Hugging Face profile (`"river-1"` is reserved for the pinned River-1
+  bundle, private to the PyMC Labs organization; `"./river-1"` is a folder), or the
+  hosted engine (by invitation). Use `model.inference(context, query)` and
+  `result.plot` on each. Hosted inference checks dates, weekly cadence, missing or
+  infinite values, positive outcomes, nonnegative spend, and series that are zero
+  throughout the history but not in the plan locally before any request, waits until
+  River finishes (no fixed time limit; a failed or deleted analysis ends the wait),
+  downloads results, never model weights, and keeps the caller's dates. River's
+  warnings from inference and curve sweeps are emitted as `UserWarning` and stored in
+  the result. A hosted `response_curves` sweep stores River's mean and fixed 90% band in
+  `/response_curves/summary` (no draws, so another chart `interval=` raises
+  `NotSupported`); its charts ring the levels River warned about and list the warnings
+  under the panels, a warning of the unchanged plan once as `Base plan` with no ring.
+  It raises `RuntimeError` and keeps the previous result when a channel
+  has no successful varied level. A failure after River accepted an analysis carries a
+  note with its ID: calling the model again starts a new analysis, and
+  `pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. On
+  `engine="local"`, `token=` goes to Hugging Face, so `load` refuses a `token=` equal
+  to `MFM_API_KEY`; on `engine="hosted"` it refuses a River key (`token=` or
+  `MFM_API_KEY`) that is a Hugging Face token (`hf_...` or the value of `HF_TOKEN`).
+  `model.network` returns the local research `MFM`;
+  `pymc_mfm.client` and `from_pretrained` remain available.
 - **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
   `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
   `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`
@@ -77,9 +100,8 @@ References to `client-v0.1.0` record the earlier client release plan.
 - **Complete inference costs and migration.** Full inference pays for
   both marginals and tree storage even with `return_idata=False`; historical
   query-only timings below do not measure that full operation. README, guides,
-  generated API entries and quickstart use the paired contract. The notebook
-  preserves reviewed numeric/chart outputs and every graph analysis/export;
-  its headless acceptance uses a synthetic stand-in without downloading weights.
+  generated API entries and quickstart use the paired contract. The quickstart's
+  headless test stands a tiny synthetic bundle in for the River-1 download.
   No runtime context, result, curve or idata is captured in weight bundles.
 - **First-use errors and docs.** Inference errors say what to change: an empty role
   list, the columns with negative spend or non-finite values, a target with zero or
@@ -110,8 +132,8 @@ References to `client-v0.1.0` record the earlier client release plan.
   transport failure reports the origin and error type, not the raw exception or a
   discarded 403 from renewing a signed URL.
 - **Client (for `client-v0.1.0`): a rejected key says where to get one.** An `Unauthorized`
-  (401) error now ends with the key hint of the setup errors, which names the Connect page
-  of the River API console. The service's code and message stay first; `message` is unchanged.
+  (401) error now ends with a key hint that names `MFM_API_KEY` and the Connect page of the
+  River API console. The service's code and message stay first; `message` is unchanged.
 - **Client (for `client-v0.1.0`): `wait` returns when every run has ended.** The service
   marks an analysis `failed` as soon as its baseline fails, while other runs can still be
   active. `AnalysisStatus.finished`, and so `Analysis.wait`, now count a `failed` analysis
@@ -119,6 +141,12 @@ References to `client-v0.1.0` record the earlier client release plan.
   `table` no longer raises `NotReady` right after `wait`. The `TimeoutError` of `wait`
   says how many runs have ended. A service that does not send `runs_cancelled` can keep
   such an analysis unfinished; pass `timeout`.
+- **Client (for `client-v0.1.0`): no endless polling or link renewal.** `Analysis.wait`
+  raises `Gone` when the service reports a `deleted` analysis instead of polling until
+  its timeout (forever without one). `Analysis.draws` renews signed links at most once
+  per call, uses a renewed link that is still valid even within the renewal margin, and
+  raises `Gone` when a renewed link has already expired, instead of renewing again and
+  again near the analysis expiry.
 - **Private inference stages.** `_add_context`, `_add_query` and `_sample_context`
   prepare independent candidates; complete inference only orchestrates them and
   publishes the successful run. Prediction and preflight reuse their relevant

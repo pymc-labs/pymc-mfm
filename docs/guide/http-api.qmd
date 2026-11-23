@@ -5,14 +5,34 @@ description: "Use the Python client to upload a history, run analyses and backte
 
 ## Before you start
 
-Follow [Install](index.qmd#install-client) to install PyMC MFM on Python 3.13 or newer. Set your service URL and API key as `MFM_API_URL` and `MFM_API_KEY`, as in [Get access](index.qmd#get-access).
+For the same `load` and `inference` calls as local River, begin with [Get started](index.qmd). Use `pymc_mfm.client` directly for dataset management, budget scenarios, backtests or previews.
 
-The code blocks on this page run in order: each one continues the blocks before it. Paste them into one file or one Python session, from the top. The first block makes the same synthetic data as [Run a first analysis](index.qmd#run-a-first-analysis).
+### Get access
+
+Access is by invitation. Create a personal API key on the **Connect** page of the River API console. The page shows the key once and also gives you the service URL. Keep the key out of notebooks and shared files. Set both variables to the values from Connect, using the `https://` service URL exactly as shown:
+
+```bash
+export MFM_API_URL="<your service URL>"
+export MFM_API_KEY="<your key>"
+```
+
+The service is a research preview. It may change, pause or reset; keep your own copy of your data and results. For help, reply to your invitation with the full error text, the time, and any dataset or analysis ID. Do not send your key.
+
+### Install the client
+
+Follow [Install](index.qmd#install) on Python 3.13 or newer. The one install includes the client, per-draw files and plots:
+
+```bash
+pip install pymc-mfm
+```
+
+Copy the examples from **Create a client** through **Preview and explore** into one file or Python session, in order. They use synthetic data; do not upload your own unless your invitation allows it.
 
 ## Create a client
 
 [pymc_mfm.client](../reference/client.Client.qmd) is the client for the hosted River API. The standard install includes support for per-draw files and plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
 
+<!-- guide-example: client-setup -->
 ```python
 import numpy as np
 import pandas as pd
@@ -20,8 +40,12 @@ import pandas as pd
 from pymc_mfm.client import Client, amount, curve, grid, scenario
 
 client = Client()  # reads MFM_API_URL and MFM_API_KEY
+```
 
-# Synthetic data: a weekly history of 104 weeks and a plan for the 8 weeks after it.
+This example makes a weekly history of 104 weeks and a plan for the 8 weeks after it. `tv` and `search` are spend columns, `price` is a control, and `sales` is the outcome. The numbers illustrate the API, not real marketing.
+
+<!-- guide-example: synthetic-data -->
+```python
 rng = np.random.default_rng(0)
 weeks = pd.date_range("2024-11-11", periods=104, freq="7D")
 tv = rng.gamma(4.0, 2_000.0, size=104)
@@ -41,12 +65,13 @@ plan = pd.DataFrame(
 )
 ```
 
-A `Client` closes its connection pool with `close()` and can be used as a context manager. Use the synthetic inputs unless your invitation allows you to [use your own data](index.qmd#use-your-own-data).
+A `Client` closes its connection pool with `close()` and can be used as a context manager. To use your own data where permitted, [replace the synthetic inputs](#use-your-own-data), not the client setup.
 
 ## Create a dataset and analysis
 
 A [Dataset](../reference/client.Dataset.qmd) stores a weekly history and its column roles. `history_ranges` reports the weekly 5th and 95th percentiles, maximum, zero-week share, and all-zero status for each channel and control, which helps keep plans inside the observed history range.
 
+<!-- guide-example: first-plan -->
 ```python
 dataset = client.datasets.create(
     history,
@@ -55,7 +80,11 @@ dataset = client.datasets.create(
     spend=["tv", "search"],
     controls=["price"],
     name="brand-a",
+    reuse=True,
 )
+print("dataset", dataset.dataset_id, "expires", dataset.expires_at)
+for warning in dataset.warnings:
+    print("dataset warning:", warning)
 
 analysis = client.analyze(
     dataset,
@@ -67,32 +96,53 @@ analysis = client.analyze(
     ],
     decision_weeks=(1, 8),
     seed=7,
+    name="first-scenarios",
 )
 analysis.wait()
-results = analysis.table
+table = analysis.table
+outcome = table[table["component"] == "outcome"]
+columns = [
+    "scenario_id", "status", "mean", "p05", "p95", "mean_difference", "simulation_se"
+]
+print(outcome[columns].to_string(index=False))
+outcome[columns].to_csv("first_analysis.csv", index=False)
+print("result page:", analysis.url)
 ```
 
 `plan` is the baseline for the weeks after the history. A [scenario](../reference/client.scenario.qmd) is a named budget change against it: one multiplier per channel that changes. A number from 0 to 5 multiplies the channel's spend in the window, and [amount](../reference/client.amount.qmd) sets the channel's total spend in the window, keeping its weekly pattern; a channel with no spend in the window gets the amount split evenly over its weeks. Channels left out keep their spend. Scenarios do not change spend timing or control values. [grid](../reference/client.grid.qmd) expands channel multipliers into one scenario for every combination, and [curve](../reference/client.curve.qmd) requests spend-level response curves.
 
-The window is `decision_weeks=(i, j)` of a plan, 1-based and inclusive (default: the whole plan). Omit `draws` and `seed` to use the service defaults: 1,000 draws and seed 0. `draws` is the number of posterior samples per plan. The local Python library calls the same number `n_samples`.
+`half` halves both channel budgets. `tv_to_search` moves 20% of TV's 64,000 budget to search: TV drops to 51,200 and search rises from 48,000 to 60,800, so the total stays 112,000.
+
+The script saves one `outcome` row per plan to `first_analysis.csv`. `mean`, `p05` and `p95` are forecast totals; `mean_difference` is the paired change against the `baseline` plan. The `baseline` row has nothing to compare with, so its `mean_difference` and `simulation_se` are `NaN`; that is expected. The `baseline` **plan** is not the `baseline` **component**, which is the model's baseline contribution to the outcome. `simulation_se` is the sampling error of the mean difference: a difference smaller than about twice this error may be simulation noise. Read [the result labels](#read-labels-before-comparing-plans) before comparing plans.
+
+`analysis.url` links to the result in the River API console, or is `None` if the service has no site address. The forward-plan view does not score fit; use a backtest for that.
+
+The window is `decision_weeks=(i, j)` of a plan, 1-based and inclusive (default: the whole plan). The service accepts 100 to 2,000 `draws` per plan (default: 1,000); for a quicker exploration, try `draws=300`. The unified Python API calls this `n_samples`. The service defaults to seed 0. `seed` reproduces draws for the same request, model and library revisions, device class, dtype and execution settings; `analysis.export(path)` records those settings.
 
 ## Run a backtest
 
 A backtest forecasts weeks that the dataset already holds, so the forecast can be scored against what happened. With the synthetic data above, the backtest below reads the first 91 weeks and forecasts the last 13. `context=(start, end)` gives the first and last input week, and `query_end` the last predicted week; prediction starts the week after `end`. The model does not see the outcome of the predicted weeks. The baseline is the dataset's own spend and controls in those weeks, and the predicted weeks are the scenario window.
 
+<!-- guide-example: backtest -->
 ```python
 backtest = client.analyze(
     dataset,
-    context=("2024-11-11", "2026-08-03"),
-    query_end="2026-11-02",
+    context=(history["week"].iloc[0], history["week"].iloc[-14]),
+    query_end=history["week"].iloc[-1],
     channels=["tv", "search"],  # optional: some series of the dataset (default: all)
     scenarios=[scenario("budget_x1.2", {"tv": 1.2, "search": 1.2})],
     curves=[curve("tv", [0, 0.5, 1.5, 2]), curve("search", [0, 0.5, 1.5, 2])],
     seed=7,
+    name="first-backtest",
 ).wait()
-backtest.fit
-backtest.shares
-backtest.curves
+fit = backtest.fit
+if fit is None:
+    print("No fit scores are available for this backtest.")
+else:
+    print(fit.to_string(index=False))
+print("backtest result page:", backtest.url)
+shares = backtest.shares
+curves = backtest.curves
 ```
 
 | Member | Result |
@@ -102,6 +152,10 @@ backtest.curves
 | `curves` | Per channel and spend level, the channel's own contribution over the predicted weeks; `spend` is its baseline spend there |
 
 The three are `None` for an analysis of a plan. A backtest explains the history by default (`explain_history=True`).
+
+For `r2` and `mape`, `value` scores the mean forecast and `sd` is the spread over draws. `crps` (continuous ranked probability score) scores the draw distribution itself; lower is better, and there is no `sd`.
+
+River is pretrained; it does not fit with MCMC on your data, so `r_hat` and effective sample size do not apply. Its draws approximate a posterior under the simulator's assumptions, and the intervals exclude observation noise. River was tested on simulated data only. Read the [model limits](../models/river-1/index.qmd#limits), check your forecasts with a backtest, and do not use River alone for budget decisions.
 
 ## Try more scenarios
 
@@ -142,7 +196,7 @@ An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` fo
 
 `draws()` refreshes expired signed URLs and fetches the result again; it never reruns the analysis. A `done` analysis can still have failed scenario or curve plans: their rows have `status == "failed"` and no numbers. A `failed` analysis means its baseline failed.
 
-::: {.callout-note}
+::: {#read-labels-before-comparing-plans .callout-note}
 ## Read labels before comparing plans
 
 Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the result. Intervals are pointwise 5th–95th percentiles of expected outcome, exclude observation noise, and are not causal lift. The service supplies no interval for a difference between scenarios, only the paired mean difference `mean_difference`; `simulation_se` is numerical precision of that mean difference, not model uncertainty.
@@ -153,3 +207,70 @@ Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the resul
 Every request that creates a dataset or analysis carries an `Idempotency-Key` derived from the request content. Automatic retries and repeated equal calls reuse that key, so they do not start work twice; pass `fresh=True` to `analyze`, `explore`, `Analysis.again` or `datasets.create` to start new work, or your own `idempotency_key` (not both). If the earlier equal request was deleted or expired, the service answers 410 and the client raises `Gone`; pass `fresh=True` to run it again. The client never retries a 410 with a new key itself. The client retries HTTP 429, 502, 503, and 504 plus connection errors. It honors `Retry-After` up to `Client(max_retry_after=...)` seconds, which defaults to 60.
 
 Service responses raise typed [ApiError](../reference/client.ApiError.qmd) subclasses. Common responses include `NotFound`, `Gone`, `Conflict`, `NotReady`, `PayloadTooLarge` (send fewer weeks, scenarios or curves), `RateLimited`, and `ValidationError`; their errors expose the service `code`, `message`, and `field`. The code `steps_removed` means that a scenario in the request has `steps`, which the service no longer accepts; [scenario](../reference/client.scenario.qmd) never sends them. Exhausted connection retries raise `ApiConnectionError`, a separate `ClientError` without a service payload.
+
+For first runs, these are the errors you are most likely to meet:
+
+::: {.mfm-stack}
+
+| Error | What to do |
+| --- | --- |
+| `ValueError` | Check the named environment variable, date, row or column. The client does not upload invalid input, but `reuse=True` may first list your datasets. |
+| `Unauthorized` (401) | Check that `MFM_API_KEY` holds the whole key with no spaces. Replace it on Connect if needed. Reply to your invitation if the new key still fails. |
+| `ValidationError` (400, 422) | `code` names the limit and `field` identifies the part at fault. Fix that part and rerun. See [Use your own data](#use-your-own-data) for common limits. |
+| `RateLimited` (429) | Wait and retry. For `overloaded_user_analyses` (20 unfinished analyses) or `overloaded_user_runs` (200 unfinished runs), wait for work to finish or delete an analysis. |
+| `ServerError` (500 to 599) | Wait and retry. The client retries 502, 503 and 504, but not 500. Reply to your invitation if 500 persists. |
+| `ApiConnectionError` | Check `MFM_API_URL` and your connection. |
+| `NotFound` (404) | Check the ID; it may be mistyped or belong to another user. |
+
+:::
+
+## Use your own data
+
+If your invitation permits uploading your data, replace only the synthetic data block under [Create a client](#create-a-client) with this block. Substitute your own file path. If the column names differ, change them here, in `datasets.create`, and in the scenarios.
+
+<!-- guide-example: own-data -->
+```python
+history = pd.read_csv("path/to/your_history.csv", parse_dates=["week"])
+history = history.sort_values("week", ignore_index=True)
+history = history.tail(200)  # leave room for the 8-week plan under the 208-week limit
+first_plan_week = history["week"].iloc[-1] + pd.Timedelta(weeks=1)
+plan = pd.DataFrame(
+    {
+        "week": pd.date_range(first_plan_week, periods=8, freq="7D"),
+        "tv": 8_000.0,
+        "search": 6_000.0,
+        "price": 10.0,
+    }
+)
+```
+
+Use one row per week, oldest first, without gaps. The plan needs the same date, channel and control columns and must start exactly 7 days after the last history date. The model was trained on histories of 75 to 207 weeks; histories outside that range get an out-of-sample warning. History plus plan cannot exceed 208 weeks (`too_long`). The [backtest](#run-a-backtest) example forecasts the last 13 weeks from at least 2 earlier ones (`context_too_short`), so it needs at least 15 weeks of history; with fewer, skip it.
+
+`datasets.create` validates some inputs before uploading and raises `ValueError` for the first invalid row or column. The service checks the remaining constraints and raises `ValidationError` with a code (or `PayloadTooLarge` for the body limit). Nothing is stored in either case.
+
+::: {.mfm-stack}
+
+| Rule | If broken |
+| --- | --- |
+| Dates are exactly 7 days apart. Any weekday works. | `ValueError` from the client |
+| Dates are in years 1900 to 2199. There is at least one week. | `invalid_date`, `too_short` |
+| Outcome, spend and controls are finite numbers in every row. | `ValueError` from the client |
+| The outcome is strictly positive. | `nonpositive_outcome` |
+| There are 1 to 10 channels, with nonnegative spend. | `channel_count`, `negative_spend` |
+| There are 1 to 10 controls. | `controls_required`, `control_count` |
+| Channel and control names are 1 to 64 characters and unique across both. A name cannot be `baseline`, `latent` or `outcome`, start with `indirect:` or `_pad`, contain `->`, start with `=`, `+`, `-` or `@`, or contain control or format characters. | `invalid_name`, `duplicate_name`, `reserved_name` |
+| The client uses the outcome column name as the label when it has 1 to 60 characters. The label cannot contain control or format characters. The dataset name is 1 to 64 characters. | `invalid_outcome_name`, `invalid_name` |
+| The upload is at most 5 MB. | `PayloadTooLarge` (`body_too_large`) |
+
+:::
+
+## How long the service keeps your data
+
+The service deletes a dataset and its analyses 7 days after upload. Using it does not extend the deadline; read it from `dataset.expires_at`. An expired ID raises `Gone`.
+
+To delete earlier, you can remove a whole dataset (including its analyses) or just one analysis:
+
+- Delete the dataset and all its analyses: `client.datasets.delete(dataset.dataset_id)`.
+- Keep the dataset and delete just this analysis: `analysis.delete()`.
+
+For an earlier run, use `client.datasets.delete("<dataset id>")` or `client.get("<analysis id>").delete()`. `Gone` is expected when you try to fetch a deleted ID.
