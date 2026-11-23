@@ -484,23 +484,31 @@ class Analysis:
     def draws(self, scenario_ids: Sequence[str] | None = None) -> xarray.Dataset:
         """Per-draw results as one ``xarray.Dataset``, stacked along ``scenario``.
 
-        Each plan's file is fetched when you call this. A signed URL that expires within 30
-        seconds (``URL_RENEWAL_MARGIN``), or that the file host refuses, is replaced by
-        fetching the result again, once; no run starts again. A renewed URL never outlives
-        the analysis, so it is used until it expires, and this raises ``Gone`` when it already
-        has. Draws of different plans are separately sampled marginals, not a joint
-        posterior; see the ``attrs`` of each file.
+        Each plan's file is fetched when you call this. Signed URLs that expire within 30
+        seconds (``URL_RENEWAL_MARGIN``), or that the file host refuses, are all replaced by
+        fetching the result again, at most once per call; no run starts again. A renewed URL
+        never outlives the analysis, so it is used until it expires, and this raises ``Gone``
+        when it already has. Draws of different plans are separately sampled marginals, not
+        a joint posterior; see the ``attrs`` of each file.
         """
         import xarray as xr
 
-        urls = self._draws_urls(scenario_ids)
-        parts = [self._open_draws(xr, scenario_id, urls) for scenario_id in urls]
+        urls, renewed = self._draws_urls(scenario_ids)
+        parts = []
+        for scenario_id in list(urls):
+            content = self._download_draws(urls[scenario_id], refused_ok=not renewed)
+            if content is None:
+                # Renew every link once, outside the handler, so a recovered 403 cannot
+                # appear in a later traceback; later files then use the renewed links.
+                urls, renewed = self._draws_urls(list(urls), renew=True)
+                content = self._http.download(urls[scenario_id])
+            parts.append(xr.load_dataset(io.BytesIO(content), engine="h5netcdf"))
         return xr.concat(parts, dim=pd.Index(list(urls), name="scenario"), join="outer")
 
     def _draws_urls(
         self, scenario_ids: Sequence[str] | None, *, renew: bool = False
-    ) -> dict[str, str]:
-        """The signed draws URL of each wanted plan, fetching the result again at most once.
+    ) -> tuple[dict[str, str], bool]:
+        """The signed draws URL of each wanted plan, and whether the result was fetched again.
 
         ``renew`` fetches the result again first. Otherwise it is fetched again only when a
         URL expires within ``URL_RENEWAL_MARGIN``.
@@ -518,7 +526,7 @@ class Analysis:
                 f"The draws files of analysis {self.id} expired: their signed URLs cannot be "
                 "renewed past the expiry of the analysis.",
             )
-        return links["draws_url"].to_dict()
+        return links["draws_url"].to_dict(), renew
 
     def _draws_links(self, scenario_ids: Sequence[str] | None, *, refresh: bool) -> pd.DataFrame:
         """``draws_url`` and ``draws_url_expires_at`` of each wanted plan, by ``scenario_id``."""
@@ -537,16 +545,14 @@ class Analysis:
             raise ValueError("The analysis has no draws files")
         return available.loc[wanted, ["draws_url", "draws_url_expires_at"]]
 
-    def _open_draws(self, xr: Any, scenario_id: str, urls: dict[str, str]) -> xarray.Dataset:
+    def _download_draws(self, url: str, *, refused_ok: bool) -> bytes | None:
+        """The file at ``url``; ``None`` if the host refuses it and a renewal is still allowed."""
+        if not refused_ok:
+            return self._http.download(url)
         try:
-            content = self._http.download(urls[scenario_id])
+            return self._http.download(url)
         except Forbidden:
-            content = None
-        if content is None:
-            # Renew outside the handler so a recovered 403 cannot appear in a later traceback.
-            url = self._draws_urls([scenario_id], renew=True)[scenario_id]
-            content = self._http.download(url)
-        return xr.load_dataset(io.BytesIO(content), engine="h5netcdf")
+            return None
 
     def export(self, path: str | os.PathLike[str]) -> Path:
         """Download the analysis as one JSON file and return its path.

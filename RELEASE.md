@@ -138,6 +138,12 @@ References to `client-v0.1.0` record the earlier client release plan.
   `table` no longer raises `NotReady` right after `wait`. The `TimeoutError` of `wait`
   says how many runs have ended. A service that does not send `runs_cancelled` can keep
   such an analysis unfinished; pass `timeout`.
+- **Client (for `client-v0.1.0`): no endless polling or link renewal.** `Analysis.wait`
+  raises `Gone` when the service reports a `deleted` analysis instead of polling until
+  its timeout (forever without one). `Analysis.draws` renews signed links at most once
+  per call, uses a renewed link that is still valid even within the renewal margin, and
+  raises `Gone` when a renewed link has already expired, instead of renewing again and
+  again near the analysis expiry.
 - **Private inference stages.** `_add_context`, `_add_query` and `_sample_context`
   prepare independent candidates; complete inference only orchestrates them and
   publishes the successful run. Prediction and preflight reuse their relevant

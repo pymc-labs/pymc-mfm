@@ -400,13 +400,20 @@ def _ordered(
 ) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
     """Rows in date order, their own timestamps and the calendar days River receives.
 
-    Dates follow the local engine's rules: no numeric labels and no time zones.
+    Dates and value columns follow the local engine's rules: no numeric labels and no
+    time zones for dates, and numeric data types for every other required column.
     """
     if not isinstance(frame, pd.DataFrame) or len(frame) < least:
         raise ValueError(f"{window} must be a pandas DataFrame with at least {least} rows")
     if not frame.columns.is_unique:
         raise ValueError(f"{window} column names must be unique")
     require_columns(frame, required)
+    for name in required:
+        dtype = frame[name].dtype
+        if name != date and (
+            not pd.api.types.is_numeric_dtype(dtype) or pd.api.types.is_complex_dtype(dtype)
+        ):
+            raise ValueError(f"{name!r} must contain finite real numeric values")
     values = frame[date]
     if pd.api.types.is_numeric_dtype(values.dtype) or any(
         isinstance(value, (Number, np.bool_)) for value in values

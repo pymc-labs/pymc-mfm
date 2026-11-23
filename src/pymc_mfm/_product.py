@@ -151,7 +151,9 @@ class Model:
         ``context`` holds observed outcomes. ``query`` is the following weeks, with
         media and controls and optional outcomes for evaluation only. Hosted users
         send history, query inputs and column roles to River, not query outcomes.
-        Hosted River supports 100–2,000 draws per window.
+        ``n_samples`` is the number of draws per window (default 1,000); hosted River
+        supports 100–2,000. ``random_seed`` (0 to 2**31-1) replays the same draws; without
+        it, a hosted run gets a new random seed, recorded in the result.
         """
         if not self._lock.acquire(blocking=False):
             raise ModelBusy("Another inference or response curve run is already in progress.")
@@ -180,6 +182,13 @@ class Model:
         random_seed: int | None = None,
     ) -> Result:
         """Sweep media spend over the first query weeks of a completed inference.
+
+        Each channel in ``channels`` (default: all) is varied alone, its spend in the
+        first ``weeks`` query weeks (default: all of them) multiplied by each of
+        ``levels`` (at least two distinct multipliers; default 0, 0.25, ..., 2).
+        ``n_samples`` defaults to the inference's draw count; ``random_seed`` works as in
+        :meth:`inference`. Arguments are keyword-only, with the meanings of
+        :meth:`pymc_mfm.MFM.response_curves`.
 
         Return a new result; previous results are unchanged, and a failed run keeps the
         model's latest result. Hosted results store a reported 90% curve band, not the
@@ -245,12 +254,15 @@ def load(
 ) -> Model:
     """Open a model to use with the same ``inference`` and plot calls on either engine.
 
-    The local engine accepts a bundle directory or a Hugging Face repository.
-    ``"river-1"`` selects the pinned River-1 Hub bundle; its weights need Hub access.
-    ``token`` on the local engine is a Hugging Face credential (or ``False`` to disable
-    implicit Hub auth). The hosted engine runs ``"river-1"`` on River without fetching
-    weights. Its credential and service URL are ``token`` and ``base_url``, defaulting
-    to ``MFM_API_KEY`` and ``MFM_API_URL``. These credentials are not interchangeable.
+    The four role arguments name the date, outcome, media and control columns of the
+    tables passed to :meth:`Model.inference`. The local engine accepts a bundle
+    directory or a Hugging Face repository; ``profile``, ``revision`` and ``device``
+    apply only there. ``"river-1"`` selects the pinned River-1 Hub bundle; its weights
+    need Hub access. ``token`` on the local engine is a Hugging Face credential (or
+    ``False`` to disable implicit Hub auth). The hosted engine runs ``"river-1"`` on
+    River without fetching weights. Its credential and service URL are ``token`` and
+    ``base_url``, defaulting to ``MFM_API_KEY`` and ``MFM_API_URL``. These credentials
+    are not interchangeable.
     """
     channels = _names(channel_columns, "channel_columns")
     controls = _names(control_columns, "control_columns")
@@ -298,12 +310,23 @@ def load(
             )
 
     from . import from_pretrained
+    from .inference.hub import HubArtifactError
 
-    if source == "river-1":
+    alias = source == "river-1"
+    if alias:
         source = _RIVER_REPO
         profile = "river-1" if profile is None else profile
         revision = _RIVER_REVISION if revision is None else revision
-    network = from_pretrained(
-        source, profile=profile, revision=revision, device=device, token=token
-    )
+    try:
+        network = from_pretrained(
+            source, profile=profile, revision=revision, device=device, token=token
+        )
+    except HubArtifactError as error:
+        if alias and error.code == "access_denied_or_missing":
+            error.add_note(
+                "River-1's weights are private to the PyMC Labs Hugging Face organization. "
+                'Without access, run it on the hosted River API: mfm.load("river-1", '
+                'engine="hosted", ...) with the key from your invitation.'
+            )
+        raise
     return Model(_LocalEngine(network, roles), roles)

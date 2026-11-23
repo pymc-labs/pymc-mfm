@@ -360,6 +360,10 @@ def dated(history_days, plan_days):
             lambda history, future: (history.assign(price=0.0), future),
             re.escape("['price'] are zero in every context week but not in the query"),
         ),
+        (
+            lambda history, future: (history.assign(tv=history.tv.astype(str)), future),
+            re.escape("'tv' must contain finite real numeric values"),
+        ),
     ],
     ids=[
         "nan query spend",
@@ -374,6 +378,7 @@ def dated(history_days, plan_days):
         "plan skipping a week",
         "channel with no history spend",
         "control zero throughout the history",
+        "numbers stored as text",
     ],
 )
 def test_hosted_refuses_bad_inputs_before_any_request(frames, monkeypatch, edit, message):
@@ -424,6 +429,21 @@ def test_local_load_refuses_the_river_key_as_a_hub_token(monkeypatch):
     assert RIVER_KEY not in "".join(traceback.format_exception(caught.value))
     mfm.load("river-1", token="example-hub-key", **ROLES)
     assert [call["token"] for call in hub_calls] == ["example-hub-key"]
+
+
+def test_local_river_1_without_hub_access_points_to_the_hosted_engine(monkeypatch):
+    from pymc_mfm.inference.hub import HubArtifactError
+
+    def denied(source, **options):
+        raise HubArtifactError("access_denied_or_missing", "The Hub model is private.")
+
+    monkeypatch.setattr(mfm, "from_pretrained", denied)
+    with pytest.raises(HubArtifactError) as caught:
+        mfm.load("river-1", **ROLES)
+    assert 'mfm.load("river-1", engine="hosted"' in "\n".join(caught.value.__notes__)
+    with pytest.raises(HubArtifactError) as other:
+        mfm.load("example-org/other-model", **ROLES)
+    assert not getattr(other.value, "__notes__", ())  # only the alias has a hosted twin
 
 
 @pytest.mark.parametrize(

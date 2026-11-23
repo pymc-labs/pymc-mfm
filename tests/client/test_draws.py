@@ -176,6 +176,15 @@ def test_a_rejected_url_renewed_inside_the_margin_is_retried_without_renewing_ag
     assert [r.url.params["sig"] for r in storage.requests] == ["old", "fresh"]
 
 
+def test_rejected_urls_are_renewed_once_for_every_file_of_the_call(analysis, service, storage):
+    done = fetch(analysis, service, result_with_urls("old"), result_with_urls("fresh"))
+    draws = done.draws()
+    assert list(draws["scenario"].values) == ["baseline", "half"]
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+    # The second file uses the renewed URL at once instead of its refused old one.
+    assert [r.url.params["sig"] for r in storage.requests] == ["old", "fresh", "fresh"]
+
+
 @pytest.mark.parametrize(
     ("first", "tried"),
     [(result_with_urls("old", expires=PAST), []), (result_with_urls("old"), ["old"])],
