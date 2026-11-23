@@ -1,18 +1,36 @@
 # Release preparation
 
-PyMC MFM remains at **`0.0.1.dev0`**. These notes describe the current library
-and internal wheel handoff, not an approved or published full-package release.
+PyMC MFM **0.0.1** is the first full-package release, in alpha: the API can change
+between releases. These notes describe that release. Nothing is published until a
+maintainer pushes the `v0.0.1` tag; see [Publish a release](#publish-a-release).
 References to `client-v0.1.0` record the earlier client release plan.
 
 ## Current changes
 
-- **One standard Python installation.** On Python 3.13 or newer, the approved
-  full wheel (or Git with repository access) includes local inference and
-  training, the hosted SDK with draws and plots, diagnostics and Hugging Face
-  Hub support without extras. Imports remain lazy; weights and service or Hub
-  access are separate. The training CLI reads existing supported `.npz` corpora
-  without `pymc-generator`; generation and notebook dependencies are in the
-  repository-only `generation` and `examples` groups.
+- **One package from PyPI, uv or conda-forge.** On Python 3.13 or newer,
+  `pip install pymc-mfm`, `uv add pymc-mfm` or `conda install -c conda-forge pymc-mfm`
+  installs local inference and training, the hosted SDK with draws and plots,
+  diagnostics and Hugging Face Hub support, without extras. Imports remain lazy;
+  weights and service or Hub access are separate. The training CLI reads existing
+  schema-4 and schema-5 `.npz` corpora without `pymc-generator`; generation and
+  notebook dependencies are in the repository-only `generation` and `examples`
+  groups. The code is licensed under Apache-2.0.
+- **PyPI 0.1.2 was a mistake.** `pymc-mfm` 0.1.2 is a client-only build (Python
+  3.11+, no local inference) published by mistake. It must be yanked before 0.0.1
+  is published, or pip and uv keep installing it; the release workflow refuses
+  until then. An environment that has 0.1.2 keeps it until `pip uninstall pymc-mfm`.
+  The number 0.1.2 stays taken on PyPI, so a later 0.1 series skips it.
+- **Corpora older than schema 4 no longer load.** `load_corpora` reads schema-4 and
+  schema-5 archives itself instead of through `pymc_generator.load_corpus`, which
+  upgraded schema 1-3 archives as it read them. Re-save such a file with the locked
+  generator (`save_corpus(load_corpus(old), new)`); the re-saved file has a new
+  SHA-256, which training runs record as the corpus identity. A file that is not a
+  readable NPZ archive raises `ValueError` naming it.
+- **Wider dependency ranges.** plotly 7 and `huggingface_hub` 2 are admitted and
+  locked; the chart, Hub and client suites pass with them.
+- **Release automation.** A pushed `v*` tag publishes to PyPI through trusted
+  publishing after approval, and `conda.recipe/` builds and tests the conda package
+  against conda-forge in CI. The private wheel handoff is removed.
 - **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
   `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
   `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`
@@ -623,40 +641,92 @@ None of these workflows establishes business-domain calibration, causal
 identification, out-of-distribution validity, lift-test evidence or safe
 unattended budget optimization.
 
-## Prepare the full wheel
+## Publish a release
 
-For a wheel handoff, a maintainer must run **Public boundary** manually on the
-private repository's `main` branch. The workflow builds with `uv build`, checks
-the archives, then installs the wheel on Python 3.13. It checks a hosted request
-against a fake service and runs a tiny offline training and evaluation job
-without the generator. It stores the checked wheel and `SHA256SUMS` in the run's
-`pymc-mfm-wheel-<commit>` artifact for repository readers. This is not a registry
-release or permission to send the wheel to someone outside the repository.
+The **Release** workflow (`.github/workflows/release.yml`) builds the sdist and wheel
+with `uv build`, runs the public-boundary check in release mode and
+`twine check --strict`, then installs the wheel in a clean Python 3.13 environment,
+resolving dependencies from PyPI as users do. There it runs the client's HTTP tests
+against a fake service and a tiny training and evaluation job without the generator.
+Pull requests that touch packaging, and manual runs, stop there and report version
+problems as warnings. A pushed `v*` tag also publishes.
 
-Download only the named artifact from the successful run into an empty directory.
-Record the run ID, artifact ID, source commit and wheel SHA-256 digest. From that
-directory, run `sha256sum -c SHA256SUMS` (on macOS, `shasum -a 256 -c SHA256SUMS`)
-before installing. Delete any retained handoff artifacts before widening
-repository visibility.
+The version check refuses a tag that does not name the `pyproject.toml` version, a
+development or local version, a version PyPI already has, and a version below a
+release that PyPI would still install; it also refuses when PyPI cannot be read. A
+tagged commit that is not on `main` is refused, and so is a private repository:
+the package metadata, README and conda recipe link to the repository.
 
-Once distribution is approved, give recipients the exact wheel and checksum via
-the approved channel. Install it in a fresh Python 3.13+ virtual environment.
-The same wheel works without extras for the hosted SDK and local inference and
-training. A UI backend that uses the SDK should pin that exact wheel and verify
-an authenticated, read-only call (for example, listing datasets) with its
-configured service URL and key. The wheel check in CI is not a live service or
-deployment check.
+### One-time setup
+
+1. Make the repository public. This is a maintainer decision; the release
+   workflow refuses to publish until then.
+2. On PyPI, add a trusted publisher to the `pymc-mfm` project: owner `pymc-labs`,
+   repository `pymc-mfm`, workflow `release.yml`, environment `pypi`.
+3. In the repository settings, give the `pypi` environment required reviewers, so
+   each upload waits for a maintainer's approval; on the GitHub Team plan they are
+   available only once the repository is public. Replace its `main` branch rule
+   with a deployment tag rule `v*`: the publish job runs on the tag, and an
+   environment that allows only `main` rejects it. Restrict who can push `v*` tags
+   with a tag ruleset.
+4. Yank 0.1.2 on PyPI (Manage project, Releases, 0.1.2, Options, Yank) with the
+   reason "Client-only build published by mistake; install pymc-mfm 0.0.1 or later
+   on Python 3.13+". Yanking is reversible and keeps exact pins working; deleting
+   is not.
+
+### Each release
+
+1. In a pull request, set `version` in `pyproject.toml` and `context.version` in
+   `conda.recipe/recipe.yaml`, run `uv lock`, and update the notes above.
+2. Merge it, then tag the merge commit on `main` and push the tag:
+   `git tag -a v0.0.1 -m "pymc-mfm 0.0.1"` and `git push origin v0.0.1`.
+3. Approve the `pypi` deployment. The workflow uploads to PyPI with attestations,
+   then creates the GitHub release with the same files.
+4. Check the published package from a clean environment:
+   `uv run --isolated --no-project --python 3.13 --with pymc-mfm==0.0.1 python -c "import pymc_mfm; print(pymc_mfm.__version__)"`.
+
+uv installs from PyPI, so a PyPI release is also the uv release.
+
+### conda-forge
+
+The **Conda package** workflow builds `conda.recipe/recipe.yaml` from this checkout
+and runs its tests against conda-forge. For the first conda-forge release, after the
+PyPI upload:
+
+1. Fork `conda-forge/staged-recipes` and copy the recipe to
+   `recipes/pymc-mfm/recipe.yaml`. Replace its `source` with the PyPI sdist:
+   `url: https://files.pythonhosted.org/packages/source/p/pymc-mfm/pymc_mfm-${{ version }}.tar.gz`
+   and the `sha256` that
+   `curl -s https://pypi.org/pypi/pymc-mfm/0.0.1/json | jq -r '.urls[] | select(.packagetype == "sdist") | .digests.sha256'`
+   prints.
+2. Open the pull request. After review, conda-forge creates the
+   `pymc-mfm-feedstock` with the recipe's `recipe-maintainers` as its maintainers.
+3. For later releases, the conda-forge bot opens a feedstock pull request for each
+   new PyPI version. Copy dependency changes from `pyproject.toml` into it.
+
+Until the feedstock publishes, `conda install -c conda-forge pymc-mfm` fails with
+`PackagesNotFoundError`.
+
+### Servers that use the SDK
+
+A backend that only calls the hosted API should pin the release, with `pymc-mfm==0.0.1`
+or a `uv.lock`, which records hashes. Verify an authenticated read-only call, for
+example listing datasets, with its configured service URL and key; the release checks
+use a fake service. On Linux, install CPU-only PyTorch unless the server has a GPU, as
+the README shows.
 
 ## Before distribution
 
-- Maintainers must choose and approve licenses for the MFM code and any model
-  weights before distributing them; those licenses are not yet declared.
-  Approve any accompanying data or diagnostic evidence for redistribution too.
+- The code is licensed under Apache-2.0. Maintainers must choose and approve
+  licenses for any model weights before distributing them; those licenses are not
+  yet declared. Approve any accompanying data or diagnostic evidence for
+  redistribution too.
 - Any distributed pretrained model needs an immutable bundle reference,
   checksums, a model card and a clearly stated evaluation scope. The two-update
   workflow is not a pretrained model release.
 - Hub publication needs an authorized destination and an approved artifact
   license. A real upload, pinned download and offline reload must be verified
   for the intended artifacts before advertising that distribution path.
-- Version/tag selection, repository visibility, package-registry publication
-  and model publication each require explicit maintainer authorization.
+- A package release needs a maintainer to push its tag and approve the `pypi`
+  environment. Repository visibility and model publication each require explicit
+  maintainer authorization.

@@ -243,7 +243,33 @@ def test_load_corpora_rejects_object_members(tmp_path):
     corpus = make_synthetic_corpus()
     corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
     np.savez(path, **corpus, identifiability__invalid=np.array([None], dtype=object))
-    with pytest.raises(ValueError, match="Object arrays cannot be loaded"):
+    with pytest.raises(ValueError, match=r"object\.npz: .*Object arrays cannot be loaded"):
+        load_corpora([path])
+
+
+@pytest.mark.parametrize("content", [b"not an archive", b"PK\x03\x04truncated"])
+def test_an_unreadable_corpus_names_its_file(tmp_path, content):
+    good = tmp_path / "good.npz"
+    corpus = make_synthetic_corpus()
+    corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
+    np.savez(good, **corpus)
+    bad = tmp_path / "bad.npz"
+    bad.write_bytes(content)
+    with pytest.raises(ValueError, match=r"bad\.npz: not a readable NPZ archive"):
+        load_corpora([good, bad])
+
+
+def test_a_member_with_an_unsupported_compression_names_the_file(tmp_path):
+    path = tmp_path / "packed.npz"
+    corpus = make_synthetic_corpus()
+    corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
+    np.savez(path, **corpus)
+    data = bytearray(path.read_bytes())
+    # The compression method of the first central-directory record; zipfile supports no 99.
+    central = data.index(b"PK\x01\x02")
+    data[central + 10 : central + 12] = (99).to_bytes(2, "little")
+    path.write_bytes(bytes(data))
+    with pytest.raises(ValueError, match=r"packed\.npz: cannot read NPZ member"):
         load_corpora([path])
 
 

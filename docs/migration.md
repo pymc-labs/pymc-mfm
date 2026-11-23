@@ -36,7 +36,7 @@ query.diagnostics()
 
 ## What else changes
 
-- On Python 3.13 or newer, use the [standard install](../README.md#installation) without an extras suffix. It includes local inference and training, the hosted SDK with draws and plots, diagnostics, and Hugging Face Hub support. Existing supported `.npz` corpora work with the training CLI without `pymc-generator`; the repository's `generation` group is for producing new synthetic corpora.
+- On Python 3.13 or newer, use the [standard install](guide/index.qmd#install-client) without an extras suffix. It includes local inference and training, the hosted SDK with draws and plots, diagnostics, and Hugging Face Hub support. Existing supported `.npz` corpora work with the training CLI without `pymc-generator`; the repository's `generation` group is for producing new synthetic corpora.
 - `from pymc_mfm import *` and `dir(pymc_mfm)` no longer list the six research names above. A script that relies on a star import for them now gets `NameError`, with no warning. `pymc_mfm.decompose` and `from pymc_mfm import decompose` still work and warn. Import the names from their subpackages. A star import loads `MFM` and its dependencies, unlike a plain `import pymc_mfm`.
 - Charts read the model tree (`model.idata`), not private model state. Figures match earlier versions. The same charts draw from a tree saved to a file and opened again with xarray.
 - `model.plot` is live: it follows the latest `inference`. `Plots(idata)` draws the tree it was given and does not change.

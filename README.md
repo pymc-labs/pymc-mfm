@@ -13,24 +13,32 @@ are separate artifacts: models load from a local folder or from the Hugging Face
 
 ## Installation
 
-Use Python 3.13 or newer. For each approved PyMC MFM wheel, create and activate
-a fresh virtual environment. Replace `WHEEL_FILE.whl` with the wheel's filename:
+Python 3.13 or newer. Use any of:
 
 ```bash
-python -m pip install "./WHEEL_FILE.whl"
+pip install pymc-mfm
+uv add pymc-mfm                         # in a uv project; or uv pip install pymc-mfm
+conda install -c conda-forge pymc-mfm   # or: pixi add pymc-mfm
 ```
 
-With read access to this repository, you can instead install from Git:
+One install covers local inference and training, the client for the hosted River API
+with per-draw files and plots, diagnostics, and Hugging Face Hub loading. There are no
+extras. Installing grants no service or Hub access and includes no trained weights.
+Importing `pymc_mfm` or `pymc_mfm.client` does not load PyTorch.
 
-```bash
-python -m pip install "pymc-mfm @ git+https://github.com/pymc-labs/pymc-mfm.git"
-```
-
-The standard install includes local inference and training, the hosted River SDK
-with draws and plots, diagnostics, and Hugging Face Hub support. No extras are
-needed. The older client-only PyPI release is not this build. Installation does
-not grant service or Hub access or include trained weights. Importing `pymc_mfm`
-or `pymc_mfm.client` does not load PyTorch.
+- PyTorch comes from your package index. On Linux, pip and uv install the CUDA build
+  from PyPI, about 3 GB of downloads. On a machine without a GPU, install the CPU build
+  first with `pip install torch --index-url https://download.pytorch.org/whl/cpu`, or
+  configure uv as in [Using uv with PyTorch](https://docs.astral.sh/uv/guides/integration/pytorch/).
+  conda-forge selects a CUDA build only when it finds an NVIDIA driver.
+- PyPI has no PyTorch wheels for Intel Macs; install from conda-forge there.
+- In a uv project, set `requires-python = ">=3.13"` in its `pyproject.toml`: uv resolves
+  for every Python version the project allows.
+- `pymc-mfm` 0.1.2 on PyPI was a client-only build published by mistake and is yanked.
+  If it is installed, run `pip uninstall pymc-mfm` before installing; in a uv project
+  that depends on it, run `uv remove pymc-mfm`, then `uv add pymc-mfm`.
+- The development version installs from Git:
+  `pip install "pymc-mfm @ git+https://github.com/pymc-labs/pymc-mfm.git"`.
 
 ## Decompose a time series
 
@@ -503,10 +511,11 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 ## Call the River API
 
-`pymc_mfm.client` calls the hosted River API (routes under `/v1`). Use the standard
-[installation](#installation); no model weights are needed because the service runs
-River for you. [Get started](docs/guide/index.qmd) explains how to obtain the
-approved wheel and run a first analysis.
+`pymc_mfm.client` calls the hosted River API (routes under `/v1`). The standard
+[installation](#installation) includes it; no model weights are needed because the
+service runs River for you.
+[Get started](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/index.qmd) has a
+first analysis to run.
 
 Hosted service access is by invitation. Use the direct HTTPS URL and API key from
 the Connect page of the River API console. Pass them to `Client`, or set
@@ -515,7 +524,8 @@ the Connect page of the River API console. Pass them to `Client`, or set
 The hosted River API keeps a dataset 7 days after upload, then deletes it and its analyses. Using
 the dataset does not extend this.
 
-An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md).
+An agent skill for the client is in
+[`skills/mfm/SKILL.md`](https://github.com/pymc-labs/pymc-mfm/blob/main/skills/mfm/SKILL.md).
 
 ```python
 import numpy as np
@@ -792,7 +802,8 @@ model = from_pretrained(
 - `pymc_mfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
   a model and returns the commit id. New repositories are private.
 
-To run [`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb),
+To run
+[`examples/river_1_quickstart.ipynb`](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb),
 run `uv sync --locked --group examples` in a repository checkout and use its
 Python environment for the notebook. The example loads a model from the Hub,
 decomposes a simulated dataset and plots the result. Its context scatter overlays
@@ -888,7 +899,8 @@ Pages is a manual run of that workflow on `main`.
 
 This repository will be public, history included. Commit library code, tests,
 synthetic fixtures and docs. Never commit trained weights, credentials, user data,
-internal deployment names or private results. [AGENTS.md](AGENTS.md) has the full
+internal deployment names or private results.
+[AGENTS.md](https://github.com/pymc-labs/pymc-mfm/blob/main/AGENTS.md) has the full
 table and the boundary check, which CI runs on every pull request:
 
 ```bash
@@ -908,5 +920,8 @@ path. The library never needs it:
 
 ## Status
 
-Version `0.0.1.dev0`, not a published release. Code and model licenses are not
-yet selected. See [RELEASE.md](RELEASE.md) for changes and known limits.
+Alpha: the API can change between releases. The code is
+licensed under [Apache-2.0](https://github.com/pymc-labs/pymc-mfm/blob/main/LICENSE);
+model weights are separate artifacts with their own licenses. See
+[RELEASE.md](https://github.com/pymc-labs/pymc-mfm/blob/main/RELEASE.md) for changes
+and known limits.

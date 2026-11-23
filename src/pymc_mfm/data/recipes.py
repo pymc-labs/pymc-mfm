@@ -18,6 +18,8 @@ import dataclasses
 import hashlib
 import json
 import secrets
+import zipfile
+import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -390,11 +392,28 @@ _LEGACY_CORPUS_DIMENSIONS = {
 }
 
 
+#: What zipfile and numpy raise for an archive or member they cannot read.
+_UNREADABLE = (
+    ValueError,
+    EOFError,
+    NotImplementedError,
+    RuntimeError,
+    zipfile.BadZipFile,
+    zlib.error,
+)
+#: The first bytes of an NPZ file: a zip entry, or the end record of an empty archive.
+_ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06")
+
+
 def _read_corpus(path: Path) -> dict[str, Any]:
     """Decode the generator's NPZ format without importing the generator."""
-    stored = np.load(path, allow_pickle=False)
-    if not isinstance(stored, np.lib.npyio.NpzFile):
-        raise ValueError(f"corpus {path}: expected an NPZ archive")
+    with open(path, "rb") as handle:
+        if handle.read(4) not in _ZIP_MAGIC:
+            raise ValueError(f"corpus {path}: not a readable NPZ archive (no zip header)")
+    try:
+        stored = np.load(path, allow_pickle=False)
+    except _UNREADABLE as error:
+        raise ValueError(f"corpus {path}: not a readable NPZ archive ({error})") from error
 
     # Both schemas store arrays as NPZ members, flattening the optional
     # identifiability block and encoding diagnostics as a scalar JSON string.
@@ -403,7 +422,12 @@ def _read_corpus(path: Path) -> dict[str, Any]:
     identifiability = {}
     with stored:
         for key in stored.files:
-            array = stored[key]
+            try:
+                array = stored[key]
+            except _UNREADABLE as error:
+                raise ValueError(
+                    f"corpus {path}: cannot read NPZ member {key!r} ({error})"
+                ) from error
             if not isinstance(array, np.ndarray):
                 raise ValueError(f"corpus {path}: NPZ member {key!r} must be an array")
             if key.startswith(prefix):

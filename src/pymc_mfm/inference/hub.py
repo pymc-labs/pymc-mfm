@@ -322,11 +322,13 @@ from pymc_mfm import from_pretrained
 model = from_pretrained("<downloaded directory>"{argument})
 ```"""
     key = "." if profile is None else profile
-    return f"""Install the full PyMC MFM wheel on Python 3.13+ before loading the model.
+    return f"""Install PyMC MFM on Python 3.13 or newer:
 
 ```sh
-python -m pip install "./WHEEL_FILE.whl"  # substitute the approved wheel filename
+pip install pymc-mfm
 ```
+
+Or use `uv add pymc-mfm` or `conda install -c conda-forge pymc-mfm`.
 
 ```python
 from pymc_mfm import from_pretrained, list_profiles

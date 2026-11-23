@@ -25,7 +25,7 @@ uv run --no-sync pytest -q -m slow
 After that sync, `uv run --no-sync pytest -q` runs the full suite serially. Plain
 `pytest` applies no marker filter, so explicit file and node selections retain slow cases.
 
-The standard library installs, tests and builds without `pymc-generator` or
+The package installs, tests and builds without `pymc-generator` or
 access to a private model, a cloud account or a token. The repository's
 `generation` group fetches `pymc-generator` from Git; neither it nor the notebook
 dependencies are part of the standard installation.

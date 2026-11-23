@@ -113,8 +113,9 @@ def assert_complete_quickstart_tree(model, context_result, tree, history, future
 @pytest.mark.slow
 def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkeypatch):
     # No model download: retain River-1's control/latent widths in a tiny random model.
-    pytest.importorskip("matplotlib")
+    # The repository's `examples` group; the `generation` group also pulls in pymc-marketing.
     pytest.importorskip("pymc_marketing")
+    pytest.importorskip("IPython")
     if shutil.which("dot") is None:
         pytest.skip("The quickstart's native SVG export requires Graphviz")
     import pymc_mfm

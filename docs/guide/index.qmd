@@ -30,22 +30,19 @@ The service is a research preview. It may change, pause or reset at any time, so
 
 ### Install {#install-client}
 
-Obtain the approved full PyMC MFM wheel from the team that invited you. Your API
-key grants access to River, not to the wheel download. If you have no download
-instructions, reply to your invitation.
-
-Create and activate a fresh virtual environment using **Python 3.13 or newer**
-for each approved wheel. In the directory containing the wheel, replace
-`WHEEL_FILE.whl` with its filename:
+PyMC MFM needs **Python 3.13 or newer**. Install it with any of:
 
 ```bash
-python -m pip install "./WHEEL_FILE.whl"
+pip install pymc-mfm
+uv add pymc-mfm                         # in a uv project; or uv pip install pymc-mfm
+conda install -c conda-forge pymc-mfm   # or: pixi add pymc-mfm
 ```
 
-The same wheel includes the Python client, per-draw file support, plots, local
-inference and training, diagnostics, and Hugging Face Hub support. No extras are
-needed. The older client-only PyPI release is not this wheel. The HTTPS API
-itself does not require the Python package.
+The package includes the Python client, per-draw files, plots, local inference and training, diagnostics, and Hugging Face Hub loading. There are no extras. The HTTPS API itself does not require the Python package.
+
+On Linux, pip and uv install the CUDA build of PyTorch, about 3 GB of downloads. On a machine without a GPU, install the CPU build first with `pip install torch --index-url https://download.pytorch.org/whl/cpu`, or configure uv as in [Using uv with PyTorch](https://docs.astral.sh/uv/guides/integration/pytorch/). On an Intel Mac, install from conda-forge: PyPI has no PyTorch wheels for it. In a uv project, set `requires-python = ">=3.13"` in its `pyproject.toml`, because uv resolves for every Python version the project allows.
+
+If you installed `pymc-mfm` 0.1.2, a client-only build published by mistake, run `pip uninstall pymc-mfm` first; in a uv project, run `uv remove pymc-mfm`, then `uv add pymc-mfm`.
 
 ### Run a first analysis
 
@@ -254,13 +251,6 @@ To delete later, use the ids the script prints: `client.datasets.delete("<datase
 The [same install](#install-client) also runs local inference and training.
 
 PyMC MFM trains and runs amortized neural networks for marketing-mix decomposition. A network is trained once on many simulated worlds, then reads a regularly spaced time series of media spend, controls, and observed outcome. It returns posterior draws of baseline, channel, control, and unobserved-factor contributions, together with a causal graph for each draw. [inference(context, query, ...)](../reference/model.MFM.qmd) conditions on observed history without training or refitting its weights.
-
-On Python 3.13 or newer, if you have read access to the `pymc-labs/pymc-mfm`
-repository, you can install from Git instead of using an approved wheel:
-
-```bash
-python -m pip install "pymc-mfm @ git+https://github.com/pymc-labs/pymc-mfm.git"
-```
 
 ### Decompose a time series
 

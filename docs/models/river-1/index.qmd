@@ -249,7 +249,7 @@ covering it.
 
 ## Get River {#get}
 
-To run River locally, follow the [Python installation](../../guide/index.qmd#install)
+To run River locally, follow the [installation](../../guide/index.qmd#install-client)
 and obtain separate access to the private weights. If you have a pilot invitation but
 no weights, use the hosted River API instead: see
 [Use the hosted River API](../../guide/index.qmd#hosted-api).

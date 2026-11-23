@@ -7,7 +7,6 @@ on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -36,31 +35,3 @@ jobs:
         run: uv build
       - name: Check built distributions
         run: python3 scripts/check_public_boundary.py --archive dist/*
-      - name: Check the wheel for an internal handoff
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.private
-        run: |
-          python scripts/check_public_boundary.py --release --archive dist/*
-          uv venv --python 3.13 "$RUNNER_TEMP/wheel-smoke"
-          python="$RUNNER_TEMP/wheel-smoke/bin/python"
-          uv pip install --python "$python" dist/*.whl 'pytest>=8.3'
-          uv pip check --python "$python"
-          "$python" -I -m pytest -q \
-            tests/client/test_http.py::test_url_and_key_are_resolved_independently \
-            tests/test_training.py::test_cli_trains_and_evaluates_saved_corpora_without_generator
-          (cd dist && sha256sum -- *.whl > SHA256SUMS)
-      - name: Require current private repository visibility
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.private
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: test "$(gh api "repos/$GH_REPO" --jq .visibility)" = private
-      - name: Store the checked wheel for repository readers
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.event.repository.private
-        uses: actions/upload-artifact@v4
-        with:
-          name: pymc-mfm-wheel-${{ github.sha }}
-          path: |
-            dist/*.whl
-            dist/SHA256SUMS
-          if-no-files-found: error
-          retention-days: 7

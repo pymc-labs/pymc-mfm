@@ -17,15 +17,19 @@ Do not use results on their own for budget decisions.
 
 ## Set up
 
-1. Use the full PyMC MFM wheel approved for the pilot. If the wheel is not available, ask the
-   user for it or use `reference/http.md`. For each approved wheel, create and activate a fresh
-   Python 3.13 or later virtual environment, then substitute the wheel filename below:
+1. The client needs Python 3.13 or later. If only an older Python is available, use
+   `reference/http.md` instead. Install the package in a virtual environment:
 
    ```bash
-   python -m pip install "./WHEEL_FILE.whl"
+   pip install pymc-mfm
    ```
 
-   The standard install includes the client, plots and draws reader. No model weights are needed.
+   `uv pip install pymc-mfm` (or `uv add pymc-mfm` in a uv project) and
+   `conda install -c conda-forge pymc-mfm` work too. On Linux without a GPU, first install the CPU
+   build of PyTorch from PyTorch's CPU wheel index, as the pymc-mfm README shows, to skip the 3 GB
+   CUDA build; on an Intel Mac, use conda-forge. The install includes the client, plots and the
+   draws reader. No model weights are needed. If `pymc-mfm` 0.1.2 is installed (a client-only build
+   published by mistake), uninstall it first.
 2. Check that `MFM_API_URL` and `MFM_API_KEY` are set in the environment. The client reads both.
    If one is missing, stop and ask the user. Do not look for them in files. Never print or log the
    key. Never write the URL or the key into a file, a commit or a message.

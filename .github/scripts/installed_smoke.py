@@ -206,6 +206,15 @@ assert code_record()["revision_status"] == "not_available"
         env=env,
     )
     wheel_python = str(python_paths["wheel"])
+    # The wheel environment trains from the saved corpus without the generator.
+    run(
+        wheel_python,
+        "-I",
+        "-c",
+        "import importlib.util; assert importlib.util.find_spec('pymc_generator') is None",
+        cwd=out,
+        env=env,
+    )
     run(
         wheel_python,
         "-I",

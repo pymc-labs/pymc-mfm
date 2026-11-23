@@ -5,7 +5,7 @@ description: "Use the Python client to upload a history, run analyses and backte
 
 ## Before you start
 
-Follow [Install](index.qmd#install-client) to install the approved full PyMC MFM wheel on Python 3.13 or newer. Set your service URL and API key as `MFM_API_URL` and `MFM_API_KEY`, as in [Get access](index.qmd#get-access).
+Follow [Install](index.qmd#install-client) to install PyMC MFM on Python 3.13 or newer. Set your service URL and API key as `MFM_API_URL` and `MFM_API_KEY`, as in [Get access](index.qmd#get-access).
 
 The code blocks on this page run in order: each one continues the blocks before it. Paste them into one file or one Python session, from the top. The first block makes the same synthetic data as [Run a first analysis](index.qmd#run-a-first-analysis).
 

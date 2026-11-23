@@ -46,7 +46,7 @@ The listed components plus `outcome_noise` add to `outcome_raw`. Worlds with `is
 
 ## Run training
 
-Use the standard [Python installation](index.qmd#install), then call [train](../reference/training.train.qmd) with a new output directory. Pass a [ModelConfig](../reference/model.ModelConfig.qmd) for architecture and corpus geometry plus a [TrainingConfig](../reference/training.TrainingConfig.qmd) for the run budget.
+Use the standard [installation](index.qmd#install-client), then call [train](../reference/training.train.qmd) with a new output directory. Pass a [ModelConfig](../reference/model.ModelConfig.qmd) for architecture and corpus geometry plus a [TrainingConfig](../reference/training.TrainingConfig.qmd) for the run budget.
 
 ```python
 from pymc_mfm.model import ModelConfig
