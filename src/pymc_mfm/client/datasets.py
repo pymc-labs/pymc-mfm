@@ -130,9 +130,10 @@ class Datasets:
         different outcome, and ``ValueError`` is raised before any request.
 
         Before an upload, the history must have one row for each week, in date order, with
-        no repeated date; otherwise ``ValueError`` names the first bad row and nothing is
-        sent. A reused dataset is not checked, because the hash ignores row order. The
-        client never sorts or fills your data.
+        no repeated date; otherwise ``ValueError`` names the first bad row and no upload
+        is sent. ``reuse=True`` may first list datasets and skips cadence validation if it
+        finds a match, because the hash ignores row order. The client never sorts or fills
+        your data.
         """
         if reuse and fresh:
             raise ValueError("Pass reuse=True or fresh=True, not both")
