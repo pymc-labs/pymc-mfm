@@ -1,7 +1,7 @@
 """Sampling-free charts of a model's last complete ``inference``: ``Plots`` and ``model.plot``.
 
-Matplotlib (``pymc-mfm[plot]``) and plotly (``pymc-mfm[interactive]``) draw the same
-numbers; each library is imported only when a chart is drawn with it.
+Matplotlib and Plotly draw the same numbers; each library is imported only when
+a chart is drawn with it.
 """
 
 from __future__ import annotations

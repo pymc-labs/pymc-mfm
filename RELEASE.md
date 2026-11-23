@@ -1,12 +1,18 @@
 # Release preparation
 
-PyMC MFM remains at **`0.0.1.dev0`**. The client changes below are prepared for the
-tag `client-v0.1.0`; the version bump and the tag come in the tagging commit, and nothing
-is published. These notes describe the standalone library's development capabilities and
-distribution prerequisites, not an approved or published release.
+PyMC MFM remains at **`0.0.1.dev0`**. These notes describe the current library
+and internal wheel handoff, not an approved or published full-package release.
+References to `client-v0.1.0` record the earlier client release plan.
 
 ## Current changes
 
+- **One standard Python installation.** On Python 3.13 or newer, the approved
+  full wheel (or Git with repository access) includes local inference and
+  training, the hosted SDK with draws and plots, diagnostics and Hugging Face
+  Hub support without extras. Imports remain lazy; weights and service or Hub
+  access are separate. The training CLI reads existing supported `.npz` corpora
+  without `pymc-generator`; generation and notebook dependencies are in the
+  repository-only `generation` and `examples` groups.
 - **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
   `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
   `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`
@@ -50,9 +56,7 @@ distribution prerequisites, not an approved or published release.
 - **Model tree validation.** Charts and file validation reject multiple descriptors for
   a single channel or control. Validation accepts unrelated extension coordinates and
   requires response-curve levels to increase, including when stored as unsigned integers.
-- **Dependencies and migration.** `local` now includes `xarray>=2024.10` and
-  `arviz-base>=1.3,<2` for automatic in-memory trees; optional statistics,
-  rendering and explicit file export remain separate. Full inference pays for
+- **Complete inference costs and migration.** Full inference pays for
   both marginals and tree storage even with `return_idata=False`; historical
   query-only timings below do not measure that full operation. README, guides,
   generated API entries and quickstart use the paired contract. The notebook
@@ -73,11 +77,10 @@ distribution prerequisites, not an approved or published release.
   warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
   `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
   see `docs/migration.md`.
-- **Installed-artifact CI contracts.** The bare wheel is checked separately for
-  lightweight client isolation. Local and diagnostics wheels positively exercise
-  their declared tree dependencies and automatic idata instead of expecting
-  exports to fail. Installed local-wheel checks cover both return modes,
-  independent prediction and automatic curve attachment.
+- **Installed-artifact CI contracts.** CI installs the wheel and sdist in
+  separate clean environments and exercises the standard runtime. Paired
+  inference checks cover both return modes, independent prediction and automatic
+  curve attachment.
 - **Client (for `client-v0.1.0`): direct HTTPS and earlier setup errors.** Use the
   direct HTTPS URL from the River API console as `base_url` or `MFM_API_URL`, without
   credentials, a query, or a fragment. Plain HTTP is allowed only on `localhost`,
@@ -102,9 +105,9 @@ distribution prerequisites, not an approved or published release.
 
 ## Historical development records
 
-The entries below record earlier changes, including APIs and lazy-storage behavior
-superseded by the current paired-inference contract above. They are retained as
-history, not current workflow instructions.
+The entries below are historical. They include the former extras layout and
+APIs and lazy storage superseded by the current paired-inference contract.
+They are not current workflow instructions.
 
 - **Parallel CI test lanes.** Fast tests run on two workers; slow integration tests
   run serially beside the installed-distribution smoke job. Local pytest keeps all
@@ -539,14 +542,12 @@ history, not current workflow instructions.
 ## Public API and evidence limits
 
 The offline observation example requires `--model` to name a known local MFM
-bundle. No pretrained weights are bundled or selected automatically. Base local
-inference does not require generation, plotting, MLflow or Hub clients.
-`[generation]` supplies the generator, `[diagnostics]` adds numerical diagnostics
-and plotting, `[training]` adds diagnostics and MLflow, `[hub]` enables remote
-artifact transport, `[arviz]` adds ArviZ `DataTree` export (xarray), a view
-of draws rather than evidence, and `[examples]` adds `pymc-marketing` for the
-River-1 quickstart. Installing dependencies can require network
-access; local inference and saved-evidence replay do not. Remote loading
+bundle. No pretrained weights are bundled or selected automatically. The
+standard install provides the Python dependencies for inference, training,
+diagnostics and Hub transport. The repository's `generation` group supplies the
+generator to produce new corpora; the `examples` group supplies notebook
+dependencies. Installing dependencies can require network access; local
+inference and saved-evidence replay do not. Remote loading
 resolves the selected revision, or the default branch when omitted, to one
 recorded immutable commit. Use a full commit for reproducibility; offline Hub
 loading needs a populated cache.
@@ -580,7 +581,7 @@ They specify the workload, not a GPU-memory requirement or a wall-clock
 performance guarantee.
 
 ```bash
-uv sync --locked --extra generation --extra training
+uv sync --locked --group generation
 uv run --no-sync python .github/scripts/workflow.py --out runs/workflow
 ```
 
@@ -601,6 +602,8 @@ backend keys. Outputs require a new directory and are not published. The
 installed-distribution check runs after `uv build` with
 `uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed`.
 
+The next two paragraphs record earlier checks under the former extras layout.
+
 Fresh-install verification passed the full workflow from the built sdist,
 offline inference from a base-only wheel environment, saved-result
 render/replay from a diagnostics-only wheel environment, and `DataTree` export
@@ -620,6 +623,30 @@ None of these workflows establishes business-domain calibration, causal
 identification, out-of-distribution validity, lift-test evidence or safe
 unattended budget optimization.
 
+## Prepare the full wheel
+
+For a wheel handoff, a maintainer must run **Public boundary** manually on the
+private repository's `main` branch. The workflow builds with `uv build`, checks
+the archives, then installs the wheel on Python 3.13. It checks a hosted request
+against a fake service and runs a tiny offline training and evaluation job
+without the generator. It stores the checked wheel and `SHA256SUMS` in the run's
+`pymc-mfm-wheel-<commit>` artifact for repository readers. This is not a registry
+release or permission to send the wheel to someone outside the repository.
+
+Download only the named artifact from the successful run into an empty directory.
+Record the run ID, artifact ID, source commit and wheel SHA-256 digest. From that
+directory, run `sha256sum -c SHA256SUMS` (on macOS, `shasum -a 256 -c SHA256SUMS`)
+before installing. Delete any retained handoff artifacts before widening
+repository visibility.
+
+Once distribution is approved, give recipients the exact wheel and checksum via
+the approved channel. Install it in a fresh Python 3.13+ virtual environment.
+The same wheel works without extras for the hosted SDK and local inference and
+training. A UI backend that uses the SDK should pin that exact wheel and verify
+an authenticated, read-only call (for example, listing datasets) with its
+configured service URL and key. The wheel check in CI is not a live service or
+deployment check.
+
 ## Before distribution
 
 - Maintainers must choose and approve licenses for the MFM code and any model
@@ -633,7 +660,3 @@ unattended budget optimization.
   for the intended artifacts before advertising that distribution path.
 - Version/tag selection, repository visibility, package-registry publication
   and model publication each require explicit maintainer authorization.
-- The generator intentionally follows a Git branch. Source and directly
-  installed wheel/sdist distributions support that dependency; PyPI
-  [does not accept direct-URL dependencies](https://setuptools.pypa.io/en/latest/userguide/dependency_management.html#direct-url-dependencies).
-  Any future PyPI release needs a separate distribution-policy decision.

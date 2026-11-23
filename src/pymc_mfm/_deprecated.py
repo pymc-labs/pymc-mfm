@@ -29,8 +29,7 @@ def deprecated_names(
       Overlapping first accesses can each warn before the object is cached.
     - Python's default filters hide ``DeprecationWarning`` outside ``__main__``. A first
       access that a filter hid is not reported again after the filter changes.
-    - A load that raises (for example, PyTorch is missing) is not cached. The next access
-      warns again and raises the same error, including the ``[local]`` install hint.
+    - A load that raises is not cached. The next access warns again and retries it.
 
     Pass ``stacklevel=3`` when a module ``__getattr__`` calls the
     returned function, so the warning names the caller's line.

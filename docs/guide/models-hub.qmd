@@ -30,7 +30,7 @@ A training checkpoint contains model state and run records, not optimizer state.
 
 ## Load from Hugging Face Hub
 
-Hub operations need `pymc-mfm[hub]`. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
+Hugging Face Hub support is included in the standard [Python installation](index.qmd#install); private repositories still require separate access. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
 
 ```python
 from pymc_mfm import from_pretrained, list_profiles

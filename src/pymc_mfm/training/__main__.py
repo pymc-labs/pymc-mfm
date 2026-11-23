@@ -2,8 +2,8 @@
 
 Defaults come from :class:`TrainingConfig`; pass a smaller
 ``--steps``/``--batch-size`` for a clearly identified reduced run that exercises
-the same code path. Loading ``.npz`` corpora needs the ``generation`` extra;
-the architecture is sized from corpus geometry. ``--holdout-archives
+the same code path. The architecture is sized from the geometry of the saved
+schema-4 or schema-5 corpora. ``--holdout-archives
 KIND[,KIND]`` (``best``, ``terminal``) also keeps the held-out draws of the
 promoted and/or final evaluations as evaluation archives under ``archives/``
 in the run directory, as ``train(holdout_archives=...)`` does.
@@ -86,7 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m pymc_mfm.training", description=__doc__.split("\n\n")[0]
     )
-    parser.add_argument("--corpus", nargs="+", required=True, help="schema-4 corpus .npz files")
+    parser.add_argument(
+        "--corpus", nargs="+", required=True, help="schema-4 or schema-5 corpus .npz files"
+    )
     parser.add_argument("--out-dir", required=True, help="new run directory")
     parser.add_argument("--device", default="auto", help="auto | cpu | cuda | mps")
     parser.add_argument("--run-name", default=None)
@@ -153,7 +155,11 @@ def build_evaluate_parser() -> argparse.ArgumentParser:
         "checkpoint file",
     )
     parser.add_argument(
-        "--corpus", nargs="+", required=True, metavar="F", help="schema-4 corpus .npz files"
+        "--corpus",
+        nargs="+",
+        required=True,
+        metavar="F",
+        help="schema-4 or schema-5 corpus .npz files",
     )
     parser.add_argument(
         "--out-dir", required=True, metavar="DIR", help="new or empty archive directory"

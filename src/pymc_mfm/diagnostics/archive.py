@@ -1552,7 +1552,7 @@ class EvaluationArchive:
         }
 
     def to_datatree(self, window: str) -> DataTree:
-        """Every world of ``window`` as one ArviZ ``xarray.DataTree``; needs ``pymc-mfm[arviz]``.
+        """Every world of ``window`` as one ArviZ ``xarray.DataTree``.
 
         Export only: the archive stays the evidence and MFM never reads a tree back. A
         ``world`` dimension in archive order (coordinate: the world ids) joins the

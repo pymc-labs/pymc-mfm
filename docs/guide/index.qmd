@@ -9,11 +9,13 @@ You give PyMC MFM (marketing foundational models) a weekly table of marketing sp
 
 ## Use the hosted River API {#hosted-api}
 
-River is the trained network behind PyMC MFM. The hosted River API runs River for you, so you need no model weights and no PyTorch. You call it from Python with the client, `pymc_mfm.client`: you send a weekly history and a plan for the weeks after it, and the service forecasts the plan and compares budget scenarios against it.
+River is the trained network behind PyMC MFM. The hosted River API runs River for you, so you do not need to download model weights. You call it from Python with the client, `pymc_mfm.client`: you send a weekly history and a plan for the weeks after it, and the service forecasts the plan and compares budget scenarios against it.
 
 ### Get access
 
-Access is by invitation. Your invitation links to the River API console. Create your API key on its Connect page, which also shows your service URL. The page shows the key once; if you lose it, replace it there. Each key belongs to one person: keep it secret, and out of any file you share.
+Access is by invitation. Open the River API console from your invitation. If you use the browser console, stop here: you do not need an API key or a Python install.
+
+For Python, create your API key on the Connect page, which also shows your service URL. The page shows the key once; if you lose it, replace it there. Each key belongs to one person: keep it secret, and out of any file you share.
 
 Set both as environment variables, so your code never contains them. Use the `https://` service URL exactly as the Connect page shows it. The client sends your key only to that URL.
 
@@ -28,13 +30,22 @@ The service is a research preview. It may change, pause or reset at any time, so
 
 ### Install {#install-client}
 
-The client needs Python 3.11 or newer, and no PyTorch:
+Obtain the approved full PyMC MFM wheel from the team that invited you. Your API
+key grants access to River, not to the wheel download. If you have no download
+instructions, reply to your invitation.
+
+Create and activate a fresh virtual environment using **Python 3.13 or newer**
+for each approved wheel. In the directory containing the wheel, replace
+`WHEEL_FILE.whl` with its filename:
 
 ```bash
-pip install pymc-mfm
+python -m pip install "./WHEEL_FILE.whl"
 ```
 
-The examples in this section need nothing more. To read every draw (`.nc` files) or to draw plots, run `pip install "pymc-mfm[client]"` instead.
+The same wheel includes the Python client, per-draw file support, plots, local
+inference and training, diagnostics, and Hugging Face Hub support. No extras are
+needed. The older client-only PyPI release is not this wheel. The HTTPS API
+itself does not require the Python package.
 
 ### Run a first analysis
 
@@ -240,33 +251,16 @@ To delete later, use the ids the script prints: `client.datasets.delete("<datase
 
 ## Use the Python library
 
-The full Python library runs local inference with PyTorch. Installing it from GitHub needs read access to the `pymc-labs/pymc-mfm` repository. You do not need it for the hosted River API: the client above is enough.
+The [same install](#install-client) also runs local inference and training.
 
 PyMC MFM trains and runs amortized neural networks for marketing-mix decomposition. A network is trained once on many simulated worlds, then reads a regularly spaced time series of media spend, controls, and observed outcome. It returns posterior draws of baseline, channel, control, and unobserved-factor contributions, together with a causal graph for each draw. [inference(context, query, ...)](../reference/model.MFM.qmd) conditions on observed history without training or refitting its weights.
 
-PyMC MFM requires Python 3.13 or newer. Install local inference from Git:
+On Python 3.13 or newer, if you have read access to the `pymc-labs/pymc-mfm`
+repository, you can install from Git instead of using an approved wheel:
 
 ```bash
-pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+python -m pip install "pymc-mfm @ git+https://github.com/pymc-labs/pymc-mfm.git"
 ```
-
-A base install is the light River API client: it has NumPy, pandas, httpx, and packaging, but no PyTorch. [pymc_mfm.client](../reference/client.Client.qmd) is the only part that runs with that install.
-
-| Extra | Adds |
-| --- | --- |
-| `local` | PyTorch, safetensors, xarray and ArviZ Base for local models and inference trees |
-| `draws` | `xarray`, `h5netcdf`, and `h5py` for API per-draw files |
-| `plot` | matplotlib for model and client plots |
-| `interactive` | plotly for interactive model charts |
-| `client` | `draws` and `plot` |
-| `hub` | `local` and Hugging Face Hub loading and publishing |
-| `training` | `local`, MLflow tracking, and training diagnostics |
-| `diagnostics` | `local`, result diagnostics, plots, and HTML reports |
-| `arviz` | `local` and ArviZ statistics |
-| `generation` | `local`, `pymc-generator`, and `.npz` corpus support |
-| `examples` | `local` and `pymc-marketing` for the example notebook |
-
-Every extra that runs a model includes `local`. For example, `pymc-mfm[hub]` also installs PyTorch.
 
 ### Decompose a time series
 
@@ -323,7 +317,7 @@ a call draws from PyTorch's global generator and advances it, so each call gives
 
 `idata` is the complete stored `xarray.DataTree`, with separate context and query marginals. It has one group per window, and the root has no `posterior`. The `chain` dimension has length 1 as a storage convention. No MCMC runs, so r_hat and ESS (effective sample size) do not apply.
 
-With the `arviz` extra installed, summarize one window with the statistics only:
+Use ArviZ to summarize one window with the statistics only:
 
 ```python
 import arviz_stats
@@ -334,7 +328,7 @@ arviz_stats.summary(idata["query"], kind="stats")
 
 The default `kind` adds MCMC diagnostics such as r_hat, which are undefined for one chain. A window has no `posterior_predictive` group, so posterior predictive checks do not run on it. A window is not a drop-in PyMC-Marketing MMM artifact.
 
-Writing a tree to a file is separate and needs the `draws` extra. `save_idata` and `load_idata` read and write pymc-mfm trees, not arbitrary ArviZ files.
+Writing a tree to a file is separate. `save_idata` and `load_idata` read and write pymc-mfm trees, not arbitrary ArviZ files.
 
 `query` is the exact query [DecompositionResult](../reference/inference.DecompositionResult.qmd); its components, diagnostics and graph helpers reuse those draws. `return_idata=False` returns `None` instead but still stores the complete tree. For another query-only calculation, `model.predict(future, n_samples=200)` returns an independent result without replacing the stored tree, query result, charts or response curves. Model charts never sample. The synthetic data exercises the API and is not an attribution-calibration example.
 
@@ -345,5 +339,5 @@ Writing a tree to a file is separate and needs the `draws` extra. `save_idata` a
 - Read [Load and share models](models-hub.qmd) to use local folders and Hub profiles.
 - Use the [hosted River API](#hosted-api) from Python with a personal key when local PyTorch inference is not the interface you need.
 - Read [Train a network](training.qmd) to prepare a simulated corpus and train a model.
-- Run the [River-1 quickstart](examples/river_1_quickstart.ipynb) for a complete simulated-data workflow.
+- Run the [River-1 quickstart](examples/river_1_quickstart.ipynb) for a complete simulated-data workflow. In a repository checkout, install its notebook dependencies with `uv sync --locked --group examples`.
 - Browse the [API reference](../reference/index.qmd) for signatures and parameter details.

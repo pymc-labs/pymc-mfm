@@ -51,13 +51,6 @@ def swept(request, model, chart_frames):
     return model, model.response_curves(levels=request.param, weeks=2, n_samples=4)
 
 
-@pytest.fixture
-def netcdf():
-    """Skip a file test without the netCDF backend (``pymc-mfm[draws]``)."""
-    pytest.importorskip("h5netcdf")
-    pytest.importorskip("h5py")
-
-
 def _saved(tree, tmp_path):
     """``tree`` written to a netCDF file and opened again, loaded."""
     import xarray as xr
@@ -131,7 +124,6 @@ def _check_curves(tree, returned):
     np.testing.assert_array_equal(curves.draws, returned.draws)
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_charts_from_the_model_tree_equal_charts_from_the_model(swept):
     swept, returned = swept
     assert (returned.media > 0).all()
@@ -141,7 +133,6 @@ def test_charts_from_the_model_tree_equal_charts_from_the_model(swept):
         _same(facts, expected[key])
 
 
-@pytest.mark.usefixtures("matplotlib_backend", "netcdf")
 def test_charts_from_a_file_equal_charts_from_the_model_tree(swept, tmp_path):
     swept, returned = swept
     expected = _draw_all(Plots(swept.idata))
@@ -151,7 +142,6 @@ def test_charts_from_a_file_equal_charts_from_the_model_tree(swept, tmp_path):
         _same(facts, expected[key])
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_model_plot_reads_the_tree_not_the_private_state(swept, monkeypatch):
     swept, _ = swept
     expected = _draw_all(Plots(swept.idata))
@@ -168,7 +158,6 @@ def test_model_plot_reads_the_tree_not_the_private_state(swept, monkeypatch):
         _same(facts, expected[key])
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_model_plot_follows_later_runs_and_plots_of_a_tree_do_not(model, chart_frames):
     history, future = chart_frames
     model.inference(history, future, n_samples=4, **CHART_ROLES)
@@ -184,7 +173,6 @@ def test_model_plot_follows_later_runs_and_plots_of_a_tree_do_not(model, chart_f
     assert not np.array_equal(_facts(plots.fit())[1][0]["lines"][0][1], first[1][0]["lines"][0][1])
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_the_plot_accessor_returns_before_inference_and_the_chart_call_raises(model):
     plots = model.plot
     with pytest.raises(RuntimeError, match=r"inference\(history, future, \.\.\.\)"):
@@ -314,9 +302,7 @@ def test_charts_of_a_reordered_tree_draw_the_numbers_of_their_labels(reordered, 
     )
 
 
-def test_a_saved_and_reopened_reordered_tree_draws_the_raw_arrays_by_label(
-    reordered, netcdf, tmp_path
-):
+def test_a_saved_and_reopened_reordered_tree_draws_the_raw_arrays_by_label(reordered, tmp_path):
     """Plotted means equal the original tree's raw arrays, picked by label with xarray."""
     from pymc_mfm.plotting.charts import contributions, media
 
@@ -345,7 +331,6 @@ def test_a_saved_and_reopened_reordered_tree_draws_the_raw_arrays_by_label(
         np.testing.assert_array_equal(curves.draws[row], want)
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_the_figures_of_a_reordered_tree_equal_the_figures_of_the_original(reordered):
     _, _, tree, changed = reordered
     for key in ("inputs", "fit", "shares"):
@@ -476,7 +461,6 @@ def test_a_tree_that_is_not_a_model_tree_is_named(predicted_model):
         IdataReader(predicted_model.idata).window("both")
 
 
-@pytest.mark.usefixtures("matplotlib_backend", "netcdf")
 def test_a_file_draws_the_charts_with_torch_blocked(swept, tmp_path):
     swept, _ = swept
     swept.idata.to_netcdf(tmp_path / "tree.nc", engine="h5netcdf")
@@ -610,7 +594,6 @@ def test_exported_names():
     )
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_a_plot_property_that_calls_model_plots_returns_a_live_accessor(chart_frames):
     import warnings
 
@@ -717,7 +700,6 @@ def _with_stored_amounts(tree, flip):
 @pytest.mark.parametrize("flip", [False, True], ids=["stored-order", "reversed-order"])
 def test_the_curve_amounts_are_the_stored_media_by_channel_and_level(predicted_model, flip):
     """The chart data and the Plotly hover show the stored amounts, not total times level."""
-    pytest.importorskip("plotly")
     from pymc_mfm.plotting.charts import curves as curve_chart
 
     predicted_model.response_curves(levels=[0, 0.5, 2], weeks=2, n_samples=4)
@@ -750,7 +732,6 @@ def test_the_curve_amounts_are_the_stored_media_by_channel_and_level(predicted_m
         ),
     ],
 )
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_curve_media_labels_that_do_not_match_the_curves_raise(predicted_model, change, message):
     predicted_model.response_curves(levels=[0, 0.5, 2], weeks=2, n_samples=4)
     changed = _edit(predicted_model.idata, "/response_curves/constant_data", change)
@@ -775,7 +756,6 @@ def without_tv(predicted_model):
     return predicted_model.idata, changed
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_a_missing_component_descriptor_raises_instead_of_dropping_a_contribution(without_tv):
     tree, changed = without_tv
     # The channels contribute different amounts, so a dropped one would change the fit.
@@ -797,7 +777,6 @@ def test_a_missing_component_descriptor_raises_instead_of_dropping_a_contributio
 
 
 @pytest.mark.parametrize(("family", "label"), [("channel", "tv"), ("control", "temperature")])
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_two_descriptors_for_one_draw_column_are_rejected(predicted_model, family, label):
     def add_alias(data):
         labels = data["component"].to_numpy().tolist()
@@ -831,7 +810,6 @@ def test_a_descriptor_for_a_channel_the_tree_does_not_name_raises(predicted_mode
 
 @pytest.mark.parametrize("label", ["baseline", "indirect:cc"])
 @pytest.mark.parametrize("window", ["context", "query"])
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_a_posterior_contribution_without_a_descriptor_raises(predicted_model, label, window):
     """A baseline or indirect draw that no descriptor names would be left out of the sum."""
     variable = label.replace(":", "_")

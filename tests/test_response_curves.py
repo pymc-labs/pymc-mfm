@@ -506,7 +506,6 @@ def test_sweeps_ignore_independent_predictions(forecast_model, chart_frames, rec
     assert forecast_model.query_result is query
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_matplotlib_draws_the_frame_of_each_channel(swept):
     model, curves = swept
     tree, state = model.idata, torch.get_rng_state()
@@ -540,7 +539,6 @@ def test_matplotlib_draws_the_frame_of_each_channel(swept):
 
 
 def test_plotly_draws_the_same_numbers(swept):
-    pytest.importorskip("plotly")
     model, curves = swept
     fig = model.plot.response_curves(truth=TRUTH, backend="plotly", title="Sweep")
     frame = curves.to_frame(0.9)
@@ -566,7 +564,6 @@ def test_plotly_draws_the_same_numbers(swept):
     assert "varied separately over a plan of the first 2 forecast weeks;" in fig.layout.title.text
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_panels_say_when_a_covariate_is_zero_and_skip_the_missing_level_1(forecast_model):
     # tv is zero in the first forecast week; level 1 is not swept, so no dot.
     forecast_model.response_curves(levels=[0, 2], weeks=1)

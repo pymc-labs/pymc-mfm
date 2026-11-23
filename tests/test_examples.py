@@ -39,9 +39,6 @@ def run_code_cells(notebook: Path) -> dict:
     ],
 )
 def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypatch):
-    # Matplotlib is the only optional dependency of the notebook's path; it ships
-    # with the diagnostics and training extras. The generator extra is optional.
-    pytest.importorskip("matplotlib")
     if corpus == "generated":
         pytest.importorskip("pymc_generator")
     else:

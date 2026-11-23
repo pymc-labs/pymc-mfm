@@ -1,15 +1,15 @@
-"""Canonical corpus recipes, shard plans and schema-4 corpus helpers.
+"""Canonical corpus recipes, shard plans and schema-4/5 corpus helpers.
 
 ``PROFILE_A_PRIOR`` is the fixed ``pymc_generator`` configuration for profile A.
 Corpus size and random seed are caller arguments rather than recipe fields;
 ``SHARD_PLANS`` fixes them for the sharded profile corpora and the evaluation
 corpus. ``generate_corpus`` writes one corpus and a JSON sidecar with its exact
-construction inputs; ``load_corpora`` validates schema 4 and records corpus
-identity for training.
+construction inputs; ``load_corpora`` reads schema-4 and schema-5 archives
+and records corpus identity for training.
 
 Profile B changes profile A's ``cy`` edge budget to ``(4, 10)`` while retaining
-the other prior settings. ``pymc_generator`` is imported lazily, so this module
-remains importable without the ``generation`` extra.
+the other prior settings. Only prior construction and generation need
+``pymc_generator``, which is imported lazily.
 """
 
 from __future__ import annotations
@@ -34,9 +34,9 @@ from pymc_mfm.data.profiles import PROFILE_A, PROFILE_B, ArtifactProfile
 if TYPE_CHECKING:
     from pymc_generator import SCMPrior
 
-_GENERATION_EXTRA_HINT = (
-    "pymc_generator is required for corpus generation and loading; install the "
-    "`generation` extra: pip install 'pymc-mfm[generation]'"
+_GENERATION_HINT = (
+    "pymc_generator is required to construct priors and generate corpora; "
+    "from the repository, run `uv sync --locked --group generation`"
 )
 
 #: Canonical profile-A SCMPrior payload in public ``pymc_generator`` field
@@ -179,12 +179,12 @@ def profile_prior(
     payload passed explicitly, so none of the preset's texture or family
     defaults survive: the result's fields equal the payload plus the three
     call arguments, then ``overrides`` (any ``SCMPrior`` field) applied last.
-    Requires the ``generation`` extra.
+    Requires the repository's ``generation`` dependency group.
     """
     try:
         from pymc_generator import make_scm_prior
     except ImportError as exc:
-        raise ImportError(_GENERATION_EXTRA_HINT) from exc
+        raise ImportError(_GENERATION_HINT) from exc
 
     payload = _fresh_payload(recipe_for(profile).payload)
     payload.update(n_cells=n_cells, draws_per_cell=draws_per_cell, seed=seed)
@@ -243,7 +243,7 @@ class ShardPlan:
         return {} if self.overrides is None else dict(self.overrides[index])
 
     def prior(self, shard: int, *, n_cells: int | None = None) -> SCMPrior:
-        """Validated ``SCMPrior`` of ``shard``; requires the ``generation`` extra.
+        """Validated ``SCMPrior`` of ``shard``; requires the ``generation`` dependency group.
 
         ``n_cells`` replaces the plan's cell count for small probes; the seed,
         draws per cell and overrides stay the plan's.
@@ -325,12 +325,12 @@ def generate_corpus(prior: SCMPrior, path: str | Path) -> dict[str, Any]:
     (tuples become JSON lists). ``path`` must end in ``.npz``. Both files are
     written under temporary names in ``path``'s directory and then renamed into
     place, the sidecar first, so an existing file is replaced only by a complete
-    one. Returns the in-memory corpus. Requires the ``generation`` extra.
+    one. Returns the in-memory corpus. Requires the repository's ``generation`` group.
     """
     try:
         import pymc_generator
     except ImportError as exc:
-        raise ImportError(_GENERATION_EXTRA_HINT) from exc
+        raise ImportError(_GENERATION_HINT) from exc
 
     path = Path(path)
     if path.suffix != ".npz":
@@ -363,7 +363,7 @@ def generate_corpus(prior: SCMPrior, path: str | Path) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class LoadedCorpus:
-    """A schema-4 corpus loaded from disk with the identity facts a run records.
+    """A saved schema-4 or schema-5 corpus with the identity facts a run records.
 
     ``sha256`` is over the file bytes. ``n_holdout`` counts ``is_val == 1`` rows,
     ``n_train`` the rest. ``context_lengths`` are the distinct
@@ -380,35 +380,82 @@ class LoadedCorpus:
 
 
 _REQUIRED_CORPUS_KEYS = ("is_val", "cell_id", "support_mask")
+_LEGACY_CORPUS_DIMENSIONS = {
+    "K_active",
+    "M_active",
+    "J_active",
+    "active_c_mask",
+    "active_m_mask",
+    "active_j_mask",
+}
+
+
+def _read_corpus(path: Path) -> dict[str, Any]:
+    """Decode the generator's NPZ format without importing the generator."""
+    stored = np.load(path, allow_pickle=False)
+    if not isinstance(stored, np.lib.npyio.NpzFile):
+        raise ValueError(f"corpus {path}: expected an NPZ archive")
+
+    # Both schemas store arrays as NPZ members, flattening the optional
+    # identifiability block and encoding diagnostics as a scalar JSON string.
+    prefix = "identifiability__"
+    corpus: dict[str, Any] = {}
+    identifiability = {}
+    with stored:
+        for key in stored.files:
+            array = stored[key]
+            if not isinstance(array, np.ndarray):
+                raise ValueError(f"corpus {path}: NPZ member {key!r} must be an array")
+            if key.startswith(prefix):
+                identifiability[key.removeprefix(prefix)] = array
+            else:
+                corpus[key] = array
+    if identifiability:
+        corpus["identifiability"] = identifiability
+
+    raw_diagnostics = corpus.get("diagnostics")
+    if raw_diagnostics is None or raw_diagnostics.ndim != 0:
+        raise ValueError(f"corpus {path}: expected a scalar diagnostics JSON field")
+    try:
+        diagnostics = json.loads(str(raw_diagnostics.item()))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"corpus {path}: invalid diagnostics JSON") from exc
+    if not isinstance(diagnostics, dict):
+        raise ValueError(f"corpus {path}: diagnostics JSON must contain an object")
+
+    version = diagnostics.get("schema_version")
+    if type(version) is not int or version not in SUPPORTED_CORPUS_SCHEMAS:
+        raise ValueError(
+            f"corpus {path}: diagnostics must declare integer schema_version "
+            f"{SUPPORTED_CORPUS_SCHEMAS}"
+        )
+    legacy = sorted(_LEGACY_CORPUS_DIMENSIONS.intersection(corpus))
+    if legacy:
+        raise ValueError(
+            f"corpus {path}: stamped corpora may not use legacy dimension keys {legacy}"
+        )
+    for field in ("edge_types", "edge_base_rates", "edge_marginals", "edge_budget"):
+        values = diagnostics.get(field)
+        if isinstance(values, (list, dict)) and ("db" in values or "zb" in values):
+            raise ValueError(f"corpus {path}: diagnostics {field} uses pre-v3 outcome-edge names")
+    if "min_dead_channels" in diagnostics:
+        raise ValueError(f"corpus {path}: diagnostics uses the pre-v3 min_dead_channels name")
+    corpus["diagnostics"] = diagnostics
+    return corpus
 
 
 def load_corpora(paths: Sequence[str | Path]) -> list[LoadedCorpus]:
-    """Load schema-4 or schema-5 corpora with ``pymc_generator.load_corpus`` in the given order.
+    """Load stamped schema-4 or schema-5 corpora in the given order.
 
-    The installed generator's ``load_corpus`` reads the files, so it decides which archive
-    versions load (a schema-5 generator refuses schema-4 archives). Each loaded corpus must be
-    stamped ``diagnostics["schema_version"]`` of 4 or 5 and carry
-    ``is_val``, ``cell_id`` and ``support_mask``; anything else raises
-    ``ValueError`` naming the file. Geometry agreement across corpora is the
-    consumer's check, not this loader's. Requires the ``generation`` extra.
+    Each NPZ must declare its schema in ``diagnostics["schema_version"]``
+    and carry ``is_val``, ``cell_id`` and ``support_mask``. The generator is
+    not needed to read these files. Geometry agreement across corpora is the
+    consumer's check, not this loader's.
     """
-    try:
-        from pymc_generator import load_corpus
-    except ImportError as exc:
-        raise ImportError(_GENERATION_EXTRA_HINT) from exc
-
     loaded = []
     for raw_path in paths:
         path = Path(raw_path)
-        corpus = load_corpus(path)
-        diagnostics = corpus.get("diagnostics")
-        if (
-            not isinstance(diagnostics, Mapping)
-            or diagnostics.get("schema_version") not in SUPPORTED_CORPUS_SCHEMAS
-        ):
-            raise ValueError(
-                f"corpus {path}: diagnostics must declare schema_version {SUPPORTED_CORPUS_SCHEMAS}"
-            )
+        corpus = _read_corpus(path)
         missing = [key for key in _REQUIRED_CORPUS_KEYS if key not in corpus]
         if missing:
             raise ValueError(f"corpus {path}: missing required arrays {missing}")

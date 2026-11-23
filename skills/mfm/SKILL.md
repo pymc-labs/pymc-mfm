@@ -17,13 +17,15 @@ Do not use results on their own for budget decisions.
 
 ## Set up
 
-1. Python 3.11 or later is required. Install the client from PyPI:
+1. Use the full PyMC MFM wheel approved for the pilot. If the wheel is not available, ask the
+   user for it or use `reference/http.md`. For each approved wheel, create and activate a fresh
+   Python 3.13 or later virtual environment, then substitute the wheel filename below:
 
    ```bash
-   pip install "pymc-mfm[client]"
+   python -m pip install "./WHEEL_FILE.whl"
    ```
 
-   The `[client]` extra adds the plots and the draws reader. It does not install PyTorch.
+   The standard install includes the client, plots and draws reader. No model weights are needed.
 2. Check that `MFM_API_URL` and `MFM_API_KEY` are set in the environment. The client reads both.
    If one is missing, stop and ask the user. Do not look for them in files. Never print or log the
    key. Never write the URL or the key into a file, a commit or a message.
@@ -290,8 +292,7 @@ ended; then each plan has numbers or a `failed` row. Do not create analyses in a
 `runs_total`. Per user, at most 20 unfinished analyses and 200 unfinished runs, and 50 runs run at once.
 
 A signed `draws_url` lasts about an hour. `analysis.draws()` reads the per-draw files and fetches new
-links when they expired. It needs the `draws` extra (included in `[client]`). Never send the API key
-to a `draws_url`.
+links when they expired. Never send the API key to a `draws_url`.
 
 ## Delete the data
 

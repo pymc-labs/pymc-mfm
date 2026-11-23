@@ -1,7 +1,5 @@
 """``model.plot``: complete-inference readers, backends and the inputs chart."""
 
-import sys
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -53,7 +51,6 @@ def test_charts_need_complete_inference(model, prepare):
     assert model.idata is None and model.query_result is None
 
 
-@pytest.mark.usefixtures("matplotlib_backend")
 def test_inputs_show_history_forecast_weeks_and_observed_outcome(predicted_model, chart_frames):
     history, future = chart_frames
     fig = predicted_model.plot.inputs()
@@ -230,21 +227,14 @@ def test_chart_readers_stay_on_complete_inference_after_predict(predicted_model,
     assert predicted_model.idata is tree and predicted_model.query_result is query
 
 
-def test_backend_choice_and_its_install_hint(predicted_model, monkeypatch):
+def test_unknown_backend_is_refused(predicted_model):
     with pytest.raises(ValueError, match="backend must be one of"):
         set_backend("bokeh")
     with pytest.raises(ValueError, match="backend must be one of"):
         predicted_model.plot.inputs(backend="bokeh")
-    monkeypatch.setitem(sys.modules, "plotly", None)
-    with pytest.raises(ImportError, match=r'pip install "pymc-mfm\[interactive\]"'):
-        predicted_model.plot.inputs(backend="plotly")
-    set_backend("plotly")
-    with pytest.raises(ImportError, match="interactive"):
-        predicted_model.plot.inputs()
 
 
 def test_plotly_inputs_match_matplotlib(predicted_model, chart_frames):
-    pytest.importorskip("plotly")
     import plotly.graph_objects as go
 
     history, future = chart_frames
