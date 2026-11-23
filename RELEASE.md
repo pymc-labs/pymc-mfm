@@ -78,6 +78,16 @@ distribution prerequisites, not an approved or published release.
   their declared tree dependencies and automatic idata instead of expecting
   exports to fail. Installed local-wheel checks cover both return modes,
   independent prediction and automatic curve attachment.
+- **Client (for `client-v0.1.0`): direct HTTPS and earlier setup errors.** Use the
+  direct HTTPS URL from the River API console as `base_url` or `MFM_API_URL`, without
+  credentials, a query, or a fragment. Plain HTTP is allowed only on `localhost`,
+  `127.0.0.1`, and `[::1]` and bypasses environment proxies. The client trims outer
+  whitespace and byte-order marks from URL and key settings. Malformed settings
+  raise `ValueError` at construction without echoing them. A 3xx response raises
+  `ApiError` with code `redirect` rather than being followed or read as success.
+  Signed downloads keep their query but carry no API key or cookies. An exhausted
+  transport failure reports the origin and error type, not the raw exception or a
+  discarded 403 from renewing a signed URL.
 - **Client (for `client-v0.1.0`): `wait` returns when every run has ended.** The service
   marks an analysis `failed` as soon as its baseline fails, while other runs can still be
   active. `AnalysisStatus.finished`, and so `Analysis.wait`, now count a `failed` analysis

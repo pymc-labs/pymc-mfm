@@ -514,7 +514,9 @@ class Analysis:
         try:
             content = self._http.download(urls[scenario_id])
         except Forbidden:
-            # A signed URL can expire between the result fetch and the download.
+            content = None
+        if content is None:
+            # Renew outside the handler so a recovered 403 cannot appear in a later traceback.
             self._fetch_result(refresh=True)
             content = self._http.download(self._draws_urls([scenario_id])[scenario_id])
         return xr.load_dataset(io.BytesIO(content), engine="h5netcdf")
