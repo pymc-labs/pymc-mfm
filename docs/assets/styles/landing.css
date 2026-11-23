@@ -911,8 +911,10 @@ body.mfm-landing .nav-footer a {
   background: rgba(255, 255, 255, 0.035);
 }
 
+/* The index: Quarto keeps these cells as <th> (it used to write <td>); they stay in the weight
+   of the cells beside them. */
 .mfm-df tbody th {
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .mfm-df tbody tr {
@@ -979,9 +981,9 @@ body.mfm-landing .nav-footer a {
   text-align: left;
 }
 
+/* Variable names (<th>, as above) keep the weight and colour of the row. */
 .mfm-xr__vars th {
-  font-weight: 500;
-  color: #e8e8e8;
+  font-weight: 400;
 }
 
 .mfm-xr__vars td:nth-child(2) {

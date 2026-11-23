@@ -303,9 +303,11 @@ They are not current workflow instructions.
   has an introduction page with its specification, training, benchmarks, speed, limits
   and links, drawn from the white paper and the academic paper; a WebGL river scene
   opens it, under the name and its version (v1.0.0). A new `docs` dependency
-  group holds quartodoc; Quarto itself is a system tool. The `Docs` workflow renders the
-  site on every pull request and publishes to GitHub Pages only when run by hand on
-  `main`. The landing page loads GSAP 3.15.1 from jsDelivr with subresource integrity and
+  group holds quartodoc; Quarto itself is a system tool, pinned to 1.11.9 in CI. The `Docs`
+  workflow renders the site on every pull request and publishes to GitHub Pages only when
+  run by hand on `main`. In Safari a link to a section opens at that section, and
+  switching themes keeps the reader's place. The landing page loads GSAP 3.15.1 from
+  jsDelivr with subresource integrity and
   works without it. The navbar shows the MFM mark alone (navy on light pages, soft white
   on dark ones) and stays pinned as a translucent bar, clear over the River hero. It links
   GitHub and pymc-labs.com (home of the PyMC Labs blog), lists Sea and Ocean as coming soon
@@ -325,7 +327,9 @@ They are not current workflow instructions.
   library and the FAQ. Each page has one `<h1>`, the page title, as its first heading
   (`docs/_scripts/finish.py`, a post-render step); on River 1.0 it is visually hidden under
   the hero's name. Below 992px the open menu makes the page behind it inert, so Tab stays
-  in the menu. The navbar also links the PyMC Labs
+  in the menu. Each page starts with a "Skip to main content" link, which moves focus
+  within the page without loading it again, and keyboard focus is one accent outline
+  everywhere. The navbar also links the PyMC Labs
   contact page, and the Models menu the white paper. `docs/_scripts/mount.py` writes the
   host's `robots.txt` (the pymc-labs.com policy: search engines yes, AI training crawlers
   no; closed on staging) and, given the public origin with `--site-url`, points it to
@@ -333,7 +337,8 @@ They are not current workflow instructions.
   directory pages. The homepage is canonical at `/docs/`; the copy at `/` is not
   listed in the sitemap. The script also gives the built site the host's address
   in place of Quarto's `site-url`, so the site's own links open in the same tab and share
-  images resolve on the host. The navbar and the
+  images resolve on the host. Served from any other address, the site's own links still
+  open in the same tab and are not announced as opening a new one. The navbar and the
   landing hero link the GitHub repository, and the River quickstart installs the library
   from GitHub, as the other pages do, instead of PyPI's client-only package.
   Text is Inter and headlines Archivo Expanded, self-hosted. Browser tabs use a transparent

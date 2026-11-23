@@ -887,8 +887,8 @@ does not approve or merge the PR on GitHub.
 ### Documentation site
 
 The website in `docs/` is a [Quarto](https://quarto.org) project: a landing page, the
-Guide, the API reference, Models and the Blog. It needs the Quarto CLI (1.7 or newer;
-CI pins 1.7.31) and the `docs` dependency group:
+Guide, the API reference, Models and the Blog. Use Quarto CLI 1.11.9 (the version pinned
+in CI) and the `docs` dependency group:
 
 ```bash
 uv sync --locked --group docs
