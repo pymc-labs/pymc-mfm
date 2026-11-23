@@ -23,6 +23,7 @@ from .errors import Forbidden
 if TYPE_CHECKING:
     import xarray
 
+#: Statuses that end polling, once every run has ended (see ``AnalysisStatus.finished``).
 #: The service answers 410 (``Gone``) for a deleted analysis, so no status says so.
 TERMINAL_STATUSES = frozenset({"done", "failed"})
 URL_RENEWAL_MARGIN = 30.0  # seconds; renew a signed URL this close to its expiry
@@ -60,6 +61,13 @@ class AnalysisStatus:
 
     ``runs_cancelled`` and ``warning_details`` (structured warnings, next to the text
     warnings) are ``0`` and empty when an older service does not send them.
+
+    ``finished`` is true when the result is ready: the status is ``done``, or it is
+    ``failed`` and every run has ended (done, failed or cancelled). The service sets
+    ``failed`` as soon as the baseline fails, while other runs can still be active.
+    An older service that does not send ``runs_cancelled`` can leave a ``failed``
+    analysis with cancelled runs never ``finished``; ``Analysis.wait`` then ends at its
+    ``timeout``.
     """
 
     status: str
@@ -73,7 +81,10 @@ class AnalysisStatus:
 
     @property
     def finished(self) -> bool:
-        return self.status in TERMINAL_STATUSES
+        if self.status == "done":
+            return True
+        ended = self.runs_done + self.runs_failed + self.runs_cancelled
+        return self.status in TERMINAL_STATUSES and ended >= self.runs_total
 
     @classmethod
     def from_wire(cls, record: dict[str, Any]) -> AnalysisStatus:
@@ -254,7 +265,7 @@ class Analysis:
     def wait(
         self, timeout: float | None = None, poll: float = 2.0, *, announce: bool = True
     ) -> Analysis:
-        """Poll until the analysis is ``done`` or ``failed``; return ``self``.
+        """Poll until the analysis is ``done``, or ``failed`` with every run ended; return ``self``.
 
         Unless the analysis is already known to be finished, it first prints the analysis id and
         the call that resumes it to ``sys.stderr`` (``announce=False`` stays silent), before
@@ -262,16 +273,20 @@ class Analysis:
         Raises ``TimeoutError`` after ``timeout`` seconds; the analysis keeps running, and the
         error text gives the call that resumes it. Raises ``Gone`` if the analysis is deleted or
         expires meanwhile. A ``failed`` analysis (its baseline failed) still has a result table with
-        ``status == "failed"`` rows.
+        ``status == "failed"`` rows. An older service that does not send ``runs_cancelled`` can
+        keep a ``failed`` analysis with cancelled runs from looking finished: pass ``timeout``.
         """
         deadline = None if timeout is None else time.monotonic() + timeout
         if announce and not self._status.finished:
             print(f"analysis id: {self.id}  (resume: {self.resume_call})", file=sys.stderr)
         while not self.status().finished:
             if deadline is not None and time.monotonic() + poll > deadline:
+                state = self._status
+                ended = state.runs_done + state.runs_failed + state.runs_cancelled
                 raise TimeoutError(
-                    f"Analysis {self.id} is still {self._status.status!r} after waiting. "
-                    f"It keeps running. Do not start it again: resume with {self.resume_call}"
+                    f"Analysis {self.id} is still {state.status!r} after waiting, with {ended} "
+                    f"of {state.runs_total} runs ended. It keeps running. Do not start it again: "
+                    f"resume with {self.resume_call}"
                 )
             time.sleep(poll)
         return self
