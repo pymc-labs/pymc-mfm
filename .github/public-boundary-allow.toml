@@ -189,7 +189,7 @@ reason = "Self-hosted website font: Archivo at width 125 (Archivo Expanded, PyMC
 sha256 = "14a195060ccf8f460abd5dd0417e3b45ae28638dd9de6a5e0a5c7f6a2571c1f0"
 
 [[allow]]
-path = "docs/assets/img/social/mfm-social.jpg"
+path = "docs/assets/img/social/mfm-social-claim.jpg"
 rules = ["binary"]
-reason = "Website share image (Open Graph and X card) for every page: the MFM mark, 'PyMC MFM', 'Train once, decompose many.' and painted tiles with bell curves, rendered from the site's own V2 hero canvas (1200x630 JPEG, 99 kB). No photograph or third-party asset. These exact bytes are pinned; a new image needs a new review."
-sha256 = "98da23e175d74f987284841ef5ddd045ad44cbc0406ce606b747a2f41f86485a"
+reason = "Website share image (Open Graph and X card) for every page: on the left the MFM mark, 'PyMC MFM', the landing page's claim 'Your next media mix model is already trained.' and 'Marketing foundational models by PyMC Labs'; on the right the landing hero's ridgeline, with its front rows drawn as stacked contributions in the site palette (1200x630 JPEG, 123 kB). Drawn as HTML and rendered in headless Chromium with the site's typefaces, Archivo Expanded and Inter (SIL Open Font License 1.1). No photograph or third-party image. These exact bytes are pinned; a new image needs a new review."
+sha256 = "4c16d3e7bd32072dbc6da6cb5f782061bfb3327ba11bbddc49dff87f1b601564"
