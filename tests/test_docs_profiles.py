@@ -51,3 +51,47 @@ def test_pilot_summary_links_get_a_target(tmp_path, monkeypatch) -> None:
         "| [table]{#a.table} | rows |\n| [wait](#a.wait) | poll |\n"
         "See [table](#a.table).\n\n### wait { #a.wait }\n"
     )
+
+
+def test_reference_pages_get_their_heading_as_tab_title(tmp_path, monkeypatch) -> None:
+    (tmp_path / "client.Client.qmd").write_text(
+        "# client.Client { #pymc_mfm.client.Client }\n\nBody.\n", encoding="utf-8"
+    )
+    (tmp_path / "index.qmd").write_text("# Python reference {.doc .doc-index}\n", encoding="utf-8")
+    monkeypatch.setattr(prepare, "REFERENCE", tmp_path)
+    prepare.add_page_titles()
+    assert (tmp_path / "client.Client.qmd").read_text(encoding="utf-8") == (
+        '---\npagetitle: "client.Client"\n---\n\n'
+        "# client.Client { #pymc_mfm.client.Client }\n\nBody.\n"
+    )
+    assert (
+        (tmp_path / "index.qmd")
+        .read_text(encoding="utf-8")
+        .startswith('---\npagetitle: "Python reference"\n---\n')
+    )
+
+
+def test_reference_sidebar_lists_the_index_once_in_the_pilot(tmp_path, monkeypatch) -> None:
+    sidebar = {
+        "website": {
+            "sidebar": [
+                {
+                    "contents": [
+                        "reference/index.qmd",
+                        {
+                            "section": "River API client",
+                            "contents": ["reference/client.Client.qmd"],
+                        },
+                    ]
+                }
+            ]
+        }
+    }
+    (tmp_path / "_sidebar.yml").write_text(yaml.safe_dump(sidebar), encoding="utf-8")
+    monkeypatch.setattr(prepare, "REFERENCE", tmp_path)
+    prepare.arrange_reference_sidebar(None)
+    contents = yaml.safe_load((tmp_path / "_sidebar.yml").read_text(encoding="utf-8"))["website"][
+        "sidebar"
+    ][0]["contents"]
+    assert contents[0] == "reference/index.qmd"
+    assert contents[1]["section"] == "River API client"
