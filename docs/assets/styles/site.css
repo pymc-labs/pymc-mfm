@@ -25,6 +25,13 @@ b {
   font-weight: 500;
 }
 
+/* One focus ring: the accent outline. Quarto draws its ring in the same colour
+   ($focus-ring-outer-color in light.scss and dark.scss) and fills the outline offset with an
+   inner tone, a box-shadow; this turns that tone off. */
+:root {
+  --quarto-focus-ring-shadow: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--mfm-accent);
   outline-offset: 2px;

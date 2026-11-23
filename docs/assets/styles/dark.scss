@@ -55,7 +55,9 @@ $link-color: $accent;
 $link-hover-color: $accent-strong;
 $link-decoration: none;
 $border-color: $tone-2;
-$focus-ring-color: rgba($accent, 0.55);
+// Quarto's keyboard focus ring (the outline on buttons, nav links and form controls) in the
+// accent, the colour site.css gives every other focus outline.
+$focus-ring-outer-color: $accent;
 
 $navbar-bg: $navy-deep;
 $navbar-fg: $ink-2;

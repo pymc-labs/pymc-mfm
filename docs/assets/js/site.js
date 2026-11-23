@@ -3,7 +3,9 @@
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
      initConsoleButton marks the last right-hand navbar link with data-mfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
-     initSameSiteLinks a link to this site's own origin opens in the same tab, wherever it is served
+     initSameSiteLinks a link to this site's own origin opens in the same tab and is not described as
+                       opening a new one, wherever the site is served
+     initSkipLink      Quarto's "Skip to main content" link moves focus within this page, never to another URL
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
      initCodeLabels    a language label with its logo on every code block (Python, curl, shell, JSON)
@@ -119,16 +121,54 @@
     });
   }
 
-  /* Quarto opens every link outside its site-url in a new tab (link-external-newwindow), and
-     judges "outside" by that configured address. Served from any other address (a preview, a
-     host mount.py was not given), the site's own pages would open in new tabs too. A link to
-     this page's origin always opens here: the target is dropped as the click starts, so it
-     holds for pointer and keyboard alike, whenever Quarto set it. */
+  /* Quarto opens every link outside its site-url in a new tab (link-external-newwindow), judges
+     "outside" by that configured address, and describes such links to screen readers as
+     "(opens in a new tab)" (aria-describedby). Served from any other address (a preview, a host
+     mount.py was not given), the site's own pages would open in new tabs too. A link to this
+     page's origin opens here and loses that description; other descriptions stay.
+     Quarto marks links from a DOMContentLoaded listener that its inline script registers while
+     the page parses, so it runs before this deferred script's listener. It marks them again
+     when a listing redraws (quartoDecorateExternalLinks), so that function is wrapped too. */
+  const NEW_TAB_NOTE = "quarto-ext-newwindow-label";
+
+  function keepSameSiteLinks(root) {
+    root.querySelectorAll('a[target="_blank"]').forEach((link) => {
+      if (link.origin !== window.location.origin) return;
+      link.removeAttribute("target");
+      const notes = (link.getAttribute("aria-describedby") || "").split(/\s+/).filter((id) => id && id !== NEW_TAB_NOTE);
+      if (notes.length) link.setAttribute("aria-describedby", notes.join(" "));
+      else link.removeAttribute("aria-describedby");
+    });
+  }
+
   function initSameSiteLinks() {
-    document.addEventListener("click", (event) => {
-      const link = event.target.closest('a[target="_blank"]');
-      if (link && link.origin === window.location.origin) link.removeAttribute("target");
-    }, true);
+    document.addEventListener("DOMContentLoaded", () => {
+      const decorate = window.quartoDecorateExternalLinks;
+      if (typeof decorate === "function") {
+        window.quartoDecorateExternalLinks = (root) => {
+          decorate(root);
+          keepSameSiteLinks(root || document);
+        };
+      }
+      keepSameSiteLinks(document);
+    });
+  }
+
+  /* Quarto's "Skip to main content" link names its target by fragment (#quarto-content or
+     #quarto-document-content). Two things point that fragment at another URL, so following the
+     link would load a page again: the homepage copy's <base> (mount.py), and Quarto's link
+     fixup, which rewrites .../index.html to .../ in every href. The link stays on this page:
+     the target (tabindex="-1") is scrolled to and focused, so the next Tab starts inside it. */
+  function initSkipLink() {
+    const link = document.getElementById("quarto-skip-link");
+    if (!link) return;
+    link.addEventListener("click", (event) => {
+      const target = link.hash.length > 1 && document.getElementById(link.hash.slice(1));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ block: "start" });
+      target.focus({ preventScroll: true });
+    });
   }
 
   function copyText(text) {
@@ -326,6 +366,7 @@
     initConsoleButton,
     initExternalLinks,
     initSameSiteLinks,
+    initSkipLink,
     initCopyButtons,
     initCodeLabels,
     initCodeScroll,

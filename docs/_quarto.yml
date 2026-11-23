@@ -65,8 +65,6 @@ website:
   twitter-card:
     card-style: summary_large_image
     image: /assets/img/social/mfm-social.jpg
-    image-width: 1200
-    image-height: 630
     image-alt: "PyMC MFM: Train once, decompose many."
   navbar:
     # The MFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
