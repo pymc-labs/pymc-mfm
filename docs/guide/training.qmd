@@ -46,11 +46,7 @@ The listed components plus `outcome_noise` add to `outcome_raw`. Worlds with `is
 
 ## Run training
 
-Install the training extra, then call [train](../reference/training.train.qmd) with a new output directory. Pass a [ModelConfig](../reference/model.ModelConfig.qmd) for architecture and corpus geometry plus a [TrainingConfig](../reference/training.TrainingConfig.qmd) for the run budget.
-
-```bash
-pip install "pymc-mfm[training] @ git+https://github.com/pymc-labs/pymc-mfm.git"
-```
+Use the standard [installation](index.qmd#install-client), then call [train](../reference/training.train.qmd) with a new output directory. Pass a [ModelConfig](../reference/model.ModelConfig.qmd) for architecture and corpus geometry plus a [TrainingConfig](../reference/training.TrainingConfig.qmd) for the run budget.
 
 ```python
 from pymc_mfm.model import ModelConfig
@@ -108,7 +104,7 @@ MLflow tracking is enabled by default. Local JSON evidence remains authoritative
 python -m pymc_mfm.training --help
 ```
 
-The CLI exposes the same training options. It reads `.npz` corpora and requires the `generation` extra.
+The CLI exposes the same training options. Pass existing supported `.npz` corpora with `--corpus`; no generator is needed. To produce synthetic corpora with `python -m pymc_mfm.data generate`, run `uv sync --locked --group generation` in a repository checkout first.
 
 | Path in `out_dir` | Content |
 | --- | --- |

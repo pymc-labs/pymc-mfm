@@ -25,7 +25,7 @@ jobs:
       - name: Resolve the generator's tracked branch
         run: |
           uv lock --upgrade-package pymc-generator
-          uv sync --all-extras
+          uv sync --group generation
       - name: Compare the shard-plan probes with the recorded arrays
         run: uv run --no-sync pytest -q tests/test_generator_drift.py
 

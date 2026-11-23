@@ -1,7 +1,7 @@
 """A client for the River API.
 
-This package needs no PyTorch: ``pip install pymc-mfm`` is enough. Reading draws files
-needs the ``draws`` extra and plots need the ``plot`` extra.
+The client does not import PyTorch. Draws and plotting libraries load when you
+read draws or make a plot.
 
 .. code-block:: python
 

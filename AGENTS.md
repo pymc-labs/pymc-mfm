@@ -5,25 +5,30 @@ history, pull request heads, CI logs and built archives, must be safe to publish
 
 ## Set up
 
+Use Python 3.13 or newer.
+
 ```bash
-uv sync --locked --extra local --extra client
+uv sync --locked
 uv run --no-sync pytest -q -n 2 -m "not slow"
 uv run ruff check . && uv run ruff format --check .
 python3 scripts/check_public_boundary.py
 ```
 
-Install all extras before running the slow integration tests, and run them serially:
+For the full contributor suite, install the corpus-generation and notebook
+dependency groups before running the slow tests serially:
 
 ```bash
-uv sync --locked --all-extras
+uv sync --locked --group generation --group examples
 uv run --no-sync pytest -q -m slow
 ```
 
 After that sync, `uv run --no-sync pytest -q` runs the full suite serially. Plain
 `pytest` applies no marker filter, so explicit file and node selections retain slow cases.
 
-The library installs, tests and builds from this repository alone. Nothing here may
-require access to another repository, a private model, a cloud account or a token.
+The package installs, tests and builds without `pymc-generator` or
+access to a private model, a cloud account or a token. The repository's
+`generation` group fetches `pymc-generator` from Git; neither it nor the notebook
+dependencies are part of the standard installation.
 
 ## What belongs here
 
@@ -52,9 +57,9 @@ notebook strings are scanned as text. A parser cannot rule out hidden data in a 
 image, so each notebook with image outputs fails until an allowlist entry with `sha256`
 pins its reviewed bytes. A rerun changes the hash: update `sha256` in the same pull
 request. Range checks also read commit messages and fail on a root commit that the
-base branch does not contain (`--allowed-root SHA` accepts a listed root). CI runs it on every pull request
-over the whole tree, over every commit in the pull request and over the built sdist
-and wheels. Exceptions are read from the committed allowlist, not your working copy.
+base branch does not contain (`--allowed-root SHA` accepts a listed root). After
+admin authorization, CI checks the whole tree, each PR commit and the built
+distributions. Exceptions are read from the committed allowlist, not your working copy.
 
 ```bash
 python3 scripts/check_public_boundary.py             # tracked files at HEAD
@@ -68,6 +73,26 @@ the rules it may break and a reason. Pin binary files with `sha256` so a changed
 file needs a new review. An entry with `pending` passes routine CI but fails
 `--release`, the mode used before publishing. Do not weaken a rule to make a change
 pass.
+
+## GitHub Actions policy
+
+Configure these repository-level [Actions execution policies](https://docs.github.com/en/actions/how-tos/administer/control-workflow-execution)
+together:
+
+- Allow only the repository **Admin** role to start workflows. Exclude only
+  `.github/workflows/approved-ci.yml`, `tests.yml`, `docs-build.yml`,
+  `public-boundary.yml` and `release-build.yml` (all under `.github/workflows/`).
+- For those exact five excluded paths, allow only `repository_dispatch`,
+  `pull_request_target` and `workflow_call`. Do not allow events that load workflow
+  YAML from a PR, an arbitrary branch or a tag on those paths.
+
+Keep `ci-ok`, `build` and `boundary` required from GitHub Actions, strict
+up-to-date checks enabled, and the MFM reviewer requirement in place. The first
+rollout requires the trusted workflow to be on `main`; it cannot issue its own
+pre-merge statuses. An admin must independently verify that rollout revision and
+coordinate the policy activation with the protected merge. Afterward, verify a
+non-admin dispatch runs no checks and that a valid admin dispatch satisfies the
+three required contexts on the reviewed head.
 
 ## Maintainers with the companion repo
 

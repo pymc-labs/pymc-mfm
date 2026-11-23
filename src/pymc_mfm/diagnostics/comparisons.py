@@ -1005,7 +1005,7 @@ def run_c2st(
     Each row is one reference/approximate pair from an independent world (or
     independently generated reference replication), not a correlated draw from
     one MCMC chain. Both classes of each world stay on one side of the split.
-    The optional classifier dependency is imported only on this explicit call.
+    Scikit-learn is imported only on this explicit call.
     ``prediction_evidence`` can be persisted and passed to
     :func:`c2st_from_predictions` without fitting the classifier again.
     """

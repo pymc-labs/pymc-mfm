@@ -33,7 +33,7 @@ def test_share_images_start_at_the_site_root_and_exist() -> None:
         for page in pages
         for image in share_images(page.read_text(encoding="utf-8").split("\n---", 1)[0])
     }
-    assert ("_quarto.yml", "/assets/img/social/mfm-social.jpg") in images
+    assert ("_quarto.yml", "/assets/img/social/mfm-social-claim.jpg") in images
     for page, image in sorted(images):
         assert image.startswith("/"), f"{page}: share image {image} must start with /"
         assert (DOCS / image.lstrip("/")).is_file(), f"{page}: {image} does not exist"

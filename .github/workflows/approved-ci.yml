@@ -1,0 +1,149 @@
+name: Approved CI
+
+# Both events load the workflow from the base repository. The Actions execution policy
+# forbids this path from running events that load workflow code from a PR or branch.
+on:
+  repository_dispatch:
+    types: [approve-ci]
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  authorize:
+    if: github.event_name == 'repository_dispatch' || github.event.pull_request.merged
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      revision: ${{ steps.revision.outputs.revision }}
+      base: ${{ steps.revision.outputs.base }}
+      conda: ${{ steps.revision.outputs.conda }}
+      release: ${{ steps.revision.outputs.release }}
+    steps:
+      - name: Resolve the authorized revision without checking out code
+        id: revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGE_BASE: ${{ github.event.pull_request.base.sha }}
+          MERGED_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          if [[ $GITHUB_EVENT_NAME == pull_request_target ]]; then
+            [[ $MERGED_SHA =~ ^[0-9a-f]{40}$ ]]
+            echo "revision=$MERGED_SHA" >> "$GITHUB_OUTPUT"
+            [[ $MERGE_BASE =~ ^[0-9a-f]{40}$ ]]
+            echo "base=$MERGE_BASE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$GITHUB_ACTOR/permission" \
+            --jq 'if (.user.id | tostring) == env.GITHUB_ACTOR_ID then .permission else empty end')
+          if [[ $permission != admin ]]; then
+            echo "::error::Only a repository admin can approve PR CI."
+            exit 1
+          fi
+          number=$(jq -er '.client_payload.pull_request | tostring' "$GITHUB_EVENT_PATH")
+          revision=$(jq -er '.client_payload.sha | strings' "$GITHUB_EVENT_PATH")
+          if [[ ! $number =~ ^[1-9][0-9]*$ || ! $revision =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Approval requires a pull request number and the full reviewed commit SHA."
+            exit 1
+          fi
+
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number")
+          if ! jq -e --arg sha "$revision" \
+            '.state == "open" and .base.ref == "main" and .head.sha == $sha' <<< "$pr" > /dev/null; then
+            echo "::error::The open PR against main no longer matches the reviewed SHA."
+            exit 1
+          fi
+          base=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          comparison=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base...$revision")
+          if ! jq -e '.behind_by == 0' <<< "$comparison" > /dev/null; then
+            echo "::error::Update the PR from main and approve the new SHA."
+            exit 1
+          fi
+
+          # Compare the pinned commits, not a moving PR. If GitHub caps the file list,
+          # run both optional packaging checks rather than assume a path did not change.
+          files=$(jq -r '.files[] | .filename, (.previous_filename // empty)' <<< "$comparison")
+          truncated=$(jq -r '.files | length >= 300' <<< "$comparison")
+          conda=false
+          release=false
+          if [[ $truncated == true ]] || grep -Eq '^(pyproject\.toml|\.github/workflows/conda\.yml|docs/api/openapi-v1\.json|skills/mfm/reference/http\.md)$|^(conda\.recipe|src|tests|docs/_scripts)/' <<< "$files"; then
+            conda=true
+          fi
+          if [[ $truncated == true ]] || grep -Eq '^(pyproject\.toml|\.github/workflows/release(-build)?\.yml|scripts/check_release_version\.py)$' <<< "$files"; then
+            release=true
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "conda=$conda" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+  suite:
+    needs: authorize
+    uses: ./.github/workflows/tests.yml
+    with:
+      revision: ${{ needs.authorize.outputs.revision }}
+      approved-pr: ${{ github.event_name == 'repository_dispatch' }}
+
+  docs:
+    needs: authorize
+    uses: ./.github/workflows/docs-build.yml
+    with:
+      revision: ${{ needs.authorize.outputs.revision }}
+
+  boundary:
+    needs: authorize
+    uses: ./.github/workflows/public-boundary.yml
+    with:
+      revision: ${{ needs.authorize.outputs.revision }}
+      base-revision: ${{ needs.authorize.outputs.base }}
+
+  conda:
+    needs: authorize
+    if: needs.authorize.outputs.conda == 'true'
+    uses: ./.github/workflows/conda.yml
+    with:
+      revision: ${{ needs.authorize.outputs.revision }}
+
+  release:
+    needs: authorize
+    if: needs.authorize.outputs.release == 'true'
+    uses: ./.github/workflows/release-build.yml
+    with:
+      revision: ${{ needs.authorize.outputs.revision }}
+
+  report:
+    if: always() && github.event_name == 'repository_dispatch' && needs.authorize.result == 'success'
+    needs: [authorize, suite, docs, boundary]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Report required results on the approved PR head without checking out code
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVISION: ${{ needs.authorize.outputs.revision }}
+          SUITE: ${{ needs.suite.result }}
+          DOCS: ${{ needs.docs.result }}
+          BOUNDARY: ${{ needs.boundary.result }}
+        run: |
+          status() {
+            local state=failure
+            if [[ $2 == success ]]; then state=success; fi
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$REVISION" \
+              -f context="$1" -f state="$state" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --silent
+          }
+          status ci-ok "$SUITE"
+          status build "$DOCS"
+          status boundary "$BOUNDARY"

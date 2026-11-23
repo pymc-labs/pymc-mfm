@@ -44,7 +44,7 @@ website:
   # out the site, so the site's own links open in the same tab and share images resolve.
   site-url: https://pymc-labs.github.io/pymc-mfm
   repo-url: https://github.com/pymc-labs/pymc-mfm
-  favicon: assets/favicon/favicon.svg
+  favicon: assets/favicon/favicon.png
   bread-crumbs: false
   page-navigation: true
   back-to-top-navigation: false
@@ -55,19 +55,19 @@ website:
     location: navbar
     type: overlay
     keyboard-shortcut: ["/"]
-  # Share image for every page. The path starts at the site root ("/"); without it, Quarto
-  # resolves the image under the folder of each page. Quarto prefixes site-url.
+  # Share image for every page: the landing page's claim beside its ridge lines (see the
+  # allowlist entry for how it is made). A new picture gets a new file name, because chat apps
+  # keep the old picture of a name they have seen. The path starts at the site root ("/");
+  # without it, Quarto resolves the image under the folder of each page. Quarto prefixes site-url.
   open-graph:
-    image: /assets/img/social/mfm-social.jpg
+    image: /assets/img/social/mfm-social-claim.jpg
     image-width: 1200
     image-height: 630
-    image-alt: "PyMC MFM: Train once, decompose many."
+    image-alt: "PyMC MFM: Your next media mix model is already trained."
   twitter-card:
     card-style: summary_large_image
-    image: /assets/img/social/mfm-social.jpg
-    image-width: 1200
-    image-height: 630
-    image-alt: "PyMC MFM: Train once, decompose many."
+    image: /assets/img/social/mfm-social-claim.jpg
+    image-alt: "PyMC MFM: Your next media mix model is already trained."
   navbar:
     # The MFM mark alone, in navy; site.css renders it soft white on dark backgrounds.
     logo: assets/img/logo/mfm-logo-navy.svg

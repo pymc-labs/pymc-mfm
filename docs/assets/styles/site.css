@@ -25,6 +25,13 @@ b {
   font-weight: 500;
 }
 
+/* One focus ring: the accent outline. Quarto's ring on buttons, nav links and form controls
+   uses the same --mfm-accent token ($focus-ring-outer-color in light.scss and dark.scss) and
+   fills the outline offset with an inner tone, a box-shadow; this turns that tone off. */
+:root {
+  --quarto-focus-ring-shadow: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--mfm-accent);
   outline-offset: 2px;
@@ -223,6 +230,12 @@ main table thead th {
   font-weight: 500;
   color: var(--mfm-heading);
   border-bottom-width: 1px;
+}
+
+/* Row headers, such as a dataframe's index (Quarto writes them as <th>), read like the cells
+   beside them. */
+main table tbody th {
+  font-weight: 400;
 }
 
 /* API reference tables: object names stay on one line. */
@@ -925,6 +938,14 @@ html body .aa-DetachedContainer--modal {
   box-shadow: var(--mfm-search-shadow); /* taste-skill-ignore: the one shadow, on a floating panel */
 }
 
+/* Quarto writes its phone rule (top: 0) before the modal's top: 100px, which would win; on
+   phones the sheet stays at the top of the screen. */
+@media (max-width: 575.98px) {
+  html body .aa-DetachedContainer--modal {
+    top: 0;
+  }
+}
+
 html body .aa-DetachedContainer--modal .aa-PanelLayout {
   max-height: min(60vh, 560px);
   overflow-y: auto;
@@ -1167,7 +1188,10 @@ body.mfm-landing .mfm-badge--soon {
   padding-top: 1.5rem;
 }
 
-#quarto-sidebar .sidebar-item-toggle {
+/* A group title is Quarto's collapse button, the title with a chevron; only the chevron is
+   hidden. A group that links a page has a separate chevron-only button, hidden whole. */
+#quarto-sidebar .sidebar-item-toggle > .bi,
+#quarto-sidebar .sidebar-item-toggle:not(.sidebar-item-text) {
   display: none;
 }
 
@@ -1219,6 +1243,12 @@ body.mfm-landing .mfm-badge--soon {
 /* Contents: the current section in cobalt, with a small dot; no rule down the side. */
 #TOC {
   --mfm-toc-pad: 1.1rem;
+}
+
+/* Quarto pads the column's right side to make room for the focus ring, which narrows it; the
+   margin widens it back, so the entries wrap as they did and the ring keeps its room. */
+#quarto-margin-sidebar.sidebar.margin-sidebar {
+  margin-right: -4px;
 }
 
 #TOC #toc-title {
@@ -1901,8 +1931,11 @@ body.mfm-landing footer.footer {
     animation: mfm-sheet-in calc(var(--mfm-dur) * 1.5) var(--mfm-ease);
   }
 
+  /* Quarto pads these lists for its focus ring and pulls them back with a negative margin;
+     the sheet keeps neither, so the links line up with the gutter. */
   #navbarCollapse .navbar-nav {
     padding: 0;
+    margin: 0;
   }
 
   #navbarCollapse .navbar-nav .nav-link {

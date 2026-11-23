@@ -30,7 +30,7 @@ A training checkpoint contains model state and run records, not optimizer state.
 
 ## Load from Hugging Face Hub
 
-Hub operations need `pymc-mfm[hub]`. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
+Hugging Face Hub support is included in the standard [installation](index.qmd#install-client); private repositories still require separate access. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
 
 ```python
 from pymc_mfm import from_pretrained, list_profiles
@@ -72,7 +72,7 @@ commit = push_to_hub(
 commit_id = commit.oid
 ```
 
-New Hub repositories default to private; publication never changes an existing repository's visibility. The returned commit object carries the immutable commit id in `oid`. Publication requires an explicitly approved artifact license identifier. Code and model-weight licenses for this project have not yet been selected.
+New Hub repositories default to private; publication never changes an existing repository's visibility. The returned commit object carries the immutable commit id in `oid`. Publication requires an explicitly approved artifact license identifier. The code is licensed under Apache-2.0; model-weight licenses have not yet been selected.
 
 ## Choose an interface
 

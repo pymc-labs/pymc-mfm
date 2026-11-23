@@ -1,15 +1,12 @@
-"""Lay out the built site for a host that serves the landing page at ``/`` and the site
-under ``/<prefix>/`` (by default ``/docs/``), next to the Console at ``/console/``.
+"""Lay out the built site under ``/<prefix>/`` (by default ``/docs/``), next to
+the Console at ``/console/``, with a copy of the landing page at ``/``.
 
     python docs/_scripts/mount.py docs/_site OUT [--prefix docs] [--noindex]
         [--site-url https://HOST]
 
-``OUT/<prefix>/`` holds the built site, with two pages replaced:
-
-- ``OUT/index.html`` is the landing page with ``<base href="/<prefix>/">`` first in its
-  ``<head>``, so every relative link and asset on it resolves under ``/<prefix>/``.
-- ``OUT/<prefix>/index.html`` sends the browser to ``/``, so the logo on every other page
-  leads to the one landing page.
+``OUT/<prefix>/`` holds the built site, including its landing page. The landing
+page has ``<base href="/<prefix>/">`` before any element with a URL so its
+relative links and assets also resolve correctly from its copy at ``OUT/index.html``.
 
 ``OUT/robots.txt`` is the host's crawler policy, the same as pymc-labs.com: search
 engines may index every page, AI training crawlers may not. ``--noindex`` (staging hosts)
@@ -21,12 +18,12 @@ that opens links to other sites in a new tab. With ``--site-url`` every page nam
 served address ``<origin>/<prefix>`` instead, so the site's own links open in the same tab
 and link previews find their image. The repository never names the host.
 
-With ``--site-url`` and without ``--noindex``, ``robots.txt`` names the sitemap and
-``OUT/sitemap.xml`` lists each page at its served address (the landing page at ``/``).
-The sitemap is at the host root so it covers both ``/`` and pages under ``/<prefix>/``.
-Quarto's original sitemap uses its own layout. Each page gets a ``<link rel="canonical">``
-with its served address unless it already declares one (for example, an old blog address).
-``--noindex`` turns both off: a staging host is not for search engines.
+With ``--site-url`` and without ``--noindex``, root ``robots.txt`` names the sitemap
+at ``/<prefix>/sitemap.xml``. The sitemap and canonical links use trailing-slash
+URLs for directory indexes, including ``/<prefix>/`` for the landing page. The
+copy at ``/`` points to the same canonical URL and is not listed in the sitemap.
+Pages with intentional canonical links (such as the old blog redirects) keep them.
+``--noindex`` turns off the generated canonical links and sitemap for staging.
 
 Upload ``OUT`` to the root of the host's site bucket. The input is the site Quarto renders;
 beyond the addresses above, nothing here changes the page content.
@@ -43,20 +40,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 CHARSET = '<meta charset="utf-8">'
-REDIRECT = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="robots" content="noindex">
-<meta http-equiv="refresh" content="0; url=/">
-<link rel="canonical" href="/">
-<title>PyMC MFM</title>
-</head>
-<body>
-<p><a href="/">PyMC MFM</a></p>
-</body>
-</html>
-"""
 
 
 # The pymc-labs.com policy (EU DSM Directive 2019/790, Art. 4): search yes, AI training no.
@@ -140,18 +123,18 @@ def split_loc(loc: str, site: Path) -> tuple[str, str]:
     raise MountError(f"sitemap entry {loc.strip()} is not a page of the built site")
 
 
-def served_sitemap(sitemap_xml: str, site: Path, site_url: str, prefix: str) -> str:
-    """Quarto's sitemap with each page at the address this layout serves it from.
+def _page_url(docs_url: str, page: str) -> str:
+    if page == "index.html" or page.endswith("/index.html"):
+        page = page.removesuffix("index.html")
+    return f"{docs_url}/{page}"
 
-    Each page moves under ``<site_url>/<prefix>/``, and the landing page (``index.html``)
-    to ``<site_url>/``.
-    """
+
+def served_sitemap(sitemap_xml: str, site: Path, docs_url: str) -> str:
+    """Quarto's sitemap with each page at its canonical URL under the docs prefix."""
 
     def move(match: re.Match[str]) -> str:
         _, page = split_loc(match.group(1), site)
-        if page == "index.html":
-            return f"<loc>{site_url}/</loc>"
-        return f"<loc>{site_url}/{prefix}/{page}</loc>"
+        return f"<loc>{_page_url(docs_url, page)}</loc>"
 
     return LOC.sub(move, sitemap_xml)
 
@@ -193,44 +176,38 @@ def mount(
         origin = parts.scheme in ("https", "http") and parts.netloc
         if not origin or parts.path or parts.query or parts.fragment:
             raise MountError(f"--site-url {site_url} is not an origin such as https://example.com")
-    # A staging host is not for search engines: no canonical addresses and no sitemap.
-    public = site_url is not None and not noindex
-    shutil.copytree(site, out / prefix, dirs_exist_ok=True)
-    landing_html = landing.read_text(encoding="utf-8")
-    built_sitemap = site / "sitemap.xml"
+    docs_out = out / prefix
+    shutil.copytree(site, docs_out, dirs_exist_ok=True)
+    sitemap_file = docs_out / "sitemap.xml"
+    # Quarto's crawler policy points to the unmapped site. Staging gets no sitemap.
+    (docs_out / "robots.txt").unlink(missing_ok=True)
+    sitemap_file.unlink(missing_ok=True)
+    sitemap = None
     if site_url is not None:
+        built_sitemap = site / "sitemap.xml"
         if not built_sitemap.is_file():
             raise MountError(f"{built_sitemap} is missing; set site-url in _quarto.yml")
-        built = built_site_url(built_sitemap.read_text(encoding="utf-8"), site)
-        served_url = f"{site_url}/{prefix}"
-        landing_html = rebased(landing_html, built, served_url)
-        for page in sorted((out / prefix).rglob("*")):
+        sitemap_xml = built_sitemap.read_text(encoding="utf-8")
+        built = built_site_url(sitemap_xml, site)
+        docs_url = f"{site_url}/{prefix}"
+        for page in sorted(docs_out.rglob("*")):
             if page.suffix not in (".html", ".xml") or not page.is_file():
                 continue
             text = page.read_text(encoding="utf-8")
-            moved = rebased(text, built, served_url)
+            moved = rebased(text, built, docs_url)
+            if not noindex and page.suffix == ".html":
+                name = page.relative_to(docs_out).as_posix()
+                moved = with_canonical(moved, _page_url(docs_url, name), name)
             if moved != text:
                 page.write_text(moved, encoding="utf-8")
-    if public:
-        landing_html = with_canonical(landing_html, f"{site_url}/", "the landing page")
-        for page in sorted((out / prefix).rglob("*.html")):
-            name = page.relative_to(out / prefix).as_posix()
-            page_html = page.read_text(encoding="utf-8")
-            served = with_canonical(page_html, f"{site_url}/{prefix}/{name}", name)
-            if served != page_html:
-                page.write_text(served, encoding="utf-8")
-    root_page = landing_at_root(landing_html, prefix, noindex)
-    (out / "index.html").write_text(root_page, encoding="utf-8")
-    (out / prefix / "index.html").write_text(REDIRECT, encoding="utf-8")
+        if not noindex:
+            sitemap_file.write_text(served_sitemap(sitemap_xml, site, docs_url), encoding="utf-8")
+            sitemap = f"{docs_url}/sitemap.xml"
 
-    # Quarto's crawler files point to the unmapped site URLs.
-    (out / prefix / "robots.txt").unlink(missing_ok=True)
-    (out / prefix / "sitemap.xml").unlink(missing_ok=True)
-    sitemap = None
-    if public:
-        moved = served_sitemap(built_sitemap.read_text(encoding="utf-8"), site, site_url, prefix)
-        (out / "sitemap.xml").write_text(moved, encoding="utf-8")
-        sitemap = f"{site_url}/sitemap.xml"
+    mounted_landing = docs_out / "index.html"
+    landing_html = landing_at_root(mounted_landing.read_text(encoding="utf-8"), prefix, noindex)
+    mounted_landing.write_text(landing_html, encoding="utf-8")
+    (out / "index.html").write_text(landing_html, encoding="utf-8")
     (out / "robots.txt").write_text(robots(noindex, sitemap), encoding="utf-8")
 
 
@@ -257,7 +234,7 @@ def main(argv: list[str] | None = None) -> None:
     except MountError as error:
         sys.exit(f"mount: {error}")
     print(
-        f"mount: / is the landing page; the site is under /{args.prefix.strip('/')}/",
+        f"mount: the site is under /{args.prefix.strip('/')}/, with a landing page copy at /",
         file=sys.stderr,
     )
 

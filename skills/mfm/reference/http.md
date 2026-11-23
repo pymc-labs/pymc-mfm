@@ -1,10 +1,8 @@
 # MFM API over HTTP
 
-For agents without Python. The Python client in `SKILL.md` makes the same calls. The reading
-rules, limits and deletion rules in `SKILL.md` apply here too.
-
-To use the Python client instead (Python 3.11 or later), install it from PyPI:
-`pip install "pymc-mfm[client]"`.
+Use these calls when you are not using the Python client. The reading rules, limits and
+deletion rules in `SKILL.md` apply here too. To use the Python client instead, follow the
+setup in `SKILL.md` on Python 3.13 or later.
 
 The base URL is in `MFM_API_URL` and the key is in `MFM_API_KEY`. If one is missing, stop and ask the
 user. Never print the key and never write the URL or the key into a file.

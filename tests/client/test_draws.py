@@ -1,16 +1,13 @@
-import sys
 from traceback import format_exception
 
 import httpx
 import numpy as np
 import pytest
+import xarray as xr
 
 from pymc_mfm.client import ApiConnectionError, Forbidden
 
 from .client_fixtures import FakeService, result_record, result_rows, status_record
-
-xr = pytest.importorskip("xarray")
-pytest.importorskip("h5netcdf")
 
 N_DRAWS, N_WEEKS = 5, 2
 FUTURE = "2030-01-08T00:00:00Z"
@@ -170,9 +167,3 @@ def test_draws_never_start_a_run(analysis, service):
     fetch(analysis, service, result_with_urls("fresh")).draws()
     assert service.sent("POST", "/v1/analyses") == []
     assert all(r.method == "GET" for r in service.requests)
-
-
-def test_draws_without_xarray_name_the_extra(analysis, monkeypatch):
-    monkeypatch.setitem(sys.modules, "xarray", None)
-    with pytest.raises(ImportError, match=r"pymc-mfm\[draws\]"):
-        analysis.get("an_1").draws()

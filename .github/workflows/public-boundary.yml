@@ -4,9 +4,14 @@ name: Public boundary
 # private-link paths. Internal-name checks need the private deny file and run locally.
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      base-revision:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,19 +23,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
+          enable-cache: false
           python-version: "3.13"
       - name: Check tracked files
         run: python3 scripts/check_public_boundary.py --tree
-      - name: Check every blob added in the pull request
-        if: github.event_name == 'pull_request'
-        run: |
-          git fetch --no-tags origin "${{ github.base_ref }}"
-          python3 scripts/check_public_boundary.py --range "origin/${{ github.base_ref }}..HEAD"
-      - name: Check every commit pushed to main
-        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
-        run: python3 scripts/check_public_boundary.py --range "${{ github.event.before }}..HEAD"
+      - name: Check each commit introduced by the revision
+        env:
+          BASE_REVISION: ${{ inputs.base-revision }}
+        run: python3 scripts/check_public_boundary.py --range "$BASE_REVISION..HEAD"
       - name: Build distributions
         run: uv build
       - name: Check built distributions

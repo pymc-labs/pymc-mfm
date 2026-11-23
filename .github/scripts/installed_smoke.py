@@ -131,13 +131,7 @@ def main() -> None:
     env.pop("MLFLOW_TRACKING_URI", None)
     env.update(MPLBACKEND="Agg", HF_HUB_OFFLINE="1", OMP_NUM_THREADS="2", MKL_NUM_THREADS="2")
     python_paths = {}
-    for name, extras, artifact in (
-        ("full", ("generation", "training", "hub"), sdists[0]),
-        ("base", (), wheels[0]),
-        ("local", ("local",), wheels[0]),
-        ("diagnostics", ("diagnostics",), wheels[0]),
-        ("arviz", ("arviz",), wheels[0]),
-    ):
+    for name, artifact in (("sdist", sdists[0]), ("wheel", wheels[0])):
         prefix = out / name
         run("uv", "venv", "--python", sys.executable, str(prefix), cwd=out, env=env)
         python = prefix / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -153,8 +147,9 @@ def main() -> None:
             "--output-file",
             str(requirements),
         ]
-        for extra in extras:
-            command.extend(("--extra", extra))
+        if name == "sdist":
+            # The source workflow also produces the synthetic corpus used by the wheel check.
+            command.extend(("--group", "generation"))
         run(*command, cwd=root, env=env)
         run(
             "uv",
@@ -185,22 +180,24 @@ def main() -> None:
             "-I",
             "-c",
             """
-import pathlib
+from importlib.metadata import metadata
+from pathlib import Path
 import sys
+
 import pymc_mfm
-if sys.argv[1] != "base":
-    from pymc_mfm.training._provenance import code_record
-    assert code_record()["revision_status"] == "not_available"
-p = pathlib.Path(pymc_mfm.__file__).resolve()
-assert p.is_relative_to(pathlib.Path(sys.prefix).resolve()), p
-print(p)
+from pymc_mfm.client import Client
+
+assert "torch" not in sys.modules, "importing the client initialized PyTorch"
+assert metadata("pymc-mfm").get_all("Provides-Extra") is None
+assert Path(pymc_mfm.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())
+from pymc_mfm.training._provenance import code_record
+assert code_record()["revision_status"] == "not_available"
 """,
-            name,
             cwd=out,
             env=env,
         )
     run(
-        str(python_paths["full"]),
+        str(python_paths["sdist"]),
         "-I",
         str(root / ".github/scripts/workflow.py"),
         "--out",
@@ -208,50 +205,47 @@ print(p)
         cwd=out,
         env=env,
     )
-    forbidden = (
-        "pymc_generator",
-        "torch",
-        "safetensors",
-        "mlflow",
-        "matplotlib",
-        "scipy",
-        "huggingface_hub",
-        "xarray",
-        "arviz_base",
-        "arviz_stats",
-    )
+    wheel_python = str(python_paths["wheel"])
+    # The wheel environment trains from the saved corpus without the generator.
     run(
-        str(python_paths["base"]),
+        wheel_python,
         "-I",
         "-c",
-        f"import importlib.util\nfor name in {forbidden!r}:\n"
-        "    assert importlib.util.find_spec(name) is None, name",
+        "import importlib.util; assert importlib.util.find_spec('pymc_generator') is None",
         cwd=out,
         env=env,
     )
     run(
-        str(python_paths["base"]),
+        wheel_python,
         "-I",
-        str(root / ".github/scripts/light_install_check.py"),
+        "-m",
+        "pymc_mfm.training",
+        "--corpus",
+        str(out / "workflow/corpus.npz"),
+        "--out-dir",
+        str(out / "wheel-training"),
+        "--device",
+        "cpu",
+        "--no-tracking",
+        "--steps",
+        "2",
+        "--batch-size",
+        "2",
+        "--warmup-steps",
+        "1",
+        "--eval-every",
+        "2",
+        "--eval-worlds",
+        "1",
+        "--eval-samples",
+        "8",
         cwd=out,
         env=env,
     )
+    assert (out / "wheel-training/checkpoint_last.pt").is_file()
+    run(wheel_python, "-I", "-c", PAIRED_INFERENCE, cwd=out, env=env)
     run(
-        str(python_paths["local"]),
-        "-I",
-        "-c",
-        "import importlib.util\n"
-        "for name in ('torch', 'safetensors', 'xarray', 'arviz_base'):\n"
-        "    assert importlib.util.find_spec(name) is not None, name\n"
-        "for name in "
-        "('pymc_generator', 'mlflow', 'matplotlib', 'scipy', 'huggingface_hub', 'arviz_stats'):\n"
-        "    assert importlib.util.find_spec(name) is None, name",
-        cwd=out,
-        env=env,
-    )
-    run(str(python_paths["local"]), "-I", "-c", PAIRED_INFERENCE, cwd=out, env=env)
-    run(
-        str(python_paths["local"]),
+        wheel_python,
         "-I",
         str(root / ".github/scripts/observation_only.py"),
         "--model",
@@ -266,7 +260,7 @@ print(p)
         env=env,
     )
     run(
-        str(python_paths["local"]),
+        wheel_python,
         "-I",
         "-c",
         """
@@ -285,17 +279,12 @@ assert "arviz_stats" not in sys.modules
         env=env,
     )
     run(
-        str(python_paths["diagnostics"]),
+        wheel_python,
         "-I",
         "-c",
         """
-import importlib.util
 from pymc_mfm.inference import DecompositionResult
 from pymc_mfm.diagnostics import build_report, render_report
-assert all(
-    importlib.util.find_spec(name) is None
-    for name in ("pymc_generator", "mlflow", "huggingface_hub")
-)
 result = DecompositionResult.load("local-inference/query")
 manifest = build_report(result, "diagnostics-report")
 replay = render_report("diagnostics-report", "diagnostics-rerender")
@@ -314,11 +303,10 @@ assert tree["posterior"]["components"].sizes["draw"] == result.n_samples
         env=env,
     )
     run(
-        str(python_paths["arviz"]),
+        wheel_python,
         "-I",
         "-c",
         """
-import importlib.util
 import arviz_stats
 from pymc_mfm.inference import DecompositionResult
 trees = {}
@@ -328,14 +316,12 @@ for window in ("query", "context"):
     expected = result.components.shape[1] * result.component_mask.sum() + result.edge_mask.sum()
     assert len(arviz_stats.summary(tree, kind="stats")) == expected, window
 assert trees["query"].attrs["window"] != trees["context"].attrs["window"]
-assert importlib.util.find_spec("matplotlib") is None
 """,
         cwd=out,
         env=env,
     )
     print(
-        "Installed sdist workflow, base wheel client isolation, local wheel paired inference, "
-        "diagnostics-only replay/export and arviz-only DataTree export passed."
+        "Installed sdist workflow and standard wheel training, inference, and diagnostics passed."
     )
 
 

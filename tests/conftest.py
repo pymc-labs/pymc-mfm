@@ -1,7 +1,5 @@
 """Small complete-model fixtures; no external weights, corpus or service."""
 
-from importlib.util import find_spec
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,11 +15,6 @@ from pymc_mfm.model.model import MFM
 torch.set_num_threads(1)
 
 GENERATOR_EDGE_TYPES = ["cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz"]
-#: Skips optional statistics checks unless the ``arviz`` extra is installed.
-needs_arviz = pytest.mark.skipif(
-    any(find_spec(name) is None for name in ("xarray", "arviz_base", "arviz_stats")),
-    reason="needs the pymc-mfm[arviz] extra",
-)
 
 
 def make_synthetic_corpus(
@@ -162,12 +155,6 @@ def predicted_model(model, chart_frames):
     torch.manual_seed(3)
     model.inference(history, future, n_samples=40, **CHART_ROLES)
     return model
-
-
-@pytest.fixture
-def matplotlib_backend():
-    """Require optional matplotlib only for tests that actually render with it."""
-    pytest.importorskip("matplotlib")
 
 
 @pytest.fixture
