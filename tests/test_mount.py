@@ -1,9 +1,10 @@
-"""docs/_scripts/mount.py lays out the site with the landing page at / and the rest under /docs/."""
+"""The host serves the docs under /docs/, with the landing page also available at /."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from xml.etree import ElementTree
 
 import pytest
 
@@ -28,9 +29,12 @@ PAGE = '<html><head>\n<meta charset="utf-8">\n<title>Install</title></head></htm
 @pytest.fixture
 def site(tmp_path: Path) -> Path:
     built = tmp_path / "_site"
-    (built / "guide").mkdir(parents=True)
+    built.mkdir()
     (built / "index.html").write_text(LANDING, encoding="utf-8")
-    (built / "guide" / "index.html").write_text(PAGE, encoding="utf-8")
+    for name in ("guide/index.html", "reference/index.html", "guide/python-client.html"):
+        page = built / name
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text(PAGE, encoding="utf-8")
     return built
 
 
@@ -46,8 +50,7 @@ def test_landing_at_root_with_base_first_and_site_under_prefix(site: Path, tmp_p
     assert 'href="guide/index.html"' in root  # content unchanged; the base resolves it
 
     assert (out / "docs" / "guide" / "index.html").read_text(encoding="utf-8") == PAGE
-    redirect = (out / "docs" / "index.html").read_text(encoding="utf-8")
-    assert 'http-equiv="refresh" content="0; url=/"' in redirect
+    assert (out / "docs" / "index.html").read_text(encoding="utf-8") == root
     assert (site / "index.html").read_text(encoding="utf-8") == LANDING  # input untouched
 
 
@@ -86,6 +89,8 @@ QUARTO_SITEMAP = """<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://example.github.io/pymc-mfm/index.html</loc></url>
   <url><loc>https://example.github.io/pymc-mfm/guide/index.html</loc></url>
+  <url><loc>https://example.github.io/pymc-mfm/reference/index.html</loc></url>
+  <url><loc>https://example.github.io/pymc-mfm/guide/python-client.html</loc></url>
 </urlset>
 """
 
@@ -115,18 +120,26 @@ def test_staging_robots_close_the_host(site: Path, tmp_path: Path) -> None:
     assert not (out / "docs" / "sitemap.xml").exists()
 
 
-def test_site_url_serves_the_sitemap_at_the_mounted_addresses(site: Path, tmp_path: Path) -> None:
+@pytest.mark.parametrize("prefix", ["docs", "manual"])
+def test_site_url_serves_the_sitemap_at_the_mounted_addresses(
+    site: Path, tmp_path: Path, prefix: str
+) -> None:
     (site / "sitemap.xml").write_text(QUARTO_SITEMAP, encoding="utf-8")
     out = tmp_path / "out"
-    mount.mount(site, out, site_url="https://mfm.example.com/")
+    mount.mount(site, out, prefix=prefix, site_url="https://mfm.example.com/")
 
     robots = (out / "robots.txt").read_text(encoding="utf-8")
-    assert robots.endswith("\nSitemap: https://mfm.example.com/sitemap.xml\n")
-    assert not (out / "docs" / "sitemap.xml").exists()
-    sitemap = (out / "sitemap.xml").read_text(encoding="utf-8")
-    assert "<loc>https://mfm.example.com/</loc>" in sitemap
-    assert "<loc>https://mfm.example.com/docs/guide/index.html</loc>" in sitemap
-    assert "github.io" not in sitemap
+    docs_url = f"https://mfm.example.com/{prefix}/"
+    assert "User-agent: *\nContent-Signal: search=yes,ai-train=no\nAllow: /\n" in robots
+    assert robots.endswith(f"\nSitemap: {docs_url}sitemap.xml\n")
+    assert not (out / "sitemap.xml").exists()
+    sitemap = ElementTree.parse(out / prefix / "sitemap.xml")
+    assert [loc.text for loc in sitemap.findall(".//{*}loc")] == [
+        docs_url,
+        docs_url + "guide/",
+        docs_url + "reference/",
+        docs_url + "guide/python-client.html",
+    ]
 
 
 def test_site_url_refuses_a_sitemap_page_the_site_lacks(site: Path, tmp_path: Path) -> None:
@@ -138,7 +151,6 @@ def test_site_url_refuses_a_sitemap_page_the_site_lacks(site: Path, tmp_path: Pa
 
 
 MOVED = '<head><meta charset="utf-8"><link rel="canonical" href="https://example.org/blog"></head>'
-GUIDE_LINK = '<link rel="canonical" href="https://example.com/docs/guide/index.html">'
 
 
 @pytest.fixture
@@ -153,17 +165,20 @@ def test_site_url_names_each_page_at_its_served_address(pages: Path, tmp_path: P
     out = tmp_path / "out"
     mount.mount(pages, out, site_url="https://example.com/")
 
-    root = (out / "index.html").read_text(encoding="utf-8")
-    assert root.count('rel="canonical"') == 1
-    assert root.index('<base href="/docs/">') < root.index(
-        '<link rel="canonical" href="https://example.com/">'
-    )
-    guide = (out / "docs" / "guide" / "index.html").read_text(encoding="utf-8")
-    assert guide.replace("\n" + GUIDE_LINK, "") == PAGE and GUIDE_LINK in guide
-    # A page with its own canonical address keeps it; the redirect still points at /.
+    for name, path in (
+        ("index.html", "/docs/"),
+        ("docs/index.html", "/docs/"),
+        ("docs/guide/index.html", "/docs/guide/"),
+        ("docs/reference/index.html", "/docs/reference/"),
+        ("docs/guide/python-client.html", "/docs/guide/python-client.html"),
+    ):
+        page = (out / name).read_text(encoding="utf-8")
+        assert page.count('rel="canonical"') == 1
+        assert f'<link rel="canonical" href="https://example.com{path}">' in page
+    home = (out / "docs" / "index.html").read_text(encoding="utf-8")
+    assert "Get started" in home and 'http-equiv="refresh"' not in home
+    # Redirects to the blog keep their external canonical.
     assert (out / "docs" / "blog" / "index.html").read_text(encoding="utf-8") == MOVED
-    redirect = (out / "docs" / "index.html").read_text(encoding="utf-8")
-    assert '<link rel="canonical" href="/">' in redirect
     assert (pages / "guide" / "index.html").read_text(encoding="utf-8") == PAGE  # input untouched
 
 
@@ -172,6 +187,7 @@ def test_no_canonical_on_staging_or_without_site_url(pages: Path, tmp_path: Path
     mount.mount(pages, tmp_path / "plain")
     for out in (tmp_path / "staging", tmp_path / "plain"):
         assert "canonical" not in (out / "index.html").read_text(encoding="utf-8")
+        assert "canonical" not in (out / "docs" / "index.html").read_text(encoding="utf-8")
         assert (out / "docs" / "guide" / "index.html").read_text(encoding="utf-8") == PAGE
 
 

@@ -328,10 +328,12 @@ They are not current workflow instructions.
   in the menu. The navbar also links the PyMC Labs
   contact page, and the Models menu the white paper. `docs/_scripts/mount.py` writes the
   host's `robots.txt` (the pymc-labs.com policy: search engines yes, AI training crawlers
-  no; closed on staging) and, given the public origin with `--site-url`, publishes
-  `/sitemap.xml` at the host root and adds canonical links for the served pages. It also
-  gives the built site the host's address in place of Quarto's `site-url`, so the site's
-  own links open in the same tab and share images resolve on the host. The navbar and the
+  no; closed on staging) and, given the public origin with `--site-url`, points it to
+  `/docs/sitemap.xml`. The sitemap and canonical links use trailing-slash URLs for
+  directory pages. The homepage is canonical at `/docs/`; the copy at `/` is not
+  listed in the sitemap. The script also gives the built site the host's address
+  in place of Quarto's `site-url`, so the site's own links open in the same tab and share
+  images resolve on the host. The navbar and the
   landing hero link the GitHub repository, and the River quickstart installs the library
   from GitHub, as the other pages do, instead of PyPI's client-only package.
   Text is Inter and headlines Archivo Expanded, self-hosted. The favicons are the mark
