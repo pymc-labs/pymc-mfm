@@ -122,6 +122,18 @@ reason = "Website Apple touch icon: the navy MFM mark from docs/assets/img/logo/
 sha256 = "1d775cf80bac022d9717f38266becfbb740e825849d54cebefe127ab5c2c59c4"
 
 [[allow]]
+path = "docs/assets/favicon/favicon.ico"
+rules = ["binary"]
+reason = "Historical browser favicon: the MFM mark on a navy circle, rendered from the former favicon.svg as a 16, 32 and 48 px ICO. Retain the reviewed bytes for all-refs publication audits."
+sha256 = "335b8899cf8312d6591b69789787f69fa4cc9a66887c759d26f65abaa5e08bce"
+
+[[allow]]
+path = "docs/assets/favicon/apple-touch-icon.png"
+rules = ["binary"]
+reason = "Historical Apple touch icon: the MFM mark on a navy circle over white, rendered from the former favicon.svg as a 180 px PNG. Retain the reviewed bytes for all-refs publication audits."
+sha256 = "8356b1c339df64db11c8472a8ccfcc2da2b0eeffa2d3e898f4ada0a30f37b3bf"
+
+[[allow]]
 path = "docs/assets/img/models/river.jpg"
 rules = ["binary"]
 reason = "Models page card and social preview for River: a night river scene rendered from the site's own WebGL shader (1200x630 JPEG, 75 kB). No photograph or third-party asset. These exact bytes are pinned; a new render needs a new review."
