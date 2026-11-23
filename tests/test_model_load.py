@@ -28,7 +28,7 @@ from client.client_fixtures import (
 )
 
 import pymc_mfm as mfm
-from pymc_mfm.client import ApiError, Gone
+from pymc_mfm.client import ApiError, Gone, Unauthorized
 
 ROLES = {
     "date_column": "date",
@@ -417,6 +417,21 @@ def test_hosted_credential_errors_name_the_token_parameter(monkeypatch, token, m
     with pytest.raises(ValueError, match=re.escape(message)) as caught:
         mfm.load("river-1", engine="hosted", token=token, **ROLES)
     assert "api_key" not in str(caught.value)  # load() has no api_key parameter
+
+
+def test_hosted_rejected_key_keeps_guidance_for_the_accepted_analysis(frames, monkeypatch):
+    service = river()
+    service.on("GET", "/v1/analyses/an_1", (401, error_body("unauthorized", "Bad key")))
+    model = open_river(monkeypatch, service, b"")
+
+    with pytest.raises(Unauthorized) as caught:
+        model.inference(*frames, n_samples=DRAWS)
+    assert_names_analysis(caught.value, "an_1")
+    rendered = "".join(traceback.format_exception(caught.value))
+    assert "Check the River API key you supplied or set in MFM_API_KEY." in rendered
+    assert "Connect page" in rendered
+    assert RIVER_KEY not in rendered
+    assert model.result is None
 
 
 def test_local_load_refuses_the_river_key_as_a_hub_token(monkeypatch):

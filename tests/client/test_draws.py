@@ -6,10 +6,17 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pymc_mfm.client import ApiConnectionError, Forbidden, Gone
+from pymc_mfm.client import ApiConnectionError, Client, Forbidden, Gone, Unauthorized
 from pymc_mfm.client.analysis import URL_RENEWAL_MARGIN
 
-from .client_fixtures import URL_EXPIRES, FakeService, result_record, result_rows, status_record
+from .client_fixtures import (
+    BASE_URL,
+    URL_EXPIRES,
+    FakeService,
+    result_record,
+    result_rows,
+    status_record,
+)
 
 N_DRAWS, N_WEEKS = 5, 2
 PAST = "2020-01-01T00:00:00Z"
@@ -149,6 +156,30 @@ def test_a_url_rejected_again_after_renewal_is_an_error(analysis, service, stora
     with pytest.raises(Forbidden):
         done.draws(["half"])
     assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+
+
+def test_signed_download_401_does_not_suggest_replacing_river_key(service):
+    key = "test-key"
+    path = "/draws.nc"
+    rows = result_rows("baseline", "baseline", url=f"{BASE_URL}{path}?sig=example")
+    service.on("GET", "/v1/analyses/an_1", (200, status_record("done")))
+    service.on("GET", path, (401, b"Not authorized for this file"))
+
+    def serve(request):
+        if request.url.path == path:
+            assert "Authorization" not in request.headers
+            # A custom transport can rebuild the request after the SDK strips its key.
+            request.extensions.clear()
+            request.headers["Authorization"] = f"Bearer {key}"
+        return service(request)
+
+    with Client(BASE_URL, key, transport=httpx.MockTransport(serve)) as client:
+        done = fetch(client, service, result_record(rows))
+        with pytest.raises(Unauthorized) as caught:
+            done.draws(["baseline"])
+    assert "MFM_API_KEY" not in "".join(format_exception(caught.value))
+    assert len(service.sent("GET", path)) == 1
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 1
 
 
 def test_a_url_renewed_inside_the_margin_is_used_without_renewing_again(analysis, service, storage):

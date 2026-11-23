@@ -131,9 +131,10 @@ References to `client-v0.1.0` record the earlier client release plan.
   Signed downloads keep their query but carry no API key or cookies. An exhausted
   transport failure reports the origin and error type, not the raw exception or a
   discarded 403 from renewing a signed URL.
-- **Client (for `client-v0.1.0`): a rejected key says where to get one.** An `Unauthorized`
-  (401) error now ends with a key hint that names `MFM_API_KEY` and the Connect page of the
-  River API console. The service's code and message stay first; `message` is unchanged.
+- **River API: a rejected key says where to get one.** A 401 on an authenticated
+  River API request adds a traceback note pointing to `MFM_API_KEY` and the Connect
+  page of the River API console. The `Unauthorized` error's text and fields are
+  unchanged. A 401 from a signed file download does not get the key hint.
 - **Client (for `client-v0.1.0`): `wait` returns when every run has ended.** The service
   marks an analysis `failed` as soon as its baseline fails, while other runs can still be
   active. `AnalysisStatus.finished`, and so `Analysis.wait`, now count a `failed` analysis

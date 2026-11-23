@@ -17,7 +17,7 @@ import httpx
 from pymc_mfm import __version__
 
 from ._wire import canonical_json, to_json
-from .errors import ApiConnectionError, ApiError, Gone, error_from_response
+from .errors import ApiConnectionError, ApiError, Gone, Unauthorized, error_from_response
 
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_WAIT = 60.0  # seconds; default cap on a Retry-After wait
@@ -302,11 +302,15 @@ class Http:
             "GET",
             url,
             headers={"User-Agent": f"pymc-mfm-client/{__version__}"},
-            extensions={_SIGNED_DOWNLOAD: True},
+            signed_download=True,
         )
         return response.content
 
-    def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    def _send(
+        self, method: str, url: str, *, signed_download: bool = False, **kwargs: Any
+    ) -> httpx.Response:
+        if signed_download:
+            kwargs["extensions"] = {_SIGNED_DOWNLOAD: True}
         for attempt in range(self.max_retries + 1):
             last_attempt = attempt == self.max_retries
             try:
@@ -323,7 +327,7 @@ class Http:
             if response.status_code in RETRY_STATUSES and not last_attempt:
                 self._sleep(self._backoff(attempt, retry_after))
                 continue
-            raise self._error(response, retry_after)
+            raise self._error(response, retry_after, signed_download=signed_download)
         else:
             raise AssertionError("unreachable")  # pragma: no cover
 
@@ -339,13 +343,26 @@ class Http:
             return min(retry_after, self.max_retry_after)
         return min(BACKOFF_BASE * 2**attempt, BACKOFF_CAP)
 
-    @staticmethod
-    def _error(response: httpx.Response, retry_after: float | None) -> ApiError:
+    def _error(
+        self, response: httpx.Response, retry_after: float | None, *, signed_download: bool
+    ) -> ApiError:
         try:
             body = response.json()
         except ValueError:
             body = None
-        return error_from_response(response.status_code, body, retry_after=retry_after)
+        error = error_from_response(response.status_code, body, retry_after=retry_after)
+        if signed_download or not isinstance(error, Unauthorized):
+            return error
+        try:
+            request = response.request
+        except RuntimeError:  # An unbound response has no request to inspect.
+            return error
+        if request.headers.get("authorization") == f"Bearer {self._api_key}":
+            error.add_note(
+                "Check the River API key you supplied or set in MFM_API_KEY. "
+                "Create or replace it on the Connect page of the River API console."
+            )
+        return error
 
     @staticmethod
     def _decode(response: httpx.Response) -> Any:

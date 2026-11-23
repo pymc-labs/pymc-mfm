@@ -501,24 +501,48 @@ def test_rate_limit_error_keeps_retry_after_after_the_last_retry(service, sleeps
     assert len(service.requests) == 2
 
 
-@pytest.mark.parametrize(
-    ("message", "field", "shown"),
-    [
-        ("Bad key.", None, "Bad key."),
-        ("bad key", None, "bad key."),
-        ("bad key", "authorization", "bad key (field: authorization)."),
-    ],
-)
-def test_a_rejected_key_says_where_to_get_one(client, service, message, field, shown):
-    service.on("GET", "/v1/datasets/ds_123", (401, error_body("unauthorized", message, field)))
+def test_a_rejected_key_says_where_to_get_one(client, service):
+    service.on(
+        "GET", "/v1/datasets/ds_123", (401, error_body("unauthorized", "Bad key", "authorization"))
+    )
     with pytest.raises(Unauthorized) as caught:
         client.datasets.get("ds_123")
-    assert str(caught.value) == (
-        f"HTTP 401 unauthorized: {shown} Check the key you passed or MFM_API_KEY. "
-        "Create or replace your API key on the Connect page of the River API console."
+    error = caught.value
+    assert (error.status, error.code, error.message, error.field) == (
+        401,
+        "unauthorized",
+        "Bad key",
+        "authorization",
     )
-    assert caught.value.args == (str(caught.value),)
-    assert caught.value.message == message
+    assert str(error) == "HTTP 401 unauthorized: Bad key (field: authorization)"
+    assert error.args == (str(error),)
+    rendered = "".join(format_exception(error))
+    assert "Check the River API key you supplied or set in MFM_API_KEY." in rendered
+    assert "Create or replace it on the Connect page of the River API console." in rendered
+    assert "test-key" not in rendered
+
+
+@pytest.mark.parametrize("authorization", [None, "Bearer another-key"], ids=["absent", "replaced"])
+def test_401_does_not_suggest_replacing_a_key_that_was_not_sent(authorization):
+    def handle(request):
+        if authorization is None:
+            del request.headers["Authorization"]
+        else:
+            request.headers["Authorization"] = authorization
+        return httpx.Response(401)
+
+    with Client(BASE_URL, "test-key", transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(Unauthorized) as caught:
+            client.datasets.get("ds_123")
+    assert "MFM_API_KEY" not in "".join(format_exception(caught.value))
+
+
+def test_401_without_request_metadata_keeps_the_typed_error(client, monkeypatch):
+    monkeypatch.setattr(httpx.Client, "request", lambda *args, **kwargs: httpx.Response(401))
+    with pytest.raises(Unauthorized) as caught:
+        client.datasets.get("ds_123")
+    assert caught.value.status == 401
+    assert "MFM_API_KEY" not in "".join(format_exception(caught.value))
 
 
 @pytest.mark.parametrize(
@@ -548,6 +572,8 @@ def test_errors_map_to_typed_exceptions(client, service, status, code, error_cla
         "spend.tv",
     )
     assert "spend.tv" in str(error) and code in str(error)
+    if status != 401:
+        assert "MFM_API_KEY" not in "".join(format_exception(error))
 
 
 def test_not_ready_is_a_conflict(client, service):
