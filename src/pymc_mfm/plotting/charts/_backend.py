@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from importlib import import_module
 from typing import Any
 
 _BACKENDS = ("matplotlib", "plotly")
-#: Backend -> (module that must import, extra that installs it).
-_REQUIREMENTS = {"matplotlib": ("matplotlib", "plot"), "plotly": ("plotly", "interactive")}
 _DEFAULT = {"backend": "matplotlib"}
 
 
@@ -32,28 +29,14 @@ def resolve(backend: str | None) -> str:
     return _DEFAULT["backend"] if backend is None else _checked(backend)
 
 
-def require(backend: str) -> None:
-    """Import the backend's library, or raise ``ImportError`` naming the extra to install."""
-    module, extra = _REQUIREMENTS[backend]
-    try:
-        import_module(module)
-    except ImportError as error:
-        raise ImportError(
-            f"The {backend} backend needs {module}. "
-            f'Install it with: pip install "pymc-mfm[{extra}]"'
-        ) from error
-
-
 def check(backend: str | None, ax: Any = None) -> str:
     """The drawing backend, checked before a chart reads the completed inference.
 
-    Refuses ``ax=`` (matplotlib axes) with plotly and imports the backend's library,
-    raising ``ImportError`` naming its extra when it is missing.
+    Refuses ``ax=`` (matplotlib axes) with plotly.
     """
     name = resolve(backend)
     if name == "plotly" and ax is not None:
         raise ValueError("ax= draws into matplotlib axes; it does not apply to backend='plotly'")
-    require(name)
     return name
 
 

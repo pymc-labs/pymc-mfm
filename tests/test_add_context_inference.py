@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 import torch
 import xarray as xr
-from conftest import needs_arviz
 from safetensors import safe_open
 from safetensors.torch import load_file
 
@@ -1016,8 +1015,7 @@ def test_idata_named_values_inputs_and_provenance_match_both_marginals(
     )
 
 
-@needs_arviz
-def test_idata_window_subtrees_support_optional_arviz_statistics(model, history, future):
+def test_idata_window_subtrees_support_arviz_statistics(model, history, future):
     from arviz_stats import summary
 
     tree = model.inference(history, future, **COLUMN_ROLES, n_samples=5)

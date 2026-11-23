@@ -117,11 +117,11 @@ Preserve no-sampling preflight through `input_usage`: accept explicit context/qu
 
 ## Dependencies and persistence
 
-The `local` extra includes explicit `xarray>=2024.10` and `arviz-base>=1.3,<2` dependencies and a matching lockfile. Normal local inference constructs idata without an optional export extra. Tree construction does not require PyMC, PyMC-Marketing, statistics or plotting. Base HTTP-client imports remain lightweight; the `arviz` extra supplies optional statistics.
+The package depends on `xarray>=2024.10` and `arviz-base>=1.3,<2`, with a matching lockfile; there are no extras. Normal local inference constructs idata without an export call. Tree construction does not require PyMC, PyMC-Marketing, statistics or plotting, and does not import them. Importing the HTTP client stays lightweight: it loads none of these.
 
-Core lifecycle, prediction isolation, curve conversion, rollback and bundle privacy acceptance run with `local` plus the test runner, without statistics/plotting. Mandatory dataframe behavior is not gated on optional rendering or statistics; standalone array/result operations retain lazy tree imports. Rendering, statistical summaries and file backends have separate prerequisite gates.
+Core lifecycle, prediction isolation, curve conversion, rollback and bundle privacy acceptance do not import statistics or plotting. Mandatory dataframe behavior does not load rendering or statistics; standalone array/result operations retain lazy tree imports. Rendering, statistical summaries and file backends load only when used.
 
-Analysis-tree file export remains explicit and requires the existing `draws` extra with `engine="h5netcdf"` for netCDF roundtrips. `local` guarantees an in-memory tree, not a file backend. `query_result.save`/`DecompositionResult.load` remain evidence persistence, distinct from analysis-tree export. Neither restores an attached runnable session.
+Analysis-tree file export remains explicit and uses `engine="h5netcdf"` for netCDF roundtrips. `query_result.save`/`DecompositionResult.load` remain evidence persistence, distinct from analysis-tree export. Neither restores an attached runnable session.
 
 Trees may contain sensitive outcomes, covariates, labels and results. `save_pretrained` and Hub weight bundles must never capture runtime context, predictions, curves or idata. Loading weights leaves all runtime analysis state unset. No automatic file writes or persistence redesign.
 

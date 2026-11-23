@@ -182,27 +182,22 @@ def rank_uniformity_stats(
             "does not prove calibration or out-of-distribution validity."
         ),
     )
-    try:
-        from arviz_stats.base import array_stats
-    except ImportError:
-        report["pot_c_status"] = {
-            "status": "unavailable_dependency",
-            "reason": "optional arviz_stats uniformity test not installed",
-        }
-    else:
-        jitter = np.random.default_rng(20250211).random(len(values))
-        randomized_pit = (values + jitter) / (n_post_samples + 1)
-        value = float(array_stats.uniformity_test(randomized_pit)[0])
-        if not np.isfinite(value):
-            raise ValueError("optional pot_c uniformity test returned a nonfinite value")
-        report["pot_c_pvalue"] = value
-        report["pot_c_status"] = {
-            "status": "graded_diagnostic",
-            "reason": (
-                "Order-statistic uniformity test is not a calibrated gate; "
-                "finite-sample size can exceed nominal"
-            ),
-        }
+
+    from arviz_stats.base import array_stats
+
+    jitter = np.random.default_rng(20250211).random(len(values))
+    randomized_pit = (values + jitter) / (n_post_samples + 1)
+    value = float(array_stats.uniformity_test(randomized_pit)[0])
+    if not np.isfinite(value):
+        raise ValueError("pot_c uniformity test returned a nonfinite value")
+    report["pot_c_pvalue"] = value
+    report["pot_c_status"] = {
+        "status": "graded_diagnostic",
+        "reason": (
+            "Order-statistic uniformity test is not a calibrated gate; "
+            "finite-sample size can exceed nominal"
+        ),
+    }
     return report
 
 

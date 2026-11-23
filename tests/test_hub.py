@@ -1,5 +1,6 @@
 """Hub contracts use local artifacts and isolated transports, never real publication."""
 
+import builtins
 import fnmatch
 import hashlib
 import itertools
@@ -12,6 +13,8 @@ import traceback
 from pathlib import Path
 from types import SimpleNamespace
 
+import huggingface_hub as hf
+import huggingface_hub.errors as hf_errors
 import pytest
 import torch
 from packaging.version import Version
@@ -28,12 +31,20 @@ from pymc_mfm.inference.hub import (
 from pymc_mfm.model.flow import DECOMPOSITION_FIXED_TARGETS
 from pymc_mfm.model.graph import EdgeSlotLayout
 
-hf = pytest.importorskip("huggingface_hub")
-hf_errors = pytest.importorskip("huggingface_hub.errors")
-
 COMMIT_A = "a" * 40
 COMMIT_B = "b" * 40
 REPO = "test-owner/mfm-artifacts"
+
+
+def _forbid_hub_imports(monkeypatch):
+    real_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name.partition(".")[0] == "huggingface_hub":
+            pytest.fail(f"unexpected Hub SDK import: {name}")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
 
 
 def _assert_same_draws(original, restored, batch):
@@ -114,15 +125,10 @@ def _state_sha256(model):
 
 
 def test_local_and_cli_profile_layout_do_not_require_hub(model, batch, tmp_path, monkeypatch):
-    import pymc_mfm.inference.hub as transport
-
     save_pretrained(model, tmp_path / "profiles" / "A", profile="A")
     save_pretrained(model, tmp_path / "profiles" / "B", profile="B")
 
-    def unavailable():
-        pytest.fail("a local/CLI-downloaded directory must not require Hub transport")
-
-    monkeypatch.setattr(transport, "_hub", unavailable)
+    _forbid_hub_imports(monkeypatch)
     profiles = list_profiles(tmp_path)
     assert set(profiles) == {"A", "B"}
     _assert_same_draws(model, from_pretrained(tmp_path, profile="B"), batch)
@@ -302,13 +308,8 @@ def test_auth_revision_and_transport_errors_do_not_leak_credentials(
 def test_publication_is_explicit_license_gated_and_preserves_complete_state(
     model, batch, tmp_path, monkeypatch
 ):
-    import pymc_mfm.inference.hub as transport
-
-    def no_transport():
-        pytest.fail("unapproved publication arguments must fail before any Hub operation")
-
     with monkeypatch.context() as patch:
-        patch.setattr(transport, "_hub", no_transport)
+        _forbid_hub_imports(patch)
         # A local card's free-text license is not an approved publication identifier.
         for license in (None, "not selected (publication pending)", "other"):
             with pytest.raises(ValueError):
@@ -690,13 +691,7 @@ def _evaluation(*worlds):
 
 
 def test_local_cards_describe_each_profile_and_index_the_collection(model, tmp_path, monkeypatch):
-    import pymc_mfm.inference.hub as transport
     from pymc_mfm.data.recipes import SHARD_PLANS, recipe_for
-
-    def unavailable():
-        pytest.fail("rendering local cards must not require Hub transport")
-
-    monkeypatch.setattr(transport, "_hub", unavailable)
 
     # Row 3 of the first shard of plan A.
     evaluation = _evaluation({"shard_seed": 530200, "row": 3})
@@ -707,9 +702,11 @@ def test_local_cards_describe_each_profile_and_index_the_collection(model, tmp_p
     with pytest.raises(ValueError):
         write_model_cards(tmp_path, license=" ")
     license = "not selected (publication pending)"
+    with monkeypatch.context() as patch:
+        _forbid_hub_imports(patch)
+        paths = write_model_cards(tmp_path, license=license)
     cards = {
-        path.relative_to(tmp_path).as_posix(): hf.ModelCard(path.read_text())
-        for path in write_model_cards(tmp_path, license=license)
+        path.relative_to(tmp_path).as_posix(): hf.ModelCard(path.read_text()) for path in paths
     }
     assert cards.keys() == {"README.md", "profiles/A/README.md", "profiles/B/README.md"}
     assert {card.data.license for card in cards.values()} == {license}

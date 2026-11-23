@@ -617,9 +617,8 @@ class MFM(nn.Module):
         For deliberately different seeds, call ``decompose`` separately for each
         window. Neither ``predict`` nor ``decompose`` records the seed.
         """
-        from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
+        from pymc_mfm.inference._datatree import prediction_datatree
 
-        _require_arviz()
         random_seed = _random_seed(random_seed)
         # Use the same generator for both windows, including the default CPU stream
         # used for base noise on CPU, CUDA and MPS.

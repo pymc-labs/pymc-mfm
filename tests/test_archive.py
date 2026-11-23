@@ -4,7 +4,6 @@ import copy
 import errno
 import gc
 import hashlib
-import importlib.util
 import json
 import os
 import pickle
@@ -21,7 +20,7 @@ from typing import Any, NamedTuple
 import numpy as np
 import pytest
 import torch
-from conftest import make_synthetic_corpus, needs_arviz
+from conftest import make_synthetic_corpus
 from test_diagnostics import make_result
 from test_inference import observed
 from test_result_persistence import nested
@@ -472,7 +471,6 @@ def test_strata_rows_from_an_archive_equal_those_of_the_in_memory_captures(built
 
 @pytest.mark.parametrize("name", ARCHIVES)
 def test_sbc_reports_from_an_archive_equal_those_from_the_in_memory_captures(built, world, name):
-    pytest.importorskip("scipy")
     _, corpora = world
     archive, captured, _ = built[name]
     for window in WINDOWS:
@@ -654,7 +652,6 @@ def label_grids(records, times, components):
     return draws, truths, outcomes
 
 
-@needs_arviz
 @pytest.mark.parametrize(
     ("left", "right"),
     [
@@ -722,7 +719,6 @@ def test_original_boolean_and_numeric_archive_labels_select_their_evidence_rows(
     )
 
 
-@needs_arviz
 @pytest.mark.parametrize("window", WINDOWS)
 @pytest.mark.parametrize("boolean_first", [True, False])
 def test_shared_two_label_numeric_vectors_select_rows_in_either_world_order(
@@ -757,7 +753,6 @@ def test_shared_two_label_numeric_vectors_select_rows_in_either_world_order(
         )
 
 
-@needs_arviz
 @pytest.mark.parametrize(
     ("left", "right"),
     [
@@ -807,7 +802,6 @@ def test_an_archive_preserves_exact_mixed_numeric_time_labels_and_every_row(
     )
 
 
-@needs_arviz
 @pytest.mark.parametrize(
     ("name", "introduced"),
     [("archived", set()), ("mixed", {"channel:channel_3"})],
@@ -972,7 +966,6 @@ REFUSED_WINDOWS = {
 }
 
 
-@needs_arviz
 @pytest.mark.parametrize("case", REFUSED_WINDOWS)
 def test_an_archive_tree_refuses_a_window_it_cannot_label(built, tmp_path, case):
     edit, message = REFUSED_WINDOWS[case]
@@ -982,7 +975,6 @@ def test_an_archive_tree_refuses_a_window_it_cannot_label(built, tmp_path, case)
         archive.to_datatree("query")
 
 
-@needs_arviz
 def test_an_archive_window_without_active_edges_exports_no_pair_axis(built, tmp_path):
     from arviz_stats import summary
 
@@ -996,7 +988,6 @@ def test_an_archive_window_without_active_edges_exports_no_pair_axis(built, tmp_
     assert len(summary(tree, kind="stats")) == sizes["world"] * sizes["time"] * sizes["component"]
 
 
-@needs_arviz
 @pytest.mark.parametrize("first", [2**63 - 1, -2], ids=["straddling 2**63", "negative"])
 def test_archive_tree_calls_and_seeds_equal_the_declared_calls_exactly(world, tmp_path, first):
     model, corpora = world
@@ -1012,7 +1003,6 @@ def test_archive_tree_calls_and_seeds_equal_the_declared_calls_exactly(world, tm
     assert constants["call"].values.tolist() == [entry.call for entry in entries] == [0, 1]
 
 
-@needs_arviz
 def test_archive_tree_attributes_name_the_archive_and_only_the_recorded_model_keys(built, tmp_path):
     archived = built["archived"]
     identity = copy.deepcopy(archived.identity)
@@ -1042,21 +1032,6 @@ def test_archive_tree_attributes_name_the_archive_and_only_the_recorded_model_ke
             assert expected.items() <= attrs.items()
             # Model keys present exactly when recorded: an unrecorded key is absent, never None.
             assert {key: attrs[key] for key in optional if key in attrs} == recorded
-
-
-@pytest.mark.parametrize(
-    "hidden",
-    [("xarray", "arviz_base"), ("arviz_base",)],
-    ids=["base install", "xarray without arviz-base"],
-)
-def test_an_archive_export_without_the_arviz_extra_names_the_extra(built, monkeypatch, hidden):
-    # Import the export module anew with the extra hidden: its own imports must not need it.
-    monkeypatch.delitem(sys.modules, "pymc_mfm.inference._datatree", raising=False)
-    monkeypatch.setattr(sys.modules["pymc_mfm.inference"], "_datatree", None, raising=False)
-    for name in hidden:
-        monkeypatch.setitem(sys.modules, name, None)
-    with pytest.raises(ImportError, match=re.escape("pymc-mfm[arviz]")):
-        built["archived"].archive.to_datatree("query")
 
 
 def _first(ctx, writer):
@@ -2648,9 +2623,8 @@ def test_files_changed_after_load_fail_on_read_before_rows_are_returned(built, t
         lambda: archive.conditional_sbc_inputs("query"),
         lambda: list(archive.records()),
         lambda: list(archive),
+        lambda: archive.to_datatree("query"),
     ]
-    if all(importlib.util.find_spec(name) is not None for name in ("xarray", "arviz_base")):
-        reads.append(lambda: archive.to_datatree("query"))
     for read in reads:
         with pytest.raises(ArchiveIntegrityError, match=re.escape(DIFFERS)) as caught:
             read()
@@ -2697,10 +2671,9 @@ def test_reports_from_an_archive_never_call_the_model(built, monkeypatch):
             "sbc": archive.sbc_inputs("context"),
             "conditional": archive.conditional_sbc_inputs("context"),
         }
-        if importlib.util.find_spec("scipy") is not None:
-            out["sbc_card"] = canonical(sbc_report(**out["sbc"], simulations=100))
-            card = conditional_sbc_report(**out["conditional"], simulations=100)
-            out["conditional_card"] = canonical(card)
+        out["sbc_card"] = canonical(sbc_report(**out["sbc"], simulations=100))
+        card = conditional_sbc_report(**out["conditional"], simulations=100)
+        out["conditional_card"] = canonical(card)
         return out
 
     expected = reports(EvaluationArchive.load(path))
@@ -2722,7 +2695,7 @@ def test_reports_from_an_archive_never_call_the_model(built, monkeypatch):
     actual = reports(EvaluationArchive.load(path))
     assert actual.keys() == expected.keys()
     for key in ("records", "strata", "sbc_card", "conditional_card"):
-        assert actual.get(key) == expected.get(key), key
+        assert actual[key] == expected[key], key
     np.testing.assert_array_equal(actual["sbc"]["samples"], expected["sbc"]["samples"])
     assert actual["conditional"]["cell_ids"] == expected["conditional"]["cell_ids"]
 
@@ -2743,6 +2716,8 @@ def test_diagnostics_verifies_and_reads_archives_without_importing_training(buil
         "assert inputs['world_ids'] == [entry.world_id for entry in selected]\n"
         "assert draws.shape == (result.n_samples, 5) and totals.shape == (5,)\n"
         "loaded = sorted(name for name in sys.modules if name.startswith('pymc_mfm.training'))\n"
+        "assert not loaded, loaded\n"
+        "loaded = {'xarray', 'arviz_base', 'arviz_stats'}.intersection(sys.modules)\n"
         "assert not loaded, loaded\n"
     )
     result = subprocess.run(

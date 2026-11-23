@@ -1,4 +1,4 @@
-"""The light install must not import PyTorch, and local names must explain how to get it."""
+"""Package, client and model imports stay lazy where no feature work is done."""
 
 import subprocess
 import sys
@@ -13,47 +13,31 @@ def run(code: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_importing_the_package_and_client_does_not_import_torch():
+def test_importing_the_package_and_client_does_not_load_feature_dependencies():
     result = run(
         """
         import sys
         import pymc_mfm
+        assert "pymc_mfm.client" not in sys.modules
         from pymc_mfm import client
         from pymc_mfm.client import Client
-        assert "torch" not in sys.modules, "torch was imported"
-        assert "safetensors" not in sys.modules, "safetensors was imported"
+        dependencies = {
+            "torch", "safetensors", "xarray", "arviz_base", "arviz_stats",
+            "h5netcdf", "h5py", "matplotlib", "plotly", "huggingface_hub", "mlflow",
+        }
+        loaded = dependencies.intersection(sys.modules)
+        assert not loaded, loaded
         """
     )
     assert result.returncode == 0, result.stderr
 
 
-def test_local_names_explain_the_extra_when_torch_is_missing():
-    result = run(
-        """
-        import sys
-        sys.modules["torch"] = None  # makes "import torch" fail, as in a light install
-        sys.modules["safetensors"] = None
-        import pymc_mfm
-        for name in ("MFM", "from_pretrained"):
-            try:
-                getattr(pymc_mfm, name)
-            except ImportError as error:
-                assert str(error).startswith(f"pymc_mfm.{name} runs the model"), error
-                assert 'pip install "pymc-mfm[local]"' in str(error), error
-            else:
-                raise SystemExit(f"{name} loaded without torch")
-        try:
-            pymc_mfm.nope
-        except AttributeError:
-            pass
-        else:
-            raise SystemExit("unknown name did not raise AttributeError")
-        """
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
+def test_dir_lists_the_lazy_names_and_unknown_names_raise_attribute_error():
+    import pymc_mfm
 
+    with pytest.raises(AttributeError, match="no attribute 'nope'"):
+        pymc_mfm.nope
 
-def test_dir_lists_the_lazy_names():
     result = run(
         """
         import pymc_mfm
@@ -83,31 +67,16 @@ def test_result_tree_curves_and_charts_import_without_torch(module):
         """
     )
     assert loaded.returncode == 0, loaded.stderr + loaded.stdout
-    blocked = run(
-        f"""
-        import sys
-        sys.modules["torch"] = None  # makes "import torch" fail, as in a light install
-        sys.modules["safetensors"] = None
-        import {module}
-        import pymc_mfm.inference
-        try:
-            pymc_mfm.inference.decompose
-        except ImportError as error:
-            assert 'pip install "pymc-mfm[local]"' in str(error), error
-        else:
-            raise SystemExit("decompose loaded without torch")
-        """
-    )
-    assert blocked.returncode == 0, blocked.stderr + blocked.stdout
 
 
-def test_top_level_exports_and_the_light_names_load_without_torch():
+def test_top_level_exports_and_torch_free_names():
     result = run(
         """
         import sys
         sys.modules["torch"] = None
         sys.modules["safetensors"] = None
         import pymc_mfm
+        from pymc_mfm import idata
         from pymc_mfm.plotting import charts
         assert pymc_mfm.__all__ == [
             "MFM", "from_pretrained", "list_profiles", "Plots", "set_backend",
@@ -115,6 +84,8 @@ def test_top_level_exports_and_the_light_names_load_without_torch():
         ], pymc_mfm.__all__
         assert pymc_mfm.Plots is charts.Plots
         assert pymc_mfm.set_backend is charts.set_backend
+        for name in ("save_idata", "load_idata", "validate_idata"):
+            assert getattr(pymc_mfm, name) is getattr(idata, name)
         assert {"Plots", "set_backend"} <= set(dir(pymc_mfm))
         """
     )
@@ -133,8 +104,6 @@ DEPRECATED = {
 
 @pytest.mark.parametrize("name", DEPRECATED)
 def test_deprecated_top_level_names_warn_and_return_the_subpackage_object(name):
-    if name != "DecompositionResult":  # the others load PyTorch; see the no-torch test below
-        pytest.importorskip("torch")
     module, replacement = DEPRECATED[name]
     result = run(
         f"""
@@ -155,30 +124,7 @@ def test_deprecated_top_level_names_warn_and_return_the_subpackage_object(name):
     assert result.returncode == 0, result.stderr + result.stdout
 
 
-@pytest.mark.parametrize("name", [name for name in DEPRECATED if name != "DecompositionResult"])
-def test_deprecated_top_level_names_explain_the_extra_when_torch_is_missing(name):
-    result = run(
-        f"""
-        import sys, warnings
-        sys.modules["torch"] = None
-        sys.modules["safetensors"] = None
-        import pymc_mfm
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            try:
-                pymc_mfm.{name}
-            except ImportError as error:
-                assert 'pip install "pymc-mfm[local]"' in str(error), error
-            else:
-                raise SystemExit("{name} loaded without torch")
-        assert any(w.category is DeprecationWarning for w in caught), caught
-        """
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_star_import_skips_the_six_deprecated_names_without_a_warning():
-    pytest.importorskip("torch")
     result = run(
         f"""
         import warnings
@@ -207,23 +153,6 @@ def test_star_import_skips_the_six_deprecated_names_without_a_warning():
     assert result.returncode == 0, result.stderr + result.stdout
 
 
-def test_star_import_without_torch_explains_the_extra():
-    result = run(
-        """
-        import sys
-        sys.modules["torch"] = None
-        sys.modules["safetensors"] = None
-        try:
-            exec("from pymc_mfm import *", {})
-        except ImportError as error:
-            assert 'pip install "pymc-mfm[local]"' in str(error), error
-        else:
-            raise SystemExit("star import worked without torch")
-        """
-    )
-    assert result.returncode == 0, result.stderr + result.stdout
-
-
 def test_a_name_that_loaded_stays_silent_after_the_warning_filter_changes():
     result = run(
         """
@@ -247,18 +176,17 @@ def test_a_failed_load_is_not_cached_and_warns_again():
     result = run(
         """
         import sys, warnings
-        sys.modules["torch"] = None
-        sys.modules["safetensors"] = None
+        sys.modules["pymc_mfm.inference.api"] = None
         import pymc_mfm
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             for _ in range(2):
                 try:
                     pymc_mfm.decompose
-                except ImportError as error:
-                    assert 'pip install "pymc-mfm[local]"' in str(error), error
+                except ModuleNotFoundError as error:
+                    assert error.name == "pymc_mfm.inference.api", error
                 else:
-                    raise SystemExit("decompose loaded without torch")
+                    raise SystemExit("decompose loaded without its defining module")
         assert [w.category for w in caught] == [DeprecationWarning] * 2, caught
         """
     )

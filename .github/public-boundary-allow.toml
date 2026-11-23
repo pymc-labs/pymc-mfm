@@ -6,6 +6,13 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
+reason = "Reviewed quickstart with two Markdown edits for the standard install. Code, output, and notebook metadata are identical to the previously pinned f950c801 version. Malformed-image findings are never covered."
+sha256 = "cc48282c450ef9f757d37ae65fff64c22e6f96236d3f7c0e6d58f8c323b06972"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
 reason = "Release quickstart: main's reviewed 1,000-draw version with two markdown edits only. The intro installs the library from GitHub (PyPI's pymc-mfm is the client-only package) and still requires access to the private pymc-labs/mfm repository; the plotly note names the interactive extra. The 15 reviewed PNG outputs and every code cell and text output are byte-identical to the ae638e76 version below. These exact bytes are pinned; reruns require a new review/hash in the same pull request. Malformed-image findings are never covered."
 sha256 = "f950c801c03a5a6c0df83c493edca52efec7254ef3c19b8aab17ad62fac5ff96"
 max_bytes = 3000000

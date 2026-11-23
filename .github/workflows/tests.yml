@@ -15,9 +15,7 @@ concurrency:
 
 jobs:
   contracts:
-    # Two lanes per install. "fast" is every test not marked slow. "slow" is the seven tests
-    # marked slow (about 245 s serial). Together they run every test once per install, and
-    # the two lanes run in parallel, so the critical path is the longer lane, not the sum.
+    # Test the standard installation and the repository's generation and notebook tooling.
     name: contracts (${{ matrix.installation }}, ${{ matrix.lane }})
     runs-on: ubuntu-latest
     # Whole-job hang guard: the longest observed full lane took 30.3 min, serial.
@@ -25,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        installation: [base, full]
+        installation: [standard, tooling]
         lane: [fast, slow]
     env:
       MPLBACKEND: Agg
@@ -44,22 +42,20 @@ jobs:
           python-version: "3.13"
       - name: Install the native graph renderer
         run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
-      # "base" names the lane that runs the model with the default test tools; it needs the
-      # `local` extra because the default install no longer includes PyTorch.
-      - name: Install the local model runtime and test tools
-        if: matrix.installation == 'base'
-        run: uv sync --locked --extra local
-      - name: Install complete integration extras
-        if: matrix.installation == 'full'
-        run: uv sync --locked --all-extras
+      - name: Install the standard package and test tools
+        if: matrix.installation == 'standard'
+        run: uv sync --locked
+      - name: Install the package and contributor tooling
+        if: matrix.installation == 'tooling'
+        run: uv sync --locked --group generation --group examples
       - name: Check formatting and lint
-        if: matrix.installation == 'base' && matrix.lane == 'fast'
+        if: matrix.installation == 'standard' && matrix.lane == 'fast'
         run: |
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
       # Static check of the deprecated top-level names; it only reads tests/typing.
       - name: Check static types of the deprecated top-level names
-        if: matrix.installation == 'base' && matrix.lane == 'fast'
+        if: matrix.installation == 'standard' && matrix.lane == 'fast'
         run: uv run --no-sync pyright tests/typing
       # Each lane selects its marker expression explicitly; plain pytest runs all tests.
       - name: Exercise local contracts without publication credentials
@@ -76,8 +72,7 @@ jobs:
           retention-days: 30
 
   installed-smoke:
-    # Builds the sdist and wheels, then installs each into a clean environment. It needs no
-    # test results, so it runs beside the test jobs.
+    # Builds the sdist and wheel, then exercises each in a clean environment.
     runs-on: ubuntu-latest
     # Whole-job hang guard: observed about 4 min.
     timeout-minutes: 20
@@ -92,54 +87,21 @@ jobs:
       - name: Install the native graph renderer
         # The installed workflow check renders diagnostic graphs.
         run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
-      - name: Install complete integration extras
-        run: uv sync --locked --all-extras
+      - name: Install test tools
+        run: uv sync --locked --only-group dev
       - name: Plant ignored local files the build must leave out
         # The installed-distribution check rejects any of these in the sdist or wheels.
         run: touch src/pymc_mfm/canary.pt tests/canary.npz examples/.env.canary
       - name: Build distributable artifacts
         run: uv build
-      - name: Verify installed sdist, base/local wheels, diagnostics-only wheel and arviz-only wheel
+      - name: Verify the installed sdist and wheel
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
-
-  light:
-    # The default install is a light client with no PyTorch. Run its tests in two
-    # environments: the bare install, and the install with the client's extras.
-    runs-on: ubuntu-latest
-    # Whole-job hang guard: observed under 1 min.
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        extras: ["", "--extra client"]
-    env:
-      MPLBACKEND: Agg
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          python-version: "3.13"
-      - name: Install the client without PyTorch
-        run: uv sync --locked ${{ matrix.extras }}
-      - name: Check that PyTorch is absent and is not imported
-        run: uv run --no-sync python .github/scripts/light_install_check.py
-      - name: Test the client
-        # --confcutdir keeps the model fixtures in tests/conftest.py, which import torch, out.
-        run: uv run --no-sync pytest -q tests/client --confcutdir=tests/client --durations=25 --junitxml=junit/light-${{ matrix.extras == '' && 'bare' || 'client' }}.xml --timeout=120
-      - name: Upload test timings
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: junit-light-${{ matrix.extras == '' && 'bare' || 'client' }}
-          path: junit/
-          retention-days: 30
 
   # The single required check. It runs even when a job fails or is cancelled. A skipped job
   # counts as passed. A failed or cancelled job fails it.
   ci-ok:
     if: always()
-    needs: [contracts, installed-smoke, light]
+    needs: [contracts, installed-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

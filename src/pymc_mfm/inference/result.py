@@ -327,7 +327,7 @@ class DecompositionResult:
         return diagnostics
 
     def to_datatree(self, *, observed=None, truth=None, graph_truth=None) -> DataTree:
-        """These draws as an ArviZ ``xarray.DataTree``; needs the ``pymc-mfm[arviz]`` extra.
+        """These draws as an ArviZ ``xarray.DataTree``.
 
         Export only: ``save`` stays the evidence format and MFM never reads a tree back.
         Groups: ``posterior`` (``components[chain=1, draw, time, component]`` and

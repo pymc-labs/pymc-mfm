@@ -13,35 +13,32 @@ are separate artifacts: models load from a local folder or from the Hugging Face
 
 ## Installation
 
-Python 3.13 or newer.
+Python 3.13 or newer. Use any of:
 
 ```bash
-pip install "pymc-mfm[local] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+pip install pymc-mfm
+uv add pymc-mfm                         # in a uv project; or uv pip install pymc-mfm
+conda install -c conda-forge pymc-mfm   # or: pixi add pymc-mfm
 ```
 
-The default install, without `[local]`, is a light client for the River API (NumPy,
-pandas, httpx and packaging; about 130 MB, no PyTorch). `pymc_mfm.client` is the only
-part that runs there; see "Call the River API". The `[local]` extra adds PyTorch,
-safetensors, xarray and ArviZ Base for local models and complete in-memory inference trees.
-Names such as `from_pretrained` and `MFM` load on first use and raise an `ImportError` that names
-`pymc-mfm[local]` when PyTorch is missing. Optional extras:
+One install covers local inference and training, the client for the hosted River API
+with per-draw files and plots, diagnostics, and Hugging Face Hub loading. There are no
+extras. Installing grants no service or Hub access and includes no trained weights.
+Importing `pymc_mfm` or `pymc_mfm.client` does not load PyTorch.
 
-| Extra | Adds |
-| --- | --- |
-| `local` | PyTorch, safetensors, xarray and ArviZ Base for local models and inference trees |
-| `draws` | `xarray`, `h5netcdf` and `h5py`, to read the API's per-draw files |
-| `plot` | `matplotlib`, for `model.plot` charts and the client's plots |
-| `interactive` | `plotly`, for interactive `model.plot` charts |
-| `client` | `draws` and `plot` |
-| `hub` | `local`, and loading from and publishing to the Hugging Face Hub |
-| `training` | `local`, MLflow tracking and the diagnostics recorded during training |
-| `diagnostics` | `local`, and diagnostics, plots and HTML reports for results |
-| `arviz` | `local`, and ArviZ statistics for result analysis |
-| `generation` | `local`, and `pymc-generator`, to simulate corpora and read `.npz` corpora |
-| `examples` | `local`, and `pymc-marketing`, for the example notebook |
-
-Every extra that runs the model includes `local`, so installing `pymc-mfm[hub]` still
-installs PyTorch.
+- PyTorch comes from your package index. On Linux, pip and uv install the CUDA build
+  from PyPI, about 3 GB of downloads. On a machine without a GPU, install the CPU build
+  first with `pip install torch --index-url https://download.pytorch.org/whl/cpu`, or
+  configure uv as in [Using uv with PyTorch](https://docs.astral.sh/uv/guides/integration/pytorch/).
+  conda-forge selects a CUDA build only when it finds an NVIDIA driver.
+- PyPI has no PyTorch wheels for Intel Macs; install from conda-forge there.
+- In a uv project, set `requires-python = ">=3.13"` in its `pyproject.toml`: uv resolves
+  for every Python version the project allows.
+- `pymc-mfm` 0.1.2 on PyPI was a client-only build published by mistake and is yanked.
+  If it is installed, run `pip uninstall pymc-mfm` before installing; in a uv project
+  that depends on it, run `uv remove pymc-mfm`, then `uv add pymc-mfm`.
+- The development version installs from Git:
+  `pip install "pymc-mfm @ git+https://github.com/pymc-labs/pymc-mfm.git"`.
 
 ## Decompose a time series
 
@@ -132,8 +129,8 @@ an explicit graph. Before complete inference, `predict` raises a prerequisite er
 
 ### Charts
 
-`model.plot` draws the latest complete `inference` with matplotlib (the `[plot]`
-extra) or plotly (the `[interactive]` extra), never an intervening `predict`:
+`model.plot` draws the latest complete `inference` with matplotlib or plotly,
+never an intervening `predict`:
 
 ```python
 model.plot.inputs()  # outcome, media and control covariates by week, forecast weeks shaded
@@ -204,8 +201,7 @@ quick = model.predict(future, n_samples=200)  # independent; stored analysis unc
 
 ### Context and query snapshots
 
-The `[local]` extra includes complete in-memory trees; no export call or optional
-statistics package is required:
+Complete inference builds the in-memory tree automatically; no export call is required:
 
 ```python
 idata = model.idata  # current complete snapshot, including any attached curves
@@ -238,7 +234,7 @@ The tree has `context` and `query` subtrees, each with its own `posterior` and
 `query/observed_data/outcome(date)` stores them with NaN for unobserved dates;
 these outcomes are never neural inputs. Complete window provenance is JSON text
 in each window's `attrs["provenance"]`, or a dictionary on `model.query_result.provenance`.
-ArviZ statistics (the `[arviz]` extra) take a window subtree, for example
+ArviZ statistics take a window subtree, for example
 `arviz_stats.summary(idata["query"], var_names=["channel_contribution"], kind="stats")`,
 not the convenience root.
 
@@ -273,9 +269,8 @@ Both marginals and their analysis representation consume memory even with
 conversion while leaving the stored analysis unchanged. There is no history-only
 model tree or chart state.
 
-File export is explicit: install `[draws]`, write with
-`pymc_mfm.save_idata(model.idata, "analysis.nc")` (it never overwrites) and read
-with `pymc_mfm.load_idata("analysis.nc")`. Result evidence
+File export is explicit: write with `pymc_mfm.save_idata(model.idata, "analysis.nc")`
+(it never overwrites) and read with `pymc_mfm.load_idata("analysis.nc")`. Result evidence
 `query.save(...)` / `DecompositionResult.load(...)` is separate from tree export;
 neither restores a runnable dataframe session. Trees can contain sensitive
 outcomes, covariates and labels; review them before sharing.
@@ -330,16 +325,16 @@ A column that is zero in the context but nonzero in the query is rejected.
   frequent graph; `mode="fixed", graph=...` conditions on a given graph.
 - `result.save(path)` and `DecompositionResult.load(path)` store and reload a
   result without the model.
-- With `[diagnostics]`: `result.plot.reconstruction(observed=...)` and
-  `result.diagnostics(truth=...)`. `result.to_datatree()` exports the generic result schema.
+- Use `result.plot.reconstruction(observed=...)` and `result.diagnostics(truth=...)`.
+  `result.to_datatree()` exports the generic result schema.
 - Dates survive result save/load, plots and export. Saved results retain their
   original datetime precision; DataTree export requires a lossless supported
   second-through-nanosecond resolution and rejects rounding or collapsed labels.
 
 ### Inspect sampled graphs
 
-With `[diagnostics]`, switch between the marginal-average graph and individual
-complete graphs without rerunning inference:
+Switch between the marginal-average graph and individual complete graphs without
+rerunning inference:
 
 ```python
 result = model.query_result  # exact completed query draws; no resampling for helpers
@@ -516,23 +511,21 @@ model.sampling_status  # SamplingStatus(compiled=True, mode='default', compiles=
 
 ## Call the River API
 
-`pymc_mfm.client` is the Python client for the hosted River API (routes under `/v1`). It needs
-no PyTorch. Access to the hosted service is by invitation. Create your API key on the Connect
-page of the River API console, which also shows your service URL. Give the client the service URL
-and the key as arguments or in `MFM_API_URL` and `MFM_API_KEY`. The client needs Python 3.11 or newer. Install it from PyPI:
+`pymc_mfm.client` calls the hosted River API (routes under `/v1`). The standard
+[installation](#installation) includes it; no model weights are needed because the
+service runs River for you.
+[Get started](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/index.qmd) has a
+first analysis to run.
 
-```bash
-pip install pymc-mfm
-```
-
-To read every draw (`.nc` files) or draw plots, run `pip install "pymc-mfm[client]"` instead.
-
-[Get started](docs/guide/index.qmd) has a first script to copy and run.
+Hosted service access is by invitation. Use the direct HTTPS URL and API key from
+the Connect page of the River API console. Pass them to `Client`, or set
+`MFM_API_URL` and `MFM_API_KEY`. The browser console needs no Python install.
 
 The hosted River API keeps a dataset 7 days after upload, then deletes it and its analyses. Using
 the dataset does not extend this.
 
-An agent skill for the client is in [`skills/mfm/SKILL.md`](skills/mfm/SKILL.md).
+An agent skill for the client is in
+[`skills/mfm/SKILL.md`](https://github.com/pymc-labs/pymc-mfm/blob/main/skills/mfm/SKILL.md).
 
 ```python
 import numpy as np
@@ -711,9 +704,7 @@ The graph `g` concatenates these edge blocks, each ordered source-major:
 
 ### Run training
 
-```bash
-pip install "pymc-mfm[training] @ git+https://github.com/pymc-labs/pymc-mfm.git"
-```
+Training is included in the standard [installation](#installation).
 
 ```python
 from pymc_mfm.model import ModelConfig
@@ -747,8 +738,12 @@ model = result.model
   `out_dir` (or `MLFLOW_TRACKING_URI`). Disable it with
   `train(..., tracking=TrackingConfig(enabled=False))`.
 - `python -m pymc_mfm.training --help` lists the same options as a CLI. The CLI
-  reads `.npz` corpora and needs the `generation` extra.
+  reads existing supported `.npz` corpora passed with `--corpus`, without `pymc-generator`.
 - For bitwise-repeatable CPU runs, set `OMP_NUM_THREADS=1`.
+
+To produce synthetic corpora with `python -m pymc_mfm.data generate`, run
+`uv sync --locked --group generation` in a repository checkout first. The
+generator is contributor tooling, not a wheel dependency.
 
 `out_dir` contains:
 
@@ -783,7 +778,8 @@ and never unpickles code.
 
 ## Load models from Hugging Face
 
-Needs the `hub` extra.
+Hugging Face Hub support is included in the standard installation; access to
+private model repositories is separate.
 
 ```python
 from pymc_mfm import from_pretrained, list_profiles
@@ -806,10 +802,13 @@ model = from_pretrained(
 - `pymc_mfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
   a model and returns the commit id. New repositories are private.
 
-[`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a
-model from the Hub, decomposes a simulated dataset and plots the result. Its
-context scatter overlays River-1's weekly posterior mean channel contributions and
-the simulated true contributions against raw spend, with one panel per channel.
+To run
+[`examples/river_1_quickstart.ipynb`](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb),
+run `uv sync --locked --group examples` in a repository checkout and use its
+Python environment for the notebook. The example loads a model from the Hub,
+decomposes a simulated dataset and plots the result. Its context scatter overlays
+River-1's weekly posterior mean channel contributions and the simulated true
+contributions against raw spend, with one panel per channel.
 Its scenario sweep varies each channel from 0% to 200% of its actual spend path
 over eight query weeks, keeping history and other inputs fixed. It plots the
 eight-week channel contribution with pointwise 90% approximate posterior intervals
@@ -820,7 +819,7 @@ lift curves.
 ## Development
 
 ```bash
-uv sync --locked --extra local --extra client
+uv sync --locked
 uv run --no-sync pytest -q -n 2 -m "not slow"
 uv run ruff check .
 uv run ruff format --check .
@@ -830,21 +829,20 @@ The fast command excludes tests marked `slow`. Plain `pytest` applies no marker 
 so file and node selections retain their slow cases. CI runs both lanes. Use at most
 `-n 2` on a small machine.
 
-Install all extras before running the slow integration tests, which need the generation,
-training and examples dependencies. Run these tests serially:
+For the full contributor suite, install the corpus-generation and notebook
+dependency groups before running the slow tests serially:
 
 ```bash
-uv sync --locked --all-extras
+uv sync --locked --group generation --group examples
 uv run --no-sync pytest -q -m slow
 ```
 
 After that sync, `uv run --no-sync pytest -q` runs the full suite, including slow tests,
 serially.
 
-The client tests need only the light install. To run them without PyTorch, as CI does:
+To run the hosted SDK tests on their own:
 
 ```bash
-uv sync --locked
 uv run --no-sync pytest -q tests/client --confcutdir=tests/client
 ```
 
@@ -901,7 +899,8 @@ Pages is a manual run of that workflow on `main`.
 
 This repository will be public, history included. Commit library code, tests,
 synthetic fixtures and docs. Never commit trained weights, credentials, user data,
-internal deployment names or private results. [AGENTS.md](AGENTS.md) has the full
+internal deployment names or private results.
+[AGENTS.md](https://github.com/pymc-labs/pymc-mfm/blob/main/AGENTS.md) has the full
 table and the boundary check, which CI runs on every pull request:
 
 ```bash
@@ -921,5 +920,8 @@ path. The library never needs it:
 
 ## Status
 
-Version `0.0.1.dev0`, not a published release. Code and model licenses are not
-yet selected. See [RELEASE.md](RELEASE.md) for changes and known limits.
+Alpha: the API can change between releases. The code is
+licensed under [Apache-2.0](https://github.com/pymc-labs/pymc-mfm/blob/main/LICENSE);
+model weights are separate artifacts with their own licenses. See
+[RELEASE.md](https://github.com/pymc-labs/pymc-mfm/blob/main/RELEASE.md) for changes
+and known limits.
