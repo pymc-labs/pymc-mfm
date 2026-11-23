@@ -15,6 +15,8 @@
      initPhoneToc      below 992px (site.css) a closed "On this page" list under the page title
      initFolderAddress shows ".../index.html" as ".../" in the address bar, so links to a section of
                        the open page scroll and do not load the page again
+     initAnchorOnLoad  a page opened with a #section in its address goes to that section, below the
+                       fixed bar, after Quarto's own scrolling at load
    Search additions (labels, result paths, the empty message) are in search.js.
    Colours, icons and motion are in site.css; this file only adds classes, attributes and labels. */
 (() => {
@@ -366,8 +368,45 @@
     window.history.replaceState(window.history.state, "", folder + search + hash);
   }
 
+  /* A page opened with a #section in its address must show that section. Two things in
+     Quarto's page scripts stop it. In Safari the colour-scheme script scrolls to 1px and, 40ms
+     later, back to the top (its fix for the scrollbar colour), which cancels the browser's own
+     jump to the section: an iPhone lands at the top of the page. In other browsers the jump
+     can end with the heading under the fixed bar, because the fonts and the code labels
+     change the height of the text above it while the page still scrolls. So, shortly after
+     load, and again when the fonts are in, go to the section when its heading is not where
+     html's scroll-padding-top puts it. A reader who has scrolled by then is left alone. */
+  function initAnchorOnLoad() {
+    const SETTLE_MS = 120; // after the 40ms timer of Quarto's Safari fix
+    const LATE_MS = 1200; // after the browser's own smooth scroll on a long page
+    const go = () => {
+      const id = decodeURIComponent(window.location.hash.slice(1));
+      const target = id && document.getElementById(id);
+      if (!target) return;
+      const top = target.getBoundingClientRect().top;
+      const pad = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+      if (Math.abs(top - pad) < 8) return;
+      target.scrollIntoView({ behavior: "instant", block: "start" });
+    };
+    const onLoad = () => {
+      let touched = false;
+      const mark = () => (touched = true);
+      ["wheel", "touchstart", "keydown", "pointerdown"].forEach((type) =>
+        window.addEventListener(type, mark, { once: true, passive: true }),
+      );
+      const again = () => touched || go();
+      window.setTimeout(again, SETTLE_MS);
+      window.setTimeout(again, LATE_MS);
+      document.fonts?.ready.then(again);
+    };
+    if (!window.location.hash) return;
+    if (document.readyState === "complete") onLoad();
+    else window.addEventListener("load", onLoad, { once: true });
+  }
+
   [
     initFolderAddress,
+    initAnchorOnLoad,
     initModelsMenu,
     initConsoleButton,
     initExternalLinks,
