@@ -1,7 +1,7 @@
 [project]
 name = "pymc-mfm"
 version = "0.0.1.dev0"
-description = "Graph-conditional marketing foundational models."
+description = "Graph-conditional Marketing Foundation Models."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

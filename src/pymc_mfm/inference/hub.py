@@ -525,7 +525,7 @@ def _bundle_card(
     title = "" if profile is None else f": profile {profile}"
     described = "" if description is None else f"## Model description\n\n{description}\n\n"
     return f"""{_front_matter(license)}
-# Marketing Foundational Model{title}
+# Marketing Foundation Model{title}
 
 A complete trainable graph-conditional MFM artifact, including the shared
 encoder, joint graph router, auxiliary structure head, graph conditioner,
@@ -600,7 +600,7 @@ confounding or noise levels is not established.
 def _collection_card(profiles: list[str], *, license: str, repo_id: str | None) -> str:
     rows = [(name, f"[profiles/{name}/README.md](profiles/{name}/README.md)") for name in profiles]
     return f"""{_front_matter(license)}
-# Marketing Foundational Model collection
+# Marketing Foundation Model collection
 
 Every profile below is an artifact of the same fixed graph-conditional MFM
 architecture, trained on its own corpus. Each profile's model card describes its
