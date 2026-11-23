@@ -3,6 +3,7 @@
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
      initConsoleButton marks the last right-hand navbar link with data-mfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
+     initSameSiteLinks a link to this site's own origin opens in the same tab, wherever it is served
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
      initCodeLabels    a language label with its logo on every code block (Python, curl, shell, JSON)
@@ -116,6 +117,18 @@
       if (link.dataset.mfm || link.querySelector(".bi") || link.host === window.location.host) return;
       link.classList.add("is-external");
     });
+  }
+
+  /* Quarto opens every link outside its site-url in a new tab (link-external-newwindow), and
+     judges "outside" by that configured address. Served from any other address (a preview, a
+     host mount.py was not given), the site's own pages would open in new tabs too. A link to
+     this page's origin always opens here: the target is dropped as the click starts, so it
+     holds for pointer and keyboard alike, whenever Quarto set it. */
+  function initSameSiteLinks() {
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest('a[target="_blank"]');
+      if (link && link.origin === window.location.origin) link.removeAttribute("target");
+    }, true);
   }
 
   function copyText(text) {
@@ -312,6 +325,7 @@
     initModelsMenu,
     initConsoleButton,
     initExternalLinks,
+    initSameSiteLinks,
     initCopyButtons,
     initCodeLabels,
     initCodeScroll,
