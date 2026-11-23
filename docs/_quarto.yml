@@ -44,7 +44,7 @@ website:
   # out the site, so the site's own links open in the same tab and share images resolve.
   site-url: https://pymc-labs.github.io/pymc-mfm
   repo-url: https://github.com/pymc-labs/pymc-mfm
-  favicon: assets/favicon/favicon.svg
+  favicon: assets/favicon/favicon.png
   bread-crumbs: false
   page-navigation: true
   back-to-top-navigation: false
