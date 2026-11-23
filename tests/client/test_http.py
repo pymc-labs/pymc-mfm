@@ -5,6 +5,7 @@ import pytest
 
 from pymc_mfm.client import (
     ApiConnectionError,
+    ApiError,
     Client,
     Conflict,
     Forbidden,
@@ -61,6 +62,272 @@ def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
         "Pass api_key or set the MFM_API_KEY environment variable. Create or replace "
         "your API key on the Connect page of the River API console."
     )
+
+
+def refused_url_message(scheme: str, host: str) -> str:
+    return (
+        "The service URL must start with https:// and name a host, so the API key is never "
+        f"sent in clear text; got scheme {scheme!r} and host {host!r}. Use the https:// "
+        "URL exactly as the Connect page of the River API console shows it."
+    )
+
+
+def test_a_plain_http_service_url_is_refused_before_any_request(service):
+    with pytest.raises(ValueError) as caught:
+        Client("http://api.example.com", "test-key", transport=httpx.MockTransport(service))
+    assert str(caught.value) == (
+        "The service URL must start with https:// and name a host, so the API key is never "
+        "sent in clear text; got scheme 'http' and host 'api.example.com'. Use the https:// "
+        "URL exactly as the Connect page of the River API console shows it."
+    )
+    assert service.requests == []
+
+
+@pytest.mark.parametrize(
+    ("url", "scheme", "host"),
+    [
+        ("HTTP://API.example.com/v1", "http", "api.example.com"),
+        ("http://192.0.2.10:8000", "http", "192.0.2.10"),
+        ("http://localhost.example.com", "http", "localhost.example.com"),
+        ("http://user:secret@api.example.com", "http", "api.example.com"),
+        ("ftp://api.example.com", "ftp", "api.example.com"),
+        ("api.example.com", "", ""),
+        ("https:///v1", "https", ""),
+        ("https://:443", "https", ""),
+    ],
+)
+def test_a_service_url_that_is_not_https_or_has_no_host_is_refused(service, url, scheme, host):
+    with pytest.raises(ValueError) as caught:
+        Client(url, "test-key", transport=httpx.MockTransport(service))
+    assert str(caught.value) == refused_url_message(scheme, host)
+    assert service.requests == []
+
+
+@pytest.mark.parametrize(
+    ("url", "problem"),
+    [
+        (
+            "https://user:secret@api.example.com",
+            "must not contain a user name or password; pass the key in api_key or MFM_API_KEY",
+        ),
+        (
+            "https://user@api.example.com",
+            "must not contain a user name or password; pass the key in api_key or MFM_API_KEY",
+        ),
+        ("http://localhost:abc", "has a port that is not a number from 0 to 65535"),
+        ("https://api.example.com:99999", "has a port that is not a number from 0 to 65535"),
+        ("https://api.example.com/v1?x=1", "must not contain a query or a fragment"),
+        ("https://api.example.com/v1#top", "must not contain a query or a fragment"),
+    ],
+)
+def test_a_service_url_with_credentials_a_bad_port_or_a_query_is_refused(service, url, problem):
+    with pytest.raises(ValueError) as caught:
+        Client(url, "test-key", transport=httpx.MockTransport(service))
+    assert str(caught.value) == (
+        f"The service URL {problem}. Use the https:// URL exactly as the Connect page of the "
+        "River API console shows it."
+    )
+    assert "secret" not in str(caught.value)
+    assert service.requests == []
+
+
+def redirecting_client(location="https://elsewhere.example/v1/x?token=abc", status=307):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        if request.url.host == "api.example.com":
+            return httpx.Response(status, headers={"Location": location, "X-Secret": "hdr"})
+        return httpx.Response(200, content=b"data")
+
+    return Client(BASE_URL, "test-key", transport=httpx.MockTransport(handler)), seen
+
+
+REDIRECT_MESSAGE = (
+    "HTTP {status} redirect: The service redirected the request to host 'elsewhere.example'. "
+    "The client does not follow redirects. Check that MFM_API_URL is the https:// URL exactly "
+    "as the Connect page of the River API console shows it."
+)
+
+
+@pytest.mark.parametrize("status", [301, 302, 307, 308])
+@pytest.mark.parametrize("call", ["request", "download_authenticated", "download"])
+def test_a_redirect_raises_one_clear_error_and_is_not_followed(status, call):
+    client, seen = redirecting_client(status=status)
+    http = client._http
+    args = {
+        "request": ("GET", "/v1/a"),
+        "download_authenticated": ("/v1/a",),
+        "download": (f"{BASE_URL}/v1/a",),
+    }[call]
+    with pytest.raises(ApiError) as caught:
+        getattr(http, call)(*args)
+    assert str(caught.value) == REDIRECT_MESSAGE.format(status=status)
+    assert [r.url.host for r in seen] == ["api.example.com"]
+
+
+def test_a_redirect_without_a_location_host_is_still_one_clear_error():
+    client, _ = redirecting_client(location="/other")
+    with pytest.raises(ApiError) as caught:
+        client._http.request("GET", "/v1/a")
+    assert str(caught.value) == (
+        "HTTP 307 redirect: The service redirected the request to a location without a host. "
+        "The client does not follow redirects. Check that MFM_API_URL is the https:// URL "
+        "exactly as the Connect page of the River API console shows it."
+    )
+
+
+@pytest.mark.parametrize(
+    ("url", "scheme", "host"),
+    [
+        ("http://storage.example.com/x?sig=1", "http", "storage.example.com"),
+        ("storage.example.com/x", "", ""),
+    ],
+)
+def test_a_download_url_that_is_not_https_is_refused_before_any_request(service, url, scheme, host):
+    client = Client(BASE_URL, "test-key", transport=httpx.MockTransport(service))
+    with pytest.raises(ValueError) as caught:
+        client._http.download(url)
+    assert str(caught.value) == (
+        "The download URL must start with https:// and name a host; got scheme "
+        f"{scheme!r} and host {host!r}."
+    )
+    assert service.requests == []
+
+
+def test_the_key_goes_only_to_the_service_host_and_signed_urls_get_no_key():
+    # Signed storage URLs (draws files) come from the service result and are fetched
+    # without credentials; only the API paths of the configured host carry the key.
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, content=b"data")
+
+    client = Client(BASE_URL, "test-key", transport=httpx.MockTransport(handler))
+    client._http.download("https://storage.example.com/draws.nc?sig=1")
+    client._http.download_authenticated("/v1/analyses/an_1/export")
+    assert [(r.url.host, r.headers.get("Authorization")) for r in seen] == [
+        ("storage.example.com", None),
+        ("api.example.com", "Bearer test-key"),
+    ]
+
+
+def test_a_plain_http_url_in_the_environment_is_refused(monkeypatch, service):
+    monkeypatch.setenv("MFM_API_URL", "http://api.example.com")
+    monkeypatch.setenv("MFM_API_KEY", "env-key")
+    with pytest.raises(ValueError) as caught:
+        Client(transport=httpx.MockTransport(service))
+    assert str(caught.value) == refused_url_message("http", "api.example.com")
+    assert service.requests == []
+
+
+@pytest.mark.parametrize(
+    ("url", "sent_to"),
+    [
+        (BASE_URL, f"{BASE_URL}/v1/datasets/ds_123"),
+        ("HTTPS://api.example.com", f"{BASE_URL}/v1/datasets/ds_123"),
+        ("http://127.0.0.1:8000", "http://127.0.0.1:8000/v1/datasets/ds_123"),
+        ("http://localhost", "http://localhost/v1/datasets/ds_123"),
+        ("http://[::1]:8000/", "http://[::1]:8000/v1/datasets/ds_123"),
+    ],
+)
+def test_https_and_loopback_http_service_urls_are_accepted(service, url, sent_to):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()))
+    with Client(url, "test-key", transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    assert [str(r.url) for r in service.requests] == [sent_to]
+    assert service.requests[0].headers["Authorization"] == "Bearer test-key"
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["mktfm_abc\n", "mktfm_abc\r\n", "  mktfm_abc  ", "\tmktfm_abc \n", "\ufeffmktfm_abc\n"],
+)
+def test_surrounding_whitespace_and_bom_are_stripped_from_the_key(key, monkeypatch, service):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()), (200, dataset_record()))
+    with Client(BASE_URL, key, transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    monkeypatch.setenv("MFM_API_KEY", key)
+    with Client(BASE_URL, transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    assert [r.headers["Authorization"] for r in service.requests] == ["Bearer mktfm_abc"] * 2
+
+
+def test_surrounding_whitespace_is_stripped_from_the_url(monkeypatch, service):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()), (200, dataset_record()))
+    with Client(BASE_URL + "/\n", "k", transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    monkeypatch.setenv("MFM_API_URL", " " + BASE_URL + "\r\n")
+    with Client(api_key="k", transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    assert [str(r.url) for r in service.requests] == [f"{BASE_URL}/v1/datasets/ds_123"] * 2
+
+
+HINT = (
+    "Check the key in MFM_API_KEY (or api_key). Create or replace your API key on the "
+    "Connect page of the River API console."
+)
+QUOTES = f"The API key starts or ends with a quote mark. Remove the quote marks. {HINT}"
+INNER = f"The API key has a space or line break inside it. Copy the whole key on one line. {HINT}"
+ODD = (
+    "The API key has a character that a key never holds (a control character or one "
+    f"that is not plain ASCII). Copy the key again, as plain text. {HINT}"
+)
+
+
+@pytest.mark.parametrize(
+    ("key", "message"),
+    [
+        ('"mktfm_secretvalue"', QUOTES),
+        ("'mktfm_secretvalue'\n", QUOTES),
+        ("mktfm_secret value", INNER),
+        ("mktfm_secret\nvalue", INNER),
+        ("mktfm_secr\u00e9tvalue", ODD),
+        ("mktfm_secret\x07value", ODD),
+        ("mktfm_secret\ufeffvalue", ODD),
+    ],
+)
+def test_a_malformed_key_is_refused_without_showing_it(key, message, monkeypatch, service):
+    for build in (
+        lambda: Client(BASE_URL, key, transport=httpx.MockTransport(service)),
+        lambda: (
+            monkeypatch.setenv("MFM_API_KEY", key),
+            Client(BASE_URL, transport=httpx.MockTransport(service)),
+        ),
+    ):
+        with pytest.raises(ValueError) as caught:
+            build()
+        assert str(caught.value) == message
+        assert "secret" not in repr(caught.value)
+    assert service.requests == []
+
+
+def test_a_blank_key_counts_as_missing(monkeypatch):
+    monkeypatch.delenv("MFM_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="Pass api_key or set the MFM_API_KEY"):
+        Client(BASE_URL, " \n")
+
+
+SECRET = "mktfm_TOPSECRETVALUE123"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ConnectError(f"failed with Authorization: Bearer {SECRET} sent"),
+        httpx.ReadTimeout(f"Authorization header {SECRET}"),
+    ],
+)
+def test_a_connection_error_never_shows_the_key(failure, service, sleeps):
+    service.on("GET", "/v1/datasets/ds_123", failure)
+    with Client(BASE_URL, SECRET, transport=httpx.MockTransport(service)) as client:
+        client._http._sleep = sleeps.append
+        with pytest.raises(ApiConnectionError) as caught:
+            client.datasets.get("ds_123")
+        assert SECRET not in str(caught.value) + repr(caught.value)
+        assert SECRET not in repr(client) + repr(client._http)
+    assert str(caught.value).startswith(f"Could not reach {BASE_URL}/v1/datasets/ds_123: ")
 
 
 @pytest.mark.parametrize(
