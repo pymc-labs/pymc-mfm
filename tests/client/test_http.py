@@ -499,6 +499,26 @@ def test_rate_limit_error_keeps_retry_after_after_the_last_retry(service, sleeps
 
 
 @pytest.mark.parametrize(
+    ("message", "field", "shown"),
+    [
+        ("Bad key.", None, "Bad key."),
+        ("bad key", None, "bad key."),
+        ("bad key", "authorization", "bad key (field: authorization)."),
+    ],
+)
+def test_a_rejected_key_says_where_to_get_one(client, service, message, field, shown):
+    service.on("GET", "/v1/datasets/ds_123", (401, error_body("unauthorized", message, field)))
+    with pytest.raises(Unauthorized) as caught:
+        client.datasets.get("ds_123")
+    assert str(caught.value) == (
+        f"HTTP 401 unauthorized: {shown} Check api_key or MFM_API_KEY. "
+        "Create or replace your API key on the Connect page of the River API console."
+    )
+    assert caught.value.args == (str(caught.value),)
+    assert caught.value.message == message
+
+
+@pytest.mark.parametrize(
     ("status", "code", "error_class"),
     [
         (401, "unauthorized", Unauthorized),

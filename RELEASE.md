@@ -88,6 +88,9 @@ distribution prerequisites, not an approved or published release.
   Signed downloads keep their query but carry no API key or cookies. An exhausted
   transport failure reports the origin and error type, not the raw exception or a
   discarded 403 from renewing a signed URL.
+- **Client (for `client-v0.1.0`): a rejected key says where to get one.** An `Unauthorized`
+  (401) error now ends with the key hint of the setup errors, which names the Connect page
+  of the River API console. The service's code and message stay first; `message` is unchanged.
 - **Client (for `client-v0.1.0`): `wait` returns when every run has ended.** The service
   marks an analysis `failed` as soon as its baseline fails, while other runs can still be
   active. `AnalysisStatus.finished`, and so `Analysis.wait`, now count a `failed` analysis

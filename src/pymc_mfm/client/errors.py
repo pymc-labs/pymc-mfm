@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+KEY_HINT = (
+    "Check api_key or MFM_API_KEY. Create or replace your API key on the Connect page "
+    "of the River API console."
+)
+
 
 class ClientError(Exception):
     """Base class for every error this client raises on purpose."""
@@ -48,6 +53,11 @@ class ValidationError(ApiError):
 
 class Unauthorized(ApiError):
     """The API key is missing or wrong (401)."""
+
+    def __str__(self) -> str:
+        text = super().__str__()
+        stop = "" if text.endswith((".", "!", "?")) else "."  # a service message may lack one
+        return f"{text}{stop} {KEY_HINT}"
 
 
 class Forbidden(ApiError):

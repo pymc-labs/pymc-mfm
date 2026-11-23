@@ -17,7 +17,7 @@ import httpx
 from pymc_mfm import __version__
 
 from ._wire import canonical_json, to_json
-from .errors import ApiConnectionError, ApiError, Gone, error_from_response
+from .errors import KEY_HINT, ApiConnectionError, ApiError, Gone, error_from_response
 
 RETRY_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_WAIT = 60.0  # seconds; default cap on a Retry-After wait
@@ -36,10 +36,6 @@ _SIGNED_DOWNLOAD = "pymc_mfm.signed_download"
 _URL_SHAPE_PROBLEM = "must be well-formed, with a host and an optional port from 1 to 65535"
 _SERVICE_URL_HINT = (
     "Set base_url or MFM_API_URL to the direct https:// URL shown on the Connect page "
-    "of the River API console."
-)
-_KEY_HINT = (
-    "Check api_key or MFM_API_KEY. Create or replace your API key on the Connect page "
     "of the River API console."
 )
 
@@ -88,7 +84,7 @@ def _check_api_key(key: str) -> None:
         problem = "has a control or non-ASCII character. Copy the key again as plain text"
     else:
         return
-    raise ValueError(f"The API key {problem}. {_KEY_HINT}")
+    raise ValueError(f"The API key {problem}. {KEY_HINT}")
 
 
 def _omit_download_credentials(request: httpx.Request) -> None:
