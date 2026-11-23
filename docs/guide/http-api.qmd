@@ -46,7 +46,7 @@ A `Client` closes its connection pool with `close()` and can be used as a contex
 :::
 
 ::: {.content-visible when-profile="pilot"}
-A `Client` closes its connection pool with `close()` and can be used as a context manager. To use the sample data your invitation gives you, replace `history` and `plan` with DataFrames of it (see [Rules for the data](index.qmd#data-rules)).
+A `Client` closes its connection pool with `close()` and can be used as a context manager. To use other sample or synthetic data, replace `history` and `plan` with DataFrames of it (see [Rules for the data](index.qmd#data-rules)). Use sample or synthetic data only.
 :::
 
 ## Create a dataset and analysis

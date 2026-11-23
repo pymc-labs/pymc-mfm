@@ -12,7 +12,7 @@ scenarios (budget changes to compare with it) and response curves. The baseline 
 so the forecast can be compared with what happened. This skill uses the Python client,
 `pymc_mfm.client`. Agents without Python read `reference/http.md`.
 
-Research prototype. Synthetic or internal data only. Not for budget decisions on its own.
+Research prototype. Sample or synthetic data only. Not for budget decisions on its own.
 
 ## Set up
 
