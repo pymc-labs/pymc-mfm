@@ -36,9 +36,11 @@ References to `client-v0.1.0` record the earlier client release plan.
   bundle, private to the PyMC Labs organization; `"./river-1"` is a folder), or the
   hosted engine (by invitation). Use `model.inference(context, query)` and
   `result.plot` on each. Hosted inference checks dates, weekly cadence, missing or
-  infinite values, positive outcomes and nonnegative spend locally before any request,
-  waits until River finishes (no fixed time limit), downloads results, never model
-  weights, and keeps the caller's dates. River's warnings from inference and curve
+  infinite values, positive outcomes, nonnegative spend, and series that are zero
+  throughout the history but not in the plan locally before any request, waits until
+  River finishes (no fixed time limit; a failed or deleted analysis ends the wait),
+  downloads results, never model weights, and keeps the caller's dates. River's
+  warnings from inference and curve
   sweeps are emitted as `UserWarning` and stored in the result. A hosted
   `response_curves` sweep stores River's mean and fixed 90% band in
   `/response_curves/summary` (no draws, so another chart `interval=` raises
@@ -48,7 +50,8 @@ References to `client-v0.1.0` record the earlier client release plan.
   note with its ID: calling the model again starts a new analysis, and
   `pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. On
   `engine="local"`, `token=` goes to Hugging Face, so `load` refuses a `token=` equal
-  to `MFM_API_KEY`. `model.network` returns the local research `MFM`;
+  to `MFM_API_KEY`; on `engine="hosted"` it refuses a Hugging Face token (`hf_...` or
+  `HF_TOKEN`). `model.network` returns the local research `MFM`;
   `pymc_mfm.client` and `from_pretrained` remain available.
 - **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
   `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,

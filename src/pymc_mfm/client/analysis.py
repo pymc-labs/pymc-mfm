@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     import xarray
 
 #: Statuses that end polling, once every run has ended (see ``AnalysisStatus.finished``).
-#: The service answers 410 (``Gone``) for a deleted analysis, so no status says so.
+#: A deleted analysis answers 410 (``Gone``) or the status ``deleted``; ``wait`` raises ``Gone``.
 TERMINAL_STATUSES = frozenset({"done", "failed"})
 URL_RENEWAL_MARGIN = 30.0  # seconds; renew a signed URL this close to its expiry
 
@@ -280,6 +280,8 @@ class Analysis:
         if announce and not self._status.finished:
             print(f"analysis id: {self.id}  (resume: {self.resume_call})", file=sys.stderr)
         while not self.status().finished:
+            if self._status.status == "deleted":
+                raise Gone(410, "deleted", f"Analysis {self.id} was deleted")
             if deadline is not None and time.monotonic() + poll > deadline:
                 state = self._status
                 ended = state.runs_done + state.runs_failed + state.runs_cancelled

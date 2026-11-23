@@ -78,15 +78,15 @@ model = mfm.load("river-1", engine="hosted", **roles)
 
 Inference sends the history, the plan's spend and controls, and the column roles to River, then retrieves the results. It does not download model weights or import PyTorch. Use the synthetic data unless your invitation allows your own. A hosted model differs from a local one in a few ways:
 
-- `inference` checks the history and plan locally before sending any request: the dates and their weekly cadence, missing or infinite values, a positive outcome and nonnegative spend. It takes 100 to 2,000 draws per window. Result dates are your own timestamps.
+- `inference` checks the history and plan locally before sending any request: the dates and their weekly cadence, missing or infinite values, a positive outcome, nonnegative spend, and no channel or control that is zero in every history week but not in the plan. It takes 100 to 2,000 draws per window. Result dates are your own timestamps.
 - River's warnings from inference and curve sweeps, such as a history outside the trained range, are raised as `UserWarning` and stored in `result.idata`: under `warnings` in each window's provenance, and in the `warning` variable of `/response_curves/summary`.
 - `model.response_curves(...)` stores River's mean and fixed 90% band in `/response_curves/summary`, with no curve draws and no `posterior`, so `result.plot.response_curves(interval=...)` with another interval raises `NotSupported`. The chart rings the points River warned about and lists the warnings in its caption. A channel with no successful varied level raises `RuntimeError` and keeps the previous result.
-- A call waits until River finishes, with no fixed time limit. If it fails or you interrupt it after River accepted the analysis, the error's note gives the analysis ID. Calling the model again starts a new analysis; inspect the accepted one with `pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")`.
+- A call waits until River finishes, with no fixed time limit; a failed analysis raises `RuntimeError` and a deleted one `Gone`. If it fails or you interrupt it after River accepted the analysis, the error's note gives the analysis ID. Calling the model again starts a new analysis; inspect the accepted one with `pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")`.
 - `model.network` raises `NotSupported`: the service exposes no weights.
 
 #### Get access
 
-Access is by invitation. Set `MFM_API_URL` to the service URL and `MFM_API_KEY` to the personal key from the console's **Connect** page. You can pass `token=` instead of setting `MFM_API_KEY`; keep the key out of notebooks and shared files. This key is separate from Hugging Face authentication: with `engine="local"`, `token=` goes to Hugging Face, so `mfm.load` refuses a `token=` equal to `MFM_API_KEY`. See the [River API access instructions](http-api.qmd#get-access) for details.
+Access is by invitation. Set `MFM_API_URL` to the service URL and `MFM_API_KEY` to the personal key from the console's **Connect** page. You can pass `token=` instead of setting `MFM_API_KEY`; keep the key out of notebooks and shared files. This key is separate from Hugging Face authentication: with `engine="local"`, `token=` goes to Hugging Face, so `mfm.load` refuses a `token=` equal to `MFM_API_KEY`, and with `engine="hosted"` it refuses a Hugging Face token (`hf_...` or `HF_TOKEN`). See the [River API access instructions](http-api.qmd#get-access) for details.
 
 ## Install {#install}
 

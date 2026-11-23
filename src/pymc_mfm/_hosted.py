@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import warnings
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -24,6 +25,7 @@ from .client.plots import _warning_list
 _BASELINE = "baseline"
 _BAND = ["mean", "p05", "p95"]
 _DRAWS_SCHEMA = "river-draws/1"
+_POLL_SECONDS = 2.0
 _UNITS = "outcome"
 # River row statuses of a plan that has no result. Only these leave a gap in a curve.
 _FAILED = frozenset({"failed", "cancelled"})
@@ -101,7 +103,7 @@ class HostedEngine:
             date_column=columns["date"],
         )
         check_plan_follows_history(wire_plan, calendar_date.fromisoformat(history["dates"][-1]))
-        _check_signs(history, wire_plan, columns["outcome"])
+        _check_values(history, wire_plan, columns["outcome"])
         with self._client() as client:
             try:
                 dataset = client.datasets.create(context, **columns, reuse=True)
@@ -121,8 +123,7 @@ class HostedEngine:
                 ),
             )
             with _resumable(analysis.id):
-                # No time limit: the model cannot pick up an analysis it stopped waiting for.
-                analysis.wait(announce=False)
+                _wait(analysis)
                 yield dataset.warnings, analysis
 
     def inference(
@@ -334,8 +335,12 @@ def _warn(notes: list[str]) -> None:
         warnings.warn(note, UserWarning, stacklevel=4)
 
 
-def _check_signs(history: dict[str, Any], plan: dict[str, Any], target: str) -> None:
-    """Refuse the values the local engine refuses: negative spend and nonpositive outcomes."""
+def _check_values(history: dict[str, Any], plan: dict[str, Any], target: str) -> None:
+    """Refuse what the local engine and River refuse, before any request.
+
+    Spend must be nonnegative, outcomes positive, and a channel or control that is zero
+    in every history week must stay zero in the plan (River's ``history_all_zero``).
+    """
     for window, body in (("context", history), ("query", plan)):
         negative = [name for name, values in body["spend"].items() if any(v < 0 for v in values)]
         if negative:
@@ -346,6 +351,34 @@ def _check_signs(history: dict[str, Any], plan: dict[str, Any], target: str) -> 
         raise ValueError(
             f"context outcomes must be positive; {target!r} has zero or negative values"
         )
+    for role in ("spend", "controls"):
+        silent = [
+            name
+            for name, values in history[role].items()
+            if not any(values) and any(plan[role][name])
+        ]
+        if silent:
+            raise ValueError(
+                f"{silent} are zero in every context week but not in the query; "
+                "a series with no history cannot be planned"
+            )
+
+
+def _wait(analysis: Analysis) -> None:
+    """Poll until River ends the analysis, with no time limit: the model cannot resume one.
+
+    A failed analysis stops at once, since its baseline failed and no window has a result;
+    a deleted one raises ``Gone``.
+    """
+    while True:
+        state = analysis.status()
+        if state.status == "failed":
+            raise RuntimeError(f"Hosted analysis {analysis.id!r} has no successful baseline run")
+        if state.status == "deleted":
+            raise Gone(410, "deleted", f"Analysis {analysis.id} was deleted")
+        if state.finished:
+            return
+        time.sleep(_POLL_SECONDS)
 
 
 def _ordered(

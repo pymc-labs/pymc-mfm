@@ -97,14 +97,16 @@ Change only the `load` call to choose where River runs:
 River-1's weights are private to the PyMC Labs Hugging Face organization. Outside PyMC
 Labs, run River-1 on the hosted API by invitation, or load a bundle that you trained or
 were given. Hosted inference checks dates, weekly cadence, missing or infinite values,
-positive outcomes and nonnegative spend locally before any request, sends the inputs to
-River, waits until River finishes (no fixed time limit) and downloads results, not
-weights. It keeps your dates and raises River's warnings from inference and curve sweeps
-as `UserWarning`, also stored in the result. A failure after River accepted an analysis
-carries a note with its ID: calling the model again starts a new analysis, and
-`pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. On
-`engine="local"`, `token=` goes to Hugging Face, so `load` refuses a `token=` equal to
-`MFM_API_KEY`.
+positive outcomes, nonnegative spend, and series that are zero throughout the history but
+not in the plan locally before any request, sends the inputs to River, waits until River
+finishes (no fixed time limit; a failed or deleted analysis ends the wait) and downloads
+results, not weights. It keeps your dates and raises River's warnings from inference and
+curve sweeps as `UserWarning`, also stored in the result. A failure after River accepted
+an analysis carries a note with its ID: calling the model again starts a new analysis, and
+`pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. `token=` is
+a Hugging Face token on `engine="local"` and a River key on `engine="hosted"`; `load`
+refuses the River key (`MFM_API_KEY`) on the local engine and a Hugging Face token on the
+hosted one.
 [Get started](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/index.qmd) and the
 [River-1 quickstart notebook](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb)
 walk through this workflow.
