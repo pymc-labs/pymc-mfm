@@ -24,15 +24,24 @@ export MFM_API_URL="<your service URL>"
 export MFM_API_KEY="<your key>"
 ```
 
+On Windows or in a notebook, set them in Python before you create the client:
+
+```python
+import os
+
+os.environ["MFM_API_URL"] = "<your service URL>"
+os.environ["MFM_API_KEY"] = "<your key>"
+```
+
 ::: {.content-hidden when-profile="pilot"}
-Use the synthetic data of the script below unless your invitation says you may upload your own.
+Use sample or synthetic data only, such as the synthetic data of the script below. The service deletes uploaded data 7 days after upload.
 :::
 
 ::: {.content-visible when-profile="pilot"}
-Use the synthetic data of the script below, or the sample data your invitation gives you.
+Use sample or synthetic data only, such as the synthetic data of the script below. The service deletes uploaded data 7 days after upload.
 :::
 
-The service is a research preview. It may change, pause or reset at any time, so keep your own copy of your data and results. If something fails and this page does not explain it, reply to your invitation. Include the full error text, the time, and the dataset or analysis id if you have one.
+The service is a research preview. It may change, pause or reset at any time, so keep your own copy of your data and results. If something fails and this page does not explain it, see [Errors and limits you may meet](#errors-and-limits-you-may-meet).
 
 ### Install {#install-client}
 
@@ -163,7 +172,7 @@ A plan can fail on its own. The analysis is then `done`, and the rows of that pl
 
 ### Use your own data
 
-Skip this part on your first run. If your invitation allows your own data, replace step 1 of the script with the block below. Replace `path/to/your_history.csv` with the path of your own CSV file; no file comes with the client. The block expects one row per week and the column names of the example: `week`, `sales`, `tv`, `search` and `price`. If your columns have other names, change them in the block, in the `datasets.create` call and in the scenarios. The block builds the plan dates itself: they start exactly 7 days after your last history date.
+Skip this part during the pilot, which allows sample or synthetic data only. When your own data is allowed, replace step 1 of the script with the block below. Replace `path/to/your_history.csv` with the path of your own CSV file; no file comes with the client. The block expects one row per week and the column names of the example: `week`, `sales`, `tv`, `search` and `price`. If your columns have other names, change them in the block, in the `datasets.create` call and in the scenarios. The block builds the plan dates itself: they start exactly 7 days after your last history date.
 
 <!-- guide-example: own-data -->
 ```python
@@ -216,6 +225,8 @@ The model was trained on 75 to 207 weeks of history. A history outside that rang
 ### Errors and limits you may meet
 
 An error answer from the service raises [ApiError](../reference/client.ApiError.qmd), most often one of the subclasses below. It has `status`, `code`, `message` and `field` (the part of the request at fault, when the service names one), and its text shows them: `HTTP <status> <code>: <message> (field: <field>)`. These are the errors a first run is most likely to meet. The error classes are in `pymc_mfm.client`; `ValueError` is Python's own.
+
+If an error is not in the table or the advice does not help, write to mktfm@pymc-labs.com. Include the full error text, the time, and the dataset or analysis id if you have one.
 
 ::: {.content-hidden when-profile="pilot"}
 
