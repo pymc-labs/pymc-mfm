@@ -1,17 +1,17 @@
-name: Tests
+name: Test suite
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      approved-pr:
+        required: true
+        type: boolean
 
 permissions:
   contents: read
-
-# A newer push to the same PR cancels the older run. Every push to main keeps its own result.
-concurrency:
-  group: tests-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -20,9 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.revision }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
+          enable-cache: false
           python-version: "3.13"
       - name: Check formatting and lint without installing the package
         run: |
@@ -30,31 +32,7 @@ jobs:
           uv run --no-sync ruff check .
           uv run --no-sync ruff format --check .
 
-  authorize:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require repository admin authorization for PR tests
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REQUESTED_BY: ${{ github.triggering_actor }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          is_admin() {
-            local permission
-            permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$1/permission" --jq .permission) || exit 1
-            [[ $permission == admin ]]
-          }
-          # On a rerun, the requesting actor authorizes this same revision, not the PR author.
-          if ! is_admin "$REQUESTED_BY" ||
-             { [[ $GITHUB_RUN_ATTEMPT == 1 && $REQUESTED_BY != "$PR_AUTHOR" ]] && ! is_admin "$PR_AUTHOR"; }; then
-            echo "::notice::Full tests need a repository admin. An admin can choose Re-run failed jobs after reviewing this revision."
-            exit 1
-          fi
-
   contracts:
-    needs: authorize
     # Test the standard installation and the repository's generation and notebook tooling.
     name: contracts (${{ matrix.installation }}, ${{ matrix.lane }})
     runs-on: ubuntu-latest
@@ -77,10 +55,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.revision }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: ${{ !inputs.approved-pr }}
           python-version: "3.13"
       - name: Install the native graph renderer
         run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
@@ -109,7 +88,6 @@ jobs:
           retention-days: 30
 
   installed-smoke:
-    needs: authorize
     # Builds the sdist and wheel, then exercises each in a clean environment.
     runs-on: ubuntu-latest
     # Whole-job hang guard: observed about 4 min.
@@ -119,10 +97,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.revision }}
           persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
-          enable-cache: true
+          enable-cache: ${{ !inputs.approved-pr }}
           python-version: "3.13"
       - name: Install the native graph renderer
         # The installed workflow check renders diagnostic graphs.
@@ -137,10 +116,9 @@ jobs:
       - name: Verify the installed sdist and wheel
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
 
-  # A required check must fail when authorization is missing or any test job did not pass.
-  ci-ok:
+  result:
     if: always()
-    needs: [authorize, lint, contracts, installed-smoke]
+    needs: [lint, contracts, installed-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
