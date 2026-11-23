@@ -94,6 +94,42 @@ def redirect_error(response: httpx.Response) -> ApiError:
     )
 
 
+_SURROUNDING = " \t\r\n\x0b\x0c\ufeff"  # whitespace and a byte order mark, from a file or a paste
+_KEY_HINT = (
+    "Check the key in MFM_API_KEY (or api_key). Create or replace your API key on the "
+    "Connect page of the River API console."
+)
+
+
+def clean_setting(value: str | None) -> str | None:
+    """Strip surrounding whitespace and a byte order mark from a URL or key setting."""
+    return None if value is None else value.strip(_SURROUNDING)
+
+
+def check_api_key(key: str) -> None:
+    """Raise ``ValueError`` if ``key`` cannot go in an HTTP header.
+
+    The messages never contain the key, so a tester can paste them to support.
+    """
+    if key[0] in "\"'" or key[-1] in "\"'":
+        problem = "The API key starts or ends with a quote mark. Remove the quote marks."
+    elif any(char.isspace() for char in key):
+        problem = "The API key has a space or line break inside it. Copy the whole key on one line."
+    elif not all("!" <= char <= "~" for char in key):
+        problem = (
+            "The API key has a character that a key never holds (a control character or one "
+            "that is not plain ASCII). Copy the key again, as plain text."
+        )
+    else:
+        return
+    raise ValueError(f"{problem} {_KEY_HINT}")
+
+
+def _scrub(text: str, secret: str) -> str:
+    """Hide the key in the text of a transport error."""
+    return text.replace(secret, "***")
+
+
 def parse_retry_after(value: str | None, *, now: float | None = None) -> float | None:
     """Return the wait in seconds from a ``Retry-After`` header (seconds or HTTP date)."""
     if not value:
@@ -139,8 +175,8 @@ class Http:
         max_retry_after: float = MAX_RETRY_WAIT,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        base_url = base_url or os.environ.get("MFM_API_URL")
-        api_key = api_key or os.environ.get("MFM_API_KEY")
+        base_url = clean_setting(base_url) or clean_setting(os.environ.get("MFM_API_URL"))
+        api_key = clean_setting(api_key) or clean_setting(os.environ.get("MFM_API_KEY"))
         if not base_url:
             raise ValueError(
                 "Pass base_url or set the MFM_API_URL environment variable. The Connect page of "
@@ -152,6 +188,7 @@ class Http:
                 "Pass api_key or set the MFM_API_KEY environment variable. Create or replace "
                 "your API key on the Connect page of the River API console."
             )
+        check_api_key(api_key)
         if max_retries < 0:
             raise ValueError("max_retries must be 0 or more")
         if max_retry_after < 0:
@@ -256,8 +293,9 @@ class Http:
                 response = self._client.request(method, url, **kwargs)
             except httpx.TransportError as error:
                 if last_attempt:
+                    text = _scrub(str(error), self._api_key)
                     raise ApiConnectionError(
-                        f"Could not reach {url.split('?')[0]}: {error}"
+                        f"Could not reach {url.split('?')[0]}: {text}"
                     ) from error
                 self._sleep(self._backoff(attempt, None))
                 continue
