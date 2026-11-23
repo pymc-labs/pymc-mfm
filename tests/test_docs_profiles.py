@@ -13,6 +13,7 @@ yaml = pytest.importorskip("yaml")
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 sys.path.insert(0, str(DOCS / "_scripts"))
 
+import pilot_post  # noqa: E402
 import prepare  # noqa: E402
 
 
@@ -28,7 +29,7 @@ def test_pilot_renders_only_the_tester_pages() -> None:
     assert pilot["project"]["render"] == [
         "index.qmd",
         "guide/index.qmd",
-        "guide/http-api.qmd",
+        "guide/python-client.qmd",
         "reference/index.qmd",
         "reference/client.*.qmd",
     ]
@@ -50,4 +51,73 @@ def test_pilot_summary_links_get_a_target(tmp_path, monkeypatch) -> None:
     assert page.read_text(encoding="utf-8") == (
         "| [table]{#a.table} | rows |\n| [wait](#a.wait) | poll |\n"
         "See [table](#a.table).\n\n### wait { #a.wait }\n"
+    )
+
+
+def test_reference_pages_get_their_heading_as_tab_title(tmp_path, monkeypatch) -> None:
+    (tmp_path / "client.Client.qmd").write_text(
+        "# client.Client { #pymc_mfm.client.Client }\n\nBody.\n", encoding="utf-8"
+    )
+    (tmp_path / "index.qmd").write_text("# Python reference {.doc .doc-index}\n", encoding="utf-8")
+    monkeypatch.setattr(prepare, "REFERENCE", tmp_path)
+    prepare.add_page_titles()
+    assert (tmp_path / "client.Client.qmd").read_text(encoding="utf-8") == (
+        '---\npagetitle: "client.Client"\n---\n\n'
+        "# client.Client { #pymc_mfm.client.Client }\n\nBody.\n"
+    )
+    assert (
+        (tmp_path / "index.qmd")
+        .read_text(encoding="utf-8")
+        .startswith('---\npagetitle: "Python reference"\n---\n')
+    )
+
+
+def test_reference_sidebar_lists_the_index_once_in_the_pilot(tmp_path, monkeypatch) -> None:
+    sidebar = {
+        "website": {
+            "sidebar": [
+                {
+                    "contents": [
+                        "reference/index.qmd",
+                        {
+                            "section": "River API client",
+                            "contents": ["reference/client.Client.qmd"],
+                        },
+                    ]
+                }
+            ]
+        }
+    }
+    (tmp_path / "_sidebar.yml").write_text(yaml.safe_dump(sidebar), encoding="utf-8")
+    monkeypatch.setattr(prepare, "REFERENCE", tmp_path)
+    prepare.arrange_reference_sidebar(None)
+    contents = yaml.safe_load((tmp_path / "_sidebar.yml").read_text(encoding="utf-8"))["website"][
+        "sidebar"
+    ][0]["contents"]
+    assert contents[0] == "reference/index.qmd"
+    assert contents[1]["section"] == "River API client"
+
+
+def test_only_the_pilot_menu_links_to_the_console() -> None:
+    # A path on the pilot host: it is a 404 on any host that does not serve the console.
+    pilot_links = [item["href"] for item in load("_quarto-pilot.yml")["website"]["navbar"]["right"]]
+    assert pilot_links == ["/console/"]
+    for name in ("_quarto.yml", "_quarto-full.yml"):
+        right = load(name)["website"]["navbar"].get("right", [])
+        assert all("console" not in item["href"] for item in right)
+
+
+def test_console_links_are_written_back_to_the_host_path(tmp_path) -> None:
+    # Quarto writes a path that starts with "/" relative to the page, into the docs folder.
+    (tmp_path / "guide").mkdir()
+    (tmp_path / "index.html").write_text('<a href="./console/">Sign in</a>', encoding="utf-8")
+    (tmp_path / "guide" / "index.html").write_text(
+        '<a href="../console/">a</a><a href="../guide/console/">b</a>', encoding="utf-8"
+    )
+    assert pilot_post.fix_console_links(tmp_path) == 2
+    assert (tmp_path / "index.html").read_text(
+        encoding="utf-8"
+    ) == '<a href="/console/">Sign in</a>'
+    assert (tmp_path / "guide" / "index.html").read_text(encoding="utf-8") == (
+        '<a href="/console/">a</a><a href="../guide/console/">b</a>'
     )

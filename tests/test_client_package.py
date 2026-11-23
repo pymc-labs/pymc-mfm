@@ -475,10 +475,15 @@ def test_the_page_text_has_the_licence_sentence_with_the_generated_version_and_n
         "# pymc-mfm\n\nPython client for PyMC MFM (marketing foundational models), "
         "the hosted service from PyMC Labs."
     )
-    assert "```bash\npip install pymc-mfm\n```" in plain and "Python 3.11 or newer" in plain
-    assert "Create your API key on the Connect page of the console." in plain
-    assert 'export MFM_API_URL="<the address from your pilot invitation>"' in plain
-    assert 'export MFM_API_KEY="<your API key>"' in plain
+    assert "```bash\npip install pymc-mfm\n```" in plain
+    assert plain.index("It needs Python 3.11 or newer.") < plain.index("pip install pymc-mfm\n")
+    assert "Connect page of the console. That page also\nshows your service URL." in plain
+    assert "pilot invitation" not in plain
+    assert 'export MFM_API_URL="<your service URL>"\nexport MFM_API_KEY="<your API key>"' in plain
+    assert (
+        'import os\n\nos.environ["MFM_API_URL"] = "<your service URL>"\n'
+        'os.environ["MFM_API_KEY"] = "<your API key>"'
+    ) in plain
     assert plain.split("## Licence\n\n")[1].split("\n\n") == [
         "The client code and documentation distributed in pymc-mfm 0.2.3 are licensed under "
         "Apache-2.0. This grant excludes the hosted service, model weights, training and "
@@ -491,6 +496,10 @@ def test_the_page_text_has_the_licence_sentence_with_the_generated_version_and_n
         "the time, and the dataset or analysis id if you have one."
     )
     assert f"## Help\n\n{help_line}\n" in plain
+    assert (
+        "Use sample or synthetic data only. The service deletes uploaded data 7 days after upload."
+    ) in plain
+    assert "internal data" not in plain
     assert "{version}" not in plain and "{requires_python}" not in plain
     assert not pkg.FORBIDDEN.search(plain) and "http" not in plain and "@" not in plain
 

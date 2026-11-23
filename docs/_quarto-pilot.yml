@@ -15,7 +15,7 @@ project:
   render:
     - index.qmd
     - guide/index.qmd
-    - guide/http-api.qmd
+    - guide/python-client.qmd
     - reference/index.qmd
     - reference/client.*.qmd
 
@@ -28,6 +28,11 @@ website:
         href: reference/index.qmd
       - text: PyMC Labs
         href: https://www.pymc-labs.com
+    right:
+      # The invitation links to the console; this is the way back. A path on the same host, so
+      # the same build serves staging and production.
+      - text: Sign in
+        href: /console/
   sidebar:
     - id: guide
       title: Guide
@@ -37,7 +42,7 @@ website:
         - section: Get started
           contents:
             - guide/index.qmd
-            - guide/http-api.qmd
+            - guide/python-client.qmd
         - section: Python reference
           contents:
             - text: River API client
