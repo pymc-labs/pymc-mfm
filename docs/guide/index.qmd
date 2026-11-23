@@ -145,7 +145,7 @@ print(backtest.fit.to_string(index=False))
 print("backtest result page:", backtest.url)
 ```
 
-`fit` has one row for each window (`context`: the input weeks; `query`: the forecast weeks) and `metric`: `r2`, `mape` (a fraction) and `crps` (continuous ranked probability score: the error of the whole forecast distribution; lower is better). For `r2` and `mape`, `value` scores the mean forecast and `sd` is its spread over draws. `crps` scores the draws themselves and has no `sd`. A backtest also has `shares` and `curves`; see [Use the River API from Python](http-api.qmd#run-a-backtest).
+`fit` has one row for each window (`context`: the input weeks; `query`: the forecast weeks) and `metric`: `r2`, `mape` (a fraction) and `crps` (continuous ranked probability score: the error of the whole forecast distribution; lower is better). For `r2` and `mape`, `value` scores the mean forecast and `sd` is its spread over draws. `crps` scores the draws themselves and has no `sd`. A backtest also has `shares` and `curves`; see [Use the River API from Python](python-client.qmd#run-a-backtest).
 
 ### How far to trust the first result
 
@@ -276,7 +276,7 @@ To delete later, use the ids the script prints: `client.datasets.delete("<datase
 
 ### Where next with the API
 
-- Read [Use the River API from Python](http-api.qmd) for more scenarios, response curves, backtests, previews and per-draw files.
+- Read [Use the River API from Python](python-client.qmd) for more scenarios, response curves, backtests, previews and per-draw files.
 - Browse the [Python reference for the client](../reference/client.Client.qmd) for every argument, result and error.
 
 ::: {.content-hidden when-profile="pilot"}

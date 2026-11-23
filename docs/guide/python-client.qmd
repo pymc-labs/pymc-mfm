@@ -1,6 +1,9 @@
 ---
 title: "Use the River API from Python"
 description: "Use the Python client to upload a history, run analyses and backtests on the hosted River API, and compare budget scenarios."
+# The old address of this page; Quarto writes a redirect page there.
+aliases:
+  - http-api.html
 ---
 
 ## Before you start
