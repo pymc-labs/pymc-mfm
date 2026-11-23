@@ -300,11 +300,16 @@ def test_matplotlib_notes_with_wide_channel_names_stay_inside_the_figure(inferre
     names = "TV_LINEAR, PAID_SEARCH, META_SOCIAL, YOUTUBE_VIDEO, DISPLAY_DV360, RADIO_NATIONAL"
     note = f"Warning ({names}, OOH_BILLBOARD, EMAIL_CRM): {SPEND} {SHORT} {SPEND}"
     data = curve_charts.prepare(IdataReader(_summarized(inferred)))
-    fig = curve_charts._matplotlib(dataclasses.replace(data, notes=(note, note)))
+    fig = curve_charts._matplotlib(dataclasses.replace(data, notes=(note,) * MAX_WARNING_LINES))
     fig.canvas.draw()
     [legend] = fig.legends
     box = legend.get_window_extent()
     assert 0 <= box.x0 and box.x1 <= fig.bbox.width
+    # The shared y-axis label stays centred beside the panels, above the notes.
+    label = fig._supylabel.get_window_extent()
+    panels = [ax.get_window_extent() for ax in fig.axes]
+    assert min(p.y0 for p in panels) <= (label.y0 + label.y1) / 2 <= max(p.y1 for p in panels)
+    assert label.y0 > box.y1
 
 
 def test_a_warning_on_some_panels_names_them_not_all_channels():

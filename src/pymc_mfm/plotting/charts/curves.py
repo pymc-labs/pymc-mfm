@@ -239,7 +239,8 @@ def _matplotlib(data: Curves) -> Any:
     notes = _fit("\n".join(data.notes), 0.9 * _WIDTH, _NOTE_SIZE) if data.notes else None
     lines = notes.count("\n") + 1 if notes else 0
     # Allow room for title, caption and legend; the notes add their own height.
-    height = 3.0 + 1.5 / rows + (lines * _NOTE_SIZE * 1.3 / 72 + 0.1 if lines else 0) / rows
+    extra = lines * _NOTE_SIZE * 1.3 / 72 + 0.1 if lines else 0.0
+    height = 3.0 + 1.5 / rows + extra / rows
     fig, axes = figure(rows, columns, width=_WIDTH, row_height=height, sharex=True, sharey=True)
     for index, ax in enumerate(axes.flat):
         if index >= count:
@@ -300,7 +301,8 @@ def _matplotlib(data: Curves) -> Any:
             ax.tick_params(labelleft=False)
         if index + columns >= count:  # the lowest panel of its column
             ax.set_xlabel(_XLABEL, fontsize=9)
-    fig.supylabel(data.ylabel, fontsize=9)
+    # Centred on the figure without the notes' extra height, so it stays beside the panels.
+    fig.supylabel(data.ylabel, fontsize=9, y=0.5 + extra / (2 * rows * height))
     figure_legend(fig, axes.flat, notes=notes)
     _suptitle(fig, data.title, *data.caption)
     return fig
