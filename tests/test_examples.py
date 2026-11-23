@@ -49,16 +49,20 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
 
 
 @pytest.mark.slow
-def test_river_1_quickstart_runs_headless_with_a_local_bundle(tmp_path, monkeypatch):
+def test_river_1_quickstart_loads_the_pinned_river_1_bundle_and_runs_headless(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("MPLBACKEND", "Agg")
     from matplotlib.figure import Figure
 
+    import pymc_mfm
     from pymc_mfm import MFM, Model, Result
+    from pymc_mfm._product import _RIVER_REVISION
     from pymc_mfm.inference import save_pretrained
     from pymc_mfm.model import ModelConfig
 
     monkeypatch.chdir(tmp_path)
-    bundle = tmp_path / "models" / "my-model"
+    bundle = tmp_path / "bundle"
     config = ModelConfig(
         d_model=8, n_layers=1, n_heads=2, d_ff=16, flow_hidden=16, n_controls=2, n_demand=1
     )
@@ -66,7 +70,20 @@ def test_river_1_quickstart_runs_headless_with_a_local_bundle(tmp_path, monkeypa
         torch.manual_seed(0)
         save_pretrained(MFM(config).eval(), bundle)
 
+    # The notebook loads River-1 from the Hub; a tiny local bundle stands in for its weights.
+    load_bundle = pymc_mfm.from_pretrained
+    hub_loads = []
+
+    def from_hub(source, **options):
+        hub_loads.append((source, options))
+        return load_bundle(bundle)
+
+    monkeypatch.setattr(pymc_mfm, "from_pretrained", from_hub)
+
     namespace = run_code_cells(QUICKSTART)
+    ((source, options),) = hub_loads
+    assert source == "pymc-labs/mfm"
+    assert (options["profile"], options["revision"]) == ("river-1", _RIVER_REVISION)
     assert isinstance(namespace["model"], Model)
     result = namespace["result"]
     assert isinstance(result, Result)

@@ -3,6 +3,8 @@ title: "Decompose a time series"
 description: "Use the dataframe and array interfaces to generate, export, and reuse decomposition draws."
 ---
 
+[Get started](index.qmd) opens a `Model` with [mfm.load](../reference/load.qmd) and calls `model.inference(context, query)`. This page covers the research layer beneath it, the [MFM](../reference/model.MFM.qmd) network. Load one with `from_pretrained("./models/my-model")`, or take it from a local model as `mfm.load(...).network`; the hosted engine has no network. In the examples below, `model` is an `MFM`, so its methods take the column roles (`**roles`) on each call. After you run the network's `inference` or `response_curves` yourself, call `inference` on the `Model` again before its `response_curves`.
+
 ## Dataframe workflow
 
 Use the dataframe interface when dates and column names are part of the input contract. [inference(context, query, ...)](../reference/model.MFM.qmd) validates an explicit history/plan pair, samples both marginals, and returns the complete `xarray.DataTree` stored as `model.idata`. No context setter or export builder is needed.

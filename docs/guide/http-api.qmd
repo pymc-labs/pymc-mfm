@@ -244,7 +244,7 @@ plan = pd.DataFrame(
 )
 ```
 
-Use one row per week, oldest first, without gaps. The plan needs the same date, channel and control columns and must start exactly 7 days after the last history date. The model was trained on histories of 75 to 207 weeks; histories outside that range get an out-of-sample warning. History plus plan cannot exceed 208 weeks (`too_long`).
+Use one row per week, oldest first, without gaps. The plan needs the same date, channel and control columns and must start exactly 7 days after the last history date. The model was trained on histories of 75 to 207 weeks; histories outside that range get an out-of-sample warning. History plus plan cannot exceed 208 weeks (`too_long`). The [backtest](#run-a-backtest) example forecasts the last 13 weeks from at least 2 earlier ones (`context_too_short`), so it needs at least 15 weeks of history; with fewer, skip it.
 
 `datasets.create` validates some inputs before uploading and raises `ValueError` for the first invalid row or column. The service checks the remaining constraints and raises `ValidationError` with a code (or `PayloadTooLarge` for the body limit). Nothing is stored in either case.
 

@@ -181,7 +181,7 @@ quartodoc:
         - ModelBusy
         - NotSupported
     - title: River API client
-      desc: The client for the hosted River API. It needs no PyTorch.
+      desc: The client for the hosted River API. It does not import PyTorch.
       contents:
         - client.Client
         # The class behind client.datasets; pymc_mfm.client does not export it.

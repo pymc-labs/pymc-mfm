@@ -32,10 +32,17 @@ References to `client-v0.1.0` record the earlier client release plan.
   publishing after approval, and `conda.recipe/` builds and tests the conda package
   against conda-forge in CI. The private wheel handoff is removed.
 - **One Python workflow for local and hosted River.** `pymc_mfm.load` opens a
-  local bundle, a Hugging Face profile, or the hosted engine. Use
-  `model.inference(history, future)` and `result.plot` on each. Hosted inference
-  sends the input data to River and downloads results, never model weights.
-  The lower-level `pymc_mfm.client` and `from_pretrained` interfaces remain available.
+  local bundle, a Hugging Face profile (`"river-1"` is the pinned River-1 bundle,
+  private to the PyMC Labs organization), or the hosted engine (by invitation). Use
+  `model.inference(context, query)` and `result.plot` on each. Hosted inference
+  validates history and plan locally before contacting River, downloads results,
+  never model weights, keeps the caller's dates, and emits River's warnings as
+  `UserWarning` while storing them in the result. A hosted `response_curves` sweep
+  raises `RuntimeError` and keeps the previous result when a channel has no successful
+  varied level; its charts mark points River warned about. A failure after River
+  accepted an analysis notes its ID and `pymc_mfm.client.Client().get("<id>")` to
+  resume it. `model.network` returns the local research `MFM`; `pymc_mfm.client` and
+  `from_pretrained` remain available.
 - **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
   `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
   `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`
@@ -82,9 +89,8 @@ References to `client-v0.1.0` record the earlier client release plan.
 - **Complete inference costs and migration.** Full inference pays for
   both marginals and tree storage even with `return_idata=False`; historical
   query-only timings below do not measure that full operation. README, guides,
-  generated API entries and quickstart use the paired contract. The notebook
-  preserves reviewed numeric/chart outputs and every graph analysis/export;
-  its headless acceptance uses a synthetic stand-in without downloading weights.
+  generated API entries and quickstart use the paired contract. The quickstart's
+  headless test stands a tiny synthetic bundle in for the River-1 download.
   No runtime context, result, curve or idata is captured in weight bundles.
 - **First-use errors and docs.** Inference errors say what to change: an empty role
   list, the columns with negative spend or non-finite values, a target with zero or

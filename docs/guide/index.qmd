@@ -5,10 +5,31 @@ description: "Run the same analysis with a local model bundle, Hugging Face weig
 
 ## Run a first analysis
 
-Give River a weekly history of spend, controls such as price, and an outcome such as sales. Give it a second table for the weeks you want to forecast. The [River-1 quickstart notebook](examples/river_1_quickstart.ipynb) makes both tables from synthetic data and runs this example:
+`model.inference(context, query)` takes two tables. `context` is the history: one row per week with spend, controls such as price, and the observed outcome such as sales. `query` is the weeks to explain or forecast: the same date, spend and control columns, starting one week after the history ends. This example makes both tables from synthetic data, as the [River-1 quickstart notebook](examples/river_1_quickstart.ipynb) does, and runs a model bundle on your machine:
 
 ```python
+import numpy as np
+import pandas as pd
+
 import pymc_mfm as mfm
+
+# Synthetic data: 104 weeks of history and an 8-week plan after it.
+rng = np.random.default_rng(0)
+weeks = pd.date_range("2024-11-11", periods=104, freq="7D")
+tv = rng.gamma(4.0, 2_000.0, size=104)
+search = rng.gamma(4.0, 1_500.0, size=104)
+price = rng.normal(10.0, 0.3, size=104)
+noise = rng.normal(0, 500, size=104)
+sales = 40_000 + 0.8 * tv + 1.2 * search - 1_000 * (price - 10.0) + noise
+history = pd.DataFrame({"week": weeks, "sales": sales, "tv": tv, "search": search, "price": price})
+future = pd.DataFrame(
+    {
+        "week": pd.date_range(weeks[-1] + pd.Timedelta(weeks=1), periods=8, freq="7D"),
+        "tv": 8_000.0,
+        "search": 6_000.0,
+        "price": 10.0,
+    }
+)
 
 roles = {
     "date_column": "week",
@@ -16,7 +37,7 @@ roles = {
     "channel_columns": ["tv", "search"],
     "control_columns": ["price"],
 }
-model = mfm.load("models/my-model", **roles)
+model = mfm.load("./models/my-model", **roles)  # the path to your bundle directory
 result = model.inference(history, future, n_samples=100, random_seed=0)
 
 result.plot.inputs()
@@ -29,17 +50,25 @@ The charts show the inputs, expected versus observed sales, weekly contributions
 
 ## Choose where River runs
 
-Change only the `mfm.load(...)` call in the notebook. Inference, results, and charts are the same Python calls for every source.
+Change only the `mfm.load(...)` call. Inference, results, and charts are the same Python calls for every source.
+
+| Call | Where River runs | What you need |
+| --- | --- | --- |
+| `mfm.load("./models/my-model", **roles)` | On your machine, from a bundle directory | The bundle; no credentials |
+| `mfm.load("river-1", **roles)` | On your machine, with the pinned River-1 weights from Hugging Face | Access to the PyMC Labs Hugging Face organization |
+| `mfm.load("river-1", engine="hosted", **roles)` | On the hosted River API | An invitation and its API key |
+
+The River-1 weights are private to the PyMC Labs Hugging Face organization. Outside PyMC Labs, run River-1 on the hosted API by invitation, or load a bundle that you trained or were given.
 
 ### Use a local bundle or Hugging Face {#decompose-a-time-series}
 
-The example loads a bundle you already have. Replace `"models/my-model"` with the path to your bundle directory. For the pinned River-1 bundle on Hugging Face, use:
+A `Path`, an existing directory, an absolute path, or a path that starts with `.` or `~` is a local bundle; any other name is looked up as a Hugging Face repository. Write `"./models/my-model"` rather than `"models/my-model"` so that a mistyped path fails as a missing folder, not as a Hub lookup. A local folder needs no credentials. For the pinned River-1 bundle on Hugging Face, use:
 
 ```python
 model = mfm.load("river-1", **roles)
 ```
 
-The River-1 weights are not public. The alias downloads the pinned bundle from the private PyMC Labs Hugging Face collection. If you have access, use `hf auth login`, set `HF_TOKEN`, or pass a Hugging Face `token=`. A local folder needs no credentials. See [Load and share models](models-hub.qmd) for other repositories and profiles.
+The alias downloads the pinned bundle from the private PyMC Labs repository. If you have access, use `hf auth login`, set `HF_TOKEN`, or pass a Hugging Face `token=`. See [Load and share models](models-hub.qmd) for other repositories and profiles. `model.network` returns the underlying [MFM](../reference/model.MFM.qmd) network for the research methods in [Decompose a time series](decompose.qmd).
 
 ### Use the hosted River API {#hosted-api}
 
@@ -47,7 +76,13 @@ The River-1 weights are not public. The alias downloads the pinned bundle from t
 model = mfm.load("river-1", engine="hosted", **roles)
 ```
 
-Inference sends the history and plan to the service and retrieves the results. It does not download model weights or need PyTorch. Use the synthetic data unless your invitation allows your own.
+Inference sends the history, the plan's spend and controls, and the column roles to River, then retrieves the results. It does not download model weights or import PyTorch. Use the synthetic data unless your invitation allows your own. A hosted model differs from a local one in a few ways:
+
+- `inference` validates the history and plan locally before contacting River, and takes 100 to 2,000 draws per window. Result dates are your own timestamps.
+- River's warnings, such as a history outside the trained range, are raised as `UserWarning` and stored under `warnings` in each window's provenance in `result.idata`.
+- `model.response_curves(...)` raises `RuntimeError` and keeps the previous result when a channel has no successful varied level. Curve charts mark the points River warned about.
+- If a call fails after River accepted the analysis, the error's note gives the analysis ID and `pymc_mfm.client.Client().get("<id>")` to resume it instead of starting again.
+- `model.network` raises `NotSupported`: the service exposes no weights.
 
 #### Get access
 
@@ -77,14 +112,14 @@ If you installed `pymc-mfm` 0.1.2, a client-only build published by mistake, run
 
 ## Use your own data
 
-Use one row per week, oldest first, with no gaps. Include the outcome in `history`. In `future`, include the same date, channel and control columns starting exactly one week after the history ends. See [input limits for hosted analysis](http-api.qmd#use-your-own-data) before you upload anything.
+Replace `history` and `future` in the first example with your own tables. Use one row per week, oldest first, with no gaps. Include the outcome in `history`. In `future`, include the same date, channel and control columns starting exactly one week after the history ends. See [input limits for hosted analysis](http-api.qmd#use-your-own-data) before you upload anything.
 
 River is pretrained, so inference does not fit a model on your data. Its intervals describe uncertainty in the expected outcome, exclude observation noise, and are not evidence of causal lift. Read the [River-1 limits](../models/river-1/index.qmd#limits) before using results in a decision.
 
 ## Where next
 
 - Read [How it works](concepts.qmd) for the encoder, graph router, decoder, and draw semantics.
-- Read [Decompose a time series](decompose.qmd) for dataframe rules, array inputs, exports, and repeated sampling.
+- Read [Decompose a time series](decompose.qmd) for the research `MFM` network: dataframe rules, array inputs, exports, and repeated sampling.
 - Read [Load and share models](models-hub.qmd) to use local folders and Hub profiles.
 - Read [Use the River API from Python](http-api.qmd) for low-level dataset management, budget scenarios, and previews, or [run a backtest](http-api.qmd#run-a-backtest).
 - Read [Train a network](training.qmd) to prepare a simulated corpus and train a model.

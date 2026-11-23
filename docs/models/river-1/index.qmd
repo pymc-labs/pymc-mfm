@@ -249,19 +249,30 @@ covering it.
 
 ## Get River {#get}
 
-To run River locally, follow the [installation](../../guide/index.qmd#install-client)
-and obtain separate access to the private weights. If you have a pilot invitation but
-no weights, use the hosted River API instead: see
+River ships as the profile `river-1` of the Hugging Face repository `pymc-labs/mfm`,
+which is private to the PyMC Labs organisation: users outside PyMC Labs cannot download
+its weights. With an invitation, they can run River on the hosted River API instead,
+without weights.
+
+Follow the [installation](../../guide/index.qmd#install-client), then open River with
+the column roles of your table, as in [Get started](../../guide/index.qmd). The local
+engine downloads the weights at a pinned commit: log in with `hf auth login` (or set
+`HF_TOKEN`) first. The hosted engine needs the invitation's API key; see
 [Use the hosted River API](../../guide/index.qmd#hosted-api).
 
-River ships as the profile `river-1` of the Hugging Face repository `pymc-labs/mfm`,
-currently private to the PyMC Labs organisation. Log in with `hf auth login` (or set
-`HF_TOKEN`), then load it at its pinned commit:
+```python
+import pymc_mfm as mfm
+
+model = mfm.load("river-1", **roles)  # local: needs access to the weights
+model = mfm.load("river-1", engine="hosted", **roles)  # hosted: needs an invitation
+```
+
+For research use, `from_pretrained` loads the same network at the same commit:
 
 ```python
 from pymc_mfm import from_pretrained
 
-model = from_pretrained(
+network = from_pretrained(
     "pymc-labs/mfm",
     profile="river-1",
     revision="970e6095f14824d7e25ecace7e20a47bebde35b8",
