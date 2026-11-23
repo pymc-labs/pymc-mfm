@@ -1,7 +1,7 @@
 /* Shared behaviour for every page. Each init* function below sets up one piece of site chrome
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
-     initConsoleButton marks the last right-hand navbar link with data-mfm="console" (site.css draws it)
+     initConsoleButton marks the first right-hand navbar link with data-mfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
@@ -12,6 +12,9 @@
      initTabs          a sliding marker and logos on every Quarto .panel-tabset; clears "Copied" on switch
      initPhoneMenu     below 992px, the navbar panel also lists the current section's sidebar pages
      initMenuSheet     below 992px the menu covers the page: scroll lock while open, Escape closes
+     initPhoneToc      below 992px (site.css) a closed "On this page" list under the page title
+     initFolderAddress shows ".../index.html" as ".../" in the address bar, so links to a section of
+                       the open page scroll and do not load the page again
    Search additions (labels, result paths, the empty message) are in search.js.
    Colours, icons and motion are in site.css; this file only adds classes, attributes and labels. */
 (() => {
@@ -98,12 +101,12 @@
     });
   }
 
-  /* The right-hand navbar list ends with one link, the access page. The hook is this attribute,
+  /* The right-hand navbar list starts with one link, the access page. The hook is this attribute,
      never the link's address, so the address can change without touching the styles. site.css
-     draws it as a button with its icon and label at every width. */
+     draws it as a button with its icon and label at every width. Links after it (the pilot's
+     "Sign in") stay plain text. */
   function initConsoleButton() {
-    const links = document.querySelectorAll("#navbarCollapse .navbar-nav.ms-auto .nav-link");
-    const link = links[links.length - 1];
+    const link = document.querySelector("#navbarCollapse .navbar-nav.ms-auto .nav-link");
     if (!link) return;
     link.dataset.mfm = "console";
   }
@@ -273,19 +276,14 @@
     copy.querySelectorAll(".sidebar-item-toggle").forEach((el) => el.remove());
     copy.querySelectorAll(".sidebar-section").forEach((el) => el.classList.add("show"));
     nav.append(copy);
-    nav.addEventListener("click", (event) => {
-      // A link to this same page (a section anchor) leaves the panel open otherwise.
-      const link = event.target.closest("a[href]");
-      if (link && link.pathname === window.location.pathname && window.bootstrap) {
-        window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
-      }
-    });
     panel.append(nav);
 
   }
 
   /* Below 992px the menu is a sheet over the page (site.css): lock the page scroll while it
-     is open, and close it on Escape. */
+     is open, close it on Escape, and close it after a tap on a link that scrolls inside this
+     same page (an anchor such as Get access on the guide, or a page link to the open page),
+     which would otherwise leave the sheet over the target. */
   function initMenuSheet() {
     const panel = document.getElementById("navbarCollapse");
     if (!panel) return;
@@ -297,12 +295,79 @@
       window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
       document.querySelector(".navbar-toggler")?.focus();
     });
+    panel.addEventListener("click", (event) => {
+      const link = event.target.closest("a[href]");
+      if (!link || !panel.classList.contains("show") || !window.bootstrap) return;
+      // "/docs/guide/" and "/docs/guide/index.html" are the same page.
+      const page = (path) => path.replace(/index\.html$/, "");
+      if (page(link.pathname) !== page(window.location.pathname) || link.host !== window.location.host) return;
+      if (link.hash) {
+        // The page cannot scroll under the sheet (scroll lock): go to the anchor after it closes.
+        event.preventDefault();
+        panel.addEventListener(
+          "hidden.bs.collapse",
+          () => {
+            window.history.pushState(null, "", link.href);
+            document.getElementById(decodeURIComponent(link.hash.slice(1)))?.scrollIntoView();
+          },
+          { once: true },
+        );
+      }
+      window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
+    });
     window.matchMedia("(min-width: 992px)").addEventListener("change", (event) => {
       if (event.matches) root.classList.remove("mfm-menu-open");
     });
   }
 
+  /* The margin list "On this page" is hidden below 992px. Copy it into a closed <details> under
+     the page title; site.css shows the copy only below 992px. A page with fewer than two
+     entries gets none. */
+  function initPhoneToc() {
+    let list = document.querySelector("#TOC > ul");
+    const main = document.getElementById("quarto-document-content");
+    if (!list || !main) return;
+    // A reference page has one top entry, the page itself: list its parts.
+    const parts = list.children.length === 1 && list.firstElementChild.querySelector(":scope > ul");
+    if (parts) list = parts;
+    if (list.querySelectorAll("a").length < 2) return;
+    // The title block on a guide page; on a reference page the heading is part of the text.
+    const title = main.querySelector("#title-block-header .quarto-title") || main.querySelector("h1");
+    if (!title) return;
+    const toc = document.createElement("details");
+    toc.className = "mfm-phone-toc";
+    const summary = document.createElement("summary");
+    summary.textContent = document.getElementById("toc-title")?.textContent || "On this page";
+    const copy = list.cloneNode(true);
+    // No duplicated ids, no classes that Quarto's scroll tracking looks for or that fold the
+    // nested lists, and no-external, so Quarto does not open these in-page links in a new tab.
+    copy.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+    [copy, ...copy.querySelectorAll(".collapse")].forEach((el) => el.classList.remove("collapse"));
+    copy.querySelectorAll("a").forEach((a) => {
+      a.className = "no-external";
+      a.removeAttribute("data-scroll-target");
+    });
+    toc.append(summary, copy);
+    // Close the list after a tap, so the heading is on screen.
+    copy.addEventListener("click", (event) => {
+      if (event.target.closest("a")) toc.open = false;
+    });
+    (title.closest("#title-block-header") || title).after(toc);
+  }
+
+  /* Quarto rewrites every link of a page to the folder form ("guide/#install", never
+     "guide/index.html#install"). On a page opened as ".../index.html" a link to one of its own
+     sections is then a different address: the browser loads the page again and can lose the
+     place. Show the folder form in the address bar, which is the address Quarto's links use. */
+  function initFolderAddress() {
+    const { protocol, pathname, search, hash } = window.location;
+    if (!protocol.startsWith("http") || !pathname.endsWith("/index.html")) return;
+    const folder = pathname.slice(0, -"index.html".length);
+    window.history.replaceState(window.history.state, "", folder + search + hash);
+  }
+
   [
+    initFolderAddress,
     initModelsMenu,
     initConsoleButton,
     initExternalLinks,
@@ -313,5 +378,6 @@
     initTabs,
     initPhoneMenu,
     initMenuSheet,
+    initPhoneToc,
   ].forEach((init) => init());
 })();

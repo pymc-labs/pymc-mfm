@@ -403,7 +403,7 @@ body.quarto-dark .navbar-logo {
    search as 40px squares, then the labelled Get access button. Bootstrap keeps the collapse as a
    flex box with !important; display: contents lets the link lists, the tools and the search
    button sit in one row, ordered below. The right-hand list lays out its own items in that row
-   too, so Get access comes last, after search. */
+   too, so Get access comes last, after search and the pilot's "Sign in". */
 @media (min-width: 992px) {
   .navbar-expand-lg .navbar-collapse {
     display: contents !important; /* Bootstrap sets display: flex !important here */
@@ -434,8 +434,13 @@ body.quarto-dark .navbar-logo {
     order: 5;
   }
 
-  .navbar .navbar-nav.ms-auto > .nav-item:last-child {
+  /* The pilot's plain "Sign in" link sits just before the Get access button. */
+  .navbar .navbar-nav.ms-auto > .nav-item:has(> .nav-link:not([data-mfm])) {
     order: 6;
+  }
+
+  .navbar .navbar-nav.ms-auto > .nav-item:has(> .nav-link[data-mfm]) {
+    order: 7;
     margin-left: 0.25rem;
   }
 
@@ -1296,6 +1301,12 @@ body.mfm-landing .mfm-badge--soon {
   border: 0;
 }
 
+/* With toc-expand (the pilot) the list shows every level 2 and 3 entry; level 3 sits under its
+   level 2 entry. Quarto sets data-toc-expanded only then. */
+#TOC[data-toc-expanded] ul ul {
+  padding-left: 0.9rem;
+}
+
 #TOC .nav-link,
 #TOC ul > li > a {
   position: relative;
@@ -1775,6 +1786,91 @@ body.mfm-landing footer.footer {
   animation-duration: 0.28s;
 }
 
+/* Phone: "On this page" ----------------------------------------------------------------- */
+/* site.js copies the margin list into a closed <details> under the page title. Above 991.98px the
+   margin list shows and this copy does not. */
+.mfm-phone-toc {
+  display: none;
+}
+
+@media (max-width: 991.98px) {
+  .mfm-phone-toc {
+    display: block;
+    max-width: var(--mfm-measure);
+    margin: 0 0 2rem;
+    border-radius: var(--mfm-r-chip);
+    background: var(--mfm-tone-1);
+    font-size: 0.95rem;
+  }
+
+  #title-block-header.quarto-title-block.default + .mfm-phone-toc {
+    margin-top: -1.25rem;
+  }
+
+  .mfm-phone-toc summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 0.9rem;
+    font-weight: 500;
+    color: var(--mfm-heading);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .mfm-phone-toc summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .mfm-phone-toc summary::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    background: currentColor;
+    mask: url("../icons/phosphor/caret-right.svg") center / contain no-repeat;
+    -webkit-mask: url("../icons/phosphor/caret-right.svg") center / contain no-repeat;
+    transition: transform var(--mfm-dur) var(--mfm-ease);
+  }
+
+  .mfm-phone-toc[open] summary::before {
+    transform: rotate(90deg);
+  }
+
+  .mfm-phone-toc > ul {
+    margin: 0;
+    padding: 0 0.9rem 0.6rem;
+    list-style: none;
+    /* A long list (the Python reference names every method) scrolls inside its box. */
+    max-height: 60vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .mfm-phone-toc ul {
+    margin: 0;
+    padding: 0 0.9rem 0.6rem;
+    list-style: none;
+  }
+
+  .mfm-phone-toc ul ul {
+    padding: 0 0 0 1rem;
+  }
+
+  #quarto-document-content .mfm-phone-toc a {
+    display: flex;
+    align-items: center;
+    min-height: 2.5rem;
+    color: var(--mfm-ink);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+
+  #quarto-document-content .mfm-phone-toc a:hover {
+    color: var(--mfm-heading);
+  }
+}
+
 /* Phone: one menu ------------------------------------------------------------------------ */
 /* Below 992px Quarto's second bar (page title and sidebar toggle) is gone. The navbar panel
    lists the main links, Get access, then the pages of the current section (site.js clones
@@ -1912,6 +2008,11 @@ body.mfm-landing footer.footer {
     min-height: 2.75rem;
     padding: 0;
     font-size: 1.125rem;
+  }
+
+  /* "Sign in" (pilot) goes above the Get access button. */
+  #navbarCollapse .navbar-nav.ms-auto > .nav-item:has(> .nav-link:not([data-mfm])) {
+    order: -1;
   }
 
   /* The Get access button keeps its own colours. */

@@ -845,7 +845,8 @@ def overview_page(routes: list[Route]) -> str:
 def authentication_page() -> str:
     head = (
         "Every request carries a key. "
-        "Your invitation tells you how to get your service URL and your key.\n\n"
+        "Create your key on the Connect page of the River API console. "
+        "The page also shows your service URL.\n\n"
     )
     text = (
         "## Set the base URL and the key\n\n"
