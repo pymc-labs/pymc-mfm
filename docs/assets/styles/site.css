@@ -1301,6 +1301,12 @@ body.mfm-landing .mfm-badge--soon {
   border: 0;
 }
 
+/* With toc-expand (the pilot) the list shows every level 2 and 3 entry; level 3 sits under its
+   level 2 entry. Quarto sets data-toc-expanded only then. */
+#TOC[data-toc-expanded] ul ul {
+  padding-left: 0.9rem;
+}
+
 #TOC .nav-link,
 #TOC ul > li > a {
   position: relative;
@@ -1829,6 +1835,16 @@ body.mfm-landing footer.footer {
 
   .mfm-phone-toc[open] summary::before {
     transform: rotate(90deg);
+  }
+
+  .mfm-phone-toc > ul {
+    margin: 0;
+    padding: 0 0.9rem 0.6rem;
+    list-style: none;
+    /* A long list (the Python reference names every method) scrolls inside its box. */
+    max-height: 60vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .mfm-phone-toc ul {

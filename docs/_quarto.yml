@@ -77,7 +77,7 @@ website:
       # Access is by invitation. This link goes to the page that says how it works. site.js marks
       # the first link of this list as the action button; a profile may add plain links after it.
       - text: "Get access"
-        href: guide/index.qmd#hosted-api
+        href: guide/index.qmd#get-access
   # One quiet line. The dark-mode button is in the navbar (Quarto's own toggle, site.css).
   page-footer:
     left: |

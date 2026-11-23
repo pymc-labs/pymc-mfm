@@ -2,9 +2,10 @@
 # Python. `quarto render docs --profile pilot` writes it to docs/_site-pilot/. Quarto merges
 # this file over _quarto.yml instead of _quarto-full.yml.
 #
-# Pages: the landing page, Get started, the client guide and the client part of the Python
-# reference. In this profile, _scripts/prepare.py writes only the client reference pages,
-# no HTTP API pages and no example notebooks. Text that only the full site carries is in
+# Pages: the landing page, Get started, the client guide and the Python reference, one page
+# with every class and function of the client. In this profile, _scripts/prepare.py joins
+# the client reference into reference/index.qmd, and writes no HTTP API pages and no example
+# notebooks. The old reference/client.*.html addresses are redirect pages (pilot_post.py). Text that only the full site carries is in
 # `.content-hidden when-profile="pilot"` blocks; text only for the pilot is in
 # `.content-visible when-profile="pilot"` blocks.
 project:
@@ -17,33 +18,37 @@ project:
     - guide/index.qmd
     - guide/python-client.qmd
     - reference/index.qmd
-    - reference/client.*.qmd
 
 website:
   navbar:
     left:
       - text: Docs
         href: guide/index.qmd
-      - text: Python reference
-        href: reference/index.qmd
       - text: PyMC Labs
         href: https://www.pymc-labs.com
+        target: _blank
+        rel: noopener
     right:
       # The invitation links to the console; this is the way back. A path on the same host, so
       # the same build serves staging and production.
       - text: Sign in
         href: /console/
+  # One sidebar for the three docs pages (the reference page names it in its metadata).
   sidebar:
     - id: guide
-      title: Guide
       style: floating
-      collapse-level: 2
       contents:
-        - section: Get started
-          contents:
-            - guide/index.qmd
-            - guide/python-client.qmd
-        - section: Python reference
-          contents:
-            - text: River API client
-              href: reference/index.qmd
+        - text: Get started
+          href: guide/index.qmd
+        - text: Use the River API from Python
+          href: guide/python-client.qmd
+        - text: Python reference
+          href: reference/index.qmd
+
+format:
+  html:
+    # Links to a per-object reference page go to its anchor on the one page.
+    filters:
+      - _scripts/pilot-links.lua
+    # Every level 2 and 3 entry of "On this page" shows at all times, not only the section in view.
+    toc-expand: true
