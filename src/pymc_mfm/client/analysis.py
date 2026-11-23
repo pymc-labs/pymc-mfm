@@ -484,9 +484,9 @@ class Analysis:
     def draws(self, scenario_ids: Sequence[str] | None = None) -> xarray.Dataset:
         """Per-draw results as one ``xarray.Dataset``, stacked along ``scenario``.
 
-        Each plan's file is fetched when you call this. Signed URLs that expire within 30
-        seconds (``URL_RENEWAL_MARGIN``), or that the file host refuses, are all replaced by
-        fetching the result again, at most once per call; no run starts again. A renewed URL
+        Each plan's file is fetched when you call this. If a signed URL expires within 30
+        seconds (``URL_RENEWAL_MARGIN``) or the file host returns HTTP 403, the client
+        refreshes all links at most once per call; no run starts again. A renewed URL
         never outlives the analysis, so it is used until it expires, and this raises ``Gone``
         when it already has. Draws of different plans are separately sampled marginals, not
         a joint posterior; see the ``attrs`` of each file.
@@ -546,7 +546,7 @@ class Analysis:
         return available.loc[wanted, ["draws_url", "draws_url_expires_at"]]
 
     def _download_draws(self, url: str, *, refused_ok: bool) -> bytes | None:
-        """The file at ``url``; ``None`` if the host refuses it and a renewal is still allowed."""
+        """The file at ``url``; ``None`` on HTTP 403 if a renewal is still allowed."""
         if not refused_ok:
             return self._http.download(url)
         try:

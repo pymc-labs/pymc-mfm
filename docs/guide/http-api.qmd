@@ -215,7 +215,7 @@ For first runs, these are the errors you are most likely to meet:
 | Error | What to do |
 | --- | --- |
 | `ValueError` | Check the named environment variable, date, row or column. The client does not upload invalid input, but `reuse=True` may first list your datasets. |
-| `Unauthorized` (401) | Check that `MFM_API_KEY` holds the whole key with no spaces. Replace it on Connect if needed. Reply to your invitation if the new key still fails. |
+| `Unauthorized` (401) | For an authenticated River API request, check the key you passed or set in `MFM_API_KEY`. Replace it on Connect if needed; reply to your invitation if the new key still fails. A 401 from a signed file host does not mean the River key was rejected: that request sends no River key. |
 | `ValidationError` (400, 422) | `code` names the limit and `field` identifies the part at fault. Fix that part and rerun. See [Use your own data](#use-your-own-data) for common limits. |
 | `RateLimited` (429) | Wait and retry. For `overloaded_user_analyses` (20 unfinished analyses) or `overloaded_user_runs` (200 unfinished runs), wait for work to finish or delete an analysis. |
 | `ServerError` (500 to 599) | Wait and retry. The client retries 502, 503 and 504, but not 500. Reply to your invitation if 500 persists. |

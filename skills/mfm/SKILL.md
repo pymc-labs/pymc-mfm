@@ -272,7 +272,7 @@ work twice. It raises these errors, all in `pymc_mfm.client`:
 
 | Error | Meaning and action |
 | --- | --- |
-| `Unauthorized` (401) | Bad key. Stop and tell the user. |
+| `Unauthorized` (401) | On a River API request, check the River key. On a signed file request, report the file host's rejection; it did not receive the River key. |
 | `ValidationError` (400, 422) | Read `error.code`, `error.field` and `error.message`. Fix the request. Nothing started. Do not loop. `steps_removed`: scenario steps were removed; send multipliers. |
 | `NotFound` (404) | Wrong id, or another user's id. |
 | `Gone` (410) | The resource was deleted or expired. Do not retry the same call. On a create call (`create`, `analyze`, `again`), an earlier equal request was deleted: if the user needs it again, pass `fresh=True`. |

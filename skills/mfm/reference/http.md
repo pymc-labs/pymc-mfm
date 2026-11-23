@@ -242,7 +242,8 @@ Error bodies look like `{"error": {"code", "message", "request_id", "field"?}}`.
 - `410 gone`: the resource was deleted or expired. Do not retry. A repeat of a create call whose earlier
   analysis was deleted also gets `410`; only a new `Idempotency-Key` starts new work.
 - `404 not_found`: wrong id or another user's id. `404 unknown_scenario`: the analysis has no such plan.
-  `401 unauthorized`: bad key; stop and tell the user.
+- `401 unauthorized` on a River API request: check the River key. A signed file request sends no
+  River key; report a 401 there as a file host rejection.
 - `422`: read `error.code`, `error.field` and `error.message`. Fix the request (see "Refusals"). Nothing
   started. Do not loop on a `422`.
 - A failed plan is not an HTTP error: the status call answers `200`, and the export carries `failure_code` for that plan; its result rows have `status` `failed` and no numbers.

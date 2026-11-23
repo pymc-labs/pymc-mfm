@@ -522,14 +522,30 @@ def test_a_rejected_key_says_where_to_get_one(client, service):
     assert "test-key" not in rendered
 
 
-@pytest.mark.parametrize("authorization", [None, "Bearer another-key"], ids=["absent", "replaced"])
+def test_export_with_a_non_json_401_shows_key_guidance_without_writing_a_file(
+    client, service, tmp_path
+):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record()))
+    service.on("GET", "/v1/analyses/an_1/export", (401, b"Unauthorized"))
+    analysis = client.get("an_1")
+    path = tmp_path / "export.json"
+
+    with pytest.raises(Unauthorized) as caught:
+        analysis.export(path)
+    assert str(caught.value) == "HTTP 401 http_401: The service returned an error."
+    rendered = "".join(format_exception(caught.value))
+    assert "MFM_API_KEY" in rendered and "Connect page" in rendered
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("authorization", [None, "Bearer test-key-extra"], ids=["absent", "prefix"])
 def test_401_does_not_suggest_replacing_a_key_that_was_not_sent(authorization):
     def handle(request):
         if authorization is None:
             del request.headers["Authorization"]
         else:
             request.headers["Authorization"] = authorization
-        return httpx.Response(401)
+        return httpx.Response(401, json=error_body("unauthorized", "Bad key"))
 
     with Client(BASE_URL, "test-key", transport=httpx.MockTransport(handle)) as client:
         with pytest.raises(Unauthorized) as caught:

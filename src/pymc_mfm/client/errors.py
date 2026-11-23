@@ -47,7 +47,7 @@ class ValidationError(ApiError):
 
 
 class Unauthorized(ApiError):
-    """The API key is missing or wrong (401)."""
+    """An HTTP 401. On a River API request, check the key; signed downloads use no River key."""
 
 
 class Forbidden(ApiError):
