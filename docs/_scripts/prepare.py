@@ -177,13 +177,21 @@ mfm-old-pages: {old_pages}
 
 
 # The top of the one page: how to install and import the client, before the summary table.
+# One name per line: the reference page wraps code, and a long import line breaks anywhere on a
+# phone.
 PILOT_REFERENCE_START = """\
 ```bash
 pip install pymc-mfm
 ```
 
 ```python
-from pymc_mfm.client import Client, amount, curve, grid, scenario
+from pymc_mfm.client import (
+    Client,
+    amount,
+    curve,
+    grid,
+    scenario,
+)
 ```
 
 The client needs Python 3.11 or newer. A first run is in [Get started](../guide/index.qmd)."""
