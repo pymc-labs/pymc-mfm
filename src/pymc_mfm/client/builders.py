@@ -21,9 +21,10 @@ MAX_ID_LENGTH = 64
 
 
 def amount(x: float) -> dict[str, float]:
-    """Set a channel's total spend in the window to ``x``, for example on a channel with no
-    planned spend. The weekly pattern of the plan is kept; a channel with no spend in the
-    window gets ``x`` split evenly over its weeks."""
+    """Set a channel's total spend in the window to ``x``.
+
+    Use it, for example, on a channel with no planned spend. The weekly pattern of the plan
+    is kept; a channel with no spend in the window gets ``x`` split evenly over its weeks."""
     return {"amount": x}
 
 

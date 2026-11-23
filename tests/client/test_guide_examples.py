@@ -2,7 +2,7 @@
 
 A tester copies them with only the install line and the two environment variables, so each
 must run as pasted: the Get started script (docs/guide/index.qmd, marked blocks), every block of
-docs/guide/http-api.qmd in page order, and the client example of README.md.
+docs/guide/python-client.qmd in page order, and the client example of README.md.
 """
 
 import json
@@ -32,7 +32,7 @@ from .client_fixtures import (
 
 ROOT = Path(__file__).resolve().parents[2]
 GUIDE = ROOT / "docs" / "guide" / "index.qmd"
-CLIENT_PAGE = ROOT / "docs" / "guide" / "http-api.qmd"
+CLIENT_PAGE = ROOT / "docs" / "guide" / "python-client.qmd"
 README = ROOT / "README.md"
 PYTHON_BLOCK = re.compile(r"^```python\n(.*?)^```", re.DOTALL | re.MULTILINE)
 URL = "https://site.example/analyses/an_1"

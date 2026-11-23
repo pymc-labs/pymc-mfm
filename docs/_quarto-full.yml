@@ -58,7 +58,7 @@ website:
           contents:
             - guide/decompose.qmd
             - guide/models-hub.qmd
-            - guide/http-api.qmd
+            - guide/python-client.qmd
         - section: Train
           contents:
             - guide/training.qmd
