@@ -15,12 +15,12 @@ roles = {
     "control_columns": ["price"],
 }
 usage = model.input_usage(history, plan, **roles)  # preflight before sampling
-idata = model.inference(history, plan, **roles, n_samples=500)
+idata = model.inference(history, plan, **roles, n_samples=500, random_seed=0)
 assert idata is model.idata
 query = model.query_result  # exact query DecompositionResult for diagnostics and graph helpers
 ```
 
-`n_samples` defaults to 1,000 draws. Examples that pass 500 do so to run faster. For numbers you report, keep the default or raise it, and pass `random_seed`.
+`n_samples` defaults to 1,000 draws per window. Examples that pass 500 do so to run faster. For numbers you report, keep the default or raise it, and pass `random_seed`. Complete inference accepts one seed for both windows: context continues the query's random stream, including when no seed is passed. If you need different seeds, use separate `decompose` calls with `window="query"` and `window="context"`.
 
 History requires a pandas dataframe with at least two rows, unique timezone-naive dates, a regular cadence, strictly positive outcomes, nonnegative spend, and at least one channel and control. Date, target, channel, and control roles must be distinct. Controls are padded up to the model's configured width; excess controls are rejected. Successful inference snapshots the inputs and role lists, so later caller mutations cannot change the completed run.
 

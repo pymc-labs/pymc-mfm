@@ -88,11 +88,13 @@ draws. The outputs agree up to floating-point round-off. They can differ slightl
 across devices, thread counts, and compiled or eager runs. On a CPU with the
 same thread count, a repeat gives the same result. A seeded call uses its own generator
 and does not draw from or seed PyTorch's global random state, so other models and `torch`
-calls cannot disturb it. After `compile_sampling()`, PyTorch itself saves and restores the global state while it compiles, which can undo global draws that another thread makes in that time. In `inference` the context window
-continues the query window's stream. The model tree (`idata`) records the seed; the result
-of `predict` or `decompose` does not, so keep the seed yourself if you save one. Without
-`random_seed`, a call draws from PyTorch's global generator and advances it, so
-`torch.manual_seed` before the call still sets the draws and each call gives new ones.
+calls cannot disturb it. After `compile_sampling()`, PyTorch itself saves and restores
+global state during compilation, which can undo global draws made by another thread.
+In `inference`, one stream serves both windows: context continues where query ended.
+Without `random_seed`, both use and advance PyTorch's default stream, so
+`torch.manual_seed` before the call still sets the draws. `idata` records an explicit seed;
+`predict` and `decompose` do not. To seed the windows differently, call `decompose`
+separately for `window="query"` and `window="context"`.
 `predict` and `response_curves` take the same keyword.
 
 `inference` snapshots the explicit history, query and column roles and samples both
