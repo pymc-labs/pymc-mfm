@@ -15,8 +15,8 @@ from pymc_mfm.plotting.panels import COLORS, _suptitle
 
 from ._backend import check, draw
 from ._data import CurveSummary, summarize
-from ._mpl import compact_axis, figure, percent_axis
-from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact, percent
+from ._mpl import compact_axis, figure, figure_legend, percent_axis
+from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact, percent, rgba
 
 if TYPE_CHECKING:
     from ._data import IdataReader
@@ -29,15 +29,20 @@ _CURVE = COLORS["channel"]
 _REFERENCE = "#737373"
 _REFERENCE_LABEL = "Observed level (100%)"
 _XLABEL = "Media covariate, % of observed"
+_WARNING_LABEL = "Level has a warning (see caption)"
+#: Width of the interval bar at a level whose neighbours are missing, where a band has no area.
+_BAR_WIDTH = 6
 
 
 @dataclass(frozen=True, slots=True)
 class Curves:
     """One panel per media covariate, in drawing order.
 
-    ``media`` (the level times the observed total), ``mean``, ``low``, ``high`` and
-    ``truth`` are ``[channel, level]``; ``truth`` is NaN where none was given and
-    ``None`` without truth. ``actual`` indexes level 1 in ``levels``, if listed.
+    ``media`` (the level times the observed total), ``mean``, ``low``, ``high``,
+    ``warnings`` and ``truth`` are ``[channel, level]``; ``warnings`` is the text a
+    hosted summary gives a level (``""`` for none, always for local draws); ``truth`` is
+    NaN where none was given and ``None`` without truth. ``actual`` indexes level 1 in
+    ``levels``, if listed.
     """
 
     channels: tuple[str, ...]
@@ -49,6 +54,7 @@ class Curves:
     high: np.ndarray
     actual: int | None
     truth: np.ndarray | None
+    warnings: np.ndarray
     band: str
     ylabel: str
     title: str
@@ -83,9 +89,11 @@ def prepare(
         media, totals = curves.media[rows], curves.total_media[rows]
         if np.isnan(mean).any():
             missing_note = ("Gaps mark levels with no hosted curve summary.",)
+        warnings = curves.warnings[rows]
     else:
         mean, low, high = summarize(curves.draws[rows], interval, axis=2)
         media, totals = source.curve_media()[rows], curves.media[rows]
+        warnings = np.full(mean.shape, "")
     (actual,) = np.nonzero(curves.levels == 1.0)
     weeks = curves.weeks
     span = "a one-week plan" if weeks == 1 else f"a plan of the first {weeks} forecast weeks"
@@ -104,6 +112,7 @@ def prepare(
         high=high,
         actual=int(actual[0]) if actual.size else None,
         truth=_truth(truth, curves.levels, curves.channels, names),
+        warnings=warnings,
         band=f"{percent(interval)} interval",
         ylabel=f"Contribution over {weeks} week{'s' if weeks > 1 else ''} (outcome)",
         title=title or _TITLE,
@@ -112,8 +121,46 @@ def prepare(
             f"Each media covariate varied separately over {span}; history and other inputs fixed.",
             *missing_note,
             CAVEAT,
+            *_warning_lines(names, warnings),
         ),
     )
+
+
+def _warning_lines(names: tuple[str, ...], warnings: np.ndarray) -> tuple[str, ...]:
+    """One caption line per distinct warning of the drawn curves, naming their channels.
+
+    At most ``MAX_WARNING_LINES`` of them, as under ``client.plots.plot_curves``, then one
+    line counting the rest: a saved image keeps the warnings.
+    """
+    found: dict[str, dict[str, None]] = {}
+    for name, row in zip(names, warnings, strict=True):
+        for text in row:
+            for message in text.split("\n"):
+                if message:
+                    found.setdefault(message, {})[name] = None
+    if not found:
+        return ()
+    from pymc_mfm.client.plots import MAX_WARNING_LINES
+
+    lines = [f"Warning ({', '.join(where)}): {message}" for message, where in found.items()]
+    if len(lines) > MAX_WARNING_LINES:
+        rest = len(lines) - MAX_WARNING_LINES
+        lines = [
+            *lines[:MAX_WARNING_LINES],
+            f"{rest} more warning{'s' if rest > 1 else ''}: see /response_curves/summary/warning.",
+        ]
+    return tuple(lines)
+
+
+def _isolated(mean: np.ndarray) -> np.ndarray:
+    """Levels with a mean but no neighbour with one, where a band cannot form an area."""
+    present = np.pad(~np.isnan(mean), 1)
+    return present[1:-1] & ~present[:-2] & ~present[2:]
+
+
+def _flagged(data: Curves, index: int) -> np.ndarray:
+    """Levels of panel ``index`` with a mean and a warning."""
+    return (data.warnings[index] != "") & ~np.isnan(data.mean[index])
 
 
 def _truth(
@@ -168,7 +215,7 @@ def _matplotlib(data: Curves) -> Any:
         if index >= count:
             ax.set_visible(False)
             continue
-        mean = data.mean[index]
+        mean, low, high = data.mean[index], data.low[index], data.high[index]
         ax.plot(
             data.levels,
             mean,
@@ -178,14 +225,18 @@ def _matplotlib(data: Curves) -> Any:
             label="Mean",
         )
         ax.fill_between(
-            data.levels,
-            data.low[index],
-            data.high[index],
-            color=_CURVE,
-            alpha=BAND_ALPHA,
-            linewidth=0,
-            label=data.band,
+            data.levels, low, high, color=_CURVE, alpha=BAND_ALPHA, linewidth=0, label=data.band
         )
+        isolated = _isolated(mean)
+        if isolated.any():
+            ax.vlines(
+                data.levels[isolated],
+                low[isolated],
+                high[isolated],
+                color=_CURVE,
+                alpha=BAND_ALPHA,
+                linewidth=_BAR_WIDTH,
+            )
         if data.actual is not None and not np.isnan(mean[data.actual]):
             ax.scatter(
                 data.levels[data.actual],
@@ -197,6 +248,20 @@ def _matplotlib(data: Curves) -> Any:
         ax.axvline(1.0, color=_REFERENCE, linestyle="--", linewidth=1, label=_REFERENCE_LABEL)
         if data.truth is not None:
             ax.scatter(data.levels, data.truth[index], color=ACTUAL, s=14, zorder=4, label="Truth")
+        flagged = _flagged(data, index)
+        if flagged.any():
+            from pymc_mfm.client.plots import WARNING_COLOR
+
+            ax.scatter(
+                data.levels[flagged],
+                mean[flagged],
+                s=70,
+                facecolors="none",
+                edgecolors=WARNING_COLOR,
+                linewidths=1.5,
+                zorder=5,
+                label=_WARNING_LABEL,
+            )
         ax.set_title(data.panel_titles[index], loc="left", fontsize=9)
         percent_axis(ax.xaxis)
         compact_axis(ax.yaxis)
@@ -206,10 +271,7 @@ def _matplotlib(data: Curves) -> Any:
         if index + columns >= count:  # the lowest panel of its column
             ax.set_xlabel(_XLABEL, fontsize=9)
     fig.supylabel(data.ylabel, fontsize=9)
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(
-        handles, labels, loc="outside lower center", ncols=len(labels), frameon=False, fontsize=9
-    )
+    figure_legend(fig, axes.flat)
     _suptitle(fig, data.title, *data.caption)
     return fig
 
@@ -233,7 +295,7 @@ def _plotly(data: Curves) -> Any:
         horizontal_spacing=0.06,
         vertical_spacing=0.3 / rows,
     )
-    band_legend = True
+    band_legend = warning_legend = True
     for index, name in enumerate(data.channels):
         where = {"row": index // columns + 1, "col": index % columns + 1}
         first = index == 0
@@ -264,7 +326,10 @@ def _plotly(data: Curves) -> Any:
             if has_gaps
             else (slice(None),)
         )
+        isolated = _isolated(mean)
         for span in spans:
+            if isolated[span].all():
+                continue  # one level: a band of it has no area, so it gets a bar below
             plotting.band(
                 fig,
                 data.levels[span],
@@ -274,6 +339,24 @@ def _plotly(data: Curves) -> Any:
                 name=data.band,
                 legendgroup="interval",
                 showlegend=band_legend,
+                **where,
+            )
+            band_legend = False
+        if isolated.any():
+            # Vertical bars from low to high, one per level, split by NaN gaps.
+            levels = data.levels[isolated]
+            gaps = np.full(len(levels), np.nan)
+            fig.add_trace(
+                go.Scatter(
+                    x=np.column_stack((levels, levels, gaps)).ravel(),
+                    y=np.column_stack((low[isolated], high[isolated], gaps)).ravel(),
+                    mode="lines",
+                    line={"color": rgba(_CURVE, BAND_ALPHA), "width": _BAR_WIDTH},
+                    hoverinfo="skip",
+                    name=data.band,
+                    legendgroup="interval",
+                    showlegend=band_legend,
+                ),
                 **where,
             )
             band_legend = False
@@ -315,6 +398,36 @@ def _plotly(data: Curves) -> Any:
                 ),
                 **where,
             )
+        flagged = _flagged(data, index)
+        if flagged.any():
+            from pymc_mfm.client.plots import WARNING_COLOR
+
+            fig.add_trace(
+                go.Scatter(
+                    x=data.levels[flagged],
+                    y=mean[flagged],
+                    mode="markers",
+                    name=_WARNING_LABEL,
+                    marker={
+                        "symbol": "circle-open",
+                        "color": WARNING_COLOR,
+                        "size": 12,
+                        "line": {"width": 2},
+                    },
+                    hovertext=[
+                        plotting.text(text).replace("\n", "<br>")
+                        for text in data.warnings[index][flagged]
+                    ],
+                    hovertemplate=(
+                        f"Warning for {plotting.text(name)} at %{{x:.1%}} of its observed level"
+                        "<br>%{hovertext}<extra></extra>"
+                    ),
+                    legendgroup="warning",
+                    showlegend=warning_legend,
+                ),
+                **where,
+            )
+            warning_legend = False
         if index + columns >= count:  # the lowest panel of its column
             fig.update_xaxes(title={"text": _XLABEL, "font": {"size": 11}}, **where)
     # Narrow panels get fewer ticks, which then stay level instead of rotating.

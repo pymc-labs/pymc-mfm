@@ -82,7 +82,11 @@ class Covariates:
 
 @dataclass(frozen=True, slots=True)
 class CurveSummary:
-    """Stored curve statistics, each ``[channel, level]``, with no posterior draws."""
+    """Stored curve statistics, each ``[channel, level]``, with no posterior draws.
+
+    ``warnings`` holds each point's warning text: ``""`` where it has none, and several
+    distinct messages joined by ``"\\n"``.
+    """
 
     channels: tuple[str, ...]
     levels: np.ndarray
@@ -94,18 +98,36 @@ class CurveSummary:
     weeks: int
     n_samples: int
     interval: float
+    warnings: np.ndarray
 
 
-def _curve_values(data: Dataset, name: str, *dims: str) -> np.ndarray:
+def _curve_array(data: Dataset, name: str, *dims: str) -> DataArray:
     path = f"{_CURVE_PATH}/{name}"
     if name not in data.data_vars:
         raise ValueError(f"{path}: variable is missing")
     values = data[name]
     if len(values.dims) != len(dims) or set(values.dims) != set(dims):
         raise ValueError(f"{path}: expected dims {dims} in any order, got {values.dims}")
+    return values.transpose(*dims)
+
+
+def _curve_values(data: Dataset, name: str, *dims: str) -> np.ndarray:
+    values = _curve_array(data, name, *dims)
     if values.dtype.kind not in "iuf":
-        raise ValueError(f"{path}: must hold numbers, got dtype {values.dtype}")
-    return values.transpose(*dims).to_numpy()
+        raise ValueError(f"{_CURVE_PATH}/{name}: must hold numbers, got dtype {values.dtype}")
+    return values.to_numpy()
+
+
+def _curve_warnings(data: Dataset, shape: tuple[int, ...]) -> np.ndarray:
+    """The optional ``warning`` text ``[channel, level]``; a summary without one has none."""
+    if "warning" not in data.data_vars:
+        return np.full(shape, "")
+    text = _curve_array(data, "warning", "channel", "level").to_numpy()
+    if text.dtype.kind != "U" and not (
+        text.dtype.kind == "O" and all(isinstance(item, str) for item in text.flat)
+    ):
+        raise ValueError(f"{_CURVE_PATH}/warning: must hold text, got dtype {text.dtype}")
+    return text.astype(str)
 
 
 def _curve_count(node: DataTree, name: str) -> int:
@@ -383,6 +405,7 @@ class IdataReader:
             weeks=weeks,
             n_samples=n_samples,
             interval=_CURVE_INTERVAL,
+            warnings=_curve_warnings(data, mean.shape),
         )
 
     def response_curves(self) -> ResponseCurves:
