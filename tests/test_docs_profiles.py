@@ -44,6 +44,14 @@ def test_pilot_renders_only_the_tester_pages() -> None:
     assert "api/**" in load("_quarto-full.yml")["project"]["render"]
 
 
+def test_links_to_the_site_itself_stay_in_the_tab() -> None:
+    # Quarto's own rule compares each link with site-url, which is not the host of the pilot
+    # site: there every link opened a new tab. site.js compares the host in the browser.
+    assert load("_quarto.yml")["format"]["html"]["link-external-newwindow"] is False
+    script = (DOCS / "assets" / "js" / "site.js").read_text(encoding="utf-8")
+    assert "link.host === window.location.host" in script
+
+
 def test_pilot_summary_links_get_a_target(tmp_path, monkeypatch) -> None:
     page = tmp_path / "client.Analysis.qmd"
     page.write_text(
