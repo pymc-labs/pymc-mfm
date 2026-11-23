@@ -14,7 +14,47 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Check formatting and lint without installing the package
+        run: |
+          uv sync --locked --only-group dev
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+
+  authorize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require repository admin authorization for PR tests
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_BY: ${{ github.triggering_actor }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          is_admin() {
+            local permission
+            permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$1/permission" --jq .permission) || exit 1
+            [[ $permission == admin ]]
+          }
+          # On a rerun, the requesting actor authorizes this same revision, not the PR author.
+          if ! is_admin "$REQUESTED_BY" ||
+             { [[ $GITHUB_RUN_ATTEMPT == 1 && $REQUESTED_BY != "$PR_AUTHOR" ]] && ! is_admin "$PR_AUTHOR"; }; then
+            echo "::notice::Full tests need a repository admin. An admin can choose Re-run failed jobs after reviewing this revision."
+            exit 1
+          fi
+
   contracts:
+    needs: authorize
     # Two lanes per install. "fast" is every test not marked slow. "slow" is the seven tests
     # marked slow (about 245 s serial). Together they run every test once per install, and
     # the two lanes run in parallel, so the critical path is the longer lane, not the sum.
@@ -38,6 +78,8 @@ jobs:
       MKL_NUM_THREADS: ${{ matrix.lane == 'slow' && '2' || '1' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -52,11 +94,6 @@ jobs:
       - name: Install complete integration extras
         if: matrix.installation == 'full'
         run: uv sync --locked --all-extras
-      - name: Check formatting and lint
-        if: matrix.installation == 'base' && matrix.lane == 'fast'
-        run: |
-          uv run --no-sync ruff check .
-          uv run --no-sync ruff format --check .
       # Static check of the deprecated top-level names; it only reads tests/typing.
       - name: Check static types of the deprecated top-level names
         if: matrix.installation == 'base' && matrix.lane == 'fast'
@@ -76,6 +113,7 @@ jobs:
           retention-days: 30
 
   installed-smoke:
+    needs: authorize
     # Builds the sdist and wheels, then installs each into a clean environment. It needs no
     # test results, so it runs beside the test jobs.
     runs-on: ubuntu-latest
@@ -85,6 +123,8 @@ jobs:
       MPLBACKEND: Agg
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -103,6 +143,7 @@ jobs:
         run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
 
   light:
+    needs: authorize
     # The default install is a light client with no PyTorch. Run its tests in two
     # environments: the bare install, and the install with the client's extras.
     runs-on: ubuntu-latest
@@ -116,6 +157,8 @@ jobs:
       MPLBACKEND: Agg
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
@@ -135,11 +178,10 @@ jobs:
           path: junit/
           retention-days: 30
 
-  # The single required check. It runs even when a job fails or is cancelled. A skipped job
-  # counts as passed. A failed or cancelled job fails it.
+  # A required check must fail when authorization is missing or any test job did not pass.
   ci-ok:
     if: always()
-    needs: [contracts, installed-smoke, light]
+    needs: [authorize, lint, contracts, installed-smoke, light]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -152,7 +194,7 @@ jobs:
           while IFS=$'\t' read -r job result; do
             table+=$'\n'"| $job | $result |"
             case "$result" in
-              success|skipped) ;;
+              success) ;;
               *) bad=1 ;;
             esac
           done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.result)"' <<< "$NEEDS_JSON")

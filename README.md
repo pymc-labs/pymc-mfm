@@ -832,6 +832,16 @@ conda activate ./.conda
 python -m pip install --group dev -e .
 ```
 
+### Pull requests
+
+Open a pull request against `main` from your fork. Lint, docs and public-boundary
+checks provide feedback without running the test suite. The full suite starts
+automatically only if both the PR author and the person opening or updating it
+are repository admins.
+For any other PR, a repository admin reviews the revision, then opens its **Tests**
+run and chooses **Re-run failed jobs**. A new push requires a new decision.
+Passing checks and approval from an MFM reviewer are required for routine merges.
+
 ### Documentation site
 
 The website in `docs/` is a [Quarto](https://quarto.org) project: a landing page, the
