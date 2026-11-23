@@ -15,7 +15,13 @@ River is the trained network behind PyMC MFM. The hosted River API runs River fo
 
 ### Get access
 
+::: {.content-hidden when-profile="pilot"}
 Access is by invitation. Your invitation links to the River API console. Create your API key on its Connect page, which also shows your service URL. The page shows the key once; if you lose it, replace it there. Each key belongs to one person: keep it secret, and out of any file you share.
+:::
+
+::: {.content-visible when-profile="pilot"}
+Access is by invitation. Your invitation links to the [River API console](/console/). Create your API key on its Connect page, which also shows your service URL. The page shows the key once; if you lose it, replace it there. Each key belongs to one person: keep it secret, and out of any file you share.
+:::
 
 Set both as environment variables, so your code never contains them. Use the `https://` service URL exactly as the Connect page shows it. The client sends your key only to that URL.
 

@@ -28,6 +28,11 @@ website:
         href: reference/index.qmd
       - text: PyMC Labs
         href: https://www.pymc-labs.com
+    right:
+      # The invitation links to the console; this is the way back. A path on the same host, so
+      # the same build serves staging and production.
+      - text: Sign in
+        href: /console/
   sidebar:
     - id: guide
       title: Guide

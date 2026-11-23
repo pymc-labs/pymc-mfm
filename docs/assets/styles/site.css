@@ -403,7 +403,7 @@ body.quarto-dark .navbar-logo {
    search as 40px squares, then the labelled Get access button. Bootstrap keeps the collapse as a
    flex box with !important; display: contents lets the link lists, the tools and the search
    button sit in one row, ordered below. The right-hand list lays out its own items in that row
-   too, so Get access comes last, after search. */
+   too, so Get access comes last, after search and the pilot's "Sign in". */
 @media (min-width: 992px) {
   .navbar-expand-lg .navbar-collapse {
     display: contents !important; /* Bootstrap sets display: flex !important here */
@@ -434,8 +434,13 @@ body.quarto-dark .navbar-logo {
     order: 5;
   }
 
-  .navbar .navbar-nav.ms-auto > .nav-item:last-child {
+  /* The pilot's plain "Sign in" link sits just before the Get access button. */
+  .navbar .navbar-nav.ms-auto > .nav-item:has(> .nav-link:not([data-mfm])) {
     order: 6;
+  }
+
+  .navbar .navbar-nav.ms-auto > .nav-item:has(> .nav-link[data-mfm]) {
+    order: 7;
     margin-left: 0.25rem;
   }
 
@@ -1912,6 +1917,11 @@ body.mfm-landing footer.footer {
     min-height: 2.75rem;
     padding: 0;
     font-size: 1.125rem;
+  }
+
+  /* "Sign in" (pilot) goes above the Get access button. */
+  #navbarCollapse .navbar-nav.ms-auto > .nav-item:has(> .nav-link:not([data-mfm])) {
+    order: -1;
   }
 
   /* The Get access button keeps its own colours. */
