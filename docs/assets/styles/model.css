@@ -282,6 +282,8 @@ body.mfm-river-page main strong {
   padding: 1.5rem;
   border-radius: var(--mfm-r-card);
   background: var(--mfm-tone-1);
+  /* The speed chart lays out by the chart's own width (@container below). */
+  container-type: inline-size;
 }
 
 .mfm-chart figcaption {
@@ -387,10 +389,31 @@ body.mfm-river-page main strong {
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: var(--mfm-ink);
+  white-space: nowrap;
 }
 
 .mfm-chart__groups--time .mfm-bar i {
   width: calc(var(--w) * 0.6);
+}
+
+/* A narrow speed chart (phones, and the article column between the sidebars) puts each
+   label above its bar, so the longest bar and its value fit. */
+@container (max-width: 38rem) {
+  .mfm-chart__groups--time .mfm-bar {
+    flex-wrap: wrap;
+    gap: 0.3rem 0.6rem;
+    height: auto;
+    margin-bottom: 0.7rem;
+  }
+
+  .mfm-chart__groups--time .mfm-bar span {
+    width: 100%;
+  }
+
+  .mfm-chart__groups--time .mfm-bar i {
+    height: 22px;
+    width: calc(var(--w) * 0.72);
+  }
 }
 
 /* river.js adds .mfm-js, so the bars show in full when scripts do not run. */
@@ -479,18 +502,11 @@ body.mfm-river-page main strong {
     gap: 0.15rem;
   }
 
-  .mfm-bar span {
-    width: 7.5rem;
-  }
-
   /* Leave room for the value after the longest bar. */
   .mfm-bar i {
     width: var(--w, calc(var(--v) / var(--max, 1) * 64%));
   }
 
-  .mfm-chart__groups--time .mfm-bar i {
-    width: calc(var(--w) * 0.4);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -533,6 +549,7 @@ body.mfm-river-page main strong {
   background: #050d1d;
   font-family: var(--mfm-font-sans, "Inter", system-ui, sans-serif);
   font-feature-settings: "cv11", "ss01", "ss03";
+  --mfm-accent: #8fa9ff; /* always dark: focus rings use the dark-mode accent */
 }
 
 /* The hero runs under the navbar: drop the offset Quarto sets inline for the fixed bar. */
@@ -540,9 +557,8 @@ body.mfm-river-hero-on {
   padding-top: 0 !important; /* Quarto writes padding-top on body as an inline style */
 }
 
-/* Hero layers, back to front: the picture (shown as it is until the canvas draws it), the
-   canvas (the picture brought to life, mist over it), numbers in the mist, the title, the
-   mist in front, the scroll hint. */
+/* Hero layers, back to front: the graded still, the animated canvas with mist, numbers,
+   the title, the mist in front, and the scroll hint. */
 .mfm-river__picture {
   position: absolute;
   inset: 0;
@@ -551,6 +567,7 @@ body.mfm-river-hero-on {
   height: 100%;
   object-fit: cover;
   object-position: 60% 50%; /* as the canvas crops: the river and the moon on narrow screens */
+  filter: url("#mfm-river-still-grade");
   pointer-events: none;
 }
 
@@ -599,8 +616,25 @@ body.mfm-river-hero-on {
   gap: 0.6rem;
   transform: translateX(-50%);
   font-size: 0.85rem;
-  color: rgba(247, 247, 247, 0.46);
+  color: rgba(247, 247, 247, 0.82);
   text-decoration: none;
+}
+
+/* A soft dark pool behind the words keeps them legible over the moonlit water. */
+.mfm-river__hero .mfm-river__scroll::before {
+  content: "";
+  position: absolute;
+  inset: -0.9rem -2.25rem auto;
+  z-index: -1;
+  height: calc(1.5em + 1.8rem);
+  background: radial-gradient(closest-side, rgba(5, 13, 29, 0.75), rgba(5, 13, 29, 0));
+  pointer-events: none;
+}
+
+/* river.js fades the link as the page scrolls; keyboard focus shows it again. */
+.mfm-river__hero .mfm-river__scroll:focus-visible {
+  opacity: 1 !important; /* over river.js's inline fade */
+  color: #f7f7f7;
 }
 
 .mfm-river__scroll span {
@@ -700,8 +734,21 @@ body.mfm-river-hero-on {
   color: rgba(214, 226, 248, 0.72);
 }
 
-/* The hero's title replaces the title block; the author and date line stays. */
-body.mfm-river-hero-on .quarto-title h1.title,
+/* The hero's name replaces the title block on screen. The page title stays the page's h1
+   for assistive technology (visually hidden); the author and date line stays. */
+body.mfm-river-hero-on .quarto-title h1.title {
+  position: absolute !important;
+  display: block !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 body.mfm-river-hero-on .quarto-title .subtitle {
   display: none !important;
 }

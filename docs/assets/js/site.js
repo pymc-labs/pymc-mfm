@@ -284,22 +284,28 @@
 
   }
 
-  /* Below 992px the menu is a sheet over the page (site.css): lock the page scroll while it
-     is open, and close it on Escape. */
+  /* Below 992px the menu is a sheet over the page (site.css): lock the page scroll and make
+     the covered page inert while it is open, so Tab stays in the menu, and close it on
+     Escape. */
   function initMenuSheet() {
     const panel = document.getElementById("navbarCollapse");
     if (!panel) return;
     const root = document.documentElement;
-    panel.addEventListener("show.bs.collapse", () => root.classList.add("mfm-menu-open"));
-    panel.addEventListener("hidden.bs.collapse", () => root.classList.remove("mfm-menu-open"));
+    const wide = window.matchMedia("(min-width: 992px)");
+    const cover = (open) => {
+      root.classList.toggle("mfm-menu-open", open);
+      for (const el of document.body.children) {
+        if (!el.contains(panel)) el.inert = open;
+      }
+    };
+    panel.addEventListener("show.bs.collapse", () => cover(!wide.matches));
+    panel.addEventListener("hidden.bs.collapse", () => cover(false));
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !panel.classList.contains("show") || !window.bootstrap) return;
       window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
       document.querySelector(".navbar-toggler")?.focus();
     });
-    window.matchMedia("(min-width: 992px)").addEventListener("change", (event) => {
-      if (event.matches) root.classList.remove("mfm-menu-open");
-    });
+    wide.addEventListener("change", (event) => cover(!event.matches && panel.classList.contains("show")));
   }
 
   [

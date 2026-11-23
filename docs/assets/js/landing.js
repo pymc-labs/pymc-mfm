@@ -3,6 +3,7 @@
       in on load, and every 7-10 s "PyMC" glitches into "Bayesian" and back. Nothing in the
       hero is tied to scrolling: the copy and the field stay put while the page scrolls.
    2. The editor: a notebook runs its cells when it comes into view ("Run All" replays).
+   3. The FAQ: a strip of answer cards that repeats both ways around an active middle card.
    The chapters after the editor (painted tiles) are tiles-scene.js.
    Everything is decoration over static HTML. Without GSAP the page keeps its plain
    layout; with reduced motion nothing moves and the notebook shows finished. */
@@ -353,6 +354,181 @@
     );
   }
 
+  // 3. FAQ strip ----------------------------------------------------------------------
+  // The page holds each card once. A copy of the set goes on each side, hidden from
+  // assistive tech and out of the tab order (its links still work with a pointer, since a
+  // copy can pass through the middle). The card nearest the middle is the active one
+  // (.is-active). Whenever the strip comes to rest on a copy it jumps by exactly one set to
+  // the same card among the originals: it never runs out either way, and the card that
+  // keyboard focus reaches is the one in view. Arrows step one card and announce the
+  // question they land on, a mouse drags the strip, touch and trackpads scroll it natively,
+  // and a pointer click or keyboard focus on a side card brings it to the middle; scroll
+  // snapping lands every move on a card.
+  function faqStrip(track, prev, next) {
+    const cards = [...track.children];
+    const count = cards.length;
+    if (count < 2) return;
+    const copies = () =>
+      cards.map((card) => {
+        const copy = card.cloneNode(true);
+        copy.setAttribute("aria-hidden", "true");
+        copy.querySelectorAll("a, button").forEach((el) => el.setAttribute("tabindex", "-1"));
+        return copy;
+      });
+    track.prepend(...copies());
+    track.append(...copies());
+    const all = [...track.children];
+    // Names the question the arrows land on; they do not move focus.
+    const status = document.createElement("p");
+    status.className = "visually-hidden";
+    status.setAttribute("aria-live", "polite");
+    track.after(status);
+
+    const behavior = reduceMotion ? "auto" : "smooth";
+    const step = () => all[1].offsetLeft - all[0].offsetLeft; // card plus gap
+    // The scrollLeft that puts card i of the whole strip in the middle, and back.
+    const centre = (i) => all[0].offsetLeft + all[0].offsetWidth / 2 - track.clientWidth / 2 + i * step();
+    const nearest = (left = track.scrollLeft) =>
+      Math.min(all.length - 1, Math.max(0, Math.round((left - centre(0)) / step())));
+    const bringIn = (i) => track.scrollTo({ left: centre(i), behavior });
+
+    let active = null;
+    const light = () => {
+      const card = all[nearest()];
+      if (card === active) return;
+      if (active) active.classList.remove("is-active");
+      card.classList.add("is-active");
+      active = card;
+    };
+    // A move by whole sets changes which copy sits in the middle: light it at once, with
+    // no transition to give the swap away.
+    const jump = (by) => {
+      track.classList.add("is-jumping");
+      track.scrollLeft += by;
+      light();
+      void track.offsetWidth;
+      track.classList.remove("is-jumping");
+    };
+    // At rest the middle card is always one of the originals.
+    const settle = () => {
+      const i = nearest();
+      if (i < count) jump(count * step());
+      else if (i >= 2 * count) jump(-count * step());
+    };
+    jump(centre(count) - track.scrollLeft);
+
+    let target = null; // the card the arrows are taking the strip to
+    let held = false; // a finger or the mouse is on it
+    let announce = false; // the arrows moved the strip: name the question it lands on
+    let rest;
+    let frame = 0;
+    const atRest = () => {
+      clearTimeout(rest);
+      rest = setTimeout(() => {
+        if (held) return;
+        target = null;
+        track.classList.remove("is-dragging");
+        settle();
+        light();
+        if (!announce) return;
+        announce = false;
+        status.textContent = `Question ${all.indexOf(active) - count + 1} of ${count}: ${active.querySelector("h3").textContent}`;
+      }, 150);
+    };
+    track.addEventListener("scroll", () => {
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        light();
+      });
+      atRest();
+    }, { passive: true });
+
+    const go = (direction) => {
+      if (target === null) {
+        settle();
+        target = nearest();
+      } else if (target < count || target >= 2 * count) {
+        // Presses faster than the strip comes to rest: move it one set towards the
+        // originals (the same cards), so it never runs out of cards mid-flight.
+        const by = target < count ? count : -count;
+        jump(by * step());
+        target += by;
+      }
+      target += direction;
+      announce = true;
+      bringIn(target);
+    };
+    if (prev) prev.addEventListener("click", () => go(-1));
+    if (next) next.addEventListener("click", () => go(1));
+
+    // A pointer click on a side card brings it to the middle instead of following a link
+    // it blurs. Keyboard activation (detail 0) always follows the focused link.
+    track.addEventListener("click", (event) => {
+      const card = event.target.closest(".mfm-faq__card");
+      if (!card || card === active || event.detail === 0) return;
+      event.preventDefault();
+      target = null;
+      bringIn(all.indexOf(card));
+    });
+    track.addEventListener("focusin", (event) => {
+      const card = event.target.closest(".mfm-faq__card");
+      if (card && card !== active) bringIn(all.indexOf(card));
+    });
+
+    track.addEventListener("touchstart", () => (held = true), { passive: true });
+    for (const type of ["touchend", "touchcancel"]) {
+      track.addEventListener(type, () => {
+        held = false;
+        atRest();
+      }, { passive: true });
+    }
+
+    // Mouse drag. A short flick still moves one card; the click that ends a drag neither
+    // follows a link nor brings a card in.
+    let drag = null;
+    track.addEventListener("dragstart", (event) => event.preventDefault());
+    track.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      drag = { x: event.clientX, left: track.scrollLeft, moved: false };
+      held = true;
+      target = null;
+    });
+    window.addEventListener("pointermove", (event) => {
+      if (!drag) return;
+      const dx = event.clientX - drag.x;
+      if (!drag.moved) {
+        if (Math.abs(dx) < 5) return;
+        drag.moved = true;
+        track.classList.add("is-dragging");
+        window.getSelection()?.removeAllRanges();
+      }
+      track.scrollLeft = drag.left - dx;
+    });
+    const drop = () => {
+      if (!drag) return;
+      const { left, moved } = drag;
+      drag = null;
+      held = false;
+      if (!moved) {
+        atRest(); // a press held through a move still settles the strip
+        return;
+      }
+      const swallow = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      };
+      track.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => track.removeEventListener("click", swallow, { capture: true }), 0);
+      const travelled = track.scrollLeft - left;
+      let card = nearest();
+      if (card === nearest(left) && Math.abs(travelled) > step() * 0.15) card += Math.sign(travelled);
+      bringIn(card);
+      atRest();
+    };
+    window.addEventListener("pointerup", drop);
+    window.addEventListener("pointercancel", drop);
+  }
+
   // Reveal sections, copy button -------------------------------------------------------
   function reveal() {
     const items = root.querySelectorAll(".mfm-reveal");
@@ -400,6 +576,8 @@
   if (fieldCanvas && hero) field(fieldCanvas, hero);
   if (glitchWord && hero) titleGlitch(glitchWord, hero);
   if (ide) notebook(ide);
+  const faq = root.querySelector('[data-mfm="faq"]');
+  if (faq) faqStrip(faq, root.querySelector('[data-mfm="faq-prev"]'), root.querySelector('[data-mfm="faq-next"]'));
   reveal();
   inPageLinks();
   // The intro animates laid-out text: wait for the web fonts.
