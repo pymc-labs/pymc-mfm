@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 DOCS_SCRIPTS = Path(__file__).resolve().parent.parent / "docs" / "_scripts"
 sys.path.insert(0, str(DOCS_SCRIPTS))
 
@@ -82,30 +84,47 @@ def test_finish_names_the_site_once_in_the_title() -> None:
     assert finish.demote_nav_title(guide) == guide
 
 
-def test_finish_keeps_callout_labels_out_of_search(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("listed", [True, False])
+def test_finish_keeps_callout_labels_out_of_search(
+    monkeypatch, tmp_path: Path, listed: bool
+) -> None:
     import finish
 
-    (tmp_path / "guide").mkdir()
-    (tmp_path / "guide" / "concepts.html").write_text(
-        '<div class="callout-title-container flex-fill">\n'
-        '<span class="screen-reader-only">Note</span>Separate marginals\n</div>\n'
-        '<div class="callout-title-container flex-fill">\n'
-        '<span class="screen-reader-only">Tip</span><code>idata</code> first\n</div>\n',
+    site = tmp_path / "_site"
+    (site / "guide").mkdir(parents=True)
+    (site / "guide" / "concepts.html").write_text(
+        "".join(
+            '<div class="callout-title-container flex-fill">\n'
+            f'<span class="screen-reader-only">{label}</span>{title}\n</div>\n'
+            for label, title in [
+                ("Note", "Separate marginals"),
+                ("Tip", "<code>idata</code> first"),
+                ("Warning", "Fit &amp; refit"),
+                ("Important", "<code>&lt;name&gt;</code> rows"),
+            ]
+        ),
         encoding="utf-8",
     )
+    # Quarto's index has the text with only < and > escaped.
     entries = [
         {"href": "guide/concepts.html#windows", "text": "Noteworthy.\nNoteSeparate marginals\n"},
         {"href": "guide/other.html", "text": "NoteSeparate marginals"},
-        {"href": "guide/concepts.html#more", "text": "Tipidata first\n"},
+        {"href": "guide/concepts.html#more", "text": "Tipidata first\nWarningFit & refit\n"},
+        {"href": "guide/concepts.html#rows", "text": "Important&lt;name&gt; rows\n"},
     ]
-    (tmp_path / "search.json").write_text(json.dumps(entries, indent=2), encoding="utf-8")
-    monkeypatch.setattr(finish, "SITE", tmp_path)
-    monkeypatch.delenv("QUARTO_PROJECT_OUTPUT_FILES", raising=False)
+    (site / "search.json").write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    monkeypatch.setattr(finish, "DOCS", tmp_path)
+    monkeypatch.setattr(finish, "SITE", site)
+    if listed:  # as Quarto runs it: the pages it wrote, relative to docs/
+        monkeypatch.setenv("QUARTO_PROJECT_OUTPUT_FILES", "_site/guide/concepts.html")
+    else:
+        monkeypatch.delenv("QUARTO_PROJECT_OUTPUT_FILES", raising=False)
     finish.main()
 
-    texts = [e["text"] for e in json.loads((tmp_path / "search.json").read_text(encoding="utf-8"))]
+    texts = [e["text"] for e in json.loads((site / "search.json").read_text(encoding="utf-8"))]
     assert texts == [
         "Noteworthy.\nSeparate marginals\n",  # the label goes, the page's own words stay
         "NoteSeparate marginals",  # another page's entry is left alone
-        "idata first\n",  # a title that opens with markup, as the index has it
+        "idata first\nFit & refit\n",
+        "&lt;name&gt; rows\n",
     ]

@@ -330,11 +330,16 @@
       el.removeAttribute("data-bs-target");
     });
     // A group title is Quarto's collapse button (title and chevron): the copy keeps the title
-    // as plain text.
+    // as plain text. A chevron-only button (a group that links a page) goes.
     copy.querySelectorAll("button.sidebar-item-toggle").forEach((button) => {
+      const text = button.querySelectorAll(".menu-text");
+      if (!text.length) {
+        button.remove();
+        return;
+      }
       const title = document.createElement("span");
       title.className = "sidebar-item-text";
-      title.append(...button.querySelectorAll(".menu-text"));
+      title.append(...text);
       button.replaceWith(title);
     });
     copy.querySelectorAll(".sidebar-section").forEach((el) => el.classList.add("show"));

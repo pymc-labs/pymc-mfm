@@ -23,6 +23,7 @@ tidied.
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -50,13 +51,18 @@ def demote_nav_title(page: str) -> str:
     )
 
 
+def index_text(fragment: str) -> str:
+    """HTML as Quarto's search index writes it: the text, with only ``<`` and ``>`` escaped."""
+    return html.unescape(TAG.sub("", fragment)).replace("<", "&lt;").replace(">", "&gt;")
+
+
 def callout_labels(page: str) -> list[tuple[str, str]]:
-    """Each callout's screen-reader label and its title as text (the index keeps entities)."""
+    """Each callout's screen-reader label and the first word of its title, as indexed."""
     found = []
     for m in CALLOUT_LABEL.finditer(page):
-        title = TAG.sub("", m.group(2)).strip()
-        if title:
-            found.append((m.group(1), title))
+        words = index_text(m.group(2)).split()
+        if words:
+            found.append((index_text(m.group(1)), words[0]))
     return found
 
 
@@ -68,8 +74,8 @@ def unlabel_search(entries: list[dict], labels: dict[str, list[tuple[str, str]]]
     """
     changed = False
     for entry in entries:
-        for label, title in labels.get(entry.get("href", "").split("#", 1)[0], ()):
-            text = entry.get("text", "").replace(label + title, title)
+        for label, word in labels.get(entry.get("href", "").split("#", 1)[0], ()):
+            text = entry.get("text", "").replace(label + word, word)
             if text != entry.get("text", ""):
                 entry["text"] = text
                 changed = True
