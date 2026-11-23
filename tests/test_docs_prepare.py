@@ -1,7 +1,9 @@
-"""docs/_scripts/prepare.py and finish.py: reference links resolve; one <h1> per page."""
+"""docs/_scripts/prepare.py and finish.py: reference links resolve; one <h1> per page; callout
+labels stay out of the search index."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -78,3 +80,32 @@ def test_finish_names_the_site_once_in_the_title() -> None:
         "<title>PyMC MFM: Open-Source Marketing Foundational Models in Python</title>"
     )
     assert finish.demote_nav_title(guide) == guide
+
+
+def test_finish_keeps_callout_labels_out_of_search(monkeypatch, tmp_path: Path) -> None:
+    import finish
+
+    (tmp_path / "guide").mkdir()
+    (tmp_path / "guide" / "concepts.html").write_text(
+        '<div class="callout-title-container flex-fill">\n'
+        '<span class="screen-reader-only">Note</span>Separate marginals\n</div>\n'
+        '<div class="callout-title-container flex-fill">\n'
+        '<span class="screen-reader-only">Tip</span><code>idata</code> first\n</div>\n',
+        encoding="utf-8",
+    )
+    entries = [
+        {"href": "guide/concepts.html#windows", "text": "Noteworthy.\nNoteSeparate marginals\n"},
+        {"href": "guide/other.html", "text": "NoteSeparate marginals"},
+        {"href": "guide/concepts.html#more", "text": "Tipidata first\n"},
+    ]
+    (tmp_path / "search.json").write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    monkeypatch.setattr(finish, "SITE", tmp_path)
+    monkeypatch.delenv("QUARTO_PROJECT_OUTPUT_FILES", raising=False)
+    finish.main()
+
+    texts = [e["text"] for e in json.loads((tmp_path / "search.json").read_text(encoding="utf-8"))]
+    assert texts == [
+        "Noteworthy.\nSeparate marginals\n",  # the label goes, the page's own words stay
+        "NoteSeparate marginals",  # another page's entry is left alone
+        "idata first\n",  # a title that opens with markup, as the index has it
+    ]

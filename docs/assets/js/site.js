@@ -128,7 +128,9 @@
      page's origin opens here and loses that description; other descriptions stay.
      Quarto marks links from a DOMContentLoaded listener that its inline script registers while
      the page parses, so it runs before this deferred script's listener. It marks them again
-     when a listing redraws (quartoDecorateExternalLinks), so that function is wrapped too. */
+     when a listing redraws (quartoDecorateExternalLinks), so that function is wrapped too.
+     Whatever sets a target later, a same-origin link still loses it as the click starts, so it
+     opens here for pointer and keyboard alike. */
   const NEW_TAB_NOTE = "quarto-ext-newwindow-label";
 
   function keepSameSiteLinks(root) {
@@ -152,6 +154,10 @@
       }
       keepSameSiteLinks(document);
     });
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest('a[target="_blank"]');
+      if (link && link.origin === window.location.origin) link.removeAttribute("target");
+    }, true);
   }
 
   /* Quarto's "Skip to main content" link names its target by fragment (#quarto-content or
@@ -323,7 +329,14 @@
       el.removeAttribute("data-bs-toggle");
       el.removeAttribute("data-bs-target");
     });
-    copy.querySelectorAll(".sidebar-item-toggle").forEach((el) => el.remove());
+    // A group title is Quarto's collapse button (title and chevron): the copy keeps the title
+    // as plain text.
+    copy.querySelectorAll("button.sidebar-item-toggle").forEach((button) => {
+      const title = document.createElement("span");
+      title.className = "sidebar-item-text";
+      title.append(...button.querySelectorAll(".menu-text"));
+      button.replaceWith(title);
+    });
     copy.querySelectorAll(".sidebar-section").forEach((el) => el.classList.add("show"));
     nav.append(copy);
     nav.addEventListener("click", (event) => {

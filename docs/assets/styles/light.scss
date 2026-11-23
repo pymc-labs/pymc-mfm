@@ -60,8 +60,9 @@ $link-hover-color: $accent-strong;
 $link-decoration: none;
 $border-color: $tone-2;
 // Quarto's keyboard focus ring (the outline on buttons, nav links and form controls) in the
-// accent, the colour site.css gives every other focus outline.
-$focus-ring-outer-color: $accent;
+// --mfm-accent token, like every other focus outline, so it follows the surfaces where
+// site.css swaps the accent (the navy navbars of the homepage and River's hero).
+$focus-ring-outer-color: var(--mfm-accent);
 
 $navbar-bg: #ffffff;
 $navbar-fg: $ink-2;

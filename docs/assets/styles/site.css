@@ -25,9 +25,9 @@ b {
   font-weight: 500;
 }
 
-/* One focus ring: the accent outline. Quarto draws its ring in the same colour
-   ($focus-ring-outer-color in light.scss and dark.scss) and fills the outline offset with an
-   inner tone, a box-shadow; this turns that tone off. */
+/* One focus ring: the accent outline. Quarto's ring on buttons, nav links and form controls
+   uses the same --mfm-accent token ($focus-ring-outer-color in light.scss and dark.scss) and
+   fills the outline offset with an inner tone, a box-shadow; this turns that tone off. */
 :root {
   --quarto-focus-ring-shadow: none;
 }
@@ -230,6 +230,12 @@ main table thead th {
   font-weight: 500;
   color: var(--mfm-heading);
   border-bottom-width: 1px;
+}
+
+/* Row headers, such as a dataframe's index (Quarto writes them as <th>), read like the cells
+   beside them. */
+main table tbody th {
+  font-weight: 400;
 }
 
 /* API reference tables: object names stay on one line. */
@@ -1174,7 +1180,9 @@ body.mfm-landing .mfm-badge--soon {
   padding-top: 1.5rem;
 }
 
-#quarto-sidebar .sidebar-item-toggle {
+/* A group title is Quarto's collapse button, the title with a chevron; only the chevron is
+   hidden. */
+#quarto-sidebar .sidebar-item-toggle > .bi {
   display: none;
 }
 
@@ -1908,8 +1916,11 @@ body.mfm-landing footer.footer {
     animation: mfm-sheet-in calc(var(--mfm-dur) * 1.5) var(--mfm-ease);
   }
 
+  /* Quarto pads these lists for its focus ring and pulls them back with a negative margin;
+     the sheet keeps neither, so the links line up with the gutter. */
   #navbarCollapse .navbar-nav {
     padding: 0;
+    margin: 0;
   }
 
   #navbarCollapse .navbar-nav .nav-link {
