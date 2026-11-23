@@ -185,6 +185,23 @@ def test_get_started_script_and_backtest_run_as_pasted(workdir, service, capsys)
     ]
 
 
+def test_get_started_backtest_without_fit_keeps_the_result_link(workdir, service, capsys):
+    service.on(
+        "GET",
+        "/v1/analyses/an_2",
+        (200, weeks_status("failed", runs_done=0, runs_failed=1, runs_total=1, url=URL)),
+    )
+    failed = result_rows("baseline", "baseline", failed=True)
+    service.on("GET", "/v1/analyses/an_2/result", (200, {**result_record(failed), "fit": None}))
+
+    run(guide_example("quickstart") + guide_example("backtest"), GUIDE)
+
+    assert capsys.readouterr().out.splitlines()[-2:] == [
+        "No fit scores are available for this backtest.",
+        f"backtest result page: {URL}",
+    ]
+
+
 @pytest.mark.parametrize("weeks", [104, 230])
 def test_own_data_block_replaces_step_1_of_the_script(workdir, service, capsys, weeks):
     # Own data ending on the same week as the synthetic data, unsorted on disk. With 230 weeks
