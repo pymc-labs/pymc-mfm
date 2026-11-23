@@ -469,39 +469,8 @@ def test_the_real_client_names_no_extra_the_package_lacks():
     assert named and named <= names, named - names
 
 
-def test_the_page_text_has_the_licence_sentence_with_the_generated_version_and_no_private_name():
-    plain = pkg.readme_text(pkg.config(), ">=3.11", "0.2.3")
-    assert plain.startswith(
-        "# pymc-mfm\n\nPython client for PyMC MFM (marketing foundational models), "
-        "the hosted service from PyMC Labs."
-    )
-    assert "```bash\npip install pymc-mfm\n```" in plain
-    assert plain.index("It needs Python 3.11 or newer.") < plain.index("pip install pymc-mfm\n")
-    assert "Connect page of the console. That page also\nshows your service URL." in plain
-    assert "pilot invitation" not in plain
-    assert 'export MFM_API_URL="<your service URL>"\nexport MFM_API_KEY="<your API key>"' in plain
-    assert (
-        'import os\n\nos.environ["MFM_API_URL"] = "<your service URL>"\n'
-        'os.environ["MFM_API_KEY"] = "<your API key>"'
-    ) in plain
-    assert plain.split("## Licence\n\n")[1].split("\n\n") == [
-        "The client code and documentation distributed in pymc-mfm 0.2.3 are licensed under "
-        "Apache-2.0. This grant excludes the hosted service, model weights, training and "
-        "inference code. Future releases may use different licences. Use of the hosted service "
-        "is under its own terms.",
-        "Copyright 2026 The PyMC Labs Developers\n",
-    ]
-    help_line = (
-        "If something fails, reply to your invitation. Include the full error text, "
-        "the time, and the dataset or analysis id if you have one."
-    )
-    assert f"## Help\n\n{help_line}\n" in plain
-    assert (
-        "Use sample or synthetic data only. The service deletes uploaded data 7 days after upload."
-    ) in plain
-    assert "internal data" not in plain
-    assert "{version}" not in plain and "{requires_python}" not in plain
-    assert not pkg.FORBIDDEN.search(plain) and "http" not in plain and "@" not in plain
+def test_the_page_text_is_one_line():
+    assert pkg.readme_text(pkg.config(), ">=3.11", "0.2.3") == "Python client for PyMC MFM.\n"
 
 
 def test_the_licence_file_is_the_unmodified_apache_text():
