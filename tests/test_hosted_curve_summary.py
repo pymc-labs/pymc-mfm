@@ -1,5 +1,6 @@
 """A hosted curve summary: checked like local curves, saved, read and drawn with its warnings."""
 
+import dataclasses
 import json
 
 import numpy as np
@@ -292,6 +293,18 @@ def test_matplotlib_notes_are_left_aligned_lines_inside_the_figure(inferred):
     assert fig.get_figheight() > plain.get_figheight()
     panel, plain_panel = fig.axes[0].get_window_extent(), plain.axes[0].get_window_extent()
     assert panel.height == pytest.approx(plain_panel.height, rel=0.1)
+
+
+def test_matplotlib_notes_with_wide_channel_names_stay_inside_the_figure(inferred):
+    # Capitals are wider than the wrap's per-letter estimate, so the notes wrap with room.
+    names = "TV_LINEAR, PAID_SEARCH, META_SOCIAL, YOUTUBE_VIDEO, DISPLAY_DV360, RADIO_NATIONAL"
+    note = f"Warning ({names}, OOH_BILLBOARD, EMAIL_CRM): {SPEND} {SHORT} {SPEND}"
+    data = curve_charts.prepare(IdataReader(_summarized(inferred)))
+    fig = curve_charts._matplotlib(dataclasses.replace(data, notes=(note, note)))
+    fig.canvas.draw()
+    [legend] = fig.legends
+    box = legend.get_window_extent()
+    assert 0 <= box.x0 and box.x1 <= fig.bbox.width
 
 
 def test_a_warning_on_some_panels_names_them_not_all_channels():
