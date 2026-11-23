@@ -91,6 +91,19 @@ def _check_api_key(key: str) -> None:
     raise ValueError(f"The API key {problem}. {_KEY_HINT}")
 
 
+def _service_options(base_url: str | None, api_key: str | None) -> tuple[str, str]:
+    """Resolve and validate one service URL and its credential without opening a client."""
+    base_url = _setting(base_url, "MFM_API_URL")
+    api_key = _setting(api_key, "MFM_API_KEY")
+    if not base_url:
+        raise ValueError("Pass base_url or set the MFM_API_URL environment variable.")
+    _check_url(base_url, service=True)
+    if not api_key:
+        raise ValueError("Pass api_key or set the MFM_API_KEY environment variable.")
+    _check_api_key(api_key)
+    return base_url.rstrip("/"), api_key
+
+
 def _omit_download_credentials(request: httpx.Request) -> None:
     # The HTTPX client shares a cookie jar across requests, even without a bearer header.
     if request.extensions.get(_SIGNED_DOWNLOAD):
@@ -178,20 +191,13 @@ class Http:
         max_retry_after: float = MAX_RETRY_WAIT,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        base_url = _setting(base_url, "MFM_API_URL")
-        api_key = _setting(api_key, "MFM_API_KEY")
-        if not base_url:
-            raise ValueError("Pass base_url or set the MFM_API_URL environment variable.")
-        _check_url(base_url, service=True)
-        if not api_key:
-            raise ValueError("Pass api_key or set the MFM_API_KEY environment variable.")
-        _check_api_key(api_key)
+        base_url, api_key = _service_options(base_url, api_key)
         if max_retries < 0:
             raise ValueError("max_retries must be 0 or more")
         if max_retry_after < 0:
             raise ValueError("max_retry_after must be 0 or more")
         self.max_retry_after = max_retry_after
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url
         self.max_retries = max_retries
         self._api_key = api_key
         self._sleep = time.sleep

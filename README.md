@@ -527,7 +527,7 @@ pip install pymc-mfm
 
 To read every draw (`.nc` files) or draw plots, run `pip install "pymc-mfm[client]"` instead.
 
-[Get started](docs/guide/index.qmd) has a first script to copy and run.
+The [River API guide](docs/guide/http-api.qmd) has a script for this client.
 
 The hosted River API keeps a dataset 7 days after upload, then deletes it and its analyses. Using
 the dataset does not extend this.
@@ -806,16 +806,12 @@ model = from_pretrained(
 - `pymc_mfm.inference.push_to_hub(model, "org/repo", profile="my-model", license="...")` publishes
   a model and returns the commit id. New repositories are private.
 
-[`examples/river_1_quickstart.ipynb`](examples/river_1_quickstart.ipynb) loads a
-model from the Hub, decomposes a simulated dataset and plots the result. Its
-context scatter overlays River-1's weekly posterior mean channel contributions and
-the simulated true contributions against raw spend, with one panel per channel.
-Its scenario sweep varies each channel from 0% to 200% of its actual spend path
-over eight query weeks, keeping history and other inputs fixed. It plots the
-eight-week channel contribution with pointwise 90% approximate posterior intervals
-and generator-computed truth at the same spend levels, highlighting the original
-100% spend path. These are conditional scenario responses, not identified causal
-lift curves.
+The [River-1 quickstart notebook](examples/river_1_quickstart.ipynb) uses
+`pymc_mfm.load()` and `model.inference(history, future)` to decompose synthetic
+data and read its results with the library's plot suite. Choose a local bundle,
+a Hub repository, or the hosted River engine in the load call; the rest of the
+notebook is unchanged. Hosted execution sends the inputs to River and downloads
+results, not model weights.
 
 ## Development
 

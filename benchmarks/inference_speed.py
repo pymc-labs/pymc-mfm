@@ -1,9 +1,8 @@
-"""Time ``decompose`` on the published River-1 bundle with the quickstart workload.
+"""Time ``decompose`` on the published River-1 bundle with a synthetic workload.
 
-The world is the weekly MMM example of ``examples/river_1_quickstart.ipynb``
-(PyMC-Marketing's geometric adstock and logistic saturation, reproduced here in
-NumPy so the benchmark needs no extra dependency). River-1 is loaded through
-``from_pretrained`` from the local Hugging Face cache only (no network).
+The world uses PyMC-Marketing's geometric adstock and logistic saturation,
+reproduced here in NumPy so the benchmark needs no extra dependency. River-1
+is loaded through ``from_pretrained`` from the local Hugging Face cache only.
 
 By default the benchmark times the query and context windows of the 208-week
 quickstart world. ``--query-weeks 10,50,150,205`` instead times the query window at

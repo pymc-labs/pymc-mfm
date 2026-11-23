@@ -14,7 +14,7 @@ from pymc_mfm.inference.curves import select_channels
 from pymc_mfm.plotting.panels import COLORS, _suptitle
 
 from ._backend import check, draw
-from ._data import summarize
+from ._data import CurveSummary, summarize
 from ._mpl import compact_axis, figure, percent_axis
 from ._style import ACTUAL, BAND_ALPHA, CAVEAT, caption, compact, percent
 
@@ -64,11 +64,28 @@ def prepare(
     title: str | None = None,
 ) -> Curves:
     """Mean and central ``interval`` of the latest ``model.response_curves``, by media covariate."""
-    curves = source.response_curves()
+    stored = source.curve_summary(fallback=True)
+    curves = source.response_curves() if stored is None else stored
     names = select_channels(channels, curves.channels)
-    rows = [curves.channels.index(name) for name in names]
-    mean, low, high = summarize(curves.draws[rows], interval, axis=2)
-    totals = curves.media[rows]
+    rows = (
+        slice(None) if names == curves.channels else [curves.channels.index(name) for name in names]
+    )
+    missing_note = ()
+    if isinstance(curves, CurveSummary):
+        if interval != curves.interval:
+            from pymc_mfm._product import NotSupported
+
+            raise NotSupported(
+                f"plot.response_curves: hosted curves only support interval={curves.interval}; "
+                f"got {interval!r}"
+            )
+        mean, low, high = curves.mean[rows], curves.low[rows], curves.high[rows]
+        media, totals = curves.media[rows], curves.total_media[rows]
+        if np.isnan(mean).any():
+            missing_note = ("Gaps mark levels with no hosted curve summary.",)
+    else:
+        mean, low, high = summarize(curves.draws[rows], interval, axis=2)
+        media, totals = source.curve_media()[rows], curves.media[rows]
     (actual,) = np.nonzero(curves.levels == 1.0)
     weeks = curves.weeks
     span = "a one-week plan" if weeks == 1 else f"a plan of the first {weeks} forecast weeks"
@@ -81,7 +98,7 @@ def prepare(
             for name, total in zip(names, totals, strict=True)
         ),
         levels=curves.levels,
-        media=source.curve_media()[rows],
+        media=media,
         mean=mean,
         low=low,
         high=high,
@@ -93,6 +110,7 @@ def prepare(
         caption=(
             caption(interval, curves.n_samples),
             f"Each media covariate varied separately over {span}; history and other inputs fixed.",
+            *missing_note,
             CAVEAT,
         ),
     )
@@ -143,14 +161,22 @@ def _grid(count: int) -> tuple[int, int]:
 def _matplotlib(data: Curves) -> Any:
     count = len(data.channels)
     rows, columns = _grid(count)
-    # The title, its three caption lines and the legend take about 1.5 inches.
+    # Allow room for title, caption and legend.
     height = 3.0 + 1.5 / rows
     fig, axes = figure(rows, columns, width=11, row_height=height, sharex=True, sharey=True)
     for index, ax in enumerate(axes.flat):
         if index >= count:
             ax.set_visible(False)
             continue
-        ax.plot(data.levels, data.mean[index], color=_CURVE, linewidth=2, label="Mean")
+        mean = data.mean[index]
+        ax.plot(
+            data.levels,
+            mean,
+            color=_CURVE,
+            linewidth=2,
+            marker="." if np.isnan(mean).any() else None,
+            label="Mean",
+        )
         ax.fill_between(
             data.levels,
             data.low[index],
@@ -160,10 +186,10 @@ def _matplotlib(data: Curves) -> Any:
             linewidth=0,
             label=data.band,
         )
-        if data.actual is not None:
+        if data.actual is not None and not np.isnan(mean[data.actual]):
             ax.scatter(
                 data.levels[data.actual],
-                data.mean[index, data.actual],
+                mean[data.actual],
                 color=_CURVE,
                 edgecolor="white",
                 zorder=3,
@@ -207,17 +233,20 @@ def _plotly(data: Curves) -> Any:
         horizontal_spacing=0.06,
         vertical_spacing=0.3 / rows,
     )
+    band_legend = True
     for index, name in enumerate(data.channels):
         where = {"row": index // columns + 1, "col": index % columns + 1}
         first = index == 0
+        mean, low, high = data.mean[index], data.low[index], data.high[index]
+        has_gaps = np.isnan(mean).any()
         fig.add_trace(
             go.Scatter(
                 x=data.levels,
-                y=data.mean[index],
-                mode="lines",
+                y=mean,
+                mode="lines+markers" if has_gaps else "lines",
                 name="Mean",
                 line={"color": _CURVE, "width": 2},
-                customdata=np.column_stack((data.media[index], data.low[index], data.high[index])),
+                customdata=np.column_stack((data.media[index], low, high)),
                 hovertemplate=(
                     f"{plotting.text(name)} at %{{x:.1%}} of its observed level<br>"
                     "Media covariate %{customdata[0]:,.4~r}<br>"
@@ -229,22 +258,30 @@ def _plotly(data: Curves) -> Any:
             ),
             **where,
         )
-        plotting.band(
-            fig,
-            data.levels,
-            data.low[index],
-            data.high[index],
-            color=_CURVE,
-            name=data.band,
-            legendgroup="interval",
-            showlegend=first,
-            **where,
+        # Plotly fills across missing values even when its lines have gaps.
+        spans = (
+            np.ma.clump_unmasked(np.ma.masked_invalid(mean, copy=False))
+            if has_gaps
+            else (slice(None),)
         )
-        if data.actual is not None:
+        for span in spans:
+            plotting.band(
+                fig,
+                data.levels[span],
+                low[span],
+                high[span],
+                color=_CURVE,
+                name=data.band,
+                legendgroup="interval",
+                showlegend=band_legend,
+                **where,
+            )
+            band_legend = False
+        if data.actual is not None and not np.isnan(mean[data.actual]):
             fig.add_trace(
                 go.Scatter(
                     x=[data.levels[data.actual]],
-                    y=[data.mean[index, data.actual]],
+                    y=[mean[data.actual]],
                     mode="markers",
                     marker={"color": _CURVE, "size": 9, "line": {"color": "white", "width": 1}},
                     hoverinfo="skip",

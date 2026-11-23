@@ -110,7 +110,8 @@ def test_top_level_exports_and_the_light_names_load_without_torch():
         import pymc_mfm
         from pymc_mfm.plotting import charts
         assert pymc_mfm.__all__ == [
-            "MFM", "from_pretrained", "list_profiles", "Plots", "set_backend",
+            "MFM", "load", "Model", "Result", "ModelBusy", "NotSupported",
+            "from_pretrained", "list_profiles", "Plots", "set_backend",
             "save_idata", "load_idata", "validate_idata",
         ], pymc_mfm.__all__
         assert pymc_mfm.Plots is charts.Plots

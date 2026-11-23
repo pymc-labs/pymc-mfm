@@ -10,6 +10,7 @@ import json
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from numbers import Integral, Real
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
 WINDOWS = ("context", "query")
 #: Component families from the bottom of a stack up: channels end on top.
 FAMILIES = ("baseline", "latent", "indirect", "control", "channel")
+_CURVE_PATH = "/response_curves/summary"
+_CURVE_INTERVAL = 0.9
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +78,43 @@ class Covariates:
     media: np.ndarray
     control_names: tuple[str, ...]
     controls: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class CurveSummary:
+    """Stored curve statistics, each ``[channel, level]``, with no posterior draws."""
+
+    channels: tuple[str, ...]
+    levels: np.ndarray
+    mean: np.ndarray
+    low: np.ndarray
+    high: np.ndarray
+    media: np.ndarray
+    total_media: np.ndarray
+    weeks: int
+    n_samples: int
+    interval: float
+
+
+def _curve_values(data: Dataset, name: str, *dims: str) -> np.ndarray:
+    path = f"{_CURVE_PATH}/{name}"
+    if name not in data.data_vars:
+        raise ValueError(f"{path}: variable is missing")
+    values = data[name]
+    if len(values.dims) != len(dims) or set(values.dims) != set(dims):
+        raise ValueError(f"{path}: expected dims {dims} in any order, got {values.dims}")
+    if values.dtype.kind not in "iuf":
+        raise ValueError(f"{path}: must hold numbers, got dtype {values.dtype}")
+    return values.transpose(*dims).to_numpy()
+
+
+def _curve_count(node: DataTree, name: str) -> int:
+    value = node.attrs.get(name)
+    if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+        raise ValueError(
+            f"/response_curves: attribute {name!r} must be a positive integer, got {value!r}"
+        )
+    return int(value)
 
 
 def unique_names(plain: Sequence[str], full: Sequence[str]) -> tuple[str, ...]:
@@ -272,6 +312,77 @@ class IdataReader:
                     for name, dates in zip(WINDOWS, weeks, strict=True)
                 ]
             ),
+        )
+
+    def curve_summary(self, *, fallback: bool = False) -> CurveSummary | None:
+        """Read and validate the stored summary; ``fallback`` prefers the local draws."""
+        node = self._tree().children.get("response_curves")
+        if node is None or "summary" not in node.children:
+            return None
+        if fallback and "posterior" in node.children:
+            return None
+        data = node.children["summary"].to_dataset(inherit=False)
+        interval = data.attrs.get("interval")
+        if not isinstance(interval, Real) or interval != _CURVE_INTERVAL:
+            raise ValueError(f"{_CURVE_PATH}: attribute 'interval' must be {_CURVE_INTERVAL}")
+        weeks, n_samples = _curve_count(node, "weeks"), _curve_count(node, "n_samples")
+        units = node.attrs.get("units")
+        if not isinstance(units, str) or not units:
+            raise ValueError("/response_curves: attribute 'units' must be nonempty text")
+        for dim in ("channel", "level"):
+            if dim not in data.coords or data[dim].dims != (dim,):
+                raise ValueError(f"{_CURVE_PATH}: expected a one-dimensional {dim} coordinate")
+        channels = tuple(data["channel"].to_numpy().tolist())
+        if not channels or not all(isinstance(name, str) for name in channels):
+            raise ValueError(f"{_CURVE_PATH}: channel coordinate must hold one or more names")
+        available = self._names("channel_columns")
+        if len(set(channels)) != len(channels) or any(name not in available for name in channels):
+            raise ValueError(
+                f"{_CURVE_PATH}: channel coordinate must hold distinct names from {list(available)}"
+            )
+        levels = data["level"].to_numpy()
+        if (
+            levels.dtype.kind not in "iuf"
+            or levels.size < 2
+            or not np.isfinite(levels).all()
+            or (levels < 0).any()
+            or not (levels[1:] > levels[:-1]).all()
+        ):
+            raise ValueError(
+                f"{_CURVE_PATH}: level coordinate must hold at least two finite, nonnegative, "
+                "strictly increasing numbers"
+            )
+        mean, low, high, media = (
+            _curve_values(data, name, "channel", "level")
+            for name in ("mean", "low", "high", "media")
+        )
+        total_media = _curve_values(data, "total_media", "channel")
+        for name, values in (("media", media), ("total_media", total_media)):
+            if not np.isfinite(values).all() or (values < 0).any():
+                raise ValueError(f"{_CURVE_PATH}/{name}: must be finite and nonnegative")
+        missing = np.isnan(mean)
+        if (
+            not np.array_equal(missing, np.isnan(low))
+            or not np.array_equal(missing, np.isnan(high))
+            or any(np.isinf(values).any() for values in (mean, low, high))
+        ):
+            raise ValueError(
+                f"{_CURVE_PATH}: mean, low and high must be finite or all missing at each point"
+            )
+        # A central interval need not contain the mean of an asymmetric distribution.
+        if (low > high).any():
+            raise ValueError(f"{_CURVE_PATH}: low must be less than or equal to high at each point")
+        return CurveSummary(
+            channels=channels,
+            levels=levels,
+            mean=mean,
+            low=low,
+            high=high,
+            media=media,
+            total_media=total_media,
+            weeks=weeks,
+            n_samples=n_samples,
+            interval=_CURVE_INTERVAL,
         )
 
     def response_curves(self) -> ResponseCurves:

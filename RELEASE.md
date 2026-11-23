@@ -7,6 +7,11 @@ distribution prerequisites, not an approved or published release.
 
 ## Current changes
 
+- **One Python workflow for local and hosted River.** `pymc_mfm.load` opens a
+  local bundle, a Hugging Face profile, or the hosted engine. Use
+  `model.inference(history, future)` and `result.plot` on each. Hosted inference
+  sends the input data to River and downloads results, never model weights.
+  The lower-level `pymc_mfm.client` and `from_pretrained` interfaces remain available.
 - **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
   `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
   `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`

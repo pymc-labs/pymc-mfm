@@ -368,6 +368,7 @@ def validate_idata(idata: DataTree) -> None:
     order does not matter. The check then runs the chart reads on both windows and on the
     curves, without stacking the draws. Unknown variables, groups and attributes need
     no schema entry, but their text must still be storable, so ``MFM.idata`` as built is valid.
+    Curves may include posterior draws or the hosted mean and fixed 90% band.
     """
     if not _is_tree(idata):
         _fail(
@@ -396,14 +397,19 @@ def validate_idata(idata: DataTree) -> None:
     _check_text(idata)
     for window in WINDOWS:
         _check_window(idata, window, roles)
-    curved = "response_curves" in idata.children
-    if curved:
-        _check_curves(idata, roles)
     reader = IdataReader(idata)
+    local_curves = False
+    if "response_curves" in idata.children:
+        children = idata["response_curves"].children
+        local_curves = "summary" not in children or "posterior" in children
+        if local_curves:
+            _check_curves(idata, roles)
+        if "summary" in children:
+            _read("/response_curves/summary", reader.curve_summary)
     for window in WINDOWS:
         _read(f"/{window}", lambda window=window: reader.check_window(window))
     _read("/context/constant_data and /query/constant_data", reader.covariates)
-    if curved:
+    if local_curves:
         _read("/response_curves", reader.response_curves)
 
 

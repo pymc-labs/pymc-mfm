@@ -249,9 +249,7 @@ and ensure `dot` is on `PATH`; no Python Graphviz package is needed.
 Creating the optional inspector also requires Graphviz; opening its saved HTML
 does not. Writing DOT remains dependency-free, and a saved file can be rendered
 with `dot -Tsvg graph-rank-0.dot -o graph-rank-0.svg`. See
-[graph_to_dot](../reference/plotting.graph_to_dot.qmd) and the
-[quickstart with preserved reviewed outputs](examples/river_1_quickstart.ipynb) for export and
-all-rank examples.
+[graph_to_dot](../reference/plotting.graph_to_dot.qmd) for graph export.
 
 The Average may combine edges never sampled together. Frequencies are not effect
 strengths, fit scores or evidence of causal identification. MAP/fixed views show

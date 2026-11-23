@@ -163,7 +163,23 @@ quartodoc:
     table_style: description-list
     show_signature_annotations: true
   sections:
-    # The client comes first: invited testers use the hosted River API from Python.
+    - title: Python workflow
+      desc: Load a model, run inference and inspect the same results on any engine.
+      contents:
+        - load
+        - name: Model
+          members:
+            - inference
+            - response_curves
+            - result
+            - idata
+            - plot
+        - name: Result
+          members:
+            - idata
+            - plot
+        - ModelBusy
+        - NotSupported
     - title: River API client
       desc: The client for the hosted River API. It needs no PyTorch.
       contents:
