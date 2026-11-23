@@ -4,9 +4,10 @@
    published) into ``docs/guide/examples/``, so the Guide renders them with their
    stored outputs. The copies are ignored by Git; edit the originals.
 2. Writes the Python reference into ``docs/reference/`` from the package docstrings,
-   using the ``quartodoc`` section of ``_quarto.yml``, and gives its sidebar the
-   "Python library" entry first. Links to sections quartodoc does not write (a property in
-   an Attributes table has no section of its own) become plain names.
+   using the ``quartodoc`` section of ``_quarto.yml``, gives each page its name as the
+   browser tab title, and gives its sidebar the "Python library" entry first. Links to
+   sections quartodoc does not write (a property in an Attributes table has no section of
+   its own) become plain names.
 3. Writes the HTTP API pages into ``docs/api/`` from ``skills/mfm/reference/http.md``
    (see ``http_pages.py``).
 
@@ -22,6 +23,7 @@ reference changes.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -89,6 +91,25 @@ def fix_reference_links() -> None:
             path.write_text(fixed, encoding="utf-8")
 
 
+# quartodoc writes no front matter, so Quarto titles a page after its file ("index",
+# "client.client"). Each page starts with its heading, "# name { #id }".
+PAGE_HEADING = re.compile(r"# (.+?)(?: \{.*\})?")
+
+
+def add_page_titles() -> None:
+    """Give each reference page its heading as the tab title (``pagetitle``).
+
+    ``title`` would draw a second heading above the page's own.
+    """
+    for page in sorted(REFERENCE.glob("*.qmd")):
+        text = page.read_text(encoding="utf-8")
+        first = text.split("\n", 1)[0]
+        match = PAGE_HEADING.fullmatch(first)
+        if text.startswith("---\n") or not match:
+            raise SystemExit(f"{page.name}: expected the first line to be a heading, got {first!r}")
+        page.write_text(f"---\npagetitle: {json.dumps(match[1])}\n---\n\n{text}", encoding="utf-8")
+
+
 def arrange_reference_sidebar() -> None:
     """Give the quartodoc sidebar an id and put "Python library" first.
 
@@ -123,6 +144,7 @@ def main() -> None:
         return
     build_reference()
     fix_reference_links()
+    add_page_titles()
     arrange_reference_sidebar()
     print("prepare: Python reference -> reference/", file=sys.stderr)
     pages = http_pages.generate()

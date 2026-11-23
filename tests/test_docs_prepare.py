@@ -31,6 +31,24 @@ def test_links_to_missing_sections_become_plain_names() -> None:
     assert "[the guide](../guide/index.qmd)" in fixed
 
 
+def test_reference_pages_get_their_heading_as_tab_title(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "client.Client.qmd").write_text(
+        "# client.Client { #pymc_mfm.client.Client }\n\nBody.\n", encoding="utf-8"
+    )
+    (tmp_path / "index.qmd").write_text("# Python reference {.doc .doc-index}\n", encoding="utf-8")
+    monkeypatch.setattr(prepare, "REFERENCE", tmp_path)
+    prepare.add_page_titles()
+    assert (tmp_path / "client.Client.qmd").read_text(encoding="utf-8") == (
+        '---\npagetitle: "client.Client"\n---\n\n'
+        "# client.Client { #pymc_mfm.client.Client }\n\nBody.\n"
+    )
+    assert (
+        (tmp_path / "index.qmd")
+        .read_text(encoding="utf-8")
+        .startswith('---\npagetitle: "Python reference"\n---\n')
+    )
+
+
 def test_partial_renders_keep_existing_generated_pages(monkeypatch, tmp_path: Path) -> None:
     for folder in ("reference", "api"):
         (tmp_path / folder).mkdir()
