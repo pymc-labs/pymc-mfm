@@ -42,11 +42,11 @@ plan = pd.DataFrame(
 ```
 
 ::: {.content-hidden when-profile="pilot"}
-A `Client` closes its connection pool with `close()` and can be used as a context manager. To use your own data, replace `history` and `plan` with your own DataFrames (see [Use your own data](index.qmd#use-your-own-data)).
+A `Client` closes its connection pool with `close()` and can be used as a context manager. Use the synthetic inputs unless your invitation allows you to [use your own data](index.qmd#use-your-own-data).
 :::
 
 ::: {.content-visible when-profile="pilot"}
-A `Client` closes its connection pool with `close()` and can be used as a context manager. To use other sample or synthetic data, replace `history` and `plan` with DataFrames of it (see [Rules for the data](index.qmd#data-rules)). Use sample or synthetic data only.
+A `Client` closes its connection pool with `close()` and can be used as a context manager. To use the sample data your invitation gives you, replace `history` and `plan` with DataFrames of it (see [Rules for the data](index.qmd#data-rules)).
 :::
 
 ## Create a dataset and analysis
@@ -123,7 +123,7 @@ The three are `None` for an analysis of a plan. A backtest explains the history 
 more = backtest.again([scenario("search_x1.5", {"search": 1.5})]).wait()
 ```
 
-Compare each scenario only with the baseline of its own analysis. Do not subtract numbers of two analyses: their draws are not paired. `again` reads the baseline and its decision window from the export, so it raises `NotReady` until every run has ended: call `wait()` first. Repeating the same call returns the same analysis; pass `idempotency_key` to run it once more.
+Compare each scenario only with the baseline of its own analysis. Do not subtract numbers of two analyses: their draws are not paired. `again` reads the baseline and its decision window from the export, so it raises `NotReady` until every run has ended. Repeating the same call returns the same analysis; pass `fresh=True` or a new `idempotency_key` to start it again, not both.
 
 ## Preview and explore
 
@@ -138,7 +138,7 @@ first_look = client.explore(dataset, plan, preview=True)
 
 ## Read an analysis
 
-An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd), or `wait(timeout=, poll=)` to poll until every run has ended, also when the analysis is `failed` (its baseline failed) while other runs still run. `wait` raises `Gone` if the analysis is deleted or expires meanwhile. `wait` first prints the analysis id and the call that resumes it (`client.get("<id>").wait()`) to `sys.stderr`, and its `TimeoutError` gives the same call: the analysis keeps running, so resume it instead of calling `analyze` again.
+An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` for its current [AnalysisStatus](../reference/client.AnalysisStatus.qmd) and `wait(timeout=, poll=)` before reading results. If the baseline fails, the analysis can be `failed` while other runs are still active. If a result raises `NotReady` after `wait()`, poll `status()` until `runs_done + runs_failed + runs_cancelled` reaches `runs_total`. If work is still running, `wait` prints the analysis ID and the call that resumes it (`client.get("<id>").wait()`) to `sys.stderr`. Its `TimeoutError` gives the same call: the analysis keeps running, so resume it instead of calling `analyze` again. `wait` raises `Gone` if the analysis is deleted or expires meanwhile.
 
 | Member | Result |
 | --- | --- |

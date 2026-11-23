@@ -12,7 +12,8 @@ scenarios (budget changes to compare with it) and response curves. The baseline 
 so the forecast can be compared with what happened. This skill uses the Python client,
 `pymc_mfm.client`. Agents without Python read `reference/http.md`.
 
-Research prototype. Sample or synthetic data only. Not for budget decisions on its own.
+Research preview. Use synthetic data unless the user's invitation allows their own data.
+Do not use results on their own for budget decisions.
 
 ## Set up
 
@@ -38,9 +39,9 @@ Research prototype. Sample or synthetic data only. Not for budget decisions on i
 
 Run this example with `history.csv` (columns `date`, `sales`, `tv`, `search`, `holiday`) and
 `plan.csv` (the forecast weeks, same columns without `sales`). The plan starts the week after the
-history ends. If the user gives no data, copy the synthetic files in `examples/` next to this skill
-(104 weeks of history, 8 plan weeks). With the user's data, change the column names and channels to
-match.
+history ends. Start with the synthetic files in `examples/` next to this skill (104 weeks of
+history, 8 plan weeks). For data the invitation allows, adjust the column names and channels
+to match.
 
 <!-- skill-example: main -->
 ```python
@@ -121,8 +122,11 @@ backtest = client.analyze(
     name="Backtest",
 ).wait(timeout=600)
 print("result link:", backtest.url)
-print(backtest.fit)  # r2, mape (a fraction) and crps, for the input and the predicted weeks
-print(backtest.shares.query("window == 'query' and share == 'total'"))  # each series' share
+fit = backtest.fit
+print(fit if fit is not None else "No fit scores are available for this backtest.")
+shares = backtest.shares
+if shares is not None:
+    print(shares.query("window == 'query' and share == 'total'"))
 print(backtest.curves)  # each channel's contribution at each spend level
 ```
 

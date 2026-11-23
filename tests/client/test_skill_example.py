@@ -162,6 +162,25 @@ def test_backtest_example_sends_the_weeks_form_and_reads_fit_shares_and_curves(
     assert "channel" in output  # the shares and the curves were printed
 
 
+def test_backtest_example_without_fit_keeps_the_result_link(workdir, service, capsys):
+    url = "https://site.example/analyses/an_2"
+    service.on(
+        "GET",
+        "/v1/analyses/an_2",
+        (200, weeks_status("failed", runs_done=0, runs_failed=1, runs_total=1, url=url)),
+    )
+    failed = result_rows("baseline", "baseline", failed=True)
+    service.on("GET", "/v1/analyses/an_2/result", (200, {**result_record(failed), "fit": None}))
+
+    namespace = {"__name__": "skill_example"}
+    run_example("main", namespace)
+    run_example("backtest", namespace)
+
+    output = capsys.readouterr().out.splitlines()
+    assert f"result link: {url}" in output
+    assert "No fit scores are available for this backtest." in output
+
+
 def test_again_example_starts_a_second_analysis_with_the_same_weeks(workdir, service):
     service.on("GET", "/v1/analyses/an_2", (200, weeks_status()))
     service.on("GET", "/v1/analyses/an_2/result", (200, weeks_result()))
