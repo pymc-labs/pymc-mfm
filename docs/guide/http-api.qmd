@@ -41,7 +41,7 @@ plan = pd.DataFrame(
 )
 ```
 
-A `Client` closes its connection pool with `close()` and can be used as a context manager. To use your own data, replace `history` and `plan` with your own DataFrames (see [Use your own data](index.qmd#use-your-own-data)).
+A `Client` closes its connection pool with `close()` and can be used as a context manager. Use the synthetic inputs unless your invitation allows you to [use your own data](index.qmd#use-your-own-data).
 
 ## Create a dataset and analysis
 

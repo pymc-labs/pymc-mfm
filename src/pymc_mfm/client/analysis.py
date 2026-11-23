@@ -361,8 +361,8 @@ class Analysis:
 
         One row per ``window`` (``context``: the input weeks; ``query``: the predicted weeks)
         and ``metric`` (``r2``, ``mape`` as a fraction, ``crps``), with ``value`` (the score
-        of the mean line) and ``sd`` (its spread over draws; none for ``crps``). ``None`` for
-        an analysis of a plan, which has no actual outcome to compare with.
+        of the mean line) and ``sd`` (its spread over draws; none for ``crps``). Returns
+        ``None`` when the service has no fit, for example for an analysis of a plan.
         """
         result = self._fetch_result()
         fit = result.get("fit")
@@ -386,8 +386,8 @@ class Analysis:
         One row per ``window``, series (``name``, ``group``: ``channel`` or ``control``) and
         ``share``: ``total`` is the series' total over the window divided by the total
         expected outcome, ``mean`` is the average of its weekly shares. ``value`` is the mean
-        over draws, ``p05`` and ``p95`` the 5th and 95th percentiles. ``None`` for an
-        analysis of a plan.
+        over draws, ``p05`` and ``p95`` the 5th and 95th percentiles. Returns ``None`` when
+        the service has no fit, for example for an analysis of a plan.
         """
         result = self._fetch_result()
         fit = result.get("fit")

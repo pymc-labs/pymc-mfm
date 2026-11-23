@@ -543,7 +543,7 @@ from pymc_mfm.client import Client, amount, curve, grid, scenario
 client = Client()  # reads MFM_API_URL and MFM_API_KEY
 
 # Synthetic data: a weekly history of 104 weeks and a plan for the 8 weeks after it.
-# Replace `history` and `plan` with your own DataFrames of the same form.
+# Use your own DataFrames only if your invitation allows it.
 rng = np.random.default_rng(0)
 weeks = pd.date_range("2024-11-11", periods=104, freq="7D")
 tv = rng.gamma(4.0, 2_000.0, size=104)

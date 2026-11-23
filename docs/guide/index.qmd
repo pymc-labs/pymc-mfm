@@ -133,7 +133,11 @@ backtest = client.analyze(
     name="first-backtest",
 )
 backtest.wait()
-print(backtest.fit.to_string(index=False))
+fit = backtest.fit
+if fit is None:
+    print("No fit scores are available for this backtest.")
+else:
+    print(fit.to_string(index=False))
 print("backtest result page:", backtest.url)
 ```
 
@@ -198,7 +202,7 @@ An error answer from the service raises [ApiError](../reference/client.ApiError.
 
 | Error | Meaning | What to do |
 | --- | --- | --- |
-| `ValueError` | An environment variable is not set, a column is missing, a value is blank or not a number, or the dates are not weekly. The message names the problem. Nothing was sent. | Fix it and run the script again. |
+| `ValueError` | An environment variable is not set, a column is missing, a value is blank or not a number, or the dates are not weekly. The message names the problem. The client does not submit invalid input, but `reuse=True` may first list your datasets. | Fix it and run the script again. |
 | `Unauthorized` (401) | The service does not accept the key. It is missing, mistyped or replaced by a newer key, or your access was removed. | Check that `MFM_API_KEY` holds the whole key with no spaces. Replace your key on the Connect page of the River API console, and set `MFM_API_KEY` again. If it still fails, reply to your invitation. |
 | `ValidationError` (400, 422) | The request breaks a limit, for example one in the table in [Use your own data](#use-your-own-data). `code` names the limit and `field` the part at fault. Nothing started or was stored. | Fix that part and run the script again. |
 | `PayloadTooLarge` (413) | The request is over the size limit. | Send fewer weeks, scenarios or curves in one call. |
