@@ -1,0 +1,92 @@
+# rattler-build recipe for the conda-forge package. It builds from this checkout, so CI
+# checks that every dependency resolves on conda-forge and the package passes its tests.
+# The conda-forge feedstock uses this recipe with the PyPI sdist as its source; see
+# RELEASE.md. Keep `version` and the run requirements in step with pyproject.toml:
+# the tests below fail on a version mismatch, and `pip_check` on a missing dependency.
+schema_version: 1
+
+context:
+  name: pymc-mfm
+  version: "0.0.1"
+  python_min: "3.13"
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  noarch: python
+  script: ${{ PYTHON }} -m pip install . -vv
+
+requirements:
+  host:
+    - python ${{ python_min }}.*
+    - hatchling >=1.27
+    - pip
+  run:
+    - python >=${{ python_min }}
+    - arviz-base >=1.3,<2
+    - arviz-stats >=1.3,<2
+    - xarray-einstats
+    - h5netcdf >=1.4
+    - h5py >=3.10
+    - httpx >=0.27,<1
+    - huggingface_hub >=1.0,<3
+    - matplotlib-base >=3.9
+    - mlflow >=3.10,<4
+    - numpy >=2.1,<3
+    - packaging >=24.2
+    - pandas >=2.2.3,<4
+    - plotly >=6,<8
+    - pytorch >=2.6,<3
+    - safetensors >=0.6.2,<1
+    - scikit-learn >=1.6
+    - scipy >=1.14
+    - xarray >=2024.10
+
+tests:
+  - python:
+      imports:
+        - pymc_mfm
+        - pymc_mfm.client
+        - pymc_mfm.diagnostics
+        - pymc_mfm.inference
+        - pymc_mfm.training
+      pip_check: true
+      python_version:
+        - ${{ python_min }}.*
+        - "*"
+  - files:
+      # The client tests check fake responses against the API spec and HTTP reference.
+      source:
+        - pyproject.toml
+        - tests/
+        - docs/_scripts/
+        - docs/api/openapi-v1.json
+        - skills/mfm/reference/http.md
+    requirements:
+      run:
+        - python ${{ python_min }}.*
+        - pytest >=8.3
+    script:
+      - python -c "from importlib.metadata import version; assert version('pymc-mfm') == '${{ version }}', version('pymc-mfm')"
+      - python -m pymc_mfm.training --help
+      - pytest -q -p no:cacheprovider tests/client/test_http.py tests/test_training.py::test_cli_trains_and_evaluates_saved_corpora_without_generator
+
+about:
+  homepage: https://github.com/pymc-labs/pymc-mfm
+  repository: https://github.com/pymc-labs/pymc-mfm
+  summary: Graph-conditional Marketing Foundational Models.
+  description: |
+    PyMC MFM trains and runs amortized neural networks for marketing mix
+    decomposition. It includes the Python client for the hosted River API.
+  license: Apache-2.0
+  license_file: LICENSE
+
+extra:
+  recipe-maintainers:
+    - cetagostini

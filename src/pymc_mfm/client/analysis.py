@@ -483,11 +483,12 @@ class Analysis:
         """Per-draw results as one ``xarray.Dataset``, stacked along ``scenario``.
 
         Each plan's file is fetched when you call this. A signed URL that expired is
-        replaced by fetching the result again; no run starts again. Needs the ``draws``
-        extra. Draws of different plans are separately sampled marginals, not a joint
-        posterior; see the ``attrs`` of each file.
+        replaced by fetching the result again; no run starts again. Draws of different
+        plans are separately sampled marginals, not a joint posterior; see the ``attrs``
+        of each file.
         """
-        xr = _require_xarray()
+        import xarray as xr
+
         urls = self._draws_urls(scenario_ids)
         parts = [self._open_draws(xr, scenario_id, urls) for scenario_id in urls]
         return xr.concat(parts, dim=pd.Index(list(urls), name="scenario"), join="outer")
@@ -545,7 +546,7 @@ class Analysis:
         """Response curves: per channel, the channel's contribution at each spend level.
 
         Draws the mean and the pointwise 5th to 95th percentile band. Returns a
-        matplotlib ``Figure``. Needs the ``plot`` extra.
+        matplotlib ``Figure``.
         """
         from .plots import plot_curves
 
@@ -555,7 +556,7 @@ class Analysis:
         """Mean difference of each scenario against its base, with simulation error bars.
 
         The bars show simulation error, not model uncertainty. Returns a matplotlib
-        ``Figure``. Needs the ``plot`` extra.
+        ``Figure``.
         """
         from .plots import plot_compare
 
@@ -571,15 +572,3 @@ def _weeks_of(context: Mapping[str, Any]) -> dict[str, Any]:
         channels=context["channels"],
         controls=context["controls"],
     )
-
-
-def _require_xarray() -> Any:
-    try:
-        import h5netcdf  # noqa: F401
-        import xarray
-    except ImportError as error:
-        raise ImportError(
-            "Reading draws needs xarray and h5netcdf. "
-            'Install them with: pip install "pymc-mfm[draws]"'
-        ) from error
-    return xarray

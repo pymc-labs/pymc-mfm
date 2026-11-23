@@ -1,4 +1,4 @@
-"""ArviZ DataTree export of one result: active slots, evidence groups, refusals, optional extra."""
+"""ArviZ DataTree export of one result: active slots, evidence groups and refusals."""
 
 import json
 import re
@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from conftest import CHART_ROLES, make_synthetic_corpus, needs_arviz
+from conftest import CHART_ROLES, make_synthetic_corpus
 from test_diagnostics import make_result
 from test_inference import observed
 
@@ -35,7 +35,6 @@ def aligned_truth(result):
     return np.ones(result.components.shape[1:]) * result.component_mask
 
 
-@needs_arviz
 def test_a_tree_holds_the_active_slots_of_its_window_and_keeps_truth_apart_from_observations(
     model, tmp_path
 ):
@@ -153,7 +152,6 @@ REFUSED_EVIDENCE = {
 }
 
 
-@needs_arviz
 @pytest.mark.parametrize("case", REFUSED_EVIDENCE)
 def test_each_supplied_evidence_piece_is_checked_on_its_own(case):
     evidence, message = REFUSED_EVIDENCE[case]
@@ -170,7 +168,6 @@ LONE_EVIDENCE = {
 }
 
 
-@needs_arviz
 @pytest.mark.parametrize("piece", LONE_EVIDENCE)
 def test_an_evidence_piece_supplied_alone_is_exported_alone(piece):
     value, group, variable = LONE_EVIDENCE[piece]
@@ -180,7 +177,6 @@ def test_an_evidence_piece_supplied_alone_is_exported_alone(piece):
     assert set(tree[group].data_vars) == {variable}
 
 
-@needs_arviz
 @pytest.mark.parametrize("recorded", ["absent", "null", "recorded", "families", "endpoints"])
 def test_edge_constants_and_digests_are_exported_exactly_when_provenance_records_them(recorded):
     result = make_result()
@@ -229,7 +225,6 @@ MODES = (
 )
 
 
-@needs_arviz
 def test_each_mode_records_its_graph_source_and_consistent_graph_notes():
     result = make_result()
     for mode, source in MODES:
@@ -303,7 +298,6 @@ REFUSED_RESULTS = {
 }
 
 
-@needs_arviz
 @pytest.mark.parametrize("case", REFUSED_RESULTS)
 def test_results_the_export_cannot_label_are_refused_and_named(case):
     edit, message = REFUSED_RESULTS[case]
@@ -311,7 +305,6 @@ def test_results_the_export_cannot_label_are_refused_and_named(case):
         edit(make_result()).to_datatree()
 
 
-@needs_arviz
 def test_a_result_without_active_edges_exports_no_edge_axis():
     from arviz_stats import summary
 
@@ -328,7 +321,6 @@ def test_a_result_without_active_edges_exports_no_edge_axis():
     assert len(summary(tree, kind="stats")) == 3 * result.component_mask.sum()
 
 
-@needs_arviz
 @pytest.mark.parametrize("labels", [[False], [True], [False, True]])
 def test_saved_boolean_time_labels_select_the_original_evidence_rows(tmp_path, labels):
     from arviz_stats import summary
@@ -355,7 +347,6 @@ def test_saved_boolean_time_labels_select_the_original_evidence_rows(tmp_path, l
     )
 
 
-@needs_arviz
 @pytest.mark.parametrize("scale", [1e-30, 1e38], ids=["underflow", "overflow"])
 def test_float32_components_keep_exact_values_and_finite_correct_summary_spread(scale):
     from arviz_stats import summary
@@ -393,7 +384,6 @@ WIDENED_DRAWS = {
 }
 
 
-@needs_arviz
 @pytest.mark.parametrize("draws", WIDENED_DRAWS)
 def test_draws_arviz_cannot_summarize_as_stored_keep_their_exact_values_and_summarize(draws):
     from arviz_stats import summary
@@ -410,7 +400,6 @@ def test_draws_arviz_cannot_summarize_as_stored_keep_their_exact_values_and_summ
     assert np.isfinite(table[["mean", "sd"]].to_numpy()).all()
 
 
-@needs_arviz
 def test_the_export_layout_ignores_arviz_rcparams():
     from arviz_base import rc_context
 
@@ -423,25 +412,9 @@ def test_the_export_layout_ignores_arviz_rcparams():
     assert posterior["draw"].values.tolist() == list(range(result.n_samples))
 
 
-@pytest.mark.parametrize(
-    "hidden",
-    [("xarray", "arviz_base"), ("arviz_base",)],
-    ids=["base install", "xarray without arviz-base"],
-)
-def test_an_export_without_the_arviz_extra_names_the_extra(monkeypatch, hidden):
-    # Import the export module anew with the extra hidden: its own imports must not need it.
-    monkeypatch.delitem(sys.modules, "pymc_mfm.inference._datatree", raising=False)
-    monkeypatch.setattr(pymc_mfm.inference, "_datatree", None, raising=False)
-    for name in hidden:
-        monkeypatch.setitem(sys.modules, name, None)
-    with pytest.raises(ImportError, match=re.escape("pymc-mfm[arviz]")):
-        make_result().to_datatree()
-
-
 def test_standalone_decompose_and_saved_evidence_never_import_xarray_or_arviz(tmp_path):
     code = """
 import sys
-from importlib.util import find_spec
 
 import numpy as np
 import torch
@@ -465,19 +438,13 @@ result = decompose(model, observations, n_samples=2)
 loaded = DecompositionResult.load(result.save(sys.argv[1]))
 np.testing.assert_array_equal(loaded.components, result.components)
 assert model.idata is None
-optional = {"xarray", "arviz_base", "arviz_stats", "arviz", "arviz_plots", "xarray_einstats"}
-imported = sorted(name for name in sys.modules if name.split(".")[0] in optional)
+analysis_packages = {
+    "xarray", "arviz_base", "arviz_stats", "arviz", "arviz_plots", "xarray_einstats",
+}
+imported = sorted(name for name in sys.modules if name.split(".")[0] in analysis_packages)
 assert not imported, imported
-if find_spec("arviz_base") is not None:
-    loaded.to_datatree()
-    assert "xarray" in sys.modules
-else:
-    try:
-        loaded.to_datatree()
-    except ImportError as exc:
-        assert "pymc-mfm[arviz]" in str(exc), exc
-    else:
-        raise AssertionError("to_datatree() ran without the arviz extra")
+loaded.to_datatree()
+assert {"xarray", "arviz_base"} <= sys.modules.keys()
 """
     result = subprocess.run(
         [sys.executable, "-c", code, str(tmp_path / "evidence")],
@@ -489,29 +456,11 @@ else:
 
 def test_dataframe_inference_constructs_a_tree_without_statistics_or_rendering():
     code = """
-import importlib.util
 import sys
 
 import numpy as np
 import pandas as pd
 import torch
-
-optional = {"arviz_stats", "arviz", "arviz_plots", "xarray_einstats", "matplotlib"}
-real_find_spec = importlib.util.find_spec
-
-def find_spec_without_analysis_extras(name, package=None):
-    if name.split(".")[0] in optional:
-        return None
-    return real_find_spec(name, package)
-
-importlib.util.find_spec = find_spec_without_analysis_extras
-
-class MissingAnalysisExtras:
-    def find_spec(self, fullname, path=None, target=None):
-        if fullname.split(".")[0] in optional:
-            raise ModuleNotFoundError(f"optional analysis package blocked: {fullname}")
-
-sys.meta_path.insert(0, MissingAnalysisExtras())
 
 from pymc_mfm import MFM
 from pymc_mfm.inference import DecompositionResult
@@ -538,7 +487,8 @@ assert tree["context/posterior"].sizes["draw"] == 2
 assert tree["query/posterior"].sizes["draw"] == 2
 assert isinstance(model.query_result, DecompositionResult)
 assert {"xarray", "arviz_base"} <= sys.modules.keys()
-imported = sorted(name for name in sys.modules if name.split(".")[0] in optional)
+analysis_packages = {"arviz_stats", "arviz", "arviz_plots", "xarray_einstats", "matplotlib"}
+imported = sorted(name for name in sys.modules if name.split(".")[0] in analysis_packages)
 assert not imported, imported
 """
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

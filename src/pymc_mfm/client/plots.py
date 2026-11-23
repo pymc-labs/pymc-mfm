@@ -1,4 +1,4 @@
-"""Plots of an analysis result table. They need matplotlib (the ``plot`` extra)."""
+"""Matplotlib plots of an analysis result table."""
 
 from __future__ import annotations
 
@@ -46,16 +46,6 @@ def _warning_footnote(warnings: dict[str, tuple[str, ...]]) -> str:
     return "\n".join(lines)
 
 
-def _pyplot() -> Any:
-    try:
-        import matplotlib.pyplot as plt
-    except ImportError as error:
-        raise ImportError(
-            'Plots need matplotlib. Install it with: pip install "pymc-mfm[plot]"'
-        ) from error
-    return plt
-
-
 def curve_points(table: pd.DataFrame) -> pd.DataFrame:
     """The rows of each response curve, with the unrun level 1 filled in from its base.
 
@@ -101,7 +91,8 @@ def plot_curves(table: pd.DataFrame, *, title: str | None = None) -> Any:
     percentile, gets a red open marker: the history gives that level no support. The
     warnings are also printed under the chart, so a saved image keeps them.
     """
-    plt = _pyplot()
+    import matplotlib.pyplot as plt
+
     points = curve_points(table)
     if points.empty:
         raise ValueError("The result has no curve rows. Ask for curves or use client.explore().")
@@ -183,7 +174,8 @@ def plot_compare(
     no bar, and a "simulation error unavailable" label. A plan with warnings is marked ``*``
     and its warnings are printed under the chart, so a saved image keeps them.
     """
-    plt = _pyplot()
+    import matplotlib.pyplot as plt
+
     kinds = ["scenario", "curve"] if include_curves else ["scenario"]
     rows = table[table["kind"].isin(kinds) & (table["component"] == component)]
     rows = rows.dropna(subset=["mean_difference"]).sort_values("mean_difference")

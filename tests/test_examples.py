@@ -31,9 +31,6 @@ def run_code_cells(notebook: Path) -> dict:
     ],
 )
 def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypatch):
-    # Matplotlib is the only optional dependency of the notebook's path; it ships
-    # with the diagnostics and training extras. The generator extra is optional.
-    pytest.importorskip("matplotlib")
     if corpus == "generated":
         pytest.importorskip("pymc_generator")
     else:
@@ -54,7 +51,6 @@ def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypa
 @pytest.mark.slow
 def test_river_1_quickstart_runs_headless_with_a_local_bundle(tmp_path, monkeypatch):
     monkeypatch.setenv("MPLBACKEND", "Agg")
-    pytest.importorskip("matplotlib")
     from matplotlib.figure import Figure
 
     from pymc_mfm import MFM, Model, Result

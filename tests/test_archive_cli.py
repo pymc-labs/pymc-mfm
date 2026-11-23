@@ -21,7 +21,8 @@ from pymc_mfm.training.archive import _model_identity
 from pymc_mfm.training.checkpoint import file_sha256
 
 pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pymc_generator") is None, reason="pymc_generator not installed"
+    importlib.util.find_spec("pymc_generator") is None,
+    reason="needs the generation dependency group (uv sync --locked --group generation)",
 )
 
 #: Generator seed recorded by the shard's verified prior sidecar.

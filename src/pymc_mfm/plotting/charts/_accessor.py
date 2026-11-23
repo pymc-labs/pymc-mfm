@@ -27,9 +27,8 @@ class Plots:
     again) and never changes. ``model.plot`` reads ``model.idata`` at each chart call, so
     it follows the model's last successful paired ``inference(history, future, ...)``.
 
-    Each chart computes its numbers once, then draws them with matplotlib (the
-    default; ``pymc-mfm[plot]``) or plotly (``pymc-mfm[interactive]``): pass
-    ``backend="plotly"`` or call :func:`pymc_mfm.plotting.set_backend`. Matplotlib
+    Each chart computes its numbers once, then draws them with Matplotlib (the default)
+    or Plotly: pass ``backend="plotly"`` or call :func:`pymc_mfm.plotting.set_backend`. Matplotlib
     charts return a ``matplotlib.figure.Figure``, which notebooks display without
     pyplot; plotly charts return an interactive ``plotly.graph_objects.Figure``.
     They never sample; ``predict`` does not change them.

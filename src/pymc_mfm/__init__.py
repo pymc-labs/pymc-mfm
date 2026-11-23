@@ -1,8 +1,8 @@
 """PyMC Marketing Foundational Models.
 
-The base install is a light HTTP client, :mod:`pymc_mfm.client`. The model, inference
-and training code needs PyTorch: install it with ``pip install "pymc-mfm[local]"``.
-Those names load on first use, so ``import pymc_mfm`` never imports PyTorch.
+The package includes local inference and training alongside the hosted HTTP client,
+:mod:`pymc_mfm.client`. Local model names load on first use, so importing
+``pymc_mfm`` or the client does not import PyTorch.
 """
 
 from __future__ import annotations

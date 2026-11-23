@@ -504,8 +504,7 @@ class MlflowTrainingObserver(TrainingObserver):
                 warnings.warn(
                     "MLflow tracking is degraded; numerical training continues. "
                     "Inspect tracking/state.json and tracking/delivery_failures.jsonl. "
-                    "Install pymc-mfm[training] for MLflow support, "
-                    "or explicitly disable tracking.",
+                    "To run without MLflow, explicitly disable tracking.",
                     RuntimeWarning,
                     stacklevel=3,
                 )

@@ -20,19 +20,17 @@ The service is a research preview. It may change, pause or reset; keep your own 
 
 ### Install the client
 
-The HTTP client needs Python 3.11 or newer and no PyTorch:
+Follow [Install](index.qmd#install) on Python 3.13 or newer. The one install includes the client, per-draw files and plots:
 
 ```bash
 pip install pymc-mfm
 ```
 
-The first script needs nothing more. To read per-draw files or make plots, install `pymc-mfm[client]` instead.
-
 Copy the examples from **Create a client** through **Preview and explore** into one file or Python session, in order. They use synthetic data; do not upload your own unless your invitation allows it.
 
 ## Create a client
 
-[pymc_mfm.client](../reference/client.Client.qmd) is the client for the hosted River API. It needs no PyTorch. Everything but per-draw files and plots works without the `[client]` extra. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
+[pymc_mfm.client](../reference/client.Client.qmd) is the client for the hosted River API. The standard install includes support for per-draw files and plots. [Client](../reference/client.Client.qmd) takes the service URL and API key directly, or reads `MFM_API_URL` and `MFM_API_KEY` when those arguments are omitted.
 
 <!-- guide-example: client-setup -->
 ```python
@@ -188,9 +186,9 @@ An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` fo
 | --- | --- |
 | `table` | One row per plan and component: `mean`, `p05` and `p95` of the total over the forecast, `window_mean` (the expected total over the window, not a weekly mean), and `mean_difference` from the base plan |
 | `weekly(scenario_id)` | Weekly component means and 5th–95th percentiles for one plan |
-| `draws(scenario_ids=None)` | Per-draw files as one `xarray.Dataset` stacked along `scenario`; needs the `draws` extra |
-| `plot_curves()` | Response-curve figure; needs the `plot` extra |
-| `plot_compare()` | Scenario-versus-base mean differences with simulation-error bars; needs the `plot` extra |
+| `draws(scenario_ids=None)` | Per-draw files as one `xarray.Dataset` stacked along `scenario` |
+| `plot_curves()` | Response-curve figure |
+| `plot_compare()` | Scenario-versus-base mean differences with simulation-error bars |
 | `fit`, `shares`, `curves` | Backtest scores, shares and response curves; `None` for a plan |
 | `again(scenarios)` | A new analysis with the same inputs and new scenarios |
 | `export(path)` | The whole analysis as one JSON file, once every run has ended |

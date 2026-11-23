@@ -9,6 +9,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from conftest import make_synthetic_corpus
 
@@ -114,6 +115,12 @@ def test_import_does_not_load_the_generator():
     )
 
 
+def test_cli_generation_requires_the_repository_group(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "pymc_generator", None)
+    with pytest.raises(ImportError, match="uv sync --locked --group generation"):
+        cli.main(["generate", "--evaluation-shard", "0", "--out", str(tmp_path)])
+
+
 @needs_generator
 def test_profile_prior_constructs_exactly_the_payload():
     prior = profile_prior(PROFILE_A, n_cells=2, draws_per_cell=1, seed=1)
@@ -142,19 +149,34 @@ def test_plan_prior_keeps_the_shard_seed_draws_and_overrides_for_fewer_cells():
     }
 
 
-@needs_generator
-def test_load_corpora_reports_identity_and_sidecar(tmp_path):
-    from pymc_generator import save_corpus
-
+@pytest.mark.parametrize("version", [4, 5])
+def test_load_corpora_reports_identity_and_sidecar(tmp_path, monkeypatch, version):
+    monkeypatch.setitem(sys.modules, "pymc_generator", None)
     corpus = make_synthetic_corpus(n_cells=6, draws_per_cell=2, val_cells=2, context_lengths=(6, 9))
+    diagnostics = dict(corpus.pop("diagnostics"), schema_version=version)
+    if version == 5:
+        corpus["trajectory_treatment_hf_sigma"] = np.zeros((12, 3), dtype=np.float64)
+    labels = {"signal_metric_valid": np.ones((12, 3, 1), dtype=np.uint8)}
     path = tmp_path / "corpus.npz"
-    save_corpus(corpus, path)
+    np.savez_compressed(
+        path,
+        **corpus,
+        diagnostics=np.array(json.dumps(diagnostics)),
+        identifiability__signal_metric_valid=labels["signal_metric_valid"],
+    )
 
     (loaded,) = load_corpora([path])
     assert (loaded.n_worlds, loaded.n_train, loaded.n_holdout) == (12, 8, 4)
     assert loaded.context_lengths == (6, 9)
-    assert loaded.corpus["diagnostics"]["schema_version"] == 4
-    assert len(loaded.sha256) == 64
+    assert loaded.corpus["diagnostics"] == diagnostics
+    assert set(loaded.corpus) == {*corpus, "diagnostics", "identifiability"}
+    for key, value in corpus.items():
+        np.testing.assert_array_equal(loaded.corpus[key], value, strict=True)
+    assert loaded.corpus["identifiability"].keys() == labels.keys()
+    for key, value in labels.items():
+        np.testing.assert_array_equal(loaded.corpus["identifiability"][key], value, strict=True)
+    assert loaded.path == str(path)
+    assert loaded.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
     assert provenance(loaded)["prior_sidecar"] is None
 
     prior_sidecar_path(path).write_text(json.dumps({"prior": {"seed": 7}}))
@@ -177,15 +199,77 @@ def test_synthetic_sharing_permission_requires_hash_bound_origin(tmp_path):
     assert provenance(loaded)["data_origin"] == "synthetic"
 
 
-@needs_generator
-def test_load_corpora_rejects_missing_split_arrays(tmp_path):
-    from pymc_generator import save_corpus
-
+@pytest.mark.parametrize("missing", ["is_val", "cell_id", "support_mask"])
+def test_load_corpora_rejects_missing_split_arrays(tmp_path, missing):
     corpus = make_synthetic_corpus()
-    del corpus["is_val"]
+    del corpus[missing]
+    corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
     path = tmp_path / "no_split.npz"
-    save_corpus(corpus, path)
-    with pytest.raises(ValueError, match="is_val"):
+    np.savez(path, **corpus)
+    with pytest.raises(ValueError, match=rf"no_split\.npz: missing required arrays.*{missing}"):
+        load_corpora([path])
+
+
+@pytest.mark.parametrize(
+    ("diagnostics", "message"),
+    [
+        (np.array(["{}"]), "scalar diagnostics JSON"),
+        (np.array("{not json"), "invalid diagnostics JSON"),
+        (np.array("[]"), "diagnostics JSON must contain an object"),
+        (np.array("{}"), "schema_version"),
+        (np.array('{"schema_version": true}'), "schema_version"),
+        (np.array('{"schema_version": 4.0}'), "schema_version"),
+        (np.array('{"schema_version": 6}'), "schema_version"),
+        (np.array('{"schema_version": 4, "edge_budget": {"db": 1}}'), "pre-v3 outcome-edge"),
+        (np.array('{"schema_version": 5, "min_dead_channels": 0}'), "pre-v3 min_dead_channels"),
+    ],
+)
+def test_load_corpora_rejects_invalid_diagnostics(tmp_path, diagnostics, message):
+    path = tmp_path / "invalid.npz"
+    np.savez(path, diagnostics=diagnostics)
+    with pytest.raises(ValueError, match=rf"invalid\.npz: .*{message}"):
+        load_corpora([path])
+
+
+def test_load_corpora_rejects_legacy_dimensions_in_stamped_archive(tmp_path):
+    path = tmp_path / "legacy.npz"
+    np.savez(path, diagnostics=np.array('{"schema_version": 4}'), K_active=np.array([1]))
+    with pytest.raises(ValueError, match="legacy dimension keys.*K_active"):
+        load_corpora([path])
+
+
+def test_load_corpora_rejects_object_members(tmp_path):
+    path = tmp_path / "object.npz"
+    corpus = make_synthetic_corpus()
+    corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
+    np.savez(path, **corpus, identifiability__invalid=np.array([None], dtype=object))
+    with pytest.raises(ValueError, match=r"object\.npz: .*Object arrays cannot be loaded"):
+        load_corpora([path])
+
+
+@pytest.mark.parametrize("content", [b"not an archive", b"PK\x03\x04truncated"])
+def test_an_unreadable_corpus_names_its_file(tmp_path, content):
+    good = tmp_path / "good.npz"
+    corpus = make_synthetic_corpus()
+    corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
+    np.savez(good, **corpus)
+    bad = tmp_path / "bad.npz"
+    bad.write_bytes(content)
+    with pytest.raises(ValueError, match=r"bad\.npz: not a readable NPZ archive"):
+        load_corpora([good, bad])
+
+
+def test_a_member_with_an_unsupported_compression_names_the_file(tmp_path):
+    path = tmp_path / "packed.npz"
+    corpus = make_synthetic_corpus()
+    corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
+    np.savez(path, **corpus)
+    data = bytearray(path.read_bytes())
+    # The compression method of the first central-directory record; zipfile supports no 99.
+    central = data.index(b"PK\x01\x02")
+    data[central + 10 : central + 12] = (99).to_bytes(2, "little")
+    path.write_bytes(bytes(data))
+    with pytest.raises(ValueError, match=r"packed\.npz: cannot read NPZ member"):
         load_corpora([path])
 
 

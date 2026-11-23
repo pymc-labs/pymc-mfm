@@ -55,23 +55,25 @@ Access is by invitation. Set `MFM_API_URL` to the service URL and `MFM_API_KEY` 
 
 ## Install {#install}
 
-Use Python 3.13 or newer and a checkout or wheel that includes `pymc_mfm.load`. The older client-only PyPI release does not include this workflow. From a checkout, install the extras for the source you chose:
+::: {#install-client}
+:::
 
-### Local analysis {#use-the-python-library}
+::: {#use-the-python-library}
+:::
 
-```bash
-pip install ".[local,plot]"
-```
-
-Use `pip install ".[hub,plot]"` instead to load from Hugging Face. A checkout of `pymc-labs/pymc-mfm` requires repository access, which is separate from access to the weights.
-
-### Hosted analysis {#install-client}
+PyMC MFM needs **Python 3.13 or newer**. Install it with any of:
 
 ```bash
-pip install ".[client]"
+pip install pymc-mfm
+uv add pymc-mfm                         # in a uv project; or uv pip install pymc-mfm
+conda install -c conda-forge pymc-mfm   # or: pixi add pymc-mfm
 ```
 
-This adds support for reading draws and plotting without installing local inference. For an installation that only uses the low-level HTTP client, see [Install the client](http-api.qmd#install-the-client).
+The one package covers every source in this guide: local bundles, Hugging Face loading, the hosted River client, per-draw files and plots. There are no extras. Hosted analysis does not import PyTorch or download weights, but PyTorch is part of the install.
+
+On Linux, pip and uv install the CUDA build of PyTorch, about 3 GB of downloads. On a machine without a GPU, install the CPU build first with `pip install torch --index-url https://download.pytorch.org/whl/cpu`, or configure uv as in [Using uv with PyTorch](https://docs.astral.sh/uv/guides/integration/pytorch/). On an Intel Mac, install from conda-forge: PyPI has no PyTorch wheels for it. In a uv project, set `requires-python = ">=3.13"` in its `pyproject.toml`, because uv resolves for every Python version the project allows.
+
+If you installed `pymc-mfm` 0.1.2, a client-only build published by mistake, run `pip uninstall pymc-mfm` first; in a uv project, run `uv remove pymc-mfm`, then `uv add pymc-mfm`.
 
 ## Use your own data
 

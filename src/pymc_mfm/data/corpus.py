@@ -28,8 +28,7 @@ def corpus_batch(
 ) -> dict[str, Tensor]:
     """Prepare selected schema-4 or schema-5 worlds without reading future outcome for features.
 
-    Generate with ``pymc_generator.DataGenerator.generate`` or load with
-    ``pymc_generator.load_corpus`` and validate with its ``validate_corpus``.
+    Load saved archives with :func:`pymc_mfm.data.recipes.load_corpora`.
     This boundary checks the consumed arrays of selected rows, not the entire
     corpus's generation diagnostics or causal decomposition identities.
 
@@ -59,10 +58,7 @@ def corpus_batch(
     if isinstance(version, (bool, np.bool_)) or not isinstance(version, (int, np.integer)):
         raise ValueError("corpus schema_version must be an integer")
     if version not in SUPPORTED_CORPUS_SCHEMAS:
-        raise ValueError(
-            f"corpus_batch supports schema_version {SUPPORTED_CORPUS_SCHEMAS}; "
-            "use the generator's corpus reader"
-        )
+        raise ValueError(f"corpus_batch supports schema_version {SUPPORTED_CORPUS_SCHEMAS}")
     edge_types = diagnostics.get("edge_types")
     if not isinstance(edge_types, (list, tuple)) or tuple(edge_types) != _GENERATOR_EDGE_TYPES:
         raise ValueError(f"corpus edge_types must be {_GENERATOR_EDGE_TYPES}")

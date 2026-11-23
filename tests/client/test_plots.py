@@ -1,8 +1,8 @@
+import matplotlib
 import pytest
 
 from .client_fixtures import curve_result, result_rows, status_record
 
-matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")
 
 from matplotlib.figure import Figure  # noqa: E402
@@ -66,14 +66,6 @@ def test_plot_compare_can_include_curve_plans(done):
 def test_plot_compare_rejects_an_unknown_component(done):
     with pytest.raises(ValueError, match="nope"):
         done.plot_compare(component="nope")
-
-
-def test_plots_without_matplotlib_name_the_extra(done, monkeypatch):
-    import sys
-
-    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
-    with pytest.raises(ImportError, match=r"pymc-mfm\[plot\]"):
-        done.plot_curves()
 
 
 def _done_with_rows(client, service, rows_record):
