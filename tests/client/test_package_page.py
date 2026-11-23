@@ -27,8 +27,7 @@ pytestmark = pytest.mark.skipif(not TEMPLATE.is_file(), reason="needs a Git chec
 
 
 def test_the_page_example_runs_as_pasted(tmp_path, monkeypatch, capsys):
-    page = TEMPLATE.read_text().split("## First example")[1]
-    code = re.search(r"```python\n(.*?)```", page, re.DOTALL).group(1)
+    code = re.search(r"```python\n(.*?)```", TEMPLATE.read_text(), re.DOTALL).group(1)
     record = dataset_record(controls=("price",))
     record["summary"] = {
         **record["summary"],

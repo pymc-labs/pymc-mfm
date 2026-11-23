@@ -5,33 +5,22 @@ It uploads a weekly marketing history, runs a forecast or a backtest, compares b
 returns the results as pandas tables. The models run on the service, not on your machine.
 
 The service is in a closed pilot. You need an API key from the PyMC Labs pilot: without one the
-client cannot do anything. Create your API key on the Connect page of the console. That page also
-shows your service URL.
+client cannot do anything. Create your API key on the Connect page of the console.
 
 ## Install
-
-It needs Python {requires_python}.
 
 ```bash
 pip install pymc-mfm
 ```
 
-To read all draws or draw plots, install the extra: `pip install "pymc-mfm[client]"`.
+It needs Python {requires_python}. To read all draws or draw plots, install the extra:
+`pip install "pymc-mfm[client]"`.
 
-Set the service URL and your key, with the two values from the Connect page:
+Set the address of the service and your key:
 
 ```bash
-export MFM_API_URL="<your service URL>"
+export MFM_API_URL="<the address from your pilot invitation>"
 export MFM_API_KEY="<your API key>"
-```
-
-On Windows or in a notebook, set them in Python before you create the client:
-
-```python
-import os
-
-os.environ["MFM_API_URL"] = "<your service URL>"
-os.environ["MFM_API_KEY"] = "<your API key>"
 ```
 
 ## First example
@@ -106,7 +95,7 @@ print("result page:", analysis.url)
 If something fails, reply to your invitation. Include the full error text, the time, and the dataset or analysis id if you have one.
 
 Results are conditional model responses to your inputs. They are not calibrated causal lift.
-Use sample or synthetic data only. The service deletes uploaded data 7 days after upload.
+Use synthetic or internal data only.
 
 ## Licence
 
