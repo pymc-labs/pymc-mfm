@@ -6,9 +6,11 @@ import email.utils
 import hashlib
 import json
 import os
+import re
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -23,6 +25,113 @@ BACKOFF_BASE = 0.5  # seconds; doubles on each retry when there is no Retry-Afte
 BACKOFF_CAP = 8.0
 CONTENT_KEY_PREFIX = "mfm1-"
 FRESH_KEY_PREFIX = "mfm1-fresh-"
+_SETTING_PADDING = " \t\r\n\v\f\ufeff"
+_LOOPBACK_HTTP = {
+    b"localhost": "http://localhost",
+    b"127.0.0.1": "http://127.0.0.1",
+    b"::1": "http://[::1]",
+}
+_HOST_AND_PORT = re.compile(r"(?:\[[^\s\[\]\\]+\]|[^\s:\[\]\\]+)(?::[0-9]+)?")
+_SIGNED_DOWNLOAD = "pymc_mfm.signed_download"
+_URL_SHAPE_PROBLEM = "must be well-formed, with a host and an optional port from 1 to 65535"
+_SERVICE_URL_HINT = (
+    "Set base_url or MFM_API_URL to the direct https:// URL shown on the Connect page "
+    "of the River API console."
+)
+_KEY_HINT = (
+    "Check api_key or MFM_API_KEY. Create or replace your API key on the Connect page "
+    "of the River API console."
+)
+
+
+def _setting(value: str | None, env: str) -> str:
+    return (value or "").strip(_SETTING_PADDING) or os.environ.get(env, "").strip(_SETTING_PADDING)
+
+
+def _url_problem(value: str, *, service: bool) -> str | None:
+    try:
+        url = httpx.URL(value)
+    except (httpx.InvalidURL, ValueError):
+        return _URL_SHAPE_PROBLEM
+    if not url.is_absolute_url or not (
+        url.scheme == "https" or (url.scheme == "http" and url.raw_host in _LOOPBACK_HTTP)
+    ):
+        return "must use https:// and name a host (plain HTTP is allowed only on loopback)"
+
+    # Check the original authority: HTTPX can normalize away an empty userinfo or port.
+    authority = re.split(r"[/?#]", value.partition("://")[2], maxsplit=1)[0]
+    if "@" in authority:
+        return "must not contain a user name or password"
+    port = url.port
+    if not _HOST_AND_PORT.fullmatch(authority) or (port is not None and not 1 <= port <= 65535):
+        return _URL_SHAPE_PROBLEM
+    if service and ("?" in value or "#" in value):
+        return "must not contain a query or fragment"
+    return None
+
+
+def _check_url(value: str, *, service: bool) -> None:
+    problem = _url_problem(value, service=service)
+    if problem is None:
+        return
+    if service:
+        raise ValueError(f"The service URL {problem}. {_SERVICE_URL_HINT}")
+    raise ValueError(f"The signed download URL {problem}.")
+
+
+def _check_api_key(key: str) -> None:
+    if key[0] in "\"'" or key[-1] in "\"'":
+        problem = "starts or ends with a quote mark. Remove the quote marks"
+    elif any(char.isspace() for char in key):
+        problem = "has whitespace inside it. Copy the whole key on one line"
+    elif not key.isascii() or not key.isprintable():
+        problem = "has a control or non-ASCII character. Copy the key again as plain text"
+    else:
+        return
+    raise ValueError(f"The API key {problem}. {_KEY_HINT}")
+
+
+def _omit_download_credentials(request: httpx.Request) -> None:
+    # The HTTPX client shares a cookie jar across requests, even without a bearer header.
+    if request.extensions.get(_SIGNED_DOWNLOAD):
+        request.headers.pop("authorization", None)
+        request.headers.pop("cookie", None)
+
+
+def _location_host(response: httpx.Response) -> str | None:
+    locations = response.headers.get_list("location")
+    if len(locations) != 1:
+        return None
+    try:
+        location = urlsplit(locations[0])
+        authority = location.netloc.rsplit("@", 1)[-1]
+        return location.hostname if _HOST_AND_PORT.fullmatch(authority) else None
+    except ValueError:
+        return None
+
+
+def _reject_redirect(response: httpx.Response) -> None:
+    # HTTPX may parse Location to build a next request even with redirects disabled.
+    if not 300 <= response.status_code < 400:
+        return
+    host = _location_host(response)
+    target = f" to host {host!r}" if host else ""
+    if response.request.extensions.get(_SIGNED_DOWNLOAD):
+        subject = "The signed download"
+        hint = "The service must provide a direct signed download URL."
+    else:
+        subject, hint = "The service", _SERVICE_URL_HINT
+    # HTTPX closes responses on hook errors. Close now so a transport failure
+    # during cleanup cannot replace the terminal redirect and trigger a retry.
+    try:
+        response.close()
+    except httpx.TransportError:
+        pass
+    raise ApiError(
+        response.status_code,
+        "redirect",
+        f"{subject} returned a redirect{target}. The client does not follow redirects. {hint}",
+    )
 
 
 def parse_retry_after(value: str | None, *, now: float | None = None) -> float | None:
@@ -55,8 +164,8 @@ def fresh_idempotency_key() -> str:
 class Http:
     """A small wrapper over ``httpx.Client`` for the API.
 
-    The API key goes only to ``base_url``. Signed download URLs are fetched with
-    :meth:`download`, which sends no credentials.
+    The API key goes only to the configured service URL. Signed download requests
+    do not carry the API key.
     """
 
     def __init__(
@@ -69,12 +178,14 @@ class Http:
         max_retry_after: float = MAX_RETRY_WAIT,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
-        base_url = base_url or os.environ.get("MFM_API_URL")
-        api_key = api_key or os.environ.get("MFM_API_KEY")
+        base_url = _setting(base_url, "MFM_API_URL")
+        api_key = _setting(api_key, "MFM_API_KEY")
         if not base_url:
             raise ValueError("Pass base_url or set the MFM_API_URL environment variable.")
+        _check_url(base_url, service=True)
         if not api_key:
             raise ValueError("Pass api_key or set the MFM_API_KEY environment variable.")
+        _check_api_key(api_key)
         if max_retries < 0:
             raise ValueError("max_retries must be 0 or more")
         if max_retry_after < 0:
@@ -84,7 +195,14 @@ class Http:
         self.max_retries = max_retries
         self._api_key = api_key
         self._sleep = time.sleep
-        self._client = httpx.Client(timeout=timeout, transport=transport)
+        self._client = httpx.Client(
+            timeout=timeout,
+            transport=transport,
+            follow_redirects=False,
+            event_hooks={"request": [_omit_download_credentials], "response": [_reject_redirect]},
+            # The cleartext loopback exception must not traverse an environment proxy.
+            mounts=dict.fromkeys(_LOOPBACK_HTTP.values()),
+        )
 
     def close(self) -> None:
         self._client.close()
@@ -167,8 +285,14 @@ class Http:
         return self._send("GET", self.base_url + path, headers=headers).content
 
     def download(self, url: str) -> bytes:
-        """Fetch a signed URL without credentials. Raises ``ApiError`` on failure."""
-        response = self._send("GET", url, headers={"User-Agent": f"pymc-mfm-client/{__version__}"})
+        """Fetch a signed URL without the API key."""
+        _check_url(url, service=False)
+        response = self._send(
+            "GET",
+            url,
+            headers={"User-Agent": f"pymc-mfm-client/{__version__}"},
+            extensions={_SIGNED_DOWNLOAD: True},
+        )
         return response.content
 
     def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
@@ -178,9 +302,8 @@ class Http:
                 response = self._client.request(method, url, **kwargs)
             except httpx.TransportError as error:
                 if last_attempt:
-                    raise ApiConnectionError(
-                        f"Could not reach {url.split('?')[0]}: {error}"
-                    ) from error
+                    kind = type(error).__name__
+                    break
                 self._sleep(self._backoff(attempt, None))
                 continue
             if response.status_code < 400:
@@ -190,7 +313,15 @@ class Http:
                 self._sleep(self._backoff(attempt, retry_after))
                 continue
             raise self._error(response, retry_after)
-        raise AssertionError("unreachable")  # pragma: no cover
+        else:
+            raise AssertionError("unreachable")  # pragma: no cover
+
+        # Raise outside the handler and omit the raw transport error: both its text
+        # and its exception chain can contain a bearer key or a signed URL.
+        endpoint = httpx.URL(url)
+        raise ApiConnectionError(
+            f"Could not reach {endpoint.scheme}://{endpoint.netloc.decode('ascii')}: {kind}"
+        )
 
     def _backoff(self, attempt: int, retry_after: float | None) -> float:
         if retry_after is not None:

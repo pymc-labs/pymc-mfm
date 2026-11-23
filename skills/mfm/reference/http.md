@@ -1,11 +1,8 @@
 # MFM API over HTTP
 
-For agents without Python. The Python client in `SKILL.md` makes the same calls. The reading
-rules, limits and deletion rules in `SKILL.md` apply here too.
-
-To use the Python client instead, install it with `uv` (Python 3.13 or later, GitHub read access):
-`uv venv -p 3.13` and
-`uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"`.
+Use these calls when you are not using the Python client. The reading rules, limits and
+deletion rules in `SKILL.md` apply here too. To use the Python client instead, follow the
+setup in `SKILL.md` on Python 3.13 or later.
 
 The base URL is in `MFM_API_URL` and the key is in `MFM_API_KEY`. If one is missing, stop and ask the
 user. Never print the key and never write the URL or the key into a file.
@@ -50,9 +47,9 @@ when the service has no site address.
 
 ## Retention
 
-The service keeps a dataset 7 days after last use, at most 30 days after upload. Using a dataset
-(for example, starting an analysis on it) moves `expires_at` later, so read it again; do not treat
-it as a fixed deadline. An analysis has the `expires_at` of its dataset. Deleting a dataset deletes
+The service keeps a dataset 7 days after upload, then deletes it and its analyses. Using the
+dataset does not extend this. Read the deadline from `expires_at`. An analysis has the `expires_at`
+of its dataset. Deleting a dataset deletes
 all its analyses. Report the results first, then ask before deleting.
 
 ## Reusing a dataset
@@ -144,7 +141,8 @@ UTF-8; the hash is `"mfm-dataset-v1:"` plus the SHA-256 hex digest. The Python c
      model revision, library revision, device class, dtype and execution settings, and results can
      differ across devices. More draws reduce sampling error. A different seed does not.
    - At most 200 different plans per analysis. Equal plans run once.
-5. Poll `GET /v1/analyses/{id}` every 3 seconds until `status` is `done`, `failed` or `deleted`.
+5. Poll `GET /v1/analyses/{id}` every 3 seconds until `status` is `done` or `deleted`, or `failed`
+   with `runs_done + runs_failed + runs_cancelled` equal to `runs_total`.
    `status` is one of `queued`, `running`, `done`, `failed`, `deleted`. The first run after idle can take
    about 20 seconds more. The result is ready only when every run has ended. A `done` analysis can
    still have failed scenario or curve plans: their rows have `status` `failed` and no numbers.

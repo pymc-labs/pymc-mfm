@@ -2,7 +2,7 @@
 
 Input JSON contains spend, controls, context_outcome, and optional channel_mask,
 control_mask and latent_mask. No query outcomes, truth, corpus or service is read.
-The output can be rendered later with the diagnostics extra, without resampling.
+The output can be rendered later with ``pymc_mfm.diagnostics``, without resampling.
 """
 
 from __future__ import annotations

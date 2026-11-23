@@ -14,7 +14,7 @@
         thicker bank that rolls across the name and hides it for a moment.
       So the name sits inside the mist: some passes behind it, some in front.
       Everything pauses off screen; reduced motion draws one still frame and no numbers.
-      Without WebGL the picture shows as it is.
+      Without WebGL the colour-graded still stays visible.
       The hero fills the first screen under the navbar, which stays clear (no glass, light
       ink) while the hero is under it: body.mfm-nav-clear, site.css.
    2. Article: the charts, numbers and resource lists reveal as they scroll into view.
@@ -76,7 +76,6 @@
     precision highp float;
     uniform vec2 uRes;
     uniform float uTime;
-    uniform float uFade;
     uniform float uScroll;
     uniform float uGlitch;        // 0 calm, 1 at the height of a glitch
     uniform sampler2D uImage;
@@ -172,7 +171,6 @@
         col = mix(col, col.gbr, 0.4 * g * step(0.8, hash(vec2(floor(uv.y * 6.0), tick))));
       }
       col *= 1.0 - 0.55 * uScroll;
-      col = mix(vec3(0.02, 0.05, 0.11), col, uFade);
       col += (hash(gl_FragCoord.xy + fract(t) * 97.0) - 0.5) * (2.0 / 255.0);
       gl_FragColor = vec4(col, 1.0);
     }`;
@@ -273,12 +271,11 @@
     const veilCanvas = hero.querySelector('[data-mfm="veil"]');
     const title = hero.querySelector(".mfm-river__title");
     if (!picture || !sceneCanvas) return;
-    const scene = layer(sceneCanvas, SCENE, ["uRes", "uTime", "uFade", "uScroll", "uGlitch", "uImage", "uImageSize", "uWater"], {
+    const scene = layer(sceneCanvas, SCENE, ["uRes", "uTime", "uScroll", "uGlitch", "uImage", "uImageSize", "uWater"], {
       alpha: false,
       antialias: false,
       powerPreference: "high-performance",
     });
-    // Without WebGL the picture shows as it is.
     if (!scene) return;
     const veil = veilCanvas
       ? layer(veilCanvas, VEIL, ["uRes", "uTime", "uFade", "uScroll", "uName"], { alpha: true, premultipliedAlpha: true, antialias: false })
@@ -328,17 +325,15 @@
       if (!ready) return;
       // The clock wraps every 30 minutes, which keeps the noise coordinates small.
       const time = 20 + ((ms / 1000) % 1800);
-      const fade = still ? 1 : clamp01((ms - start) / 1500);
       const scroll = clamp01(window.scrollY / Math.max(1, hero.offsetHeight));
       gl.uniform1f(u.uTime, time);
-      gl.uniform1f(u.uFade, fade);
       gl.uniform1f(u.uScroll, scroll);
       gl.uniform1f(u.uGlitch, glitchAt(ms));
       scene.draw();
       if (veil) {
         const v = veil.uniforms;
         veil.gl.uniform1f(v.uTime, time);
-        veil.gl.uniform1f(v.uFade, fade);
+        veil.gl.uniform1f(v.uFade, still ? 1 : clamp01((ms - start) / 1500));
         veil.gl.uniform1f(v.uScroll, scroll);
         veil.gl.uniform4f(v.uName, ...name);
         veil.draw();
@@ -382,7 +377,7 @@
       if (ready && !reduceMotion && onScreen && !document.hidden) raf = requestAnimationFrame(loop);
     };
 
-    // The canvas shows once both pictures are textures; until then the <img> under it shows.
+    // Keep the graded still visible until both textures and the first canvas frame are ready.
     Promise.all([loaded(picture), loaded(water)])
       .then(() => {
         texture(gl, 0, picture);
@@ -392,9 +387,9 @@
         gl.uniform2f(u.uImageSize, picture.naturalWidth, picture.naturalHeight);
         ready = true;
         start = performance.now();
+        draw(reduceMotion ? 0 : start, reduceMotion);
         sceneCanvas.classList.add("is-ready");
-        if (reduceMotion) draw(0, true);
-        else sync();
+        sync();
       })
       .catch(() => {});
 

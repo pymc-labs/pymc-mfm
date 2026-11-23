@@ -39,9 +39,6 @@ def run_code_cells(notebook: Path) -> dict:
     ],
 )
 def test_diagnostics_notebook_code_cells_run_headless(corpus, tmp_path, monkeypatch):
-    # Matplotlib is the only optional dependency of the notebook's path; it ships
-    # with the diagnostics and training extras. The generator extra is optional.
-    pytest.importorskip("matplotlib")
     if corpus == "generated":
         pytest.importorskip("pymc_generator")
     else:
@@ -116,8 +113,9 @@ def assert_complete_quickstart_tree(model, context_result, tree, history, future
 @pytest.mark.slow
 def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkeypatch):
     # No model download: retain River-1's control/latent widths in a tiny random model.
-    pytest.importorskip("matplotlib")
+    # The repository's `examples` group; the `generation` group also pulls in pymc-marketing.
     pytest.importorskip("pymc_marketing")
+    pytest.importorskip("IPython")
     if shutil.which("dot") is None:
         pytest.skip("The quickstart's native SVG export requires Graphviz")
     import pymc_mfm
@@ -148,8 +146,8 @@ def test_river_1_quickstart_runs_headless_with_a_stand_in_model(tmp_path, monkey
     contexts = []
     sample_context = MFM._sample_context
 
-    def capture_context(self, prediction, *args):
-        contexts.append(sample_context(self, prediction, *args))
+    def capture_context(self, prediction, *, generator):
+        contexts.append(sample_context(self, prediction, generator=generator))
         return contexts[-1]
 
     monkeypatch.setattr(MFM, "_sample_context", capture_context)

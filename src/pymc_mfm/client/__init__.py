@@ -1,13 +1,13 @@
 """A client for the River API.
 
-This package needs no PyTorch: ``pip install pymc-mfm`` is enough. Reading draws files
-needs the ``draws`` extra and plots need the ``plot`` extra.
+The client does not import PyTorch. Draws and plotting libraries load when you
+read draws or make a plot.
 
 .. code-block:: python
 
     from pymc_mfm.client import Client, amount, scenario
 
-    client = Client("https://api.example.com", api_key="...")  # or MFM_API_URL, MFM_API_KEY
+    client = Client()  # reads MFM_API_URL and MFM_API_KEY
     dataset = client.datasets.create(
         history, date="week", outcome="sales", spend=["tv", "search"], controls=["price"]
     )

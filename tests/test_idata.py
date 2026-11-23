@@ -35,13 +35,6 @@ def tree(model, chart_frames):
     return model.idata
 
 
-@pytest.fixture
-def files():
-    """Require the optional h5netcdf, h5py and xarray only for tests that write files."""
-    for name in ("h5netcdf", "h5py"):
-        pytest.importorskip(name)
-
-
 def _without(tree, group, name):
     """A copy of ``tree`` whose ``group`` lacks the variable or attribute ``name``."""
     copy = tree.copy(deep=True)
@@ -72,7 +65,6 @@ def test_validate_accepts_a_raw_tree_and_unknown_additions(tree):
 
 
 @pytest.mark.parametrize("mode", ["map", "fixed"])
-@pytest.mark.usefixtures("files")
 def test_validate_accepts_raw_trees_from_every_mode(model, chart_frames, tmp_path, mode):
     history, future = chart_frames
     options = {"n_samples": 3, "mode": mode, "units": "USD", "provenance": {"scenario": "plan"}}
@@ -117,6 +109,13 @@ def test_validate_rejects_a_newer_schema_with_an_upgrade_hint(tree):
 def test_validate_rejects_a_missing_role_attribute(tree):
     with pytest.raises(ValueError, match=r"^/: attribute 'control_columns' is missing"):
         validate_idata(_without(tree, "/", "control_columns"))
+    # A tree from another tool, such as ArviZ, has no schema version at all.
+    with pytest.raises(ValueError) as caught:
+        validate_idata(_without(tree, "/", "schema_version"))
+    assert str(caught.value) == (
+        "/: attribute 'schema_version' is missing; this is not a pymc-mfm model tree "
+        "(for example, a file written by ArviZ). save_idata writes pymc-mfm trees"
+    )
 
 
 def test_validate_rejects_role_attributes_that_disagree_with_the_variables(tree):
@@ -156,7 +155,6 @@ def test_validate_rejects_curves_from_another_inference(tree):
         validate_idata(tree)
 
 
-@pytest.mark.usefixtures("files")
 def test_save_then_load_returns_an_equal_tree_with_the_file_closed(tree, tmp_path):
     import h5py
 
@@ -207,7 +205,6 @@ def test_validate_reports_the_group_of_a_missing_posterior_draw_coordinate(tree)
         validate_idata(tree)
 
 
-@pytest.mark.usefixtures("files")
 def test_an_extension_variable_may_use_an_axis_without_a_coordinate(tree, tmp_path):
     _edit(tree, "query/constant_data", lambda data: data.assign(external_draws=("draw", [1.0, 2])))
     validate_idata(tree)
@@ -216,7 +213,6 @@ def test_an_extension_variable_may_use_an_axis_without_a_coordinate(tree, tmp_pa
     np.testing.assert_array_equal(loaded["query/constant_data/external_draws"].to_numpy(), [1, 2])
 
 
-@pytest.mark.usefixtures("files")
 def test_observations_can_carry_an_unrelated_channel_coordinate(tree, tmp_path):
     path = "context/observed_data"
     _edit(
@@ -356,7 +352,6 @@ def test_validate_accepts_curves_that_record_no_seed_under_a_seeded_root(seeded)
     validate_idata(seeded)
 
 
-@pytest.mark.usefixtures("files")
 def test_a_seeded_tree_saves_loads_and_validates_with_its_seeds(seeded, tmp_path):
     validate_idata(seeded)
     assert seeded.attrs["random_seed"] == 11
@@ -369,7 +364,6 @@ def test_a_seeded_tree_saves_loads_and_validates_with_its_seeds(seeded, tmp_path
         assert loaded[place].attrs["random_seed"] == 12
 
 
-@pytest.mark.usefixtures("files")
 def test_save_refuses_a_malformed_seed(seeded, tmp_path):
     seeded.attrs["random_seed"] = "not-an-integer"
     with pytest.raises(ValueError, match=r"^/: .*'random_seed'"):
@@ -390,7 +384,6 @@ def test_save_refuses_a_malformed_seed(seeded, tmp_path):
         ("/response_curves/posterior", 13, r"^/response_curves/posterior: .*random_seed"),
     ],
 )
-@pytest.mark.usefixtures("files")
 def test_load_refuses_a_file_that_holds_a_malformed_seed_and_closes_it(
     seeded, tmp_path, group, value, message
 ):
@@ -406,7 +399,6 @@ def test_load_refuses_a_file_that_holds_a_malformed_seed_and_closes_it(
         pass
 
 
-@pytest.mark.usefixtures("files")
 def test_a_seeded_file_validates_with_torch_blocked(seeded, tmp_path):
     save_idata(seeded, tmp_path / "seeded.nc")
     # The ends of the seed range; the curve group and its posterior must agree.
@@ -434,18 +426,18 @@ def test_a_seeded_file_validates_with_torch_blocked(seeded, tmp_path):
     assert run.returncode == 0, run.stderr
 
 
-@pytest.mark.usefixtures("files")
 def test_save_never_overwrites_and_leaves_no_temporary_file(tree, tmp_path):
     path = tmp_path / "tree.nc"
     path.write_bytes(b"keep me")
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError) as caught:
         save_idata(tree, path)
+    assert caught.value.filename == str(path)
+    assert caught.value.filename2 is None
     assert path.read_bytes() == b"keep me"
     assert list(tmp_path.iterdir()) == [path]
 
 
 @pytest.mark.parametrize("hard_links", [True, False])
-@pytest.mark.usefixtures("files")
 def test_competing_saves_leave_only_the_winners_file(tree, tmp_path, monkeypatch, hard_links):
     target = tmp_path / "tree.nc"
     ready = Barrier(2, timeout=30)
@@ -475,7 +467,6 @@ def test_competing_saves_leave_only_the_winners_file(tree, tmp_path, monkeypatch
     assert list(tmp_path.iterdir()) == [target]
 
 
-@pytest.mark.usefixtures("files")
 def test_save_without_hard_links_still_refuses_to_overwrite(tree, tmp_path, monkeypatch):
     def no_links(source, target):
         raise OSError(errno.EPERM, "hard links are not supported")
@@ -525,7 +516,6 @@ class _FailsAtClose:
         raise OSError(errno.ENOSPC, "disk full at close")
 
 
-@pytest.mark.usefixtures("files")
 def test_a_failure_at_close_of_the_copy_leaves_no_file_and_a_retry_works(
     tree, tmp_path, monkeypatch
 ):
@@ -549,14 +539,12 @@ def test_a_failure_at_close_of_the_copy_leaves_no_file_and_a_retry_works(
     validate_idata(load_idata(path))
 
 
-@pytest.mark.usefixtures("files")
 def test_a_long_legal_name_saves(tree, tmp_path):
     path = tmp_path / ("n" * 240 + ".nc")
     save_idata(tree, path)
     assert list(tmp_path.iterdir()) == [path]
 
 
-@pytest.mark.usefixtures("files")
 def test_a_failed_write_leaves_no_temporary_file(tree, tmp_path, monkeypatch):
     def broken(self, path, **kwargs):
         open(path, "wb").close()
@@ -568,7 +556,6 @@ def test_a_failed_write_leaves_no_temporary_file(tree, tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.usefixtures("files")
 def test_save_validates_before_it_writes(tree, tmp_path):
     with pytest.raises(ValueError, match="control_columns"):
         save_idata(_without(tree, "/", "control_columns"), tmp_path / "tree.nc")
@@ -576,7 +563,6 @@ def test_save_validates_before_it_writes(tree, tmp_path):
 
 
 @pytest.mark.parametrize("extra", ["graph", "media"])
-@pytest.mark.usefixtures("files")
 def test_a_group_named_like_a_variable_does_not_keep_the_file_open(tree, tmp_path, extra):
     import h5py
 
@@ -598,7 +584,6 @@ def test_a_group_named_like_a_variable_does_not_keep_the_file_open(tree, tmp_pat
             )
 
 
-@pytest.mark.usefixtures("files")
 def test_numpy_text_names_and_units_save_as_text(model, chart_frames, tmp_path):
     history, future = chart_frames
     roles = {
@@ -615,7 +600,6 @@ def test_numpy_text_names_and_units_save_as_text(model, chart_frames, tmp_path):
     assert loaded["query/posterior"].attrs["units"] == "USD"
 
 
-@pytest.mark.usefixtures("files")
 def test_numpy_text_identity_saves_as_text(model, chart_frames, tmp_path):
     history, future = chart_frames
     identity = {"state_sha256": "a" * 64, "data_sha256": "b" * 64, "graph_source": "joint_router"}
@@ -724,7 +708,6 @@ def _same_numbers(left, right):
             np.testing.assert_array_equal(value, right[key], err_msg=key)
 
 
-@pytest.mark.usefixtures("files")
 def test_a_tree_stored_in_another_label_order_is_valid_and_charts_the_same(tree, tmp_path):
     expected = _chart_numbers(tree)
     for window in ("context", "query"):
@@ -819,7 +802,6 @@ def test_validate_requires_a_complete_numeric_history(tree, edit, message):
         validate_idata(tree)
 
 
-@pytest.mark.usefixtures("files")
 def test_a_query_without_observations_or_with_gaps_is_valid_and_saves(tree, tmp_path):
     first = tree.copy(deep=True)
     del first["query"]["observed_data"]
@@ -946,7 +928,6 @@ def test_validate_rejects_curves_that_do_not_match_their_axes_or_the_query(tree,
 
 
 @pytest.mark.parametrize("keep", [[1], [1, 0]])
-@pytest.mark.usefixtures("files")
 def test_curves_of_a_reordered_channel_subset_are_valid(tree, tmp_path, keep):
     for group in ("posterior", "constant_data"):
         _edit(tree, f"response_curves/{group}", lambda data: data.isel(channel=keep))
@@ -990,7 +971,6 @@ def test_validate_rejects_a_graph_that_is_not_binary_on_chain_draw_edge(tree, ch
         validate_idata(tree)
 
 
-@pytest.mark.usefixtures("files")
 def test_a_tree_without_graph_draws_is_valid_and_saves(tree, tmp_path):
     for window in ("context", "query"):
         _edit(tree, f"{window}/posterior", lambda data: data.drop_vars("graph"))
@@ -1047,7 +1027,6 @@ def _run(script, *args):
     )
 
 
-@pytest.mark.usefixtures("files")
 def test_a_file_loads_with_torch_and_matplotlib_blocked(tree, tmp_path):
     save_idata(tree, tmp_path / "tree.nc")
     run = _run(
@@ -1067,7 +1046,6 @@ def test_a_file_loads_with_torch_and_matplotlib_blocked(tree, tmp_path):
     assert run.returncode == 0, run.stderr
 
 
-@pytest.mark.usefixtures("files", "matplotlib_backend")
 def test_a_file_draws_a_chart_with_torch_blocked(tree, tmp_path):
     save_idata(tree, tmp_path / "tree.nc")
     run = _run(
@@ -1084,8 +1062,7 @@ def test_a_file_draws_a_chart_with_torch_blocked(tree, tmp_path):
     assert run.returncode == 0, run.stderr
 
 
-@pytest.mark.parametrize("blocked", ["h5netcdf", "h5py"])
-def test_without_a_file_backend_the_error_names_the_draws_extra(tree, tmp_path, blocked):
+def test_in_memory_validation_does_not_import_file_backends(tree, tmp_path):
     with (tmp_path / "tree.pickle").open("wb") as out:
         pickle.dump(tree, out)
     run = _run(
@@ -1093,20 +1070,14 @@ def test_without_a_file_backend_the_error_names_the_draws_extra(tree, tmp_path, 
         import pickle
         import sys
 
-        sys.modules[sys.argv[1]] = None
-        from pymc_mfm import load_idata, save_idata, validate_idata
+        from pymc_mfm import validate_idata
 
-        tree = pickle.load(open(sys.argv[2], "rb"))
-        validate_idata(tree)  # memory only: needs no file backend
-        for call in (lambda: load_idata(sys.argv[2]), lambda: save_idata(tree, sys.argv[2] + "x")):
-            try:
-                call()
-            except ImportError as error:
-                assert 'pip install "pymc-mfm[draws]"' in str(error), error
-            else:
-                raise SystemExit("a file call ran without " + sys.argv[1])
+        with open(sys.argv[1], "rb") as source:
+            tree = pickle.load(source)
+        validate_idata(tree)
+        backends = {"h5netcdf", "h5py"}.intersection(sys.modules)
+        assert not backends, backends
         """,
-        blocked,
         str(tmp_path / "tree.pickle"),
     )
     assert run.returncode == 0, run.stderr

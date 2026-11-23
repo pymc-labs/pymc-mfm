@@ -1,15 +1,13 @@
-import sys
+from traceback import format_exception
 
 import httpx
 import numpy as np
 import pytest
+import xarray as xr
 
-from pymc_mfm.client import Forbidden
+from pymc_mfm.client import ApiConnectionError, Forbidden
 
 from .client_fixtures import FakeService, result_record, result_rows, status_record
-
-xr = pytest.importorskip("xarray")
-pytest.importorskip("h5netcdf")
 
 N_DRAWS, N_WEEKS = 5, 2
 FUTURE = "2030-01-08T00:00:00Z"
@@ -142,13 +140,30 @@ def test_a_url_rejected_again_after_renewal_is_an_error(analysis, service, stora
     assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
 
 
+def test_failed_draw_renewal_omits_both_signatures_from_the_traceback(client, service):
+    service.on("GET", "/v1/analyses/an_1", (200, status_record()))
+    done = fetch(
+        client, service, result_with_urls("expired-marker"), result_with_urls("renewed-marker")
+    )
+    service.on(
+        "GET",
+        "/half.nc",
+        (403, b'{"error":{"code":"forbidden","message":"expired signature=expired-marker"}}'),
+        httpx.ReadTimeout("could not fetch signature=renewed-marker"),
+    )
+    with pytest.raises(ApiConnectionError) as caught:
+        done.draws(["half"])
+    trace = "".join(format_exception(caught.value))
+    assert "expired-marker" not in trace
+    assert "renewed-marker" not in trace
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+    assert [r.url.params["sig"] for r in service.sent("GET", "/half.nc")] == [
+        "expired-marker",
+        *(["renewed-marker"] * 4),
+    ]
+
+
 def test_draws_never_start_a_run(analysis, service):
     fetch(analysis, service, result_with_urls("fresh")).draws()
     assert service.sent("POST", "/v1/analyses") == []
     assert all(r.method == "GET" for r in service.requests)
-
-
-def test_draws_without_xarray_name_the_extra(analysis, monkeypatch):
-    monkeypatch.setitem(sys.modules, "xarray", None)
-    with pytest.raises(ImportError, match=r"pymc-mfm\[draws\]"):
-        analysis.get("an_1").draws()

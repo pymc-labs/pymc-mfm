@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 import torch
 import xarray as xr
-from conftest import needs_arviz
 from safetensors import safe_open
 from safetensors.torch import load_file
 
@@ -591,12 +590,18 @@ def test_inference_requires_both_frames_and_explicit_roles_without_consuming_rng
     ],
 )
 def test_inference_rejects_invalid_role_schemas_before_rng_consumption(
-    model, history, future, roles
+    model, history, future, roles, request
 ):
     history = history.assign(extra_control=1.0, another_control=2.0)
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    needs_one = {
+        "no-channels": "channel_columns needs at least one column name",
+        "no-controls": "control_columns needs at least one column name",
+    }
+    with pytest.raises(ValueError) as caught:
         model.inference(history, future, **{**COLUMN_ROLES, **roles}, n_samples=2)
+    if request.node.callspec.id in needs_one:
+        assert str(caught.value) == needs_one[request.node.callspec.id]
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -619,18 +624,30 @@ def test_inference_rejects_invalid_context_table_shapes(model, history, future, 
 
 
 @pytest.mark.parametrize(
-    ("column", "value"),
-    [("search", -1e-50), ("sales", 0.0), ("temperature", np.inf), ("tv", 1 + 2j)],
+    ("column", "value", "message"),
+    [
+        ("search", -1e-50, "channel spend must be nonnegative; negative values in ['search']"),
+        ("sales", 0.0, "context outcomes must be positive; 'sales' has zero or negative values"),
+        (
+            "temperature",
+            np.inf,
+            "['temperature'] must contain finite real numeric values (no NaN or infinity)",
+        ),
+        ("tv", 1 + 2j, "'tv' must contain finite real numeric values"),
+    ],
 )
-def test_inference_validates_raw_context_numeric_domains(model, history, future, column, value):
+def test_inference_validates_raw_context_numeric_domains(
+    model, history, future, column, value, message
+):
     values = history[column].to_numpy(
         dtype=complex if isinstance(value, complex) else float, copy=True
     )
     values[0] = value
     history[column] = values
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as caught:
         model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    assert str(caught.value) == message
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -648,6 +665,12 @@ def test_preflight_and_inference_validate_canonical_context_representation(model
     "problem", ["missing", "invalid", "numeric", "aware", "duplicate", "irregular"]
 )
 def test_inference_rejects_invalid_or_irregular_context_dates(model, history, future, problem):
+    message = (
+        "no frequency could be inferred; the spacing changes at 2024-01-08: "
+        "2024-01-01 to 2024-01-08 is 7 days, then 2024-01-08 to 2024-01-16 is 8 days$"
+        if problem == "irregular"
+        else None
+    )
     if problem == "invalid":
         history["date"] = ["not a date", *history["date"].dt.strftime("%Y-%m-%d").tolist()[1:]]
     elif problem == "numeric":
@@ -664,8 +687,71 @@ def test_inference_rejects_invalid_or_irregular_context_dates(model, history, fu
             dates[2] += np.timedelta64(1, "D")
         history["date"] = dates
     before = torch.get_rng_state()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    assert torch.equal(torch.get_rng_state(), before)
+
+
+@pytest.mark.parametrize(
+    ("dates", "message"),
+    [
+        pytest.param(
+            ["2024-01-01", "2024-01-15", "2024-01-22", "2024-01-29"],
+            "most consecutive dates are 7 days apart, but 2024-01-01 to 2024-01-15 is 14 days",
+            id="weekly-missing-second-week",
+        ),
+        pytest.param(
+            ["2024-01-01", "2024-01-15", "2024-01-22", "2024-01-29", "2024-02-05"],
+            "most consecutive dates are 7 days apart, but 2024-01-01 to 2024-01-15 is 14 days",
+            id="weekly-gap-at-start",
+        ),
+        pytest.param(
+            ["2024-01-01", "2024-01-08", "2024-01-15", "2024-01-22", "2024-02-05"],
+            "most consecutive dates are 7 days apart, but 2024-01-22 to 2024-02-05 is 14 days",
+            id="weekly-gap-at-end",
+        ),
+        pytest.param(
+            [f"2024-01-{day:02d}" for day in (4, 5, 8, 9, 10, 11, 12, 13)],
+            "most consecutive dates are 1 day apart, but 2024-01-05 to 2024-01-08 is 3 days",
+            id="daily-missing-weekend-not-business-days",
+        ),
+        pytest.param(
+            ["2023-12-31", "2024-01-31", "2024-02-29", "2024-04-30"],
+            "most dates follow the 'ME' frequency, "
+            "but periods are missing between 2024-02-29 and 2024-04-30",
+            id="month-end-missing-march",
+        ),
+        pytest.param(
+            ["2024-06-30", "2024-07-31", "2024-08-31", "2024-09-30", "2024-10-30"]
+            + ["2024-11-30", "2024-12-31"],
+            "most dates follow the 'ME' frequency, but 2024-10-30 is not on it",
+            id="month-end-off-by-one-day",
+        ),
+        pytest.param(
+            ["2262-04-08", "2262-04-10", "2262-04-11"],
+            "no frequency could be inferred; the spacing changes at 2262-04-10: "
+            "2262-04-08 to 2262-04-10 is 2 days, then 2262-04-10 to 2262-04-11 is 1 day",
+            id="timestamp-upper-bound",
+        ),
+        pytest.param(
+            ["1677-09-21 00:13", "1677-09-21 00:14", "1677-09-21 00:15", "1677-09-21 01:45"],
+            "most consecutive dates are 1 minute apart, "
+            "but 1677-09-21 00:15:00 to 1677-09-21 01:45:00 is 1 hour 30 minutes",
+            id="timestamp-lower-bound-sub-day",
+        ),
+    ],
+)
+def test_irregular_context_dates_name_observed_intervals_only(
+    model, history, future, dates, message
+):
+    rows = np.arange(len(dates)) % len(history)
+    history = history.iloc[rows].assign(date=pd.to_datetime(dates))
+    before = torch.get_rng_state()
+    with pytest.raises(ValueError) as caught:
+        model.inference(history, future, **COLUMN_ROLES, n_samples=2)
+    assert str(caught.value) == (
+        "context dates must follow a regular frequency without missing periods; " + message
+    )
     assert torch.equal(torch.get_rng_state(), before)
 
 
@@ -929,8 +1015,7 @@ def test_idata_named_values_inputs_and_provenance_match_both_marginals(
     )
 
 
-@needs_arviz
-def test_idata_window_subtrees_support_optional_arviz_statistics(model, history, future):
+def test_idata_window_subtrees_support_arviz_statistics(model, history, future):
     from arviz_stats import summary
 
     tree = model.inference(history, future, **COLUMN_ROLES, n_samples=5)
@@ -1489,15 +1574,18 @@ def _seeding_options(model, mode):
 @pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
 def test_a_seed_equals_manual_seed_before_the_call(model, history, future, mode):
     options = _seeding_options(model, mode)
-    torch.manual_seed(0)
-    expected = model.inference(history, future, **COLUMN_ROLES, **options)
     torch.manual_seed(99)
     caller_state = torch.get_rng_state()
     seeded = model.inference(history, future, **COLUMN_ROLES, **options, random_seed=0)
     # The seeded call draws the stream of manual_seed(0) from its own generator.
     assert torch.equal(torch.get_rng_state(), caller_state)
-    xr.testing.assert_equal(seeded["context"], expected["context"])
-    xr.testing.assert_equal(seeded["query"], expected["query"])
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        expected_query, expected_context = _canonical_pair(
+            model, history, future, model.query_result.control_names, **options
+        )
+    _assert_named_posterior(seeded["query/posterior"], expected_query)
+    _assert_named_posterior(seeded["context/posterior"], expected_context)
     predicted = model.predict(future, **options, random_seed=0)
     assert torch.equal(torch.get_rng_state(), caller_state)
     torch.manual_seed(0)
@@ -1511,8 +1599,9 @@ def test_a_seed_repeats_inference_and_predict_draws(model, history, future):
     xr.testing.assert_equal(first, second)
     _assert_same_result(model.predict(future, n_samples=4, random_seed=12), first_predicted)
     other = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=13)
-    with pytest.raises(AssertionError):
-        xr.testing.assert_equal(other["query"], first["query"])
+    for window in ("query", "context"):
+        with pytest.raises(AssertionError):
+            xr.testing.assert_equal(other[f"{window}/posterior"], first[f"{window}/posterior"])
 
 
 def test_no_seed_draws_from_and_advances_the_callers_generator(model, history, future):
@@ -1522,7 +1611,8 @@ def test_no_seed_draws_from_and_advances_the_callers_generator(model, history, f
     after = torch.get_rng_state()
     assert not torch.equal(after, before)
     seeded = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=3)
-    xr.testing.assert_equal(unseeded["query"], seeded["query"])
+    for window in ("query", "context"):
+        xr.testing.assert_equal(unseeded[f"{window}/posterior"], seeded[f"{window}/posterior"])
     assert torch.equal(torch.get_rng_state(), after)
     # Without a seed a second call continues the stream and draws new numbers.
     again = model.inference(history, future, **COLUMN_ROLES, n_samples=4)

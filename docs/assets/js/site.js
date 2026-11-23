@@ -1,12 +1,15 @@
 /* Shared behaviour for every page. Each init* function below sets up one piece of site chrome
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
-     initConsoleButton marks the "Open Console" navbar link with data-mfm="console" (site.css draws it)
+     initConsoleButton marks the last right-hand navbar link with data-mfm="console" (site.css draws it)
      initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
+     initSameSiteLinks a link to this site's own origin opens in the same tab, wherever it is served
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
      initCodeLabels    a language label with its logo on every code block (Python, curl, shell, JSON)
      initCodeScroll    marks blocks that scroll sideways, so site.css can fade the edge with more code
+     initStackTables   in a ::: {.mfm-stack} div, gives each table cell its column name (data-label),
+                       which site.css shows above the cell when the rows stack on a phone
      initTabs          a sliding marker and logos on every Quarto .panel-tabset; clears "Copied" on switch
      initPhoneMenu     below 992px, the navbar panel also lists the current section's sidebar pages
      initMenuSheet     below 992px the menu covers the page: scroll lock while open, Escape closes
@@ -96,25 +99,36 @@
     });
   }
 
-  /* The right-hand navbar list holds one link, the hosted Console. The hook is this attribute,
-     never the link's address, so the address can change without touching the styles. On wide
-     screens site.css shows the icon alone; the label stays for screen readers, and as a tooltip. */
+  /* The right-hand navbar list ends with one link, the access page. The hook is this attribute,
+     never the link's address, so the address can change without touching the styles. site.css
+     draws it as a button with its icon and label at every width. */
   function initConsoleButton() {
     const links = document.querySelectorAll("#navbarCollapse .navbar-nav.ms-auto .nav-link");
     const link = links[links.length - 1];
     if (!link) return;
     link.dataset.mfm = "console";
-    link.title = "Open Console";
   }
 
   /* Navbar text links to another host get .is-external (site.css adds an ArrowUpRight). By host,
-     not by the href text: Quarto rewrites the site's own links to full addresses. The Console
+     not by the href text: Quarto rewrites the site's own links to full addresses. Get access
      and icon links (GitHub) draw their own icons. */
   function initExternalLinks() {
     document.querySelectorAll("#navbarCollapse .navbar-nav > .nav-item > a.nav-link").forEach((link) => {
       if (link.dataset.mfm || link.querySelector(".bi") || link.host === window.location.host) return;
       link.classList.add("is-external");
     });
+  }
+
+  /* Quarto opens every link outside its site-url in a new tab (link-external-newwindow), and
+     judges "outside" by that configured address. Served from any other address (a preview, a
+     host mount.py was not given), the site's own pages would open in new tabs too. A link to
+     this page's origin always opens here: the target is dropped as the click starts, so it
+     holds for pointer and keyboard alike, whenever Quarto set it. */
+  function initSameSiteLinks() {
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest('a[target="_blank"]');
+      if (link && link.origin === window.location.origin) link.removeAttribute("target");
+    }, true);
   }
 
   function copyText(text) {
@@ -168,6 +182,18 @@
     }
     const name = LANG_NAMES[lang] || lang.charAt(0).toUpperCase() + lang.slice(1);
     return { key: lang === "python" || lang === "json" ? lang : "none", name };
+  }
+
+  /* Tables that stack on phones (site.css): each body cell gets its column's header text. */
+  function initStackTables() {
+    document.querySelectorAll(".mfm-stack table").forEach((table) => {
+      const names = [...table.querySelectorAll("thead th")].map((th) => th.textContent.trim());
+      table.querySelectorAll("tbody tr").forEach((row) => {
+        [...row.children].forEach((cell, index) => {
+          if (names[index]) cell.dataset.label = names[index];
+        });
+      });
+    });
   }
 
   function initCodeLabels() {
@@ -271,31 +297,39 @@
 
   }
 
-  /* Below 992px the menu is a sheet over the page (site.css): lock the page scroll while it
-     is open, and close it on Escape. */
+  /* Below 992px the menu is a sheet over the page (site.css): lock the page scroll and make
+     the covered page inert while it is open, so Tab stays in the menu, and close it on
+     Escape. */
   function initMenuSheet() {
     const panel = document.getElementById("navbarCollapse");
     if (!panel) return;
     const root = document.documentElement;
-    panel.addEventListener("show.bs.collapse", () => root.classList.add("mfm-menu-open"));
-    panel.addEventListener("hidden.bs.collapse", () => root.classList.remove("mfm-menu-open"));
+    const wide = window.matchMedia("(min-width: 992px)");
+    const cover = (open) => {
+      root.classList.toggle("mfm-menu-open", open);
+      for (const el of document.body.children) {
+        if (!el.contains(panel)) el.inert = open;
+      }
+    };
+    panel.addEventListener("show.bs.collapse", () => cover(!wide.matches));
+    panel.addEventListener("hidden.bs.collapse", () => cover(false));
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape" || !panel.classList.contains("show") || !window.bootstrap) return;
       window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
       document.querySelector(".navbar-toggler")?.focus();
     });
-    window.matchMedia("(min-width: 992px)").addEventListener("change", (event) => {
-      if (event.matches) root.classList.remove("mfm-menu-open");
-    });
+    wide.addEventListener("change", (event) => cover(!event.matches && panel.classList.contains("show")));
   }
 
   [
     initModelsMenu,
     initConsoleButton,
     initExternalLinks,
+    initSameSiteLinks,
     initCopyButtons,
     initCodeLabels,
     initCodeScroll,
+    initStackTables,
     initTabs,
     initPhoneMenu,
     initMenuSheet,

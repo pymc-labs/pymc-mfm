@@ -1,11 +1,11 @@
 """Check a model tree, write it to one netCDF file and read it back, all without PyTorch.
 
-A model tree is ``MFM.idata`` or a file made by :func:`save_idata`. Files need the
-``[draws]`` extra: ``pip install "pymc-mfm[draws]"``.
+A model tree is ``MFM.idata`` or a file made by :func:`save_idata`.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import numbers
 import os
@@ -22,9 +22,6 @@ from pymc_mfm.plotting.charts._data import FAMILIES, WINDOWS, IdataReader
 if TYPE_CHECKING:
     from xarray import Dataset, DataTree
 
-_EXTRA = (
-    'Saving and loading a model tree needs the pymc-mfm[draws] extra: pip install "pymc-mfm[draws]"'
-)
 _SCHEMA_VERSION = 1
 _SAMPLE_DIMS = ("chain", "draw")
 _ROLES = ("channel", "control")
@@ -336,14 +333,6 @@ def _check_curves(tree: DataTree, roles: dict[str, tuple[str, ...]]) -> None:
     )
 
 
-def _is_tree(value: object) -> bool:
-    try:
-        from xarray import DataTree
-    except ImportError:  # without xarray nothing can be a DataTree
-        return False
-    return isinstance(value, DataTree)
-
-
 def _read(path: str, read: Callable[[], Any]) -> None:
     try:
         read()
@@ -368,11 +357,19 @@ def validate_idata(idata: DataTree) -> None:
     curves, without stacking the draws. Unknown variables, groups and attributes need
     no schema entry, but their text must still be storable, so ``MFM.idata`` as built is valid.
     """
-    if not _is_tree(idata):
+    from xarray import DataTree
+
+    if not isinstance(idata, DataTree):
         _fail(
             "/",
             f"expected an xarray DataTree, got {type(idata).__name__}; "
             "model.idata is None until the first complete inference",
+        )
+    if "schema_version" not in idata.attrs:
+        _fail(
+            "/",
+            "attribute 'schema_version' is missing; this is not a pymc-mfm model tree "
+            "(for example, a file written by ArviZ). save_idata writes pymc-mfm trees",
         )
     version = _integer_attr(idata, "/", "schema_version")
     if version > _SCHEMA_VERSION:
@@ -400,17 +397,6 @@ def validate_idata(idata: DataTree) -> None:
         _read("/response_curves", reader.response_curves)
 
 
-def _require_draws():
-    """``xarray``, or an ``ImportError`` naming the extra."""
-    try:
-        import h5netcdf  # noqa: F401
-        import h5py  # noqa: F401
-        import xarray
-    except ImportError as error:
-        raise ImportError(_EXTRA) from error
-    return xarray
-
-
 def save_idata(idata: DataTree, path: str | os.PathLike[str]) -> None:
     """Write the model tree ``idata`` to the netCDF file ``path``; never overwrite.
 
@@ -420,7 +406,6 @@ def save_idata(idata: DataTree, path: str | os.PathLike[str]) -> None:
     links gets an exclusive create and a copy; a failed copy or close removes the file it
     made, but a crash there can leave a partial file.
     """
-    _require_draws()
     validate_idata(idata)
     target = Path(path)
     # A short name, so any legal target name leaves room for it.
@@ -430,7 +415,10 @@ def save_idata(idata: DataTree, path: str | os.PathLike[str]) -> None:
         try:
             os.link(temporary, target)
         except FileExistsError:
-            raise
+            # The error from os.link names the temporary file first; name the target.
+            raise FileExistsError(
+                errno.EEXIST, "file exists; save_idata never overwrites", str(target)
+            ) from None
         except OSError:
             # A failed exclusive create made no file, so it needs no cleanup.
             out = target.open("xb")
@@ -449,7 +437,8 @@ def load_idata(path: str | os.PathLike[str]) -> DataTree:
 
     Every variable is loaded before the file closes, which is when this returns.
     """
-    xarray = _require_draws()
+    import xarray
+
     with xarray.open_datatree(path, engine="h5netcdf") as tree:
         # Load node by node: DataTree.load() leaves a variable lazy when its name
         # matches the path of another group.

@@ -7,7 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 import torch
-from conftest import make_synthetic_corpus, needs_arviz
+from conftest import make_synthetic_corpus
 from test_comparisons import omission_pair, record, reference
 from test_diagnostics import make_result
 from test_inference import observed
@@ -340,7 +340,6 @@ def test_omission_lookup_keeps_the_full_world_in_its_original_date_resolution():
     assert matched_omission(*dated) == matched_omission(before, after)
 
 
-@needs_arviz
 def test_datatree_exports_native_dates_on_each_aligned_evidence_group(tmp_path):
     result = replace(make_result(), time=DATES)
     loaded = DecompositionResult.load(result.save(tmp_path / "result"))
@@ -358,7 +357,6 @@ def test_datatree_exports_native_dates_on_each_aligned_evidence_group(tmp_path):
         assert tree["observed_data"]["outcome"].sel(time=label).item() == observed_values[index]
 
 
-@needs_arviz
 def test_datatree_normalizes_scaled_date_units_without_relabelling_rows():
     labels = np.array([1, 2, 3], dtype="datetime64[2D]")
     result = replace(make_result(), time=labels)
@@ -373,14 +371,12 @@ def test_datatree_normalizes_scaled_date_units_without_relabelling_rows():
         )
 
 
-@needs_arviz
 def test_datatree_rejects_subnanosecond_labels_instead_of_collapsing_distinct_rows():
     result = replace(make_result(), time=np.array([1, 2, 1001], dtype="datetime64[ps]"))
     with pytest.raises(ValueError, match="lossless"):
         result.to_datatree()
 
 
-@needs_arviz
 def test_archive_datatree_unions_mixed_date_units_without_integer_ticks(model, tmp_path):
     from test_archive import capture, identity_for, write_archive
 
@@ -493,7 +489,6 @@ def test_calendar_boundary_and_outside_calendar_dates_render_with_exact_iso_labe
         figure.clear()
 
 
-@needs_arviz
 def test_archive_selects_one_lossless_resolution_for_modern_and_far_future_worlds(model, tmp_path):
     from test_archive import capture, identity_for, write_archive
 

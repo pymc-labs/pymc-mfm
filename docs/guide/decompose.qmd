@@ -15,10 +15,12 @@ roles = {
     "control_columns": ["price"],
 }
 usage = model.input_usage(history, plan, **roles)  # preflight before sampling
-idata = model.inference(history, plan, **roles, n_samples=500)
+idata = model.inference(history, plan, **roles, n_samples=500, random_seed=0)
 assert idata is model.idata
 query = model.query_result  # exact query DecompositionResult for diagnostics and graph helpers
 ```
+
+`n_samples` defaults to 1,000 draws per window. Examples that pass 500 do so to run faster. For numbers you report, keep the default or raise it, and pass `random_seed`. Complete inference accepts one seed for both windows: context continues the query's random stream, including when no seed is passed. If you need different seeds, use separate `decompose` calls with `window="query"` and `window="context"`.
 
 History requires a pandas dataframe with at least two rows, unique timezone-naive dates, a regular cadence, strictly positive outcomes, nonnegative spend, and at least one channel and control. Date, target, channel, and control roles must be distinct. Controls are padded up to the model's configured width; excess controls are rejected. Successful inference snapshots the inputs and role lists, so later caller mutations cannot change the completed run.
 
@@ -30,10 +32,10 @@ For independent query-only calculations, use `prediction = model.predict(plan, n
 
 ## Charts
 
-[`model.plot`](../reference/plotting.Plots.qmd) draws the latest complete `inference`, never an intervening `predict`. Install `pymc-mfm[plot]` for matplotlib figures and `pymc-mfm[interactive]` for plotly ones; pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
+[`model.plot`](../reference/plotting.Plots.qmd) draws the latest complete `inference`, never an intervening `predict`. The standard install supports both Matplotlib and Plotly. Pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
 
 ```python
-idata = model.inference(history, plan_with_outcome, **roles, n_samples=1_000)
+idata = model.inference(history, plan_with_outcome, **roles)
 query = model.query_result  # query outcomes are kept for charts, never read by the model
 
 model.plot.inputs()  # outcome, media and control covariates by week
@@ -50,7 +52,7 @@ model.plot.response_curves()
 model.plot.fit(backend="plotly")
 ```
 
-Each chart summarizes the completed draws once, then matplotlib or plotly draws the same numbers. Matplotlib charts return a `Figure` that notebooks show without pyplot; single-axes charts accept `ax=`. **Model charts never sample**, including context charts. Before complete inference there is no history-only chart state. [MFM.response_curves](../reference/model.MFM.qmd) multiplies one media covariate in the first `weeks` forecast weeks by each level and samples each scenario (one shared run for level 1). It returns the curves and attaches them to a new `model.idata` root, preserving the base query result. Failed sweeps/conversion preserve the prior curves and tree. Successful complete inference replaces curves; `predict` does not.
+Each chart summarizes the completed draws once, then matplotlib or plotly draws the same numbers. Matplotlib charts return a `Figure` that notebooks show without pyplot; single-axes charts accept `ax=`. **Model charts never sample**, including context charts. Before complete inference there is no history-only chart state. [MFM.response_curves](../reference/model.MFM.qmd) multiplies one media covariate in the first `weeks` forecast weeks by each level and samples each scenario (one shared run for level 1). A level multiplies spend; each curve is the total contribution over those weeks. `weeks` shortens the whole plan, so level 1 need not equal the contribution in the original longer forecast. It returns the curves and attaches them to a new `model.idata` root, preserving the base query result. Failed sweeps/conversion preserve the prior curves and tree. Successful complete inference replaces curves; `predict` does not.
 
 Intervals are central intervals of the draws, pointwise over weeks or levels, and exclude observation noise. Contributions are conditional on the inputs, not causal lift. For simulated data, `truth` adds known contributions: a dataframe indexed by date (by level for response curves) with one column per media or control covariate.
 
@@ -126,7 +128,7 @@ can encode differently for a different query horizon.
 
 ## Context and query snapshots
 
-The `[local]` extra includes complete in-memory `xarray.DataTree` construction. Complete inference stores the tree automatically; `return_idata=True` (the default) returns that exact object. `False` suppresses only the return, not sampling, conversion or storage:
+Complete inference builds and stores an in-memory `xarray.DataTree` automatically; `return_idata=True` (the default) returns that exact object. `False` suppresses only the return, not sampling, conversion or storage:
 
 ```python
 idata = model.idata  # passive read of the completed run, including any attached curves
@@ -155,7 +157,7 @@ The tree has separate `context` and `query` subtrees, each with `posterior` and 
 
 Window `attrs["provenance"]` contains the complete canonical result provenance as JSON text; use `json.loads(...)` or `model.query_result.provenance`. Curves occupy `/response_curves/posterior/contribution(chain, draw, channel, level)` and `/response_curves/constant_data`, with media totals and actual sweep dates. Their draw count is independent of the windows', while their channels and dates come from the query window; `source_provenance` must equal the query's provenance text, so a sweep is labeled with its own source rather than the base input identity.
 
-The `[arviz]` extra adds statistics: summarize a window subtree, for example `arviz_stats.summary(model.idata["query"], var_names=["channel_contribution"], kind="stats")`, not the convenience root. File export remains explicit and needs `[draws]`: `pymc_mfm.save_idata(model.idata, "analysis.nc")` writes a new file and never overwrites; `pymc_mfm.load_idata("analysis.nc")` reads it back and `pymc_mfm.validate_idata(idata)` checks a tree. A tree that passes can be saved and charted: each error names the path and what is wrong, and a failed save or load leaves no file behind. On a file system without hard links, a crash during `save_idata` can leave a partial file. Trees may contain sensitive inputs and labels; review before sharing. Neither a saved tree nor result evidence restores a runnable model session.
+Use ArviZ statistics to summarize a window subtree, for example `arviz_stats.summary(model.idata["query"], var_names=["channel_contribution"], kind="stats")`, not the convenience root. File export remains explicit: `pymc_mfm.save_idata(model.idata, "analysis.nc")` writes a new file and never overwrites; `pymc_mfm.load_idata("analysis.nc")` reads it back and `pymc_mfm.validate_idata(idata)` checks a tree. A tree that passes can be saved and charted: each error names the path and what is wrong, and a failed save or load leaves no file behind. On a file system without hard links, a crash during `save_idata` can leave a partial file. Trees may contain sensitive inputs and labels; review before sharing. Neither a saved tree nor result evidence restores a runnable model session.
 
 ::: {.callout-note}
 ## Do not join snapshots
@@ -213,12 +215,12 @@ result.save("results/query")
 restored = DecompositionResult.load("results/query")
 ```
 
-Saved results retain dates and can be reloaded without the model. With `pymc-mfm[diagnostics]`, use `result.plot.reconstruction(observed=...)` or `result.diagnostics(truth=...)`. `result.to_datatree()` retains the generic standalone-result schema, distinct from the named complete-model tree.
+Saved results retain dates and can be reloaded without the model. Use `result.plot.reconstruction(observed=...)` or `result.diagnostics(truth=...)`. `result.to_datatree()` retains the generic standalone-result schema, distinct from the named complete-model tree.
 
 ## Inspect sampled graphs
 
-With `pymc-mfm[diagnostics]`, reuse the existing draws to inspect either marginal
-edge frequencies or an individual complete graph:
+Reuse the existing draws to inspect either marginal edge frequencies or an
+individual complete graph:
 
 ```python
 from pathlib import Path
@@ -267,7 +269,7 @@ from pymc_mfm.inference import decompose, warm_up_sampling
 
 model.compile_sampling()
 warm_up_sampling(model, channels=range(1, 11))
-result = decompose(model, observations, n_samples=1_000)
+result = decompose(model, observations)
 print(model.sampling_status)
 ```
 

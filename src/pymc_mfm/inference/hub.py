@@ -1,4 +1,4 @@
-"""Optional Hub transport over the same strict local MFM bundle contract."""
+"""Hub transport over the same strict local MFM bundle contract."""
 
 from __future__ import annotations
 
@@ -68,14 +68,6 @@ class HubArtifactError(RuntimeError):
         self.code = code
 
 
-def _hub():
-    try:
-        import huggingface_hub
-    except ImportError:
-        raise ImportError("Hub operations require the pymc-mfm[hub] extra") from None
-    return huggingface_hub
-
-
 def _repo_id(value: str) -> str:
     from huggingface_hub.utils import validate_repo_id
 
@@ -134,7 +126,8 @@ def _transport(call, **kwargs):
 def _snapshot(
     repo_id: str, *, revision, patterns, cache_dir, local_files_only, token
 ) -> tuple[Path, str]:
-    hub = _hub()
+    import huggingface_hub as hub
+
     path = Path(
         _transport(
             hub.snapshot_download,
@@ -213,7 +206,6 @@ def from_pretrained(
             raise ValueError("revision applies to Hub references, not local directories")
         bundle = _select_bundle(local, profile)
     else:
-        _hub()
         repo_id = _repo_id(path_or_repo)
         if revision is not None and (not isinstance(revision, str) or not revision.strip()):
             raise ValueError("revision must be a nonempty branch, tag, or full commit")
@@ -268,7 +260,6 @@ def list_profiles(
     root = _local_reference(path_or_repo)
     commit = None
     if root is None:
-        _hub()
         repo_id = _repo_id(path_or_repo)
         root, commit = _snapshot(
             repo_id,
@@ -331,9 +322,13 @@ from pymc_mfm import from_pretrained
 model = from_pretrained("<downloaded directory>"{argument})
 ```"""
     key = "." if profile is None else profile
-    return f"""```sh
-pip install 'pymc-mfm[hub]'
+    return f"""Install PyMC MFM on Python 3.13 or newer:
+
+```sh
+pip install pymc-mfm
 ```
+
+Or use `uv add pymc-mfm` or `conda install -c conda-forge pymc-mfm`.
 
 ```python
 from pymc_mfm import from_pretrained, list_profiles
@@ -525,7 +520,7 @@ def _bundle_card(
     title = "" if profile is None else f": profile {profile}"
     described = "" if description is None else f"## Model description\n\n{description}\n\n"
     return f"""{_front_matter(license)}
-# Marketing Foundation Model{title}
+# Marketing Foundational Model{title}
 
 A complete trainable graph-conditional MFM artifact, including the shared
 encoder, joint graph router, auxiliary structure head, graph conditioner,
@@ -600,7 +595,7 @@ confounding or noise levels is not established.
 def _collection_card(profiles: list[str], *, license: str, repo_id: str | None) -> str:
     rows = [(name, f"[profiles/{name}/README.md](profiles/{name}/README.md)") for name in profiles]
     return f"""{_front_matter(license)}
-# Marketing Foundation Model collection
+# Marketing Foundational Model collection
 
 Every profile below is an artifact of the same fixed graph-conditional MFM
 architecture, trained on its own corpus. Each profile's model card describes its
@@ -650,8 +645,8 @@ def write_model_cards(
     written. Each card is written to a sibling temporary file renamed onto its
     target, so a symlinked ``README.md``, as in a Hub cache snapshot, is replaced
     rather than written through into a blob other revisions share.
-    ``repo_id`` (validated with the ``hub`` extra) selects Hub loading
-    instructions; no Hub request is made. Returns the written paths.
+    ``repo_id`` selects Hub loading instructions; no Hub request is made.
+    Returns the written paths.
     """
     if not isinstance(license, str) or not license.strip():
         raise ValueError("model cards require an explicit license text")
@@ -752,7 +747,9 @@ def push_to_hub(
         if not recorded_outputs.is_file():
             raise FileNotFoundError("recorded_outputs must name an existing JSON file")
         recorded = parse_json(recorded_outputs.read_bytes())
-    hub = _hub()
+
+    import huggingface_hub as hub
+
     repo_id = _repo_id(repo_id)
     if type(private) is not bool:
         raise ValueError("private must be boolean")

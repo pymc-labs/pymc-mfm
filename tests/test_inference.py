@@ -9,8 +9,10 @@ import warnings
 from dataclasses import replace
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
+from conftest import CHART_ROLES
 
 from pymc_mfm.data.corpus import corpus_batch
 from pymc_mfm.inference.api import decompose, observation_batch
@@ -88,6 +90,13 @@ def test_result_replay_retains_labels_and_rejects_corruption(model, synthetic_co
 
 def test_invalid_alignment_padding_and_binary_graphs_are_rejected(model, synthetic_corpus):
     result = decompose(model, observed(synthetic_corpus), n_samples=4)
+    with pytest.raises(ValueError) as caught:
+        decompose(model, pd.DataFrame({"spend": [1.0]}), n_samples=4)
+    assert str(caught.value) == (
+        "observations must be a mapping of arrays. For pandas input, use "
+        "model.inference(context, query, date_column=..., target_column=..., "
+        "channel_columns=..., control_columns=...)"
+    )
     with pytest.raises(ValueError, match="aligned"):
         replace(result, graphs=result.graphs[:-1])
     bad_graph = result.graphs.copy()
@@ -582,18 +591,30 @@ def test_decomposition_restores_units_without_changing_graphs(
     assert replay.units == "rescaled sales"
 
 
-def test_default_draw_count_is_2000_on_every_public_sampling_signature():
+def test_default_draw_count_is_1000_on_every_public_sampling_signature():
     from pymc_mfm.model.flow import DEFAULT_N_SAMPLES, JointFlowHead
     from pymc_mfm.model.model import MFM
 
-    assert DEFAULT_N_SAMPLES == 2000
+    assert DEFAULT_N_SAMPLES == 1000
     for fn in (
         decompose,
         MFM.inference,
+        MFM.predict,
         MFM.predict_batch,
         MFM.sample_context,
         MFM.sample_disentangled,
         MFM.sample,
         JointFlowHead.sample,
     ):
-        assert inspect.signature(fn).parameters["n_samples"].default == 2000, fn.__qualname__
+        assert inspect.signature(fn).parameters["n_samples"].default == 1000, fn.__qualname__
+
+
+def test_inference_and_predict_draw_counts(model, chart_frames):
+    history, future = chart_frames
+    for options, expected in (({}, 1_000), ({"n_samples": 2_000}, 2_000)):
+        tree = model.inference(history, future, **CHART_ROLES, **options, random_seed=0)
+        assert tree["context/posterior"].sizes["draw"] == expected
+        assert tree["query/posterior"].sizes["draw"] == expected
+    # Independent prediction does not inherit the explicitly larger inference count.
+    assert model.predict(future, random_seed=0).n_samples == 1_000
+    assert model.predict(future, n_samples=2_000, random_seed=0).n_samples == 2_000

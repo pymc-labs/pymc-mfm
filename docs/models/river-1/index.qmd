@@ -5,10 +5,10 @@ subtitle: "PyMC Labs' first Marketing Foundational Model"
 # share image (`image` below is the Models tile, not a share image).
 summary: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 open-graph:
-  image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+  image: /assets/img/social/mfm-social.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 twitter-card:
-  image: https://mfm-staging.pymc-labs.com/docs/assets/img/social/mfm-social.jpg
+  image: /assets/img/social/mfm-social.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 date: 2026-11-07
 author: "PyMC Labs"
@@ -36,7 +36,7 @@ include-before-body: _hero.html
 Sources: the PyMC Labs white paper "Marketing Foundational Models" and the academic
 paper "Marketing Foundational Models: Amortized Bayesian Inference over Mixtures of
 Marketing Mix Models" (October 2026), the public page at
-pymc-labs.com/marketing-foundation-models, and this repository's README and RELEASE
+pymc-labs.com/white-papers/marketing-foundation-models, and this repository's README and RELEASE
 notes. Keep every number traceable to one of them.
 -->
 
@@ -60,7 +60,7 @@ validation against real-world incrementality tests remains open.
   <div><strong>11 of 15</strong><span>comparisons with a majority of paired wins</span></div>
 </div>
 <div class="mfm-links mfm-reveal">
-  <a href="https://www.pymc-labs.com/marketing-foundation-models">White paper <span aria-hidden="true">↗</span></a>
+  <a href="https://www.pymc-labs.com/white-papers/marketing-foundation-models">White paper <span aria-hidden="true">↗</span></a>
   <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o">Watch the explainer <span aria-hidden="true">↗</span></a>
   <a href="../../guide/examples/river_1_quickstart.html">Quickstart <span aria-hidden="true">→</span></a>
 </div>
@@ -249,13 +249,14 @@ covering it.
 
 ## Get River {#get}
 
+To run River locally, follow the [installation](../../guide/index.qmd#install-client)
+and obtain separate access to the private weights. If you have a pilot invitation but
+no weights, use the hosted River API instead: see
+[Use the hosted River API](../../guide/index.qmd#hosted-api).
+
 River ships as the profile `river-1` of the Hugging Face repository `pymc-labs/mfm`,
 currently private to the PyMC Labs organisation. Log in with `hf auth login` (or set
 `HF_TOKEN`), then load it at its pinned commit:
-
-```bash
-pip install "pymc-mfm[hub] @ git+https://github.com/pymc-labs/pymc-mfm.git"
-```
 
 ```python
 from pymc_mfm import from_pretrained
@@ -270,7 +271,7 @@ model = from_pretrained(
 ```{=html}
 <div class="mfm-resources mfm-reveal">
   <div><strong>Hugging Face</strong><span>Repository pymc-labs/mfm, profile river-1. Private to the PyMC Labs organisation.</span></div>
-  <a href="https://www.pymc-labs.com/marketing-foundation-models"><strong>White paper</strong><span>For practitioners and decision makers</span><i aria-hidden="true">↗</i></a>
+  <a href="https://www.pymc-labs.com/white-papers/marketing-foundation-models"><strong>White paper</strong><span>For practitioners and decision makers</span><i aria-hidden="true">↗</i></a>
   <div><strong>Academic paper</strong><span>Amortized Bayesian Inference over Mixtures of Marketing Mix Models. arXiv preprint coming soon.</span></div>
   <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o"><strong>Explainer video</strong><span>What Are Marketing Foundational Models?</span><i aria-hidden="true">↗</i></a>
   <a href="../../guide/examples/river_1_quickstart.html"><strong>Quickstart notebook</strong><span>Decompose a simulated dataset with River 1.0</span><i aria-hidden="true">→</i></a>

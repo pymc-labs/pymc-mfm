@@ -12,7 +12,7 @@ tuples because ``SCMPrior`` ranges are tuples. An override must name an
 ``.npz`` file path. An existing corpus there is replaced only with ``--force``.
 ``generate_corpus`` writes the corpus and its ``.prior.json`` sidecar
 atomically. Arguments are checked before anything is generated. Requires the
-``generation`` extra.
+repository's ``generation`` group: ``uv sync --locked --group generation``.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def _check_overrides(command: argparse.ArgumentParser, overrides: list[tuple[str
     try:
         from pymc_generator import SCMPrior
     except ImportError:
-        return  # profile_prior reports the missing generation extra
+        return  # profile_prior reports the missing generator
     known = {field.name for field in dataclasses.fields(SCMPrior)}
     for key, _ in overrides:
         if key in _FLAG_FIELDS:

@@ -5,25 +5,30 @@ history, pull request heads, CI logs and built archives, must be safe to publish
 
 ## Set up
 
+Use Python 3.13 or newer.
+
 ```bash
-uv sync --locked --extra local --extra client
+uv sync --locked
 uv run --no-sync pytest -q -n 2 -m "not slow"
 uv run ruff check . && uv run ruff format --check .
 python3 scripts/check_public_boundary.py
 ```
 
-Install all extras before running the slow integration tests, and run them serially:
+For the full contributor suite, install the corpus-generation and notebook
+dependency groups before running the slow tests serially:
 
 ```bash
-uv sync --locked --all-extras
+uv sync --locked --group generation --group examples
 uv run --no-sync pytest -q -m slow
 ```
 
 After that sync, `uv run --no-sync pytest -q` runs the full suite serially. Plain
 `pytest` applies no marker filter, so explicit file and node selections retain slow cases.
 
-The library installs, tests and builds from this repository alone. Nothing here may
-require access to another repository, a private model, a cloud account or a token.
+The package installs, tests and builds without `pymc-generator` or
+access to a private model, a cloud account or a token. The repository's
+`generation` group fetches `pymc-generator` from Git; neither it nor the notebook
+dependencies are part of the standard installation.
 
 ## What belongs here
 
@@ -43,7 +48,9 @@ you can. Large or binary files need an allowlist entry with a reason (below).
 `scripts/check_public_boundary.py` checks what Git tracks, not the working tree. It
 flags tracked symlinks, gitlinks (nested repositories, submodule pointers) and
 `.gitmodules` files, weight-like files, binary files it cannot read, files over
-1 MiB, large embedded base64 payloads, credential patterns, and `.private` anywhere
+1 MiB, large embedded base64 payloads, credential patterns, service hostnames (any
+`pymc-labs.com` host except `www`, and hosts on `fly.dev`, `run.app`, `workers.dev` and
+`modal.run`), and `.private` anywhere
 in a path. Notebooks (`*.ipynb`) may hold base64 only as code-cell image outputs
 (PNG, JPEG or GIF, at most 2 MiB each, basic structure checks only, not a full decoder); all other
 notebook strings are scanned as text. A parser cannot rule out hidden data in a valid

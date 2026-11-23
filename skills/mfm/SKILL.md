@@ -12,20 +12,24 @@ scenarios (budget changes to compare with it) and response curves. The baseline 
 so the forecast can be compared with what happened. This skill uses the Python client,
 `pymc_mfm.client`. Agents without Python read `reference/http.md`.
 
-Research prototype. Synthetic or internal data only. Not for budget decisions on its own.
+Research preview. Use synthetic data unless the user's invitation allows their own data.
+Do not use results on their own for budget decisions.
 
 ## Set up
 
-1. Python 3.13 or later is required. Git must be signed in to GitHub with read access to the
-   `pymc-labs/pymc-mfm` repository (the repository is private). Install with `uv`, which can fetch
-   Python 3.13:
+1. The client needs Python 3.13 or later. If only an older Python is available, use
+   `reference/http.md` instead. Install the package in a virtual environment:
 
    ```bash
-   uv venv -p 3.13
-   uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+   pip install pymc-mfm
    ```
 
-   The `[client]` extra adds the plots and the draws reader. It does not install PyTorch.
+   `uv pip install pymc-mfm` (or `uv add pymc-mfm` in a uv project) and
+   `conda install -c conda-forge pymc-mfm` work too. On Linux without a GPU, first install the CPU
+   build of PyTorch from PyTorch's CPU wheel index, as the pymc-mfm README shows, to skip the 3 GB
+   CUDA build; on an Intel Mac, use conda-forge. The install includes the client, plots and the
+   draws reader. No model weights are needed. If `pymc-mfm` 0.1.2 is installed (a client-only build
+   published by mistake), uninstall it first.
 2. Check that `MFM_API_URL` and `MFM_API_KEY` are set in the environment. The client reads both.
    If one is missing, stop and ask the user. Do not look for them in files. Never print or log the
    key. Never write the URL or the key into a file, a commit or a message.
@@ -33,18 +37,17 @@ Research prototype. Synthetic or internal data only. Not for budget decisions on
    (0 or more each), 1 to 10 controls, a positive outcome, and unique column names that are not
    `baseline`, `latent`, `outcome` or `indirect:*`. 75 to 207 weeks of history is the supported
    range (a warning outside it). A dataset body is at most 5 MB.
-4. Tell the user once: the service keeps the data 7 days after last use, at most 30 days after
-   upload. Each analysis you run on a dataset counts as use and moves its expiry later, up to the
-   30-day limit. Read the current deadline from `dataset.expires_at`; do not store it. You can
-   delete the data earlier when the user no longer needs it.
+4. Tell the user once: the service keeps the data 7 days after upload, then deletes it and its
+   analyses. Using the data does not extend this. Read the deadline from `dataset.expires_at`; do
+   not store it. You can delete the data earlier when the user no longer needs it.
 
 ## The four steps
 
 Run this example with `history.csv` (columns `date`, `sales`, `tv`, `search`, `holiday`) and
 `plan.csv` (the forecast weeks, same columns without `sales`). The plan starts the week after the
-history ends. If the user gives no data, copy the synthetic files in `examples/` next to this skill
-(104 weeks of history, 8 plan weeks). With the user's data, change the column names and channels to
-match.
+history ends. Start with the synthetic files in `examples/` next to this skill (104 weeks of
+history, 8 plan weeks). For data the invitation allows, adjust the column names and channels
+to match.
 
 <!-- skill-example: main -->
 ```python
@@ -55,7 +58,7 @@ from pymc_mfm.client import Client, amount, scenario
 client = Client()  # reads MFM_API_URL and MFM_API_KEY
 
 # 1. Upload the weekly history, unless the service already holds exactly this data.
-#    The service keeps it 7 days after last use, at most 30 days after upload.
+#    The service keeps it 7 days after upload.
 for stored in client.datasets.list():  # your datasets, with content_hash and expires_at
     print(stored.dataset_id, stored.name, stored.weeks, stored.analyses, stored.expires_at)
 history = pd.read_csv("history.csv", parse_dates=["date"])
@@ -125,8 +128,11 @@ backtest = client.analyze(
     name="Backtest",
 ).wait(timeout=600)
 print("result link:", backtest.url)
-print(backtest.fit)  # r2, mape (a fraction) and crps, for the input and the predicted weeks
-print(backtest.shares.query("window == 'query' and share == 'total'"))  # each series' share
+fit = backtest.fit
+print(fit if fit is not None else "No fit scores are available for this backtest.")
+shares = backtest.shares
+if shares is not None:
+    print(shares.query("window == 'query' and share == 'total'"))
 print(backtest.curves)  # each channel's contribution at each spend level
 ```
 
@@ -290,15 +296,14 @@ ended; then each plan has numbers or a `failed` row. Do not create analyses in a
 `runs_total`. Per user, at most 20 unfinished analyses and 200 unfinished runs, and 50 runs run at once.
 
 A signed `draws_url` lasts about an hour. `analysis.draws()` reads the per-draw files and fetches new
-links when they expired. It needs the `draws` extra (included in `[client]`). Never send the API key
-to a `draws_url`.
+links when they expired. Never send the API key to a `draws_url`.
 
 ## Delete the data
 
 Deleting a dataset deletes all its analyses, including the ones the user opens on the site. So report
 the results first: the numbers, the charts and the result link. Then ask before deleting, and say that
-deleting the dataset removes its analyses. Otherwise the data expires 7 days after last use, at most
-30 days after upload. When the user says delete:
+deleting the dataset removes its analyses. Otherwise the data expires 7 days after upload. When the
+user says delete:
 
 <!-- skill-example: delete -->
 ```python

@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from pymc_mfm.inference.curves import ResponseCurves
     from pymc_mfm.inference.dataframe import _PredictionSnapshot
 
-_EXTRA = "DataTree export requires the pymc-mfm[arviz] extra: pip install 'pymc-mfm[arviz]'"
 _SAMPLE_DIMS = ("chain", "draw")
 _MODEL_TREE_SCHEMA_VERSION = 1
 #: Component axis order of an archive tree: the slot order of ``result_from_batch``.
@@ -51,13 +50,11 @@ _NOTES = {
 }
 
 
-def _require_arviz():
-    """``(xarray, arviz_base)``, or an ``ImportError`` naming the extra."""
-    try:
-        import arviz_base
-        import xarray
-    except ImportError as exc:
-        raise ImportError(_EXTRA) from exc
+def _arviz_modules():
+    """Import ``(xarray, arviz_base)`` only when building a tree."""
+    import arviz_base
+    import xarray
+
     return xarray, arviz_base
 
 
@@ -249,7 +246,7 @@ def result_datatree(
     result: DecompositionResult, *, observed=None, truth=None, graph_truth=None
 ) -> DataTree:
     """See :meth:`DecompositionResult.to_datatree`."""
-    xr, arviz_base = _require_arviz()
+    xr, arviz_base = _arviz_modules()
     groups, attrs = _result_groups(
         xr, arviz_base, result, observed=observed, truth=truth, graph_truth=graph_truth
     )
@@ -270,7 +267,7 @@ def prediction_datatree(
     Every window owns its axes; matching draw indices do not imply paired draws.
     The root records ``random_seed`` when it is not ``None``.
     """
-    xr, arviz_base = _require_arviz()
+    xr, arviz_base = _arviz_modules()
     history = prediction_snapshot.fitted_context
     start = len(history.dates)
     groups = {}
@@ -345,7 +342,7 @@ def attach_response_curves(
     and encodings on every dataset, coordinate and data variable. The curve attrs
     record ``random_seed`` when it is not ``None``.
     """
-    xr, arviz_base = _require_arviz()
+    xr, arviz_base = _arviz_modules()
     attrs = {
         "source_inference_revision": tree.attrs["inference_revision"],
         "source_provenance": tree["query"].attrs["provenance"],
@@ -489,7 +486,7 @@ def _archive_attrs(archive: EvaluationArchive, window: str) -> dict[str, Any]:
 
 def archive_datatree(archive: EvaluationArchive, window: str) -> DataTree:
     """See :meth:`EvaluationArchive.to_datatree`; ``window`` is already checked."""
-    xr, arviz_base = _require_arviz()
+    xr, arviz_base = _arviz_modules()
     attrs = _archive_attrs(archive, window)
     n_samples = archive.identity["evaluation"]["n_samples"]
     independent = {entry.index for entry in archive.independent_entries(window)}

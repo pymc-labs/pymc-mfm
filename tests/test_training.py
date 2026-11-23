@@ -1,9 +1,10 @@
 """Training-runner contracts: schedule, records, checkpoints, determinism, failure."""
 
-import importlib.util
 import json
 import math
+import sys
 
+import numpy as np
 import pytest
 import torch
 from conftest import make_synthetic_corpus
@@ -986,17 +987,16 @@ def test_checkpoint_loader_rejects_foreign_payloads(tmp_path):
         load_checkpoint(tmp_path / "m.pt")
 
 
-@pytest.mark.skipif(
-    importlib.util.find_spec("pymc_generator") is None, reason="pymc_generator not installed"
-)
-def test_cli_trains_from_saved_corpora_with_recorded_provenance(tmp_path, capsys):
-    from pymc_generator import save_corpus
+def test_cli_trains_and_evaluates_saved_corpora_without_generator(tmp_path, capsys, monkeypatch):
+    monkeypatch.setitem(sys.modules, "pymc_generator", None)
 
     from pymc_mfm.training.__main__ import main
 
     corpus = make_synthetic_corpus(n_cells=8, draws_per_cell=2, seed=9)
+    corpus["diagnostics"]["schema_version"] = 5
+    corpus["diagnostics"] = np.array(json.dumps(corpus["diagnostics"]))
     path = tmp_path / "corpus.npz"
-    save_corpus(corpus, path)
+    np.savez_compressed(path, **corpus)
     code = main(
         [
             "--no-tracking",
@@ -1032,3 +1032,21 @@ def test_cli_trains_from_saved_corpora_with_recorded_provenance(tmp_path, capsys
     assert run["training_config"]["milestone_steps"] == []
     assert run["model_config"]["n_controls"] == 2 and run["model_config"]["n_demand"] == 2
     assert run["corpus"][0]["path"] == str(path) and len(run["corpus"][0]["sha256"]) == 64
+
+    code = main(
+        [
+            "evaluate",
+            "--model",
+            str(tmp_path / "run" / "model"),
+            "--corpus",
+            str(path),
+            "--out-dir",
+            str(tmp_path / "archive"),
+            "--n-samples",
+            "2",
+        ]
+    )
+    assert code == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["leg"] == "holdout"
+    assert summary["worlds"] == 4
