@@ -109,6 +109,9 @@ distribution prerequisites, not an approved or published release.
   has no host, so the API key is never sent in clear text. Plain `http://` stays allowed
   only to `localhost`, `127.0.0.1` and `::1`, for local tests. A caller that used an
   `http://` URL to another host must switch to the `https://` URL.
+  The URL must also have no user name, password, query or fragment and a numeric port. A 3xx answer
+  raises `ApiError` (code `redirect`) that names the status and the `Location` host; the client never
+  follows redirects.
 
 ## Historical development records
 

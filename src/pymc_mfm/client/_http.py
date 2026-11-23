@@ -9,7 +9,7 @@ import os
 import time
 import uuid
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 import httpx
 
@@ -27,20 +27,70 @@ FRESH_KEY_PREFIX = "mfm1-fresh-"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
+def _is_https_or_loopback(parts: SplitResult) -> bool:
+    host = parts.hostname or ""
+    return bool(host) and (
+        parts.scheme == "https" or (parts.scheme == "http" and host in LOOPBACK_HOSTS)
+    )
+
+
 def check_service_url(base_url: str) -> None:
-    """Raise ``ValueError`` unless ``base_url`` is ``https://`` with a host.
+    """Raise ``ValueError`` unless ``base_url`` is a plain ``https://`` URL with a host.
 
     Plain ``http://`` is allowed only to a loopback host, for local tests. The message names
     the scheme and host only, never the rest of the URL.
     """
     parts = urlsplit(base_url)
-    host = parts.hostname or ""
-    if host and (parts.scheme == "https" or (parts.scheme == "http" and host in LOOPBACK_HOSTS)):
+    if not _is_https_or_loopback(parts):
+        problem = (
+            "must start with https:// and name a host, so the API key is never sent in clear "
+            f"text; got scheme {parts.scheme!r} and host {parts.hostname or ''!r}"
+        )
+    elif parts.username is not None or parts.password is not None:
+        problem = "must not contain a user name or password; pass the key in api_key or MFM_API_KEY"
+    elif not _has_valid_port(parts):
+        problem = "has a port that is not a number from 0 to 65535"
+    elif parts.query or parts.fragment:
+        problem = "must not contain a query or a fragment"
+    else:
         return
     raise ValueError(
-        f"The service URL must start with https:// and name a host, so the API key is never "
-        f"sent in clear text; got scheme {parts.scheme!r} and host {host!r}. Use the https:// "
-        "URL exactly as the Connect page of the River API console shows it."
+        f"The service URL {problem}. Use the https:// URL exactly as the Connect page of the "
+        "River API console shows it."
+    )
+
+
+def _has_valid_port(parts: SplitResult) -> bool:
+    try:
+        parts.port
+    except ValueError:
+        return False
+    return True
+
+
+def check_download_url(url: str) -> None:
+    """Raise ``ValueError`` unless a download ``url`` follows the same ``https://`` rule."""
+    parts = urlsplit(url)
+    if not _is_https_or_loopback(parts):
+        raise ValueError(
+            "The download URL must start with https:// and name a host; got scheme "
+            f"{parts.scheme!r} and host {parts.hostname or ''!r}."
+        )
+
+
+def redirect_error(response: httpx.Response) -> ApiError:
+    """The error for a 3xx answer. It names the status and the ``Location`` host only."""
+    try:
+        host = urlsplit(response.headers.get("Location", "")).hostname
+    except ValueError:
+        host = None
+    target = f"host {host!r}" if host else "a location without a host"
+    return ApiError(
+        response.status_code,
+        "redirect",
+        f"The service redirected the request to {target}. The client does not follow "
+        "redirects. Check that MFM_API_URL is the https:// URL exactly as the Connect page "
+        "of the River API console shows it.",
     )
 
 
@@ -111,7 +161,7 @@ class Http:
         self.max_retries = max_retries
         self._api_key = api_key
         self._sleep = time.sleep
-        self._client = httpx.Client(timeout=timeout, transport=transport)
+        self._client = httpx.Client(timeout=timeout, transport=transport, follow_redirects=False)
 
     def close(self) -> None:
         self._client.close()
@@ -195,6 +245,7 @@ class Http:
 
     def download(self, url: str) -> bytes:
         """Fetch a signed URL without credentials. Raises ``ApiError`` on failure."""
+        check_download_url(url)
         response = self._send("GET", url, headers={"User-Agent": f"pymc-mfm-client/{__version__}"})
         return response.content
 
@@ -210,6 +261,8 @@ class Http:
                     ) from error
                 self._sleep(self._backoff(attempt, None))
                 continue
+            if 300 <= response.status_code < 400:
+                raise redirect_error(response)
             if response.status_code < 400:
                 return response
             retry_after = parse_retry_after(response.headers.get("Retry-After"))
