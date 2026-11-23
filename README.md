@@ -862,6 +862,28 @@ conda activate ./.conda
 python -m pip install --group dev -e .
 ```
 
+### Pull requests
+
+Open a pull request against `main` and run the contributor checks above locally.
+Hosted lint, docs, public-boundary checks and tests wait for a repository admin
+to approve the exact PR commit. Pushing another commit invalidates that approval.
+Passing checks and approval from an MFM reviewer are still required to merge.
+The full suite also runs automatically after a PR merges into `main`.
+
+After reviewing the PR and confirming it is up to date with `main`, a repository
+admin can start its checks from the base repository:
+
+```bash
+gh api repos/pymc-labs/pymc-mfm/dispatches \
+  -f event_type=approve-ci \
+  -F 'client_payload[pull_request]=123' \
+  -f 'client_payload[sha]=FULL_REVIEWED_HEAD_SHA'
+```
+
+Replace `123` and `FULL_REVIEWED_HEAD_SHA` with the PR number and the full SHA
+you reviewed. The **Approved CI** run links its results to that SHA. Dispatching
+does not approve or merge the PR on GitHub.
+
 ### Documentation site
 
 The website in `docs/` is a [Quarto](https://quarto.org) project: a landing page, the

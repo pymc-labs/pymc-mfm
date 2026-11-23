@@ -303,10 +303,10 @@ They are not current workflow instructions.
   has an introduction page with its specification, training, benchmarks, speed, limits
   and links, drawn from the white paper and the academic paper; a WebGL river scene
   opens it, under the name and its version (v1.0.0). A new `docs` dependency
-  group holds quartodoc; Quarto itself is a system tool, pinned to 1.11.9 in the `Docs`
-  workflow, which renders the site on every pull request and publishes to GitHub Pages
-  only when run by hand on `main`. In Safari a link to a section opens at that section,
-  and switching themes keeps the reader's place. The landing page loads GSAP 3.15.1 from
+  group holds quartodoc; Quarto itself is a system tool, pinned to 1.11.9 in CI. The `Docs`
+  workflow renders the site on every pull request and publishes to GitHub Pages only when
+  run by hand on `main`. In Safari a link to a section opens at that section, and
+  switching themes keeps the reader's place. The landing page loads GSAP 3.15.1 from
   jsDelivr with subresource integrity and
   works without it. The navbar shows the MFM mark alone (navy on light pages, soft white
   on dark ones) and stays pinned as a translucent bar, clear over the River hero. It links

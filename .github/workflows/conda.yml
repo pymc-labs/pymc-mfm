@@ -5,17 +5,6 @@ name: Conda package
 # fails here before a conda-forge submission does.
 
 on:
-  pull_request:
-    paths:
-      - pyproject.toml
-      - conda.recipe/**
-      - .github/workflows/conda.yml
-      # The package and the files its tests copy.
-      - src/**
-      - tests/**
-      - docs/_scripts/**
-      - docs/api/openapi-v1.json
-      - skills/mfm/reference/http.md
   push:
     branches: [main]
     paths:
@@ -28,6 +17,11 @@ on:
       - docs/api/openapi-v1.json
       - skills/mfm/reference/http.md
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -38,11 +32,15 @@ concurrency:
 
 jobs:
   build:
+    name: Conda package build
     runs-on: ubuntu-latest
     # Whole-job hang guard: the test environments download PyTorch from conda-forge.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+          persist-credentials: false
       - uses: prefix-dev/rattler-build-action@v0.2.39
         with:
           recipe-path: conda.recipe/recipe.yaml
