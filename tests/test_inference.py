@@ -609,9 +609,12 @@ def test_default_draw_count_is_1000_on_every_public_sampling_signature():
         assert inspect.signature(fn).parameters["n_samples"].default == 1000, fn.__qualname__
 
 
-def test_calls_that_omit_the_draw_count_sample_1000_draws(model, chart_frames):
+def test_inference_and_predict_draw_counts(model, chart_frames):
     history, future = chart_frames
-    tree = model.inference(history, future, **CHART_ROLES, random_seed=0)
-    assert tree["context/posterior"].sizes["draw"] == 1000
-    assert tree["query/posterior"].sizes["draw"] == 1000
-    assert model.predict(future, random_seed=0).n_samples == 1000
+    for options, expected in (({}, 1_000), ({"n_samples": 2_000}, 2_000)):
+        tree = model.inference(history, future, **CHART_ROLES, **options, random_seed=0)
+        assert tree["context/posterior"].sizes["draw"] == expected
+        assert tree["query/posterior"].sizes["draw"] == expected
+    # Independent prediction does not inherit the explicitly larger inference count.
+    assert model.predict(future, random_seed=0).n_samples == 1_000
+    assert model.predict(future, n_samples=2_000, random_seed=0).n_samples == 2_000

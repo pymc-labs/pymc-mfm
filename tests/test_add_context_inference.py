@@ -1576,15 +1576,18 @@ def _seeding_options(model, mode):
 @pytest.mark.parametrize("mode", ["model_average", "map", "fixed"])
 def test_a_seed_equals_manual_seed_before_the_call(model, history, future, mode):
     options = _seeding_options(model, mode)
-    torch.manual_seed(0)
-    expected = model.inference(history, future, **COLUMN_ROLES, **options)
     torch.manual_seed(99)
     caller_state = torch.get_rng_state()
     seeded = model.inference(history, future, **COLUMN_ROLES, **options, random_seed=0)
     # The seeded call draws the stream of manual_seed(0) from its own generator.
     assert torch.equal(torch.get_rng_state(), caller_state)
-    xr.testing.assert_equal(seeded["context"], expected["context"])
-    xr.testing.assert_equal(seeded["query"], expected["query"])
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        expected_query, expected_context = _canonical_pair(
+            model, history, future, model.query_result.control_names, **options
+        )
+    _assert_named_posterior(seeded["query/posterior"], expected_query)
+    _assert_named_posterior(seeded["context/posterior"], expected_context)
     predicted = model.predict(future, **options, random_seed=0)
     assert torch.equal(torch.get_rng_state(), caller_state)
     torch.manual_seed(0)
@@ -1598,8 +1601,9 @@ def test_a_seed_repeats_inference_and_predict_draws(model, history, future):
     xr.testing.assert_equal(first, second)
     _assert_same_result(model.predict(future, n_samples=4, random_seed=12), first_predicted)
     other = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=13)
-    with pytest.raises(AssertionError):
-        xr.testing.assert_equal(other["query"], first["query"])
+    for window in ("query", "context"):
+        with pytest.raises(AssertionError):
+            xr.testing.assert_equal(other[f"{window}/posterior"], first[f"{window}/posterior"])
 
 
 def test_no_seed_draws_from_and_advances_the_callers_generator(model, history, future):
@@ -1609,7 +1613,8 @@ def test_no_seed_draws_from_and_advances_the_callers_generator(model, history, f
     after = torch.get_rng_state()
     assert not torch.equal(after, before)
     seeded = model.inference(history, future, **COLUMN_ROLES, n_samples=4, random_seed=3)
-    xr.testing.assert_equal(unseeded["query"], seeded["query"])
+    for window in ("query", "context"):
+        xr.testing.assert_equal(unseeded[f"{window}/posterior"], seeded[f"{window}/posterior"])
     assert torch.equal(torch.get_rng_state(), after)
     # Without a seed a second call continues the stream and draws new numbers.
     again = model.inference(history, future, **COLUMN_ROLES, n_samples=4)
