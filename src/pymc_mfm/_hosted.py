@@ -18,7 +18,7 @@ from xarray import DataArray, Dataset, DataTree
 
 from .client import Analysis, Client, Gone, curve
 from .client._dates import check_plan_follows_history, check_weekly_dates
-from .client._http import _service_options
+from .client._http import _SETTING_PADDING, _service_options, _setting
 from .client._wire import dataset_body, plan_body, require_columns
 from .client.plots import _warning_list
 
@@ -65,6 +65,11 @@ class HostedEngine:
     def __init__(self, *, roles: dict[str, Any], base_url: str | None, token: str | None) -> None:
         self._roles = roles.copy()
         self._base_url, self._token = _service_options(base_url, token, key_parameter="token")
+        if _is_hub_token(self._token):
+            raise ValueError(
+                "The River API key (token= or MFM_API_KEY) is a Hugging Face token, but the "
+                "hosted engine sends it to River. Use your River API key from the Connect page."
+            )
         self._latest: _Submitted | None = None
 
     def _client(self) -> Client:
@@ -307,6 +312,15 @@ class HostedEngine:
         # sweep starts from it.
         self._latest = replace(latest, tree=updated)
         return updated
+
+
+def _is_hub_token(key: str) -> bool:
+    """Whether ``key`` is a Hugging Face credential: its ``hf_`` form or a Hub variable's value."""
+    value = key.strip(_SETTING_PADDING)
+    if value.startswith("hf_"):
+        return True
+    hub_tokens = (_setting(None, name) for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"))
+    return any(value == hub for hub in hub_tokens if hub)
 
 
 @contextmanager

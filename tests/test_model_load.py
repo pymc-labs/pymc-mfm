@@ -460,24 +460,35 @@ def test_load_refuses_unsupported_arguments_before_any_request(
 
 
 @pytest.mark.parametrize(
-    ("token", "hub_variables"),
+    ("token", "variables"),
     [
         ("hf_example0hub0token", {}),
+        (" hf_example0hub0token\n", {}),
         ("example-hub-key", {"HF_TOKEN": "example-hub-key"}),
         ("example-hub-key", {"HUGGING_FACE_HUB_TOKEN": " example-hub-key\n"}),
+        (None, {"MFM_API_KEY": "hf_example0hub0token"}),
+        (None, {"MFM_API_KEY": "example-hub-key", "HF_TOKEN": "example-hub-key"}),
     ],
-    ids=["hf_ form", "equal to HF_TOKEN", "equal to HUGGING_FACE_HUB_TOKEN"],
+    ids=[
+        "hf_ form",
+        "padded hf_ form",
+        "equal to HF_TOKEN",
+        "equal to HUGGING_FACE_HUB_TOKEN",
+        "hf_ form in MFM_API_KEY",
+        "MFM_API_KEY equal to HF_TOKEN",
+    ],
 )
-def test_hosted_load_refuses_a_hugging_face_token(monkeypatch, token, hub_variables):
+def test_hosted_load_refuses_a_hugging_face_token(monkeypatch, token, variables):
     service = FakeService()
     route_examples_to(service, monkeypatch)
     for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
         monkeypatch.delenv(name, raising=False)
-    for name, value in hub_variables.items():
+    for name, value in variables.items():
         monkeypatch.setenv(name, value)
-    with pytest.raises(ValueError, match="token is a Hugging Face token") as caught:
+    with pytest.raises(ValueError, match="is a Hugging Face token") as caught:
         mfm.load("river-1", engine="hosted", token=token, **ROLES)
-    assert token not in "".join(traceback.format_exception(caught.value))
+    hub_token = (token or variables["MFM_API_KEY"]).strip()
+    assert hub_token not in "".join(traceback.format_exception(caught.value))
     model = mfm.load("river-1", engine="hosted", token=RIVER_KEY, **ROLES)
     assert isinstance(model, mfm.Model)  # a River key still loads
     assert service.requests == []
@@ -785,6 +796,23 @@ def test_hosted_inference_stops_at_once_when_river_ends_the_analysis(
     assert_names_analysis(caught.value, "an_1")
     assert len(service.sent("GET", "/v1/analyses/an_1")) == 1  # one read, no polling
     assert model.result is None
+
+
+def test_hosted_inference_polls_a_running_analysis_until_it_ends(frames, tmp_path, monkeypatch):
+    history, future = frames
+    service = river()
+    running = (200, status_record("running"))
+    service.on("GET", "/v1/analyses/an_1", running, running, (200, status_record()))
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    sleeps = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+
+    result = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
+
+    assert len(service.sent("GET", "/v1/analyses/an_1")) == 3
+    assert len(sleeps) == 2 and all(seconds > 0 for seconds in sleeps)
+    assert service.sent("GET", "/v1/analyses/an_1/result")  # read only after River ended it
+    assert model.result is result
 
 
 def test_hosted_calls_during_a_running_inference_raise_model_busy(frames, tmp_path, monkeypatch):

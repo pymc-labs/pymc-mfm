@@ -280,11 +280,6 @@ def load(
             )
         if token is not None and not isinstance(token, str):
             raise TypeError("The hosted engine expects a River API key as a string token.")
-        if isinstance(token, str) and _is_hub_token(token):
-            raise ValueError(
-                "token is a Hugging Face token, but the hosted engine sends token to River. "
-                "Pass your River API key as token=, or set MFM_API_KEY and omit token."
-            )
         return Model(HostedEngine(roles=dict(roles), base_url=base_url, token=token), roles)
     if engine != "local":
         raise ValueError("engine must be 'local' or 'hosted'")
@@ -312,14 +307,3 @@ def load(
         source, profile=profile, revision=revision, device=device, token=token
     )
     return Model(_LocalEngine(network, roles), roles)
-
-
-def _is_hub_token(token: str) -> bool:
-    """Whether ``token`` is a Hugging Face credential: its ``hf_`` form or the Hub variables."""
-    from .client._http import _SETTING_PADDING, _setting
-
-    value = token.strip(_SETTING_PADDING)
-    if value.startswith("hf_"):
-        return True
-    hub_tokens = (_setting(None, name) for name in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"))
-    return any(value == hub for hub in hub_tokens if hub)

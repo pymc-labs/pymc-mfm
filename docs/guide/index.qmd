@@ -87,7 +87,7 @@ Inference sends the history, the plan's spend and controls, and the column roles
 
 #### Get access
 
-Access is by invitation. Set `MFM_API_URL` to the service URL and `MFM_API_KEY` to the personal key from the console's **Connect** page. You can pass `token=` instead of setting `MFM_API_KEY`; keep the key out of notebooks and shared files. This key is separate from Hugging Face authentication: with `engine="local"`, `token=` goes to Hugging Face, so `mfm.load` refuses a `token=` equal to `MFM_API_KEY`, and with `engine="hosted"` it refuses a Hugging Face token (`hf_...` or `HF_TOKEN`). See the [River API access instructions](http-api.qmd#get-access) for details.
+Access is by invitation. Set `MFM_API_URL` to the service URL and `MFM_API_KEY` to the personal key from the console's **Connect** page. You can pass `token=` instead of setting `MFM_API_KEY`; keep the key out of notebooks and shared files. This key is separate from Hugging Face authentication: with `engine="local"`, `token=` goes to Hugging Face, so `mfm.load` refuses a `token=` equal to `MFM_API_KEY`, and with `engine="hosted"` it refuses a River key (`token=` or `MFM_API_KEY`) that is a Hugging Face token (`hf_...` or the value of `HF_TOKEN`). See the [River API access instructions](http-api.qmd#get-access) for details.
 
 ## Install {#install}
 

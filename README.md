@@ -106,8 +106,8 @@ curve sweeps as `UserWarning`, also stored in the result. A failure after River 
 an analysis carries a note with its ID: calling the model again starts a new analysis, and
 `pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. `token=` is
 a Hugging Face token on `engine="local"` and a River key on `engine="hosted"`; `load`
-refuses the River key (`MFM_API_KEY`) on the local engine and a Hugging Face token on the
-hosted one.
+refuses the River key (`MFM_API_KEY`) on the local engine and, on the hosted one, a River
+key (`token=` or `MFM_API_KEY`) that is a Hugging Face token.
 [Get started](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/index.qmd) and the
 [River-1 quickstart notebook](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb)
 walk through this workflow.
