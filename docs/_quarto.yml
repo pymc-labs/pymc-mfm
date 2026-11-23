@@ -232,7 +232,10 @@ format:
       light: assets/styles/mfm-light.theme
       dark: assets/styles/mfm-dark.theme
     link-external-icon: false
-    link-external-newwindow: true
+    # Off on purpose. Quarto decides "external" by site-url, so on any other host (the pilot
+    # host, a preview) every link, also a link to a section of the open page, opened a new
+    # tab. assets/js/site.js opens a new tab for links to another host instead.
+    link-external-newwindow: false
     smooth-scroll: false
     anchor-sections: true
     fig-responsive: true

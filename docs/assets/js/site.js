@@ -2,7 +2,8 @@
    and does nothing when its markup is missing:
      initModelsMenu    navbar "Models" menu: hover open, "New" badge
      initConsoleButton marks the first right-hand navbar link with data-mfm="console" (site.css draws it)
-     initExternalLinks marks navbar text links that leave the site (PyMC Labs) for their arrow
+     initExternalLinks opens links to another host in a new tab; marks navbar text links that leave
+                       the site (PyMC Labs) for their arrow
      initCopyButtons   <button class="mfm-copy" data-copy="TEXT" aria-label="..."> copies TEXT;
                        Quarto's own .code-copy-button copies code and is styled to match
      initCodeLabels    a language label with its logo on every code block (Python, curl, shell, JSON)
@@ -117,6 +118,13 @@
      not by the href text: Quarto rewrites the site's own links to full addresses. Get access
      and icon links (GitHub) draw their own icons. */
   function initExternalLinks() {
+    // A link to another host opens a new tab; every link to this host stays in the tab. The
+    // host is compared in the browser, so the same build is right on any host that serves it.
+    document.querySelectorAll("a[href]").forEach((link) => {
+      if (!/^https?:$/.test(link.protocol) || link.host === window.location.host) return;
+      if (!link.target) link.target = "_blank";
+      if (!link.rel) link.rel = "noopener";
+    });
     document.querySelectorAll("#navbarCollapse .navbar-nav > .nav-item > a.nav-link").forEach((link) => {
       if (link.dataset.mfm || link.querySelector(".bi") || link.host === window.location.host) return;
       link.classList.add("is-external");
