@@ -64,6 +64,96 @@ def test_missing_url_or_key_names_the_environment_variable(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "key",
+    ["mktfm_abc\n", "mktfm_abc\r\n", "  mktfm_abc  ", "\tmktfm_abc \n", "\ufeffmktfm_abc\n"],
+)
+def test_surrounding_whitespace_and_bom_are_stripped_from_the_key(key, monkeypatch, service):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()), (200, dataset_record()))
+    with Client(BASE_URL, key, transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    monkeypatch.setenv("MFM_API_KEY", key)
+    with Client(BASE_URL, transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    assert [r.headers["Authorization"] for r in service.requests] == ["Bearer mktfm_abc"] * 2
+
+
+def test_surrounding_whitespace_is_stripped_from_the_url(monkeypatch, service):
+    service.on("GET", "/v1/datasets/ds_123", (200, dataset_record()), (200, dataset_record()))
+    with Client(BASE_URL + "/\n", "k", transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    monkeypatch.setenv("MFM_API_URL", " " + BASE_URL + "\r\n")
+    with Client(api_key="k", transport=httpx.MockTransport(service)) as client:
+        client.datasets.get("ds_123")
+    assert [str(r.url) for r in service.requests] == [f"{BASE_URL}/v1/datasets/ds_123"] * 2
+
+
+HINT = (
+    "Check the key in MFM_API_KEY (or api_key). Create or replace your API key on the "
+    "Connect page of the River API console."
+)
+QUOTES = f"The API key starts or ends with a quote mark. Remove the quote marks. {HINT}"
+INNER = f"The API key has a space or line break inside it. Copy the whole key on one line. {HINT}"
+ODD = (
+    "The API key has a character that a key never holds (a control character or one "
+    f"that is not plain ASCII). Copy the key again, as plain text. {HINT}"
+)
+
+
+@pytest.mark.parametrize(
+    ("key", "message"),
+    [
+        ('"mktfm_secretvalue"', QUOTES),
+        ("'mktfm_secretvalue'\n", QUOTES),
+        ("mktfm_secret value", INNER),
+        ("mktfm_secret\nvalue", INNER),
+        ("mktfm_secr\u00e9tvalue", ODD),
+        ("mktfm_secret\x07value", ODD),
+        ("mktfm_secret\ufeffvalue", ODD),
+    ],
+)
+def test_a_malformed_key_is_refused_without_showing_it(key, message, monkeypatch, service):
+    for build in (
+        lambda: Client(BASE_URL, key, transport=httpx.MockTransport(service)),
+        lambda: (
+            monkeypatch.setenv("MFM_API_KEY", key),
+            Client(BASE_URL, transport=httpx.MockTransport(service)),
+        ),
+    ):
+        with pytest.raises(ValueError) as caught:
+            build()
+        assert str(caught.value) == message
+        assert "secret" not in repr(caught.value)
+    assert service.requests == []
+
+
+def test_a_blank_key_counts_as_missing(monkeypatch):
+    monkeypatch.delenv("MFM_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="Pass api_key or set the MFM_API_KEY"):
+        Client(BASE_URL, " \n")
+
+
+SECRET = "mktfm_TOPSECRETVALUE123"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ConnectError(f"failed with Authorization: Bearer {SECRET} sent"),
+        httpx.ReadTimeout(f"Authorization header {SECRET}"),
+    ],
+)
+def test_a_connection_error_never_shows_the_key(failure, service, sleeps):
+    service.on("GET", "/v1/datasets/ds_123", failure)
+    with Client(BASE_URL, SECRET, transport=httpx.MockTransport(service)) as client:
+        client._http._sleep = sleeps.append
+        with pytest.raises(ApiConnectionError) as caught:
+            client.datasets.get("ds_123")
+        assert SECRET not in str(caught.value) + repr(caught.value)
+        assert SECRET not in repr(client) + repr(client._http)
+    assert str(caught.value).startswith(f"Could not reach {BASE_URL}/v1/datasets/ds_123: ")
+
+
+@pytest.mark.parametrize(
     ("message", "shown"),
     [
         ("Bad key.", "Bad key."),
