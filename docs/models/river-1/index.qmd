@@ -5,10 +5,10 @@ subtitle: "PyMC Labs' first Marketing Foundational Model"
 # share image (`image` below is the Models tile, not a share image).
 summary: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 open-graph:
-  image: /assets/img/social/mfm-social.jpg
+  image: /assets/img/social/mfm-social-claim.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 twitter-card:
-  image: /assets/img/social/mfm-social.jpg
+  image: /assets/img/social/mfm-social-claim.jpg
   description: "A 2.4M-parameter network trained on 200,000 simulated marketing worlds. It returns contribution draws and the causal graph behind each draw, for new data, without a new fit."
 date: 2026-11-07
 author: "PyMC Labs"
