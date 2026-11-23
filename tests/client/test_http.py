@@ -67,7 +67,9 @@ def test_missing_url_or_key_names_the_environment_variable(monkeypatch, argument
     monkeypatch.delenv("MFM_API_KEY", raising=False)
     with pytest.raises(ValueError, match="MFM_API_URL"):
         Client(base_url=argument, api_key="k")
-    with pytest.raises(ValueError, match="MFM_API_KEY"):
+    with pytest.raises(
+        ValueError, match="Pass api_key or set the MFM_API_KEY environment variable"
+    ):
         Client(BASE_URL, argument)
 
 
@@ -177,6 +179,7 @@ def test_malformed_key_is_refused_without_echoing_it(monkeypatch, service, key, 
     with pytest.raises(ValueError, match=hint) as caught:
         Client(BASE_URL, None if from_env else key, transport=httpx.MockTransport(service))
     assert "raw-marker" not in "".join(format_exception(caught.value))
+    assert "Check api_key or MFM_API_KEY." in str(caught.value)
     assert "Connect page" in str(caught.value)
     assert service.requests == []
 

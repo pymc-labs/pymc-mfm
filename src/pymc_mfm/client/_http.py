@@ -39,7 +39,7 @@ _SERVICE_URL_HINT = (
     "of the River API console."
 )
 _KEY_HINT = (
-    "Check api_key or MFM_API_KEY. Create or replace your API key on the Connect page "
+    "Check {parameter} or MFM_API_KEY. Create or replace your API key on the Connect page "
     "of the River API console."
 )
 
@@ -79,7 +79,7 @@ def _check_url(value: str, *, service: bool) -> None:
     raise ValueError(f"The signed download URL {problem}.")
 
 
-def _check_api_key(key: str) -> None:
+def _check_api_key(key: str, parameter: str) -> None:
     if key[0] in "\"'" or key[-1] in "\"'":
         problem = "starts or ends with a quote mark. Remove the quote marks"
     elif any(char.isspace() for char in key):
@@ -88,19 +88,24 @@ def _check_api_key(key: str) -> None:
         problem = "has a control or non-ASCII character. Copy the key again as plain text"
     else:
         return
-    raise ValueError(f"The API key {problem}. {_KEY_HINT}")
+    raise ValueError(f"The API key {problem}. {_KEY_HINT.format(parameter=parameter)}")
 
 
-def _service_options(base_url: str | None, api_key: str | None) -> tuple[str, str]:
-    """Resolve and validate one service URL and its credential without opening a client."""
+def _service_options(
+    base_url: str | None, api_key: str | None, *, key_parameter: str = "api_key"
+) -> tuple[str, str]:
+    """Resolve and validate one service URL and its credential without opening a client.
+
+    Messages name the credential as the caller's ``key_parameter``.
+    """
     base_url = _setting(base_url, "MFM_API_URL")
     api_key = _setting(api_key, "MFM_API_KEY")
     if not base_url:
         raise ValueError("Pass base_url or set the MFM_API_URL environment variable.")
     _check_url(base_url, service=True)
     if not api_key:
-        raise ValueError("Pass api_key or set the MFM_API_KEY environment variable.")
-    _check_api_key(api_key)
+        raise ValueError(f"Pass {key_parameter} or set the MFM_API_KEY environment variable.")
+    _check_api_key(api_key, key_parameter)
     return base_url.rstrip("/"), api_key
 
 

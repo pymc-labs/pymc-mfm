@@ -1,8 +1,10 @@
 """Exercise the same public model workflow with local, Hub, and River sources."""
 
 import json
+import re
 import sys
 import traceback
+import warnings
 
 import httpx
 import numpy as np
@@ -207,20 +209,25 @@ RIVER_KEY = "example-river-key"
 SIGNED_URL = "https://files.example.com/baseline.nc?sig=example"
 
 
-def river(*sweeps, dataset_warnings=(), baseline_warnings=()):
-    """A scripted River: one inference (an_1), then one analysis per result in ``sweeps``."""
+def baseline_result(notes=()):
+    """The result of a hosted inference: its baseline draws are at ``SIGNED_URL``."""
+    record = result_record(
+        result_rows("baseline", "baseline", url=SIGNED_URL, warnings=list(notes))
+    )
+    record["meta"].update({"draws": DRAWS, "seed": SEED})
+    return record
+
+
+def river(*later, dataset_warnings=(), baseline_warnings=()):
+    """A scripted River: one inference (an_1), then one analysis per result in ``later``."""
     dataset = dataset_record()
     dataset["warnings"] = list(dataset_warnings)
-    baseline = result_record(
-        result_rows("baseline", "baseline", url=SIGNED_URL, warnings=list(baseline_warnings))
-    )
-    baseline["meta"].update({"draws": DRAWS, "seed": SEED})
     service = FakeService()
     service.on("GET", "/v1/datasets", (200, {"datasets": []}))
     service.on("POST", "/v1/datasets", (201, dataset))
-    ids = [f"an_{number}" for number in range(1, len(sweeps) + 2)]
+    ids = [f"an_{number}" for number in range(1, len(later) + 2)]
     service.on("POST", "/v1/analyses", *((202, {**started(), "analysis_id": a}) for a in ids))
-    for analysis_id, record in zip(ids, (baseline, *sweeps), strict=True):
+    for analysis_id, record in zip(ids, (baseline_result(baseline_warnings), *later), strict=True):
         service.on("GET", f"/v1/analyses/{analysis_id}", (200, status_record()))
         service.on("GET", f"/v1/analyses/{analysis_id}/result", (200, record))
     return service
@@ -243,6 +250,13 @@ def open_river(monkeypatch, service, draws, **roles):
         lambda **kwargs: real_client(**{**kwargs, "transport": httpx.MockTransport(serve)}),
     )
     return mfm.load("river-1", engine="hosted", token=RIVER_KEY, **{**ROLES, **roles})
+
+
+def assert_names_analysis(error, analysis_id):
+    """A failure after River accepted ``analysis_id`` says how to inspect it."""
+    notes = "\n".join(getattr(error, "__notes__", ()))
+    assert "Calling the model again starts a new analysis" in notes
+    assert f'pymc_mfm.client.Client(base_url=..., api_key=...).get("{analysis_id}")' in notes
 
 
 def sweep(levels, *, failed=(), notes=None, base_notes=None):
@@ -290,8 +304,27 @@ def numeric_labels(history, future):
             ),
             "timezone-naive",
         ),
+        (
+            lambda history, future: (history.assign(sales=[510, 0, 509, 521]), future),
+            "context outcomes must be positive; 'sales' has zero or negative values",
+        ),
+        (
+            lambda history, future: (history.assign(tv=[10.0, -1.0, 10.0, 13.0]), future),
+            r"context channel spend must be nonnegative; negative values in \['tv'\]",
+        ),
+        (
+            lambda history, future: (history, future.assign(search=[9.0, -2.0])),
+            r"query channel spend must be nonnegative; negative values in \['search'\]",
+        ),
     ],
-    ids=["nan query spend", "numeric labels in an object column", "timezone-aware dates"],
+    ids=[
+        "nan query spend",
+        "numeric labels in an object column",
+        "timezone-aware dates",
+        "zero sales week",
+        "negative history spend",
+        "negative plan spend",
+    ],
 )
 def test_hosted_refuses_bad_inputs_before_any_request(frames, monkeypatch, edit, message):
     service = river()
@@ -300,6 +333,34 @@ def test_hosted_refuses_bad_inputs_before_any_request(frames, monkeypatch, edit,
         model.inference(*edit(*frames), n_samples=DRAWS)
     assert service.requests == []  # no history list, upload or analysis
     assert model.result is None
+
+
+@pytest.mark.parametrize(
+    ("token", "message"),
+    [
+        (None, "Pass token or set the MFM_API_KEY environment variable."),
+        ("example river key", "Check token or MFM_API_KEY."),
+    ],
+    ids=["missing", "malformed"],
+)
+def test_hosted_credential_errors_name_the_token_parameter(monkeypatch, token, message):
+    monkeypatch.setenv("MFM_API_URL", BASE_URL)
+    monkeypatch.delenv("MFM_API_KEY", raising=False)
+    with pytest.raises(ValueError, match=re.escape(message)) as caught:
+        mfm.load("river-1", engine="hosted", token=token, **ROLES)
+    assert "api_key" not in str(caught.value)  # load() has no api_key parameter
+
+
+def test_local_load_refuses_the_river_key_as_a_hub_token(monkeypatch):
+    hub_calls = []
+    monkeypatch.setattr(mfm, "from_pretrained", lambda source, **options: hub_calls.append(options))
+    monkeypatch.setenv("MFM_API_KEY", f" {RIVER_KEY}\n")
+    with pytest.raises(ValueError, match="engine='hosted'") as caught:
+        mfm.load("river-1", token=RIVER_KEY, **ROLES)
+    assert hub_calls == []  # the River key never reaches the Hub client
+    assert RIVER_KEY not in "".join(traceback.format_exception(caught.value))
+    mfm.load("river-1", token="example-hub-key", **ROLES)
+    assert [call["token"] for call in hub_calls] == ["example-hub-key"]
 
 
 def test_hosted_keeps_caller_timestamps_and_sends_calendar_days(frames, tmp_path, monkeypatch):
@@ -413,8 +474,33 @@ def test_hosted_sweep_refuses_a_successful_point_without_a_band(
     point.update(edit)
     model = open_river(monkeypatch, river(record), draws_content(tmp_path, history, future))
     result = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
-    with pytest.raises(ValueError, match=r"'tv' at level 2 do not have a finite 90% band"):
+    with pytest.raises(
+        ValueError, match=r"'tv' at level 2 do not have a finite 90% band"
+    ) as caught:
         model.response_curves(levels=(0, 1, 2), weeks=1)
+    assert_names_analysis(caught.value, "an_2")
+    assert model.result is result
+
+
+@pytest.mark.parametrize("gap", ["no plan", "no channel row"])
+def test_hosted_sweep_refuses_a_point_river_did_not_report(frames, tmp_path, monkeypatch, gap):
+    history, future = frames
+    record = sweep((0.0, 2.0))
+    if gap == "no plan":
+        levels, message = (0, 0.5, 1, 2), r"missing the 'tv' plan at level 0\.5"
+    else:
+        record["table"] = [
+            row
+            for row in record["table"]
+            if (row["scenario_id"], row["component"]) != ("curve:tv:baseline:2", "tv")
+        ]
+        levels, message = (0, 1, 2), r"missing a successful 'tv' row at level 2"
+    model = open_river(monkeypatch, river(record), draws_content(tmp_path, history, future))
+    result = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
+    # Only a plan River reports failed may become a gap in the curve.
+    with pytest.raises(ValueError, match=message) as caught:
+        model.response_curves(levels=levels, weeks=1)
+    assert_names_analysis(caught.value, "an_2")
     assert model.result is result
 
 
@@ -443,7 +529,15 @@ def test_hosted_results_keep_river_warnings(frames, tmp_path, monkeypatch):
         provenance = json.loads(result.idata[window].attrs["provenance"])
         assert provenance["analysis_id"] == "an_1" and provenance["warnings"] == [short, above]
 
-    curves = model.response_curves(levels=(0, 0.5, 1, 2), weeks=1)
+    with pytest.warns(UserWarning) as swept:
+        curves = model.response_curves(levels=(0, 0.5, 1, 2), weeks=1)
+    assert [str(item.message) for item in swept] == [
+        "tv baseline warning",
+        above,
+        "tv spend is outside the history",
+        "search spend is zero",
+    ]
+    assert {item.filename for item in swept} == {__file__}
     node = curves.idata["/response_curves"]
     assert json.loads(node.attrs["provenance"]) == {"engine": "hosted", "analysis_id": "an_2"}
     summary = node["summary"]
@@ -459,18 +553,72 @@ def test_hosted_results_keep_river_warnings(frames, tmp_path, monkeypatch):
     mfm.validate_idata(curves.idata)
 
 
-@pytest.mark.parametrize("failure", ["draws download", "sweep status"])
-def test_hosted_failure_after_acceptance_names_the_resume_call(
-    frames, tmp_path, monkeypatch, failure
+def test_hosted_stores_and_emits_each_river_warning_on_one_line(frames, tmp_path, monkeypatch):
+    history, future = frames
+    wrapped = "tv spend is above\nthe history's  95th percentile\n"
+    flat = "tv spend is above the history's 95th percentile"
+    service = river(
+        sweep((0.0, 2.0), notes={("tv", 2.0): [wrapped, flat]}), baseline_warnings=[wrapped, flat]
+    )
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+
+    with pytest.warns(UserWarning) as caught:
+        result = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
+    assert [str(item.message) for item in caught] == [flat]
+    assert json.loads(result.idata["query"].attrs["provenance"])["warnings"] == [flat]
+    with pytest.warns(UserWarning) as swept:
+        curves = model.response_curves(levels=(0, 1, 2), weeks=1)
+    assert [str(item.message) for item in swept] == [flat]
+    summary = curves.idata["/response_curves/summary"]
+    assert summary["warning"].sel(channel="tv", level=2.0).item() == flat
+    mfm.validate_idata(curves.idata)
+
+
+def test_hosted_warning_raised_as_an_error_keeps_a_result_that_can_be_swept(
+    frames, tmp_path, monkeypatch
 ):
+    history, future = frames
+    short = "history is shorter than 75 weeks"
+    service = river(
+        baseline_result([short]),  # an_2: a second inference
+        sweep((0.0, 2.0), notes={("tv", 2.0): [short]}),  # an_3
+        sweep((0.0, 2.0)),  # an_4
+        baseline_warnings=[short],
+    )
+    model = open_river(monkeypatch, service, draws_content(tmp_path, history, future))
+    with pytest.warns(UserWarning, match=short):
+        kept = model.inference(history, future, n_samples=DRAWS, random_seed=SEED)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(UserWarning, match=short) as inference_error:
+            model.inference(history, future, n_samples=DRAWS)
+        assert model.result is kept
+        with pytest.raises(UserWarning, match=short) as sweep_error:
+            model.response_curves(levels=(0, 1, 2), weeks=1)
+        assert model.result is kept
+    assert_names_analysis(inference_error.value, "an_2")
+    assert_names_analysis(sweep_error.value, "an_3")
+
+    curves = model.response_curves(levels=(0, 1, 2), weeks=1)
+    source = json.loads(curves.idata["/response_curves"].attrs["source_provenance"])
+    assert model.result is curves and source["analysis_id"] == "an_1"
+
+
+@pytest.mark.parametrize("failure", ["draws download", "draw count", "sweep status"])
+def test_hosted_failure_after_acceptance_names_the_analysis(frames, tmp_path, monkeypatch, failure):
     history, future = frames
     content = draws_content(tmp_path, history, future)
     service = river(curve_result((0.0, 2.0)))
+    accepted, kept = "an_1", None
     if failure == "draws download":
         model = open_river(monkeypatch, service, httpx.Response(404))
         with pytest.raises(ApiError) as caught:
             model.inference(history, future, n_samples=DRAWS)
-        accepted, kept = "an_1", None
+    elif failure == "draw count":
+        model = open_river(monkeypatch, service, content)  # the file holds DRAWS draws
+        with pytest.raises(ValueError, match=f"expected {2 * DRAWS} draws, got {DRAWS}") as caught:
+            model.inference(history, future, n_samples=2 * DRAWS)
     else:
         service.on("GET", "/v1/analyses/an_2", (410, error_body("gone", "Analysis expired")))
         model = open_river(monkeypatch, service, content)
@@ -478,8 +626,7 @@ def test_hosted_failure_after_acceptance_names_the_resume_call(
         with pytest.raises(Gone) as caught:
             model.response_curves(levels=(0, 1, 2), weeks=1)
         accepted = "an_2"
-    notes = "\n".join(getattr(caught.value, "__notes__", ()))
-    assert f'pymc_mfm.client.Client().get("{accepted}")' in notes
+    assert_names_analysis(caught.value, accepted)
     shown = "".join(traceback.format_exception(caught.value))
     assert RIVER_KEY not in shown and "sig=" not in shown
     assert model.result is kept

@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 _RIVER_REPO = "pymc-labs/mfm"
 _RIVER_REVISION = "970e6095f14824d7e25ecace7e20a47bebde35b8"
 _SEED_LIMIT = 2**31
-_DEFAULT_DRAWS = 1000
 
 
 class _Roles(TypedDict):
@@ -88,7 +87,10 @@ class _LocalEngine:
 
 
 class Model:
-    """A model opened with :func:`pymc_mfm.load`, regardless of how it runs."""
+    """A model opened with :func:`pymc_mfm.load`, regardless of how it runs.
+
+    Models come from :func:`pymc_mfm.load`; do not construct one directly.
+    """
 
     def __init__(self, engine: _LocalEngine | HostedEngine, roles: _Roles) -> None:
         self._engine = engine
@@ -141,7 +143,7 @@ class Model:
         context: DataFrame,
         query: DataFrame,
         *,
-        n_samples: int = _DEFAULT_DRAWS,
+        n_samples: int = 1_000,
         random_seed: int | None = None,
     ) -> Result:
         """Decompose history and query into a single result with separate marginals.
@@ -283,6 +285,17 @@ def load(
         raise ValueError("engine must be 'local' or 'hosted'")
     if base_url is not None:
         raise ValueError("base_url is only for the hosted engine")
+    if isinstance(token, str):
+        from .client._http import _SETTING_PADDING, _setting
+
+        # The local engine sends token to the Hugging Face Hub as a bearer credential.
+        river_key = _setting(None, "MFM_API_KEY")
+        if river_key and token.strip(_SETTING_PADDING) == river_key:
+            raise ValueError(
+                "token is the River API key in MFM_API_KEY, but the local engine sends token "
+                "to the Hugging Face Hub. Use engine='hosted' to run on River, or pass a "
+                "Hugging Face token."
+            )
 
     from . import from_pretrained
 
