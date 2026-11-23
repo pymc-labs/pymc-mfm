@@ -24,6 +24,9 @@ if TYPE_CHECKING:
 _TITLE = "Response curves: contribution by media covariate level"
 #: Panels per row before the grid wraps.
 _COLUMNS = 5
+#: Figure width in inches and the font size of the notes under the panels (points).
+_WIDTH = 11
+_NOTE_SIZE = 9
 _CURVE = COLORS["channel"]
 #: The dashed line at the observed level.
 _REFERENCE = "#737373"
@@ -40,9 +43,10 @@ class Curves:
 
     ``media`` (the level times the observed total), ``mean``, ``low``, ``high``,
     ``warnings`` and ``truth`` are ``[channel, level]``; ``warnings`` holds each level's
-    own hosted warnings, without those every drawn level shares (``""`` for none, always
-    for local draws); ``truth`` is NaN where none was given and ``None`` without truth.
-    ``actual`` indexes level 1 in ``levels``, if listed. ``notes`` go under the panels.
+    own hosted warnings, without those every drawn level-1 point shares (the unchanged
+    plan's; ``""`` for none, always for local draws); ``truth`` is NaN where none was
+    given and ``None`` without truth. ``actual`` indexes level 1 in ``levels``, if listed.
+    ``notes`` go under the panels.
     """
 
     channels: tuple[str, ...]
@@ -134,12 +138,12 @@ def _warning_notes(
     """Each drawn level's own warnings, and the notes under the chart that list them all.
 
     Level 1 is the unchanged plan in every panel, so a warning that every drawn level-1
-    point carries is about that plan, not one level (every drawn level, without level 1):
-    it gets a single ``Base plan`` note and no ring. Each other warning gets one note
-    naming its channels, or ``all channels`` when every drawn panel has it. At most
-    ``MAX_WARNING_LINES`` notes, as under ``client.plots.plot_curves``, then one counting
-    the rest: a saved image keeps the warnings. Levels without a mean draw nothing, so
-    their text is not listed.
+    point carries is about that plan, not one level: it gets a single ``Base plan`` note
+    and no ring. Without a drawn level-1 point nothing is the plan's. Each other warning
+    gets one note naming its channels, or ``all channels`` when every drawn panel has it.
+    At most ``MAX_WARNING_LINES`` notes, as under ``client.plots.plot_curves``, then one
+    counting the rest: a saved image keeps the warnings. Levels without a mean draw
+    nothing, so their text is not listed.
     """
     present = ~np.isnan(mean)
     messages = {
@@ -147,8 +151,7 @@ def _warning_notes(
         for row, column in zip(*np.nonzero(present), strict=True)
     }
     base = [items for (_, column), items in messages.items() if levels[column] == 1.0]
-    groups = base or list(messages.values())
-    plan = set.intersection(*map(set, groups)) if groups else set()
+    plan = set.intersection(*map(set, base)) if base else set()
     own = np.full(mean.shape, "", dtype=object)
     shared: dict[str, None] = {}
     found: dict[str, dict[str, None]] = {}
@@ -232,9 +235,12 @@ def _grid(count: int) -> tuple[int, int]:
 def _matplotlib(data: Curves) -> Any:
     count = len(data.channels)
     rows, columns = _grid(count)
-    # Allow room for title, caption and legend.
-    height = 3.0 + 1.5 / rows
-    fig, axes = figure(rows, columns, width=11, row_height=height, sharex=True, sharey=True)
+    # Wrap the notes narrower than the figure: the estimate can undercount wide letters.
+    notes = _fit("\n".join(data.notes), 0.9 * _WIDTH, _NOTE_SIZE) if data.notes else None
+    lines = notes.count("\n") + 1 if notes else 0
+    # Allow room for title, caption and legend; the notes add their own height.
+    height = 3.0 + 1.5 / rows + (lines * _NOTE_SIZE * 1.3 / 72 + 0.1 if lines else 0) / rows
+    fig, axes = figure(rows, columns, width=_WIDTH, row_height=height, sharex=True, sharey=True)
     for index, ax in enumerate(axes.flat):
         if index >= count:
             ax.set_visible(False)
@@ -295,7 +301,6 @@ def _matplotlib(data: Curves) -> Any:
         if index + columns >= count:  # the lowest panel of its column
             ax.set_xlabel(_XLABEL, fontsize=9)
     fig.supylabel(data.ylabel, fontsize=9)
-    notes = _fit("\n".join(data.notes), fig.get_figwidth(), 9) if data.notes else None
     figure_legend(fig, axes.flat, notes=notes)
     _suptitle(fig, data.title, *data.caption)
     return fig
@@ -458,8 +463,9 @@ def _plotly(data: Curves) -> Any:
     # Narrow panels get fewer ticks, which then stay level instead of rotating.
     fig.update_xaxes(tickformat=".0%", nticks=4 if columns > 2 else 0)
     fig.update_yaxes(title={"text": plotting.text(data.ylabel), "font": {"size": 11}}, col=1)
-    fig = plotting.finish(fig, title=data.title, caption=data.caption, height=300 * rows + 50)
-    return plotting.footnote(fig, data.notes)
+    return plotting.finish(
+        fig, title=data.title, caption=data.caption, height=300 * rows + 50, notes=data.notes
+    )
 
 
 def response_curves(

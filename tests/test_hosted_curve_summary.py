@@ -229,17 +229,77 @@ def test_plotly_rings_warned_levels_and_lists_each_warning_once_under_the_panels
         np.testing.assert_array_equal(ring.y, [mean])
     assert rings[1].hovertext == (f"{SPEND}<br>{SHORT}",)
     assert [ring.showlegend for ring in rings] == [True, False]
-    [notes] = fig.layout.annotations[-1:]
-    assert notes.yref == "paper" and notes.y < 0  # below the plotting area
+    [notes] = [note for note in fig.layout.annotations if note.y < 0]
     assert f"Warning (all channels): {SPEND}" in notes.text
     assert f"Warning (tv): {SHORT}" in notes.text
     assert "Warning" not in fig.layout.title.text
-    assert fig.layout.margin.b > 50 and fig.layout.height > 300 * 1 + 50 + fig.layout.margin.t
 
     plain = Plots(_summarized(inferred, warnings=None)).response_curves(backend="plotly")
     assert not [trace for trace in plain.data if trace.marker.symbol == "circle-open"]
-    assert not any("Warning" in (note.text or "") for note in plain.layout.annotations)
-    assert plain.layout.margin.b == 50
+    assert not [note for note in plain.layout.annotations if note.y < 0]
+
+
+def _plot_height(fig):
+    return fig.layout.height - fig.layout.margin.t - fig.layout.margin.b
+
+
+def test_plotly_notes_sit_below_the_axis_titles_without_moving_the_panels(inferred):
+    fig = Plots(_summarized(inferred)).response_curves(backend="plotly")
+    plain = Plots(_summarized(inferred, warnings=None)).response_curves(backend="plotly")
+    [note] = [note for note in fig.layout.annotations if note.y < 0]
+    # The plotting area, the legend's pixel position and the top margin are unchanged.
+    assert _plot_height(fig) == _plot_height(plain)
+    assert fig.layout.margin.t == plain.layout.margin.t
+    legend_top = (1 - fig.layout.legend.y) * fig.layout.height
+    assert legend_top == pytest.approx((1 - plain.layout.legend.y) * plain.layout.height)
+    # Below the bottom margin that holds the x-axis titles without notes, inside the figure.
+    assert -note.y * _plot_height(fig) >= plain.layout.margin.b
+    lines = note.text.count("<br>") + 1
+    assert fig.layout.margin.b - plain.layout.margin.b >= 18 * lines
+
+    many = np.array([[f"warning {i}" for i in range(5)], ["", "w5\nw6", "", "w7\nw8", "w9\nw10"]])
+    more = Plots(_summarized(inferred, warnings=many)).response_curves(backend="plotly")
+    assert more.layout.margin.b > fig.layout.margin.b
+    assert _plot_height(more) == _plot_height(plain)
+
+
+def test_plotly_notes_wrap_and_escape_long_warnings(inferred):
+    from pymc_mfm.plotting.charts._plotly import CAPTION_WIDTH
+
+    long = "Spend < 5% & " + " ".join([SPEND] * 4)
+    warnings = np.where(WARNINGS == SPEND, long, WARNINGS)
+    fig = Plots(_summarized(inferred, warnings=warnings)).response_curves(backend="plotly")
+    [note] = [note for note in fig.layout.annotations if note.y < 0]
+    assert "Spend &lt; 5% &amp;" in note.text
+    assert all(len(line) <= CAPTION_WIDTH + 10 for line in note.text.split("<br>"))
+
+
+def test_matplotlib_notes_are_left_aligned_lines_inside_the_figure(inferred):
+    long = " ".join([SPEND] * 5)
+    warnings = np.where(WARNINGS == SPEND, long, WARNINGS)
+    fig = Plots(_summarized(inferred, warnings=warnings)).response_curves(backend="matplotlib")
+    plain = Plots(_summarized(inferred, warnings=None)).response_curves(backend="matplotlib")
+    [legend] = fig.legends
+    assert legend.get_alignment() == "left"
+    lines = legend.get_title().get_text().split("\n")
+    # One line starts each note: search's long warning, then tv's two.
+    assert sum(line.startswith("Warning (") for line in lines) == 3 < len(lines)
+    fig.canvas.draw()
+    plain.canvas.draw()
+    box = legend.get_window_extent()
+    assert 0 <= box.x0 and box.x1 <= fig.bbox.width
+    # The figure grows with the notes, so the panels keep their height.
+    assert fig.get_figheight() > plain.get_figheight()
+    panel, plain_panel = fig.axes[0].get_window_extent(), plain.axes[0].get_window_extent()
+    assert panel.height == pytest.approx(plain_panel.height, rel=0.1)
+
+
+def test_a_warning_on_some_panels_names_them_not_all_channels():
+    warnings = np.array([["", SPEND, "", "", ""], ["", "", "", "", ""], ["", SPEND, "", SHORT, ""]])
+    _, notes = curve_charts._warning_notes(
+        ("search", "tv", "radio"), LEVELS, warnings, np.zeros((3, 5))
+    )
+    assert notes == (f"Warning (search, radio): {SPEND}", f"Warning (radio): {SHORT}")
 
 
 def test_a_warning_of_the_base_plan_is_one_note_and_rings_no_level(inferred):
@@ -259,8 +319,9 @@ def test_a_warning_of_the_base_plan_is_one_note_and_rings_no_level(inferred):
     one = curve_charts.prepare(
         IdataReader(_summarized(inferred, warnings=warnings)), channels=["tv"]
     )
-    # tv has no level-1 point: only what every drawn level shares is the plan's.
-    assert one.notes == (f"Base plan: {plan}", f"Warning (tv): {SPEND}")
+    # tv has no level-1 point, so nothing is the plan's: every warning is the level's own.
+    assert one.notes == (f"Warning (tv): {plan}", f"Warning (tv): {SPEND}")
+    np.testing.assert_array_equal(one.warnings != "", [[False, True, False, True, True]])
 
 
 def test_the_notes_list_at_most_max_warning_lines(inferred):
@@ -282,6 +343,19 @@ def test_the_notes_list_at_most_max_warning_lines(inferred):
     assert notes[MAX_WARNING_LINES:] == (
         f"{rest} more warnings: see /response_curves/summary/warning.",
     )
+
+
+@pytest.mark.parametrize("count", [MAX_WARNING_LINES, MAX_WARNING_LINES + 1])
+def test_the_notes_count_the_rest_only_past_max_warning_lines(inferred, count):
+    cells = [(0, 0), (0, 1), (0, 3), (0, 4), (1, 1), (1, 3), (1, 4)]  # drawn, not level 1
+    warnings = np.full(MEAN.shape, "", dtype=object)
+    for i in range(count):
+        row, column = cells[i % len(cells)]
+        warnings[row, column] = "\n".join(filter(None, [warnings[row, column], f"warning {i}"]))
+    data = curve_charts.prepare(IdataReader(_summarized(inferred, warnings=warnings.astype(str))))
+    rest = count - MAX_WARNING_LINES
+    more = (f"{rest} more warning: see /response_curves/summary/warning.",) if rest else ()
+    assert data.notes[MAX_WARNING_LINES:] == more
 
 
 def test_matplotlib_draws_a_bar_where_a_band_has_no_area(inferred):
