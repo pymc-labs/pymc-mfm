@@ -290,8 +290,29 @@ history, not current workflow instructions.
   GitHub and pymc-labs.com (home of the PyMC Labs blog), lists Sea and Ocean as coming soon
   and Hugging Face in the Models menu, shows search on Guide and API pages only, and has a
   dark-mode button; the site opens dark until the reader picks light. River 1.0's page opens
-  on a still picture of the Orinoco at night that moves: running water, the moon's glow,
-  drifting cloud and mist around the name, and a glitch now and then.
+  on a blue-graded still of the Orinoco at night, then animates the water, moonlight,
+  clouds and mist around the name, with a glitch now and then.
+  Below its hero, the landing page has two calls to action (contact PyMC Labs, get the
+  white paper) and, above River 1.0, an FAQ: a strip of answer cards that repeats as you
+  move it with its arrows, a drag, a swipe or a click on a side card. All cards are one
+  size; the one in the middle is filled in a matte aqua, and the ones beside it show only
+  their questions. It always comes to rest on the page's own copy of a card, so keyboard
+  focus and links stay on the card in view, and the arrows announce the question they
+  land on. It says what PyMC MFM is, what it does and why to choose it, and
+  answers five questions from the white paper's FAQ. Its title and description name
+  Marketing Foundational Models and PyMC Labs, and it carries structured data for the
+  library and the FAQ. Each page has one `<h1>`, the page title, as its first heading
+  (`docs/_scripts/finish.py`, a post-render step); on River 1.0 it is visually hidden under
+  the hero's name. Below 992px the open menu makes the page behind it inert, so Tab stays
+  in the menu. The navbar also links the PyMC Labs
+  contact page, and the Models menu the white paper. `docs/_scripts/mount.py` writes the
+  host's `robots.txt` (the pymc-labs.com policy: search engines yes, AI training crawlers
+  no; closed on staging) and, given the public origin with `--site-url`, publishes
+  `/sitemap.xml` at the host root and adds canonical links for the served pages. It also
+  gives the built site the host's address in place of Quarto's `site-url`, so the site's
+  own links open in the same tab and share images resolve on the host. The navbar and the
+  landing hero link the GitHub repository, and the River quickstart installs the library
+  from GitHub, as the other pages do, instead of PyPI's client-only package.
   Text is Inter and headlines Archivo Expanded, self-hosted. The favicons are the mark
   on a navy circle; the ICO, the Apple touch icon and the three card JPEGs are pinned in
   the public-boundary allowlist.

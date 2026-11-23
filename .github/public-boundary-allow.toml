@@ -6,7 +6,14 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["large-file", "embedded-payload"]
-reason = "Paired-inference migration of the reviewed synthetic-data quickstart: editable source/markdown cells use explicit input_usage and complete inference with model.query_result, document return_idata and isolated predict, and retain every graph catalog/topology/DOT/SVG example. The Decompose Markdown cell names 1,000 draws as the default; only that one Markdown line changed from the previous pinned bytes. The 15 previously reviewed PNG outputs and unchanged numeric/text output representations are preserved; no weights were downloaded and no outputs regenerated for this source-only migration. Headless runtime acceptance uses a synthetic stand-in and native Graphviz. These exact bytes are pinned; reruns require a new review/hash in the same pull request. Malformed-image findings are never covered."
+reason = "Release quickstart: main's reviewed 1,000-draw version with two markdown edits only. The intro installs the library from GitHub (PyPI's pymc-mfm is the client-only package) and still requires access to the private pymc-labs/mfm repository; the plotly note names the interactive extra. The 15 reviewed PNG outputs and every code cell and text output are byte-identical to the ae638e76 version below. These exact bytes are pinned; reruns require a new review/hash in the same pull request. Malformed-image findings are never covered."
+sha256 = "f950c801c03a5a6c0df83c493edca52efec7254ef3c19b8aab17ad62fac5ff96"
+max_bytes = 3000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["large-file", "embedded-payload"]
+reason = "Reviewed paired-inference quickstart whose Decompose Markdown cell names 1,000 draws as the default, before the release intro wording (GitHub install). Retain this exact historical hash for whole-PR range checks. Malformed-image findings are never covered."
 sha256 = "ae638e76d6a1b9e6bcefeca1b672c9f11fd3dd18acbd6c989b8f0b21a54ecb38"
 max_bytes = 3000000
 

@@ -4,6 +4,8 @@ project:
   # Copies examples/*.ipynb into guide/examples/ and writes the API reference
   # pages with quartodoc. Both outputs are generated and ignored by Git.
   pre-render: _scripts/prepare.py
+  # Leaves the page title as the only <h1> on each page (see the script).
+  post-render: _scripts/finish.py
   render:
     - "*.qmd"
     - "guide/**"
@@ -35,9 +37,11 @@ metadata-files:
 
 website:
   title: "PyMC MFM"
-  description: "Amortized Bayesian marketing-mix decomposition with causal graphs, by PyMC Labs."
+  description: "Marketing Foundational Models by PyMC Labs: pretrained Bayesian media mix models that return each channel's contribution with uncertainty, without refitting per dataset."
   # No trailing slash: Quarto joins site-url and a site path such as /assets/... with no
   # slash of its own, so a trailing slash here gives a doubled slash in share-image URLs.
+  # docs/_scripts/mount.py replaces it with the host's address (--site-url) when it lays
+  # out the site, so the site's own links open in the same tab and share images resolve.
   site-url: https://pymc-labs.github.io/pymc-mfm
   repo-url: https://github.com/pymc-labs/pymc-mfm
   favicon: assets/favicon/favicon.svg
@@ -75,9 +79,9 @@ website:
     left:
       - text: Docs
         href: guide/index.qmd
-      # The client and the library. The HTTP API pages (api/) are still built, but no menu
-      # links them: testers use the Python client.
-      - text: Python reference
+      # "API": the Python reference for the client and the library. The HTTP API pages
+      # (api/) are still built, but no menu links them: testers use the Python client.
+      - text: API
         href: reference/index.qmd
       # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
       # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge,
@@ -94,12 +98,22 @@ website:
           - text: "Resources"
           - text: "All models"
             href: models/index.qmd
+          - text: "White paper"
+            href: https://www.pymc-labs.com/white-papers/marketing-foundation-models
       # pymc-labs.com, which carries the PyMC Labs blog too: MFM has no blog of its own.
       - text: PyMC Labs
         href: https://www.pymc-labs.com
+      # The commercial way in: the PyMC Labs contact form.
+      - text: Contact us
+        href: https://www.pymc-labs.com/contact
     right:
+      # On wide screens site.css draws the GitHub icon as a square (the label stays for
+      # screen readers); the phone menu shows icon and label.
+      - text: GitHub
+        icon: github
+        href: https://github.com/pymc-labs/pymc-mfm
       # Access is by invitation. This link goes to the page that says how it works. site.js marks
-      # the last link of this list as the action button, so keep one link here.
+      # the last link of this list as the action button, so keep it last.
       - text: "Get access"
         href: guide/index.qmd#hosted-api
   sidebar:
