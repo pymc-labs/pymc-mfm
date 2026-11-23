@@ -79,9 +79,9 @@ website:
     left:
       - text: Docs
         href: guide/index.qmd
-      # The client and the library. The HTTP API pages (api/) are still built, but no menu
-      # links them: testers use the Python client.
-      - text: Python reference
+      # "API": the Python reference for the client and the library. The HTTP API pages
+      # (api/) are still built, but no menu links them: testers use the Python client.
+      - text: API
         href: reference/index.qmd
       # A dropdown straight to each model. assets/js/site.js opens it on hover and makes
       # the "Models" label itself go to the Models page; a trailing " NEW" becomes a badge,
