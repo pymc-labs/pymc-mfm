@@ -8,18 +8,19 @@ import re
 import shutil
 from pathlib import Path
 
-import httpx
 import pandas as pd
 import pytest
 
 from .client_fixtures import (
-    BASE_URL,
     FakeService,
+    analysis_posts,
     curve_result,
     dataset_record,
     export_record,
+    marked_example,
     result_record,
     result_rows,
+    route_examples_to,
     started,
     status_record,
     weeks_result,
@@ -31,20 +32,12 @@ matplotlib.use("Agg")
 
 SKILL_DIR = Path(__file__).resolve().parents[2] / "skills" / "mfm"
 SKILL = SKILL_DIR / "SKILL.md"
-EXAMPLE = r"<!-- skill-example: {name} -->\n```python\n(.*?)```"
-ALLOWED_URLS = ("https://github.com/pymc-labs/pymc-mfm.git",)
 GRID_IDS = (
     "tv_0.5__search_0.5",
     "tv_0.5__search_1.5",
     "tv_1.5__search_0.5",
     "tv_1.5__search_1.5",
 )
-
-
-def skill_example(name: str = "main") -> str:
-    match = re.search(EXAMPLE.format(name=name), SKILL.read_text(), re.DOTALL)
-    assert match, f"SKILL.md must mark the example with '<!-- skill-example: {name} -->'"
-    return match.group(1)
 
 
 def compare_rows() -> list[dict]:
@@ -113,23 +106,13 @@ def workdir(tmp_path, monkeypatch, service):
     for name in ("history.csv", "plan.csv"):
         shutil.copy(SKILL_DIR / "examples" / name, tmp_path / name)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MFM_API_URL", BASE_URL)
-    monkeypatch.setenv("MFM_API_KEY", "test-key")
-    real_client = httpx.Client
-    monkeypatch.setattr(
-        httpx,
-        "Client",
-        lambda **kwargs: real_client(**{**kwargs, "transport": httpx.MockTransport(service)}),
-    )
+    route_examples_to(service, monkeypatch)
     return tmp_path
 
 
 def run_example(name: str, namespace: dict) -> None:
-    exec(compile(skill_example(name), str(SKILL), "exec"), namespace)
-
-
-def analysis_posts(service: FakeService) -> list[dict]:
-    return [service.body(r) for r in service.sent("POST", "/v1/analyses")]
+    code = marked_example(SKILL, "skill-example", name)
+    exec(compile(code, str(SKILL), "exec"), namespace)
 
 
 def test_main_example_compares_three_plans_in_one_analysis(workdir, service, capsys):
@@ -177,6 +160,25 @@ def test_backtest_example_sends_the_weeks_form_and_reads_fit_shares_and_curves(
     output = capsys.readouterr().out
     assert "r2" in output and "crps" in output  # the fit table was printed
     assert "channel" in output  # the shares and the curves were printed
+
+
+def test_backtest_example_without_fit_keeps_the_result_link(workdir, service, capsys):
+    url = "https://site.example/analyses/an_2"
+    service.on(
+        "GET",
+        "/v1/analyses/an_2",
+        (200, weeks_status("failed", runs_done=0, runs_failed=1, runs_total=1, url=url)),
+    )
+    failed = result_rows("baseline", "baseline", failed=True)
+    service.on("GET", "/v1/analyses/an_2/result", (200, {**result_record(failed), "fit": None}))
+
+    namespace = {"__name__": "skill_example"}
+    run_example("main", namespace)
+    run_example("backtest", namespace)
+
+    output = capsys.readouterr().out.splitlines()
+    assert f"result link: {url}" in output
+    assert "No fit scores are available for this backtest." in output
 
 
 def test_again_example_starts_a_second_analysis_with_the_same_weeks(workdir, service):
@@ -227,8 +229,7 @@ def test_grid_example_requests_one_scenario_per_combination(workdir, service):
 
 def test_skill_files_name_no_service_address():
     text = "".join(path.read_text() for path in SKILL_DIR.rglob("*.md"))
-    urls = set(re.findall(r"https?://[^\s)\"'`>]+", text))
-    assert urls <= set(ALLOWED_URLS)
+    assert re.findall(r"https?://[^\s)\"'`>]+", text) == []
     assert "MFM_API_URL" in text and "MFM_API_KEY" in text
 
 

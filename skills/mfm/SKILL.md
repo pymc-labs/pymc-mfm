@@ -12,17 +12,15 @@ scenarios (budget changes to compare with it) and response curves. The baseline 
 so the forecast can be compared with what happened. This skill uses the Python client,
 `pymc_mfm.client`. Agents without Python read `reference/http.md`.
 
-Research prototype. Synthetic or internal data only. Not for budget decisions on its own.
+Research preview. Use synthetic data unless the user's invitation allows their own data.
+Do not use results on their own for budget decisions.
 
 ## Set up
 
-1. Python 3.13 or later is required. Git must be signed in to GitHub with read access to the
-   `pymc-labs/pymc-mfm` repository (the repository is private). Install with `uv`, which can fetch
-   Python 3.13:
+1. Python 3.11 or later is required. Install the client from PyPI:
 
    ```bash
-   uv venv -p 3.13
-   uv pip install "pymc-mfm[client] @ git+https://github.com/pymc-labs/pymc-mfm.git"
+   pip install "pymc-mfm[client]"
    ```
 
    The `[client]` extra adds the plots and the draws reader. It does not install PyTorch.
@@ -33,18 +31,17 @@ Research prototype. Synthetic or internal data only. Not for budget decisions on
    (0 or more each), 1 to 10 controls, a positive outcome, and unique column names that are not
    `baseline`, `latent`, `outcome` or `indirect:*`. 75 to 207 weeks of history is the supported
    range (a warning outside it). A dataset body is at most 5 MB.
-4. Tell the user once: the service keeps the data 7 days after last use, at most 30 days after
-   upload. Each analysis you run on a dataset counts as use and moves its expiry later, up to the
-   30-day limit. Read the current deadline from `dataset.expires_at`; do not store it. You can
-   delete the data earlier when the user no longer needs it.
+4. Tell the user once: the service keeps the data 7 days after upload, then deletes it and its
+   analyses. Using the data does not extend this. Read the deadline from `dataset.expires_at`; do
+   not store it. You can delete the data earlier when the user no longer needs it.
 
 ## The four steps
 
 Run this example with `history.csv` (columns `date`, `sales`, `tv`, `search`, `holiday`) and
 `plan.csv` (the forecast weeks, same columns without `sales`). The plan starts the week after the
-history ends. If the user gives no data, copy the synthetic files in `examples/` next to this skill
-(104 weeks of history, 8 plan weeks). With the user's data, change the column names and channels to
-match.
+history ends. Start with the synthetic files in `examples/` next to this skill (104 weeks of
+history, 8 plan weeks). For data the invitation allows, adjust the column names and channels
+to match.
 
 <!-- skill-example: main -->
 ```python
@@ -55,7 +52,7 @@ from pymc_mfm.client import Client, amount, scenario
 client = Client()  # reads MFM_API_URL and MFM_API_KEY
 
 # 1. Upload the weekly history, unless the service already holds exactly this data.
-#    The service keeps it 7 days after last use, at most 30 days after upload.
+#    The service keeps it 7 days after upload.
 for stored in client.datasets.list():  # your datasets, with content_hash and expires_at
     print(stored.dataset_id, stored.name, stored.weeks, stored.analyses, stored.expires_at)
 history = pd.read_csv("history.csv", parse_dates=["date"])
@@ -125,8 +122,11 @@ backtest = client.analyze(
     name="Backtest",
 ).wait(timeout=600)
 print("result link:", backtest.url)
-print(backtest.fit)  # r2, mape (a fraction) and crps, for the input and the predicted weeks
-print(backtest.shares.query("window == 'query' and share == 'total'"))  # each series' share
+fit = backtest.fit
+print(fit if fit is not None else "No fit scores are available for this backtest.")
+shares = backtest.shares
+if shares is not None:
+    print(shares.query("window == 'query' and share == 'total'"))
 print(backtest.curves)  # each channel's contribution at each spend level
 ```
 
@@ -297,8 +297,8 @@ to a `draws_url`.
 
 Deleting a dataset deletes all its analyses, including the ones the user opens on the site. So report
 the results first: the numbers, the charts and the result link. Then ask before deleting, and say that
-deleting the dataset removes its analyses. Otherwise the data expires 7 days after last use, at most
-30 days after upload. When the user says delete:
+deleting the dataset removes its analyses. Otherwise the data expires 7 days after upload. When the
+user says delete:
 
 <!-- skill-example: delete -->
 ```python

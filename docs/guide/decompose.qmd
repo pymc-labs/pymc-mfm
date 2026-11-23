@@ -15,10 +15,12 @@ roles = {
     "control_columns": ["price"],
 }
 usage = model.input_usage(history, plan, **roles)  # preflight before sampling
-idata = model.inference(history, plan, **roles, n_samples=500)
+idata = model.inference(history, plan, **roles, n_samples=500, random_seed=0)
 assert idata is model.idata
 query = model.query_result  # exact query DecompositionResult for diagnostics and graph helpers
 ```
+
+`n_samples` defaults to 1,000 draws per window. Examples that pass 500 do so to run faster. For numbers you report, keep the default or raise it, and pass `random_seed`. Complete inference accepts one seed for both windows: context continues the query's random stream, including when no seed is passed. If you need different seeds, use separate `decompose` calls with `window="query"` and `window="context"`.
 
 History requires a pandas dataframe with at least two rows, unique timezone-naive dates, a regular cadence, strictly positive outcomes, nonnegative spend, and at least one channel and control. Date, target, channel, and control roles must be distinct. Controls are padded up to the model's configured width; excess controls are rejected. Successful inference snapshots the inputs and role lists, so later caller mutations cannot change the completed run.
 
@@ -33,7 +35,7 @@ For independent query-only calculations, use `prediction = model.predict(plan, n
 [`model.plot`](../reference/plotting.Plots.qmd) draws the latest complete `inference`, never an intervening `predict`. Install `pymc-mfm[plot]` for matplotlib figures and `pymc-mfm[interactive]` for plotly ones; pass `backend="plotly"` to one chart or call [set_backend](../reference/plotting.set_backend.qmd) once.
 
 ```python
-idata = model.inference(history, plan_with_outcome, **roles, n_samples=1_000)
+idata = model.inference(history, plan_with_outcome, **roles)
 query = model.query_result  # query outcomes are kept for charts, never read by the model
 
 model.plot.inputs()  # outcome, media and control covariates by week
@@ -50,7 +52,7 @@ model.plot.response_curves()
 model.plot.fit(backend="plotly")
 ```
 
-Each chart summarizes the completed draws once, then matplotlib or plotly draws the same numbers. Matplotlib charts return a `Figure` that notebooks show without pyplot; single-axes charts accept `ax=`. **Model charts never sample**, including context charts. Before complete inference there is no history-only chart state. [MFM.response_curves](../reference/model.MFM.qmd) multiplies one media covariate in the first `weeks` forecast weeks by each level and samples each scenario (one shared run for level 1). It returns the curves and attaches them to a new `model.idata` root, preserving the base query result. Failed sweeps/conversion preserve the prior curves and tree. Successful complete inference replaces curves; `predict` does not.
+Each chart summarizes the completed draws once, then matplotlib or plotly draws the same numbers. Matplotlib charts return a `Figure` that notebooks show without pyplot; single-axes charts accept `ax=`. **Model charts never sample**, including context charts. Before complete inference there is no history-only chart state. [MFM.response_curves](../reference/model.MFM.qmd) multiplies one media covariate in the first `weeks` forecast weeks by each level and samples each scenario (one shared run for level 1). A level multiplies spend; each curve is the total contribution over those weeks. `weeks` shortens the whole plan, so level 1 need not equal the contribution in the original longer forecast. It returns the curves and attaches them to a new `model.idata` root, preserving the base query result. Failed sweeps/conversion preserve the prior curves and tree. Successful complete inference replaces curves; `predict` does not.
 
 Intervals are central intervals of the draws, pointwise over weeks or levels, and exclude observation noise. Contributions are conditional on the inputs, not causal lift. For simulated data, `truth` adds known contributions: a dataframe indexed by date (by level for response curves) with one column per media or control covariate.
 
@@ -267,7 +269,7 @@ from pymc_mfm.inference import decompose, warm_up_sampling
 
 model.compile_sampling()
 warm_up_sampling(model, channels=range(1, 11))
-result = decompose(model, observations, n_samples=1_000)
+result = decompose(model, observations)
 print(model.sampling_status)
 ```
 

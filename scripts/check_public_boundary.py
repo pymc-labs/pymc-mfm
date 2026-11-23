@@ -77,6 +77,8 @@ WEIGHT_SUFFIXES = (
 )
 
 # Patterns are assembled from pieces so this file never matches its own rules.
+# The end of a hostname: no further letter, digit, hyphen or DNS label after it.
+_HOST_END = rb"(?![A-Za-z0-9-]|\.[A-Za-z0-9-])"
 _NO_WORD_BEFORE = rb"(?<![A-Za-z0-9_])"
 _PEM_DASHES = b"-" * 5
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
@@ -92,6 +94,17 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
     ("OpenAI key", re.compile(_NO_WORD_BEFORE + rb"sk-[A-Za-z0-9_-]{32,}")),
     ("Modal token", re.compile(_NO_WORD_BEFORE + rb"(?:ak|as)-[A-Za-z0-9]{20,}")),
     ("Slack token", re.compile(_NO_WORD_BEFORE + rb"xox[abprs]-[A-Za-z0-9-]{10,}")),
+    # Service hostnames: any pymc-labs.com host except exactly www.pymc-labs.com, and hosts on
+    # the platforms that serve apps and previews. Public docs must not name one. A match must
+    # end at a full DNS label, so a longer name such as x.pymc-labs.com.example.org is not one.
+    (
+        "service hostname",
+        re.compile(
+            rb"(?<![A-Za-z0-9_.-])(?!www\.pymc-labs\.com" + _HOST_END + rb")(?:[A-Za-z0-9-]+\.)+"
+            rb"(?:pymc-labs\.com|fly\.dev|run\.app|workers\.dev|modal\.run)" + _HOST_END,
+            re.IGNORECASE,
+        ),
+    ),
 )
 PRIVATE_PATH_PATTERN = re.compile(rb"\.private" + rb"/[^\s]")
 BASE64_LINE_PATTERN = re.compile(rb"[A-Za-z0-9+/]+={0,2}")

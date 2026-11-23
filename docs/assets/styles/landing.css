@@ -44,7 +44,7 @@ body.mfm-landing .navbar {
   --bs-navbar-brand-hover-color: #ffffff;
 }
 
-/* The Open Console button keeps the theme's light-on-navy colours. */
+/* The Get access button keeps the theme's light-on-navy colours. */
 body.mfm-landing .navbar .nav-link:not([data-mfm="console"]),
 body.mfm-landing .navbar .navbar-title,
 body.mfm-landing .navbar .bi {
@@ -450,6 +450,19 @@ body.mfm-landing .nav-footer a {
   align-items: center;
   gap: 1rem;
   margin-top: 2rem;
+}
+
+/* One line for invited testers, above the library install: the hosted API is their path. */
+.mfm-show__testers {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--mfm-fg-2);
+  text-align: center;
+}
+
+.mfm-show__testers a {
+  color: var(--mfm-accent-on-dark) !important;
+  white-space: nowrap;
 }
 
 .mfm-show__note {

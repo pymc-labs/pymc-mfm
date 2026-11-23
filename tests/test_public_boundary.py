@@ -131,6 +131,34 @@ def test_secrets_fire_and_are_masked(repo: Path) -> None:
     assert FAKE_HF_TOKEN not in result.stdout + result.stderr
 
 
+def test_service_hostnames_fire_and_are_masked(repo: Path) -> None:
+    # Made-up hosts, assembled at run time so this file never matches the rule it tests.
+    service = "example-svc." + "pymc-labs" + ".com"
+    preview = "example-docs." + "fly" + ".dev"
+    www_service = "www.example-svc." + "pymc-labs" + ".com"
+    write(
+        repo,
+        "docs.yml",
+        f"image: https://{service}/social.jpg\nsite: {preview}\nold: {www_service}.\n"
+        f"login: https://tok@{service}/x\n",
+    )
+    write(
+        repo,
+        "ok.md",
+        "See https://www.pymc-labs.com and WWW.PYMC-LABS.COM. Write to team@pymc-labs.com.\n"
+        "Other hosts: a.pymc-labs.com.example.org and b.fly.dev-mirror.example.net.\n",
+    )
+    commit(repo)
+    result = check(repo)
+    assert result.returncode == 1
+    assert "secret docs.yml:1 service hostname exam***" in result.stdout
+    assert "secret docs.yml:2 service hostname exam***" in result.stdout
+    assert "secret docs.yml:3 service hostname www.***" in result.stdout
+    assert "secret docs.yml:4 service hostname exam***" in result.stdout
+    assert "ok.md" not in result.stdout
+    assert service not in result.stdout + result.stderr
+
+
 def test_private_path_reference_fires(repo: Path) -> None:
     write(repo, "run.sh", f"python {PRIVATE_LINK}/x.py\n")
     commit(repo)

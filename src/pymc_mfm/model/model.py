@@ -610,19 +610,24 @@ class MFM(nn.Module):
         On a CPU with the same thread count, a repeat gives the same result. A seeded call
         uses its own generator and does not draw from or seed PyTorch's global random state,
         so other models and ``torch`` calls cannot disturb it (``compile_sampling`` states
-        one limit). The context window continues the query
-        window's stream, so one seed covers both. ``idata`` records the seed; the results
-        of ``predict`` and ``decompose`` do not. With ``random_seed=None`` the call draws
-        from PyTorch's global generator and advances it, so a ``torch.manual_seed`` call
-        before ``inference`` still sets the draws, and a repeated call without a seed gives
-        new draws.
+        one limit). Both windows share one stream: context continues where query ended.
+        With ``random_seed=None`` they share PyTorch's default stream instead, so
+        ``torch.manual_seed`` before ``inference`` still sets the draws and another
+        unseeded call continues the stream. ``idata`` records an explicit seed.
+        For deliberately different seeds, call ``decompose`` separately for each
+        window. Neither ``predict`` nor ``decompose`` records the seed.
         """
         from pymc_mfm.inference._datatree import _require_arviz, prediction_datatree
 
         _require_arviz()
         random_seed = _random_seed(random_seed)
-        # One generator serves both windows, so the context window continues the stream.
-        generator = _sampling_generator(random_seed, next(self.parameters()).device)
+        # Use the same generator for both windows, including the default CPU stream
+        # used for base noise on CPU, CUDA and MPS.
+        device = next(self.parameters()).device
+        if random_seed is None and _noise_device(device).type == "cpu":
+            generator = torch.default_generator
+        else:
+            generator = _sampling_generator(random_seed, device)
         fitted = self._add_context(
             context,
             date_column=date_column,
@@ -641,7 +646,7 @@ class MFM(nn.Module):
             provenance=provenance,
             generator=generator,
         )
-        context_result = self._sample_context(prediction, generator)
+        context_result = self._sample_context(prediction, generator=generator)
         revision = self._inference_revision + 1
         tree = prediction_datatree(
             context_result, prediction, revision=revision, random_seed=random_seed
@@ -790,7 +795,7 @@ class MFM(nn.Module):
         return result, observations, time, annotations
 
     def _sample_context(
-        self, prediction: _PredictionSnapshot, generator: torch.Generator | None = None
+        self, prediction: _PredictionSnapshot, *, generator: torch.Generator | None
     ) -> DecompositionResult:
         """Sample history for this candidate query without publishing either marginal."""
         from pymc_mfm.inference.api import _decompose

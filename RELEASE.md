@@ -7,6 +7,15 @@ distribution prerequisites, not an approved or published release.
 
 ## Current changes
 
+- **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
+  `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
+  `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`
+  is omitted (previously 2,000). To replay old draws, pass `n_samples=2_000`
+  and reuse the original seed or PyTorch RNG state under the same execution
+  settings. For response curves, pin the count on the source inference:
+  curves inherit its draw count by default, fixed mode requires that count,
+  and MAP mode inherits the source router count. The hosted API sets its own
+  `draws` default.
 - **Complete paired inference and automatic idata.**
   `model.inference(context, query, date_column=..., target_column=...,
   channel_columns=..., control_columns=...)` samples query and context and
@@ -15,6 +24,8 @@ distribution prerequisites, not an approved or published release.
   while still sampling, converting and storing the complete tree. There is no
   public `add_context` or `build_idata`, and the old `inference(query)` call is
   removed rather than retained as an overload.
+  One random stream serves both windows by default or with an explicit seed.
+  Use separate `decompose` calls if the windows need different seeds.
 - **Isolated prediction and exact-result helpers.** After complete inference,
   `model.predict(query, ...)` returns an independent `DecompositionResult` using
   the stored history/roles without replacing idata, `model.query_result`, context
@@ -48,6 +59,16 @@ distribution prerequisites, not an approved or published release.
   preserves reviewed numeric/chart outputs and every graph analysis/export;
   its headless acceptance uses a synthetic stand-in without downloading weights.
   No runtime context, result, curve or idata is captured in weight bundles.
+- **First-use errors and docs.** Inference errors say what to change: an empty role
+  list, the columns with negative spend or non-finite values, a target with zero or
+  negative outcomes, and for irregular context dates the observed intervals or the
+  calendar frequency they break, without extrapolated dates. `decompose` given a
+  DataFrame points to `model.inference`. `validate_idata` and `load_idata` say when a
+  tree has no `schema_version` (for example an ArviZ file), and the `FileExistsError` of
+  `save_idata` names the target, not its temporary file. The guide shows the ArviZ
+  summary that works on a window, `docs/migration.md` lists the removed `add_context`,
+  `build_idata` and `inference(query)` calls with `model.query_result` for the old
+  return value, and the README states River-1's training range.
 - **Compatibility break: `ModelPlots` is now a function.** `ModelPlots(model)` still works and
   warns with a `DeprecationWarning`; it returns the live accessor of `model.idata`.
   `isinstance(x, ModelPlots)` and subclassing `ModelPlots` break. Use `pymc_mfm.Plots` instead;
@@ -378,7 +399,7 @@ history, not current workflow instructions.
 - **Fixed architecture.** `ModelConfig` holds only size and geometry.
   - The five loss weights and checkpoint selection (`selection_head`, conditional by default) belong to `TrainingConfig` / `LossWeights`.
   - The flow numerics are constants: 2 Fourier frequencies, 16 Euler steps, trajectory correlation 0.98.
-  - `DEFAULT_N_SAMPLES` is the draw count when `n_samples` is omitted (32 then, 2,000 now).
+  - `DEFAULT_N_SAMPLES` sets the draw count when `n_samples` is omitted (32 at the time of this refactor).
   - A float64 architecture lock test pins losses, samples and every parameter's default-loss gradient of a two-layer model to outputs recorded before the refactor.
 - **A/B bundles.**
   - Original dimensional A/B weights require retraining for semantic representation 2; matching tensor shapes are not compatibility.
