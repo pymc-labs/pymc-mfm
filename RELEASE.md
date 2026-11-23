@@ -104,6 +104,14 @@ distribution prerequisites, not an approved or published release.
   a client docstring says the dataset expiry moves later on use. The manual `publish-sdk` workflow builds from
   this checkout and publishes only from `main` with `dry_run` false. The client package is
   Apache-2.0; the library's licence is not decided.
+- **Client (after `client-v0.1.0`, for the next client release): the service URL must be `https://`.** `Client()` raises
+  `ValueError` before any request when `base_url` or `MFM_API_URL` is not `https://` or
+  has no host, so the API key is never sent in clear text. Plain `http://` stays allowed
+  only to `localhost`, `127.0.0.1` and `::1`, for local tests. A caller that used an
+  `http://` URL to another host must switch to the `https://` URL.
+  The URL must also have no user name, password, query or fragment and a numeric port. A 3xx answer
+  raises `ApiError` (code `redirect`) that names the status and the `Location` host; the client never
+  follows redirects.
 
 ## Historical development records
 
