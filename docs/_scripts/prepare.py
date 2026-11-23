@@ -4,8 +4,8 @@
    published) into ``docs/guide/examples/``, so the Guide renders them with their
    stored outputs. The copies are ignored by Git; edit the originals.
 2. Writes the Python reference into ``docs/reference/`` from the package docstrings,
-   using the ``quartodoc`` section of ``_quarto.yml``, and gives its sidebar the
-   "Python library" entry first.
+   using the ``quartodoc`` section of ``_quarto.yml``, gives each page its name as the
+   browser tab title, and gives its sidebar the "Python library" entry first.
 3. Writes the HTTP API pages into ``docs/api/`` from ``skills/mfm/reference/http.md``
    (see ``http_pages.py``).
 
@@ -21,6 +21,7 @@ quartodoc is importable: ``uv run --group docs quarto render docs``.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -114,10 +115,30 @@ def anchor_summary_links() -> None:
             page.write_text(fixed, encoding="utf-8")
 
 
-def arrange_reference_sidebar(first: str = "Python library") -> None:
-    """Give the quartodoc sidebar an id and put the index first, under ``first``.
+# quartodoc writes no front matter, so Quarto titles a page after its file ("index",
+# "client.client"). Each page starts with its heading, "# name { #id }".
+PAGE_HEADING = re.compile(r"# (.+?)(?: \{.*\})?")
 
-    quartodoc writes the index page first, then one section for each group.
+
+def add_page_titles() -> None:
+    """Give each reference page its heading as the tab title (``pagetitle``).
+
+    ``title`` would draw a second heading above the page's own.
+    """
+    for page in sorted(REFERENCE.glob("*.qmd")):
+        text = page.read_text(encoding="utf-8")
+        first = text.split("\n", 1)[0]
+        match = PAGE_HEADING.fullmatch(first)
+        if text.startswith("---\n") or not match:
+            raise SystemExit(f"{page.name}: expected the first line to be a heading, got {first!r}")
+        page.write_text(f"---\npagetitle: {json.dumps(match[1])}\n---\n\n{text}", encoding="utf-8")
+
+
+def arrange_reference_sidebar(first: str | None = "Python library") -> None:
+    """Give the quartodoc sidebar an id and put the index first.
+
+    quartodoc writes the index page first, then one section for each group. The index goes
+    under a section called ``first``, or on its own when ``first`` is None.
     """
     import yaml
 
@@ -131,7 +152,7 @@ def arrange_reference_sidebar(first: str = "Python library") -> None:
         )
     entry["id"] = "reference"
     entry["style"] = "floating"
-    entry["contents"] = [{"section": first, "contents": [index]}, *groups]
+    entry["contents"] = [{"section": first, "contents": [index]} if first else index, *groups]
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     (REFERENCE / "_metadata.yml").write_text(REFERENCE_METADATA, encoding="utf-8")
 
@@ -139,7 +160,9 @@ def arrange_reference_sidebar(first: str = "Python library") -> None:
 def main() -> None:
     if pilot():
         build_reference(client_only=True)
-        arrange_reference_sidebar("Python reference")
+        add_page_titles()
+        # The index page is titled "Python reference"; a section of that name would repeat it.
+        arrange_reference_sidebar(None)
         anchor_summary_links()
         print("prepare: pilot: client reference -> reference/", file=sys.stderr)
         # _quarto.yml names this file in metadata-files; the pilot has no HTTP API pages.
@@ -150,6 +173,7 @@ def main() -> None:
     notebooks = sync_examples()
     print(f"prepare: {len(notebooks)} example notebook(s) -> guide/examples/", file=sys.stderr)
     build_reference()
+    add_page_titles()
     arrange_reference_sidebar()
     print("prepare: Python reference -> reference/", file=sys.stderr)
     pages = http_pages.generate()
