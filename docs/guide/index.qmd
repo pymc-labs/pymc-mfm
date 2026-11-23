@@ -133,7 +133,11 @@ backtest = client.analyze(
     name="first-backtest",
 )
 backtest.wait()
-print(backtest.fit.to_string(index=False))
+fit = backtest.fit
+if fit is None:
+    print("No fit scores are available for this backtest.")
+else:
+    print(fit.to_string(index=False))
 print("backtest result page:", backtest.url)
 ```
 
@@ -143,7 +147,7 @@ print("backtest result page:", backtest.url)
 
 River is pretrained, so no MCMC (Markov chain Monte Carlo sampling) runs on your data. The `r_hat` and ESS (effective sample size) checks do not apply. The draws approximate a posterior under the assumptions of the simulator that made River's training data. The intervals leave out weekly noise. River is tested on simulated data only, so do not use it alone for budget decisions. Read the [Limits](../models/river-1/index.qmd#limits) of River first. To check River on your own data, run the [backtest](#check-river-with-a-backtest) on it.
 
-A plan can fail on its own. The analysis is then `done`, and the rows of that plan have `status` `failed` and no numbers. If the baseline fails, the analysis is `failed`; `wait()` still returns only after its other runs end. The same request then returns the same failed analysis. To run it again, pass `fresh=True` to `analyze`.
+A plan can fail on its own. The analysis is then `done`, and that plan's rows have `status` `failed` and no numbers. If the baseline fails, the analysis is `failed`. Results are ready only when every run has ended; if `wait()` returns and a result still raises `NotReady`, check `status()` until `runs_done + runs_failed + runs_cancelled` reaches `runs_total`. Repeating the same request returns the same failed analysis. To start it again, pass `fresh=True` to `analyze`.
 
 ### Use your own data
 
@@ -198,14 +202,14 @@ An error answer from the service raises [ApiError](../reference/client.ApiError.
 
 | Error | Meaning | What to do |
 | --- | --- | --- |
-| `ValueError` | An environment variable is not set, a column is missing, a value is blank or not a number, or the dates are not weekly. The message names the problem. Nothing was sent. | Fix it and run the script again. |
+| `ValueError` | An environment variable is not set, a column is missing, a value is blank or not a number, or the dates are not weekly. The message names the problem. The client does not submit invalid input, but `reuse=True` may first list your datasets. | Fix it and run the script again. |
 | `Unauthorized` (401) | The service does not accept the key. It is missing, mistyped or replaced by a newer key, or your access was removed. | Check that `MFM_API_KEY` holds the whole key with no spaces. Replace your key on the Connect page of the River API console, and set `MFM_API_KEY` again. If it still fails, reply to your invitation. |
 | `ValidationError` (400, 422) | The request breaks a limit, for example one in the table in [Use your own data](#use-your-own-data). `code` names the limit and `field` the part at fault. Nothing started or was stored. | Fix that part and run the script again. |
 | `PayloadTooLarge` (413) | The request is over the size limit. | Send fewer weeks, scenarios or curves in one call. |
 | `RateLimited` (429) | You sent too many requests in a short time (`rate_limited`), or you have 20 unfinished analyses or 200 unfinished runs (`overloaded_user_analyses`, `overloaded_user_runs`). The client already waited and tried again 3 times. | Wait a minute and run the script again. For the two `overloaded` codes, wait for your analyses to end, or delete one. |
 | `ServerError` (500 to 599) | The service failed or is busy. The client tries a `502`, `503` or `504` again 3 times before it raises the error. It does not try a `500` again. | Wait a minute and run the script again. If a `500` persists, reply to your invitation. |
 | `ApiConnectionError` | The client got no answer after 3 more tries. | Check `MFM_API_URL` and your connection. |
-| `NotReady` (409 `not_ready`) | You read a result before the analysis ended. | Call `analysis.wait()` first. |
+| `NotReady` (409 `not_ready`) | You read a result while there are still unfinished runs. | Call `analysis.wait()` first. If the baseline failed, check the run counts as described above. |
 | `NotFound` (404) | The id is wrong, or it belongs to another user. | Check the id. |
 | `Gone` (410) | The dataset or analysis was deleted or has expired. From `datasets.create` or `analyze`, it means that you sent the same request before and its result was deleted or has expired. | To upload the history again, replace `reuse=True` with `fresh=True` in `datasets.create` for one run. To run an analysis again, pass `fresh=True` to `analyze`. Do not try the same id again. |
 

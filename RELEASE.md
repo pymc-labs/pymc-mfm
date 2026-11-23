@@ -7,19 +7,15 @@ distribution prerequisites, not an approved or published release.
 
 ## Current changes
 
-- **Default sampling is 1,000 draws.** `DEFAULT_N_SAMPLES` falls from 2,000 to 1,000.
-  Entrypoints whose `n_samples` defaults to `DEFAULT_N_SAMPLES` (`MFM.inference`,
-  `MFM.predict`, `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`,
-  `MFM.sample_disentangled`, `decompose` and the flow head's `sample`) now draw 1,000
-  samples when `n_samples` is omitted. `MFM.response_curves()` without `n_samples`
-  still inherits the draw count of the last successful inference, so it draws 1,000
-  only when that inference did. In the README's historical query-only CPU measurements
-  for River-1, 1,000 draws took 2.6, 12.3 and 34.8 s against 4.4, 22.0 and 69.8 s at
-  2,000 draws for 10, 50 and 150 query weeks. Those runs did not measure paired
-  inference, curves or GPU calls, so other calls can save less. Pass `n_samples=2_000`
-  to keep the old count. A seed alone does not reproduce a run made with the old
-  default: pass the same `random_seed` and `n_samples=2_000` to get the old draw count
-  and random stream under the same execution settings.
+- **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
+  `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
+  `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`
+  is omitted (previously 2,000). To replay old draws, pass `n_samples=2_000`
+  and reuse the original seed or PyTorch RNG state under the same execution
+  settings. For response curves, pin the count on the source inference:
+  curves inherit its draw count by default, fixed mode requires that count,
+  and MAP mode inherits the source router count. The hosted API sets its own
+  `draws` default.
 - **Complete paired inference and automatic idata.**
   `model.inference(context, query, date_column=..., target_column=...,
   channel_columns=..., control_columns=...)` samples query and context and
@@ -28,6 +24,8 @@ distribution prerequisites, not an approved or published release.
   while still sampling, converting and storing the complete tree. There is no
   public `add_context` or `build_idata`, and the old `inference(query)` call is
   removed rather than retained as an overload.
+  One random stream serves both windows by default or with an explicit seed.
+  Use separate `decompose` calls if the windows need different seeds.
 - **Isolated prediction and exact-result helpers.** After complete inference,
   `model.predict(query, ...)` returns an independent `DecompositionResult` using
   the stored history/roles without replacing idata, `model.query_result`, context
@@ -408,7 +406,7 @@ history, not current workflow instructions.
 - **Fixed architecture.** `ModelConfig` holds only size and geometry.
   - The five loss weights and checkpoint selection (`selection_head`, conditional by default) belong to `TrainingConfig` / `LossWeights`.
   - The flow numerics are constants: 2 Fourier frequencies, 16 Euler steps, trajectory correlation 0.98.
-  - `DEFAULT_N_SAMPLES` is the draw count when `n_samples` is omitted (32 then, 1,000 now).
+  - `DEFAULT_N_SAMPLES` sets the draw count when `n_samples` is omitted (32 at the time of this refactor).
   - A float64 architecture lock test pins losses, samples and every parameter's default-loss gradient of a two-layer model to outputs recorded before the refactor.
 - **A/B bundles.**
   - Original dimensional A/B weights require retraining for semantic representation 2; matching tensor shapes are not compatibility.

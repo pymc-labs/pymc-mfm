@@ -564,7 +564,9 @@ def test_named_and_curve_posteriors_preserve_consumer_visible_uncertainty(
         ),
     )
     prediction = replace(prediction, query=query)
-    tree = prediction_datatree(model._sample_context(prediction), prediction, revision=1)
+    tree = prediction_datatree(
+        model._sample_context(prediction, generator=None), prediction, revision=1
+    )
     posterior = tree["query/posterior"]
     exact = values.astype(np.float64)
     # Consumers must get finite, nonzero spread, not float32 reduction under/overflow.
