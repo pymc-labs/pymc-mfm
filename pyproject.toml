@@ -83,6 +83,7 @@ only-include = [
     "README.md",
     "RELEASE.md",
     "benchmarks",
+    "conda.recipe",
     "docs",
     "environment.yml",
     "examples",
