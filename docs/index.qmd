@@ -96,7 +96,7 @@ include-in-header:
             <li class="is-folder">pymc-mfm</li>
             <li class="is-folder is-l1">data</li>
             <li class="is-l2 is-csv">weekly_sales.csv</li>
-            <li class="is-l1 is-ipynb is-active">quickstart.ipynb</li>
+            <li class="is-l1 is-ipynb is-active">research_example.ipynb</li>
             <li class="is-l1 is-toml">pyproject.toml</li>
             <li class="is-l1 is-md">README.md</li>
           </ul>
@@ -104,7 +104,7 @@ include-in-header:
 
         <div class="mfm-ide__editor">
           <div class="mfm-ide__tabs">
-            <span class="mfm-ide__tab is-active"><i class="is-ipynb"></i>quickstart.ipynb</span>
+            <span class="mfm-ide__tab is-active"><i class="is-ipynb"></i>research_example.ipynb</span>
             <span class="mfm-ide__tab"><i class="is-csv"></i>weekly_sales.csv</span>
           </div>
           <div class="mfm-ide__toolbar">
@@ -307,7 +307,7 @@ include-in-header:
         <span>Python 3.13.9 ('.venv')</span>
       </div>
     </div>
-    <!-- Cell outputs come from running these cells with River 1.0 (pinned revision, torch
+    <!-- Local research example: cell outputs are from River 1.0 (pinned revision, torch
          seed 0) on a synthetic weekly dataset; the figures are the matplotlib SVGs. -->
   </figure>
 
@@ -319,7 +319,7 @@ include-in-header:
       <code class="mfm-install__cmd">pip install pymc-mfm</code>
       <button class="mfm-copy" type="button" data-copy="pip install pymc-mfm" aria-label="Copy install command"></button>
     </div>
-    <p class="mfm-show__note">One install on Python 3.13 or newer gives the client for the hosted River API and local inference; the browser console needs no install. The notebook above runs River 1.0 locally on synthetic data; that needs the River weights, which are shared by invitation. <a href="guide/examples/river_1_quickstart.html">Try the River quickstart <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a></p>
+    <p class="mfm-show__note">One install on Python 3.13 or newer gives the client for the hosted River API and local inference; the browser console needs no install. The River quickstart runs on synthetic data with local or Hub weights, or with a hosted River key and no weights on your machine. <a href="guide/examples/river_1_quickstart.html">Try the River quickstart <svg class="mfm-arrow" aria-hidden="true" focusable="false" viewBox="0 0 256 256" fill="currentColor"><path d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></svg></a></p>
   </div>
 </section>
 

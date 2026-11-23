@@ -79,7 +79,8 @@ def test_top_level_exports_and_torch_free_names():
         from pymc_mfm import idata
         from pymc_mfm.plotting import charts
         assert pymc_mfm.__all__ == [
-            "MFM", "from_pretrained", "list_profiles", "Plots", "set_backend",
+            "MFM", "load", "Model", "Result", "ModelBusy", "NotSupported",
+            "from_pretrained", "list_profiles", "Plots", "set_backend",
             "save_idata", "load_idata", "validate_idata",
         ], pymc_mfm.__all__
         assert pymc_mfm.Plots is charts.Plots

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from traceback import format_exception
 
 import httpx
@@ -5,13 +6,23 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pymc_mfm.client import ApiConnectionError, Forbidden
+from pymc_mfm.client import ApiConnectionError, Forbidden, Gone
+from pymc_mfm.client.analysis import URL_RENEWAL_MARGIN
 
-from .client_fixtures import FakeService, result_record, result_rows, status_record
+from .client_fixtures import URL_EXPIRES, FakeService, result_record, result_rows, status_record
 
 N_DRAWS, N_WEEKS = 5, 2
-FUTURE = "2030-01-08T00:00:00Z"
 PAST = "2020-01-01T00:00:00Z"
+
+
+def soon() -> str:
+    """An expiry inside the renewal margin that has not passed yet.
+
+    The service caps a renewed URL at the analysis expiry, so near that expiry every renewed
+    URL looks like this.
+    """
+    moment = datetime.now(UTC) + timedelta(seconds=URL_RENEWAL_MARGIN / 2)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def draws_file(tmp_path, scenario_id: str, offset: float) -> bytes:
@@ -36,7 +47,7 @@ def file_url(name: str, token: str) -> str:
     return f"https://files.example.com/{name}.nc?sig={token}"
 
 
-def result_with_urls(token: str, expires: str = FUTURE):
+def result_with_urls(token: str, expires: str = URL_EXPIRES):
     rows = result_rows("baseline", "baseline", url=file_url("baseline", token), url_expires=expires)
     rows += result_rows(
         "half", "scenario", base="baseline", url=file_url("half", token), url_expires=expires
@@ -138,6 +149,54 @@ def test_a_url_rejected_again_after_renewal_is_an_error(analysis, service, stora
     with pytest.raises(Forbidden):
         done.draws(["half"])
     assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+
+
+def test_a_url_renewed_inside_the_margin_is_used_without_renewing_again(analysis, service, storage):
+    done = fetch(
+        analysis,
+        service,
+        result_with_urls("old", expires=soon()),
+        result_with_urls("fresh", expires=soon()),
+    )
+    draws = done.draws(["half"])
+    assert draws["outcome"].sel(scenario="half").mean() == 50.0
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+    assert [r.url.params["sig"] for r in storage.requests] == ["fresh"]
+
+
+def test_a_rejected_url_renewed_inside_the_margin_is_retried_without_renewing_again(
+    analysis, service, storage
+):
+    done = fetch(
+        analysis, service, result_with_urls("old"), result_with_urls("fresh", expires=soon())
+    )
+    draws = done.draws(["half"])
+    assert draws["outcome"].sel(scenario="half").mean() == 50.0
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+    assert [r.url.params["sig"] for r in storage.requests] == ["old", "fresh"]
+
+
+def test_rejected_urls_are_renewed_once_for_every_file_of_the_call(analysis, service, storage):
+    done = fetch(analysis, service, result_with_urls("old"), result_with_urls("fresh"))
+    draws = done.draws()
+    assert list(draws["scenario"].values) == ["baseline", "half"]
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+    # The second file uses the renewed URL at once instead of its refused old one.
+    assert [r.url.params["sig"] for r in storage.requests] == ["old", "fresh", "fresh"]
+
+
+@pytest.mark.parametrize(
+    ("first", "tried"),
+    [(result_with_urls("old", expires=PAST), []), (result_with_urls("old"), ["old"])],
+    ids=["expired", "rejected"],
+)
+def test_a_url_already_expired_after_renewal_is_gone(analysis, service, storage, first, tried):
+    # Storage would still serve "fresh": an expired URL is refused, not downloaded.
+    done = fetch(analysis, service, first, result_with_urls("fresh", expires=PAST))
+    with pytest.raises(Gone, match="analysis an_1 expired"):
+        done.draws(["half"])
+    assert len(service.sent("GET", "/v1/analyses/an_1/result")) == 2
+    assert [r.url.params["sig"] for r in storage.requests] == tried
 
 
 def test_failed_draw_renewal_omits_both_signatures_from_the_traceback(client, service):

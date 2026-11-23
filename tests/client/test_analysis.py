@@ -1,4 +1,5 @@
 import json
+import time
 
 import httpx
 import numpy as np
@@ -942,6 +943,27 @@ def test_wait_raises_gone_when_the_analysis_is_deleted_meanwhile(client, service
     )
     with pytest.raises(Gone):
         client.get("an_1").wait(poll=0)
+
+
+def test_wait_raises_gone_for_a_deleted_status_instead_of_polling(client, service, monkeypatch):
+    service.on(
+        "GET",
+        "/v1/analyses/an_1",
+        (200, status_record("running")),
+        (200, status_record("running")),
+        (200, status_record("deleted")),  # then repeated: it never finishes
+    )
+    polls = []
+
+    def sleep(seconds):
+        polls.append(seconds)
+        if len(polls) > 3:
+            pytest.fail("wait kept polling a deleted analysis")
+
+    monkeypatch.setattr(time, "sleep", sleep)
+    with pytest.raises(Gone, match="Analysis an_1 was deleted"):
+        client.get("an_1").wait(poll=0, announce=False)
+    assert len(service.sent("GET", "/v1/analyses/an_1")) == 3 and polls == [0]
 
 
 def test_an_equal_analyze_call_sends_the_same_content_key(client, service, dataset, plan):

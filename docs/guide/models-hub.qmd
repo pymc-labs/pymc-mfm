@@ -30,7 +30,7 @@ A training checkpoint contains model state and run records, not optimizer state.
 
 ## Load from Hugging Face Hub
 
-Hugging Face Hub support is included in the standard [installation](index.qmd#install-client); private repositories still require separate access. Pass a local directory or a Hub model repository to `from_pretrained`. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
+Hugging Face Hub support is included in the standard [installation](index.qmd#install-client); private repositories still require separate access. Pass a local directory or a Hub model repository to `from_pretrained`. A `Path`, an existing directory, an absolute path, or a path that starts with `.` or `~` is local; any other string names a Hub repository, so write `"./models/my-model"` for a relative folder. A repository can contain one root bundle or multiple bundles at `profiles/<name>/`; use `profile=` for the latter. [list_profiles](../reference/inference.list_profiles.qmd) discovers collection identities without downloading weights, reports, or corpora.
 
 ```python
 from pymc_mfm import from_pretrained, list_profiles
@@ -44,7 +44,7 @@ river = from_pretrained(
 )
 ```
 
-River-1 is loaded as `from_pretrained("pymc-labs/mfm", profile="river-1", revision=...)`. Its collection is private to the PyMC Labs organization; see the [River-1 release notes](../models/river-1/index.qmd) for the release record.
+River-1 is loaded as `from_pretrained("pymc-labs/mfm", profile="river-1", revision=...)`; `mfm.load("river-1", **roles)` in [Get started](index.qmd) loads the same profile at a pinned commit. In `mfm.load`, the name `"river-1"` is reserved for that bundle, even if a folder named `river-1` exists; load such a folder as `mfm.load("./river-1", **roles)`. The collection is private to the PyMC Labs organization, so users outside PyMC Labs cannot download River-1's weights: they run River-1 on the [hosted River API](index.qmd#hosted-api) by invitation, or load a bundle of their own. See the [River-1 release notes](../models/river-1/index.qmd) for the release record.
 
 Use a full commit in `revision=` for reproducibility. A branch or tag is resolved to one immutable commit before the bundle files are loaded, and `model.provenance["hub_revision"]` records that resolved commit. Reuse a listed revision to pin a later load.
 
@@ -78,7 +78,8 @@ New Hub repositories default to private; publication never changes an existing r
 
 | Need | Interface |
 | --- | --- |
-| Load a verified local folder | `from_pretrained("path/to/model")` |
+| Load a verified local folder | `from_pretrained("./path/to/model")` |
+| Open a folder or Hub profile for `model.inference(context, query)` | `mfm.load(folder_or_repo, **roles)`, with the same `profile=`, `revision=` and `token=` |
 | Discover a collection's profiles | `list_profiles("org/repo")` |
 | Load one immutable Hub profile | `from_pretrained("org/repo", profile="name", revision="<full-commit>")` |
 | Export a trained checkpoint | `load_checkpoint(...)` then `save_pretrained(...)` |

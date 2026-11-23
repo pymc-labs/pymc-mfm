@@ -59,17 +59,25 @@ def percent_axis(axis) -> None:
     axis.set_major_formatter(PercentFormatter(1.0, decimals=0))
 
 
-def figure_legend(fig, axes) -> None:
-    """One legend below the panels of ``fig``: each label once, as first drawn."""
+def figure_legend(fig, axes, *, notes: str | None = None) -> None:
+    """One legend below the panels of ``fig``: each label once, as first drawn.
+
+    ``notes`` sit left-aligned between the panels and the legend's entries, inside the
+    legend, so the layout keeps room for them below the panels.
+    """
     entries = {}
     for ax in axes:
         for handle, label in zip(*ax.get_legend_handles_labels(), strict=True):
             entries.setdefault(label, handle)
-    fig.legend(
+    titled = {"title": notes, "title_fontsize": 9, "alignment": "left"} if notes else {}
+    legend = fig.legend(
         list(entries.values()),
         list(entries),
         loc="outside lower center",
         ncols=len(entries),
         frameon=False,
         fontsize=9,
+        **titled,
     )
+    if notes:
+        legend.get_title().set_multialignment("left")

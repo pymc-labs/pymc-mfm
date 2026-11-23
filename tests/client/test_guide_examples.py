@@ -1,8 +1,8 @@
-"""The Python examples of the guide and the README run against a fake service.
+"""The HTTP guide and README Python examples run against a fake service.
 
-A tester copies them with only the install line and the two environment variables, so each
-must run as pasted: the Get started script (docs/guide/index.qmd, marked blocks), every block of
-docs/guide/http-api.qmd in page order, and the client example of README.md.
+A tester copies them with only the install line and the two environment variables.
+The HTTP guide's main example runs in page order; the own-data block replaces the
+synthetic data without changing the rest of the script.
 """
 
 import json
@@ -31,7 +31,6 @@ from .client_fixtures import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-GUIDE = ROOT / "docs" / "guide" / "index.qmd"
 CLIENT_PAGE = ROOT / "docs" / "guide" / "http-api.qmd"
 README = ROOT / "README.md"
 PYTHON_BLOCK = re.compile(r"^```python\n(.*?)^```", re.DOTALL | re.MULTILINE)
@@ -40,7 +39,13 @@ URL = "https://site.example/analyses/an_1"
 HISTORY_START, HISTORY_END, PLAN_START = "2024-11-11", "2026-11-02", "2026-11-09"
 PLAN_DATES = list(pd.date_range(PLAN_START, periods=8, freq="7D").strftime("%Y-%m-%d"))
 SCENARIOS = ("half", "tv_to_search")
-# The columns that step 4 of the Get started script prints and saves.
+GRID_SCENARIOS = (
+    "tv_0.5__search_0.5",
+    "tv_0.5__search_1.5",
+    "tv_1.5__search_0.5",
+    "tv_1.5__search_1.5",
+)
+# The columns the HTTP guide's first-plan block prints and saves.
 OUTCOME_COLUMNS = [
     "scenario_id",
     "status",
@@ -53,7 +58,7 @@ OUTCOME_COLUMNS = [
 
 
 def guide_example(name: str) -> str:
-    return marked_example(GUIDE, "guide-example", name)
+    return marked_example(CLIENT_PAGE, "guide-example", name)
 
 
 def section(path: Path, heading: str) -> str:
@@ -74,7 +79,7 @@ def history_record() -> dict:
 
 def compare_rows() -> list[dict]:
     rows = result_rows("baseline", "baseline")
-    for scenario_id in SCENARIOS:
+    for scenario_id in (*SCENARIOS, *GRID_SCENARIOS):
         rows += result_rows(scenario_id, "scenario", base="baseline")
     return rows
 
@@ -88,10 +93,11 @@ def service() -> FakeService:
     fake.on(
         "POST",
         "/v1/analyses",
-        *[(202, {**started(), "analysis_id": f"an_{n}", "url": URL}) for n in (1, 2, 3)],
+        (202, {**started(7), "url": URL}),
+        *[(202, {**started(), "analysis_id": f"an_{n}", "url": URL}) for n in (2, 3)],
         (200, preview_record()),
     )
-    fake.on("GET", "/v1/analyses/an_1", (200, status_record("done", url=URL)))
+    fake.on("GET", "/v1/analyses/an_1", (200, status_record("done", runs_total=7, url=URL)))
     fake.on("GET", "/v1/analyses/an_1/result", (200, result_record(compare_rows())))
     fake.on("GET", "/v1/analyses/an_1/export", (200, export_record(None)))
     fake.on("GET", "/v1/analyses/an_2", (200, weeks_status()))
@@ -128,12 +134,16 @@ def check_upload(service: FakeService, history: pd.DataFrame) -> None:
 
 
 def synthetic_history() -> pd.DataFrame:
-    """Step 1 of the Get started script, run on its own."""
-    return run(guide_example("quickstart").split("# 2.")[0], GUIDE)["history"]
+    """The HTTP guide's synthetic data block, without a network connection."""
+    code = "import numpy as np\nimport pandas as pd\n" + guide_example("synthetic-data")
+    return run(code, CLIENT_PAGE)["history"]
 
 
-def test_get_started_script_and_backtest_run_as_pasted(workdir, service, capsys):
-    run(guide_example("quickstart") + guide_example("backtest"), GUIDE)
+def test_client_page_blocks_run_in_page_order(workdir, service, capsys):
+    walkthrough = CLIENT_PAGE.read_text().split("\n## Use your own data\n", maxsplit=1)[0]
+    blocks = PYTHON_BLOCK.findall(walkthrough)
+    assert len(blocks) == 6  # setup, synthetic data, first plan, backtest, again, previews
+    run("\n".join(blocks), CLIENT_PAGE)
 
     history = synthetic_history()
     assert (history["week"].iloc[0], history["week"].iloc[-1]) == (
@@ -141,51 +151,62 @@ def test_get_started_script_and_backtest_run_as_pasted(workdir, service, capsys)
         pd.Timestamp(HISTORY_END),
     )
     check_upload(service, history)
-    first, backtest = analysis_posts(service)
+    first, backtest, again, preview, explore = analysis_posts(service)
     assert first["plan"]["dates"] == PLAN_DATES
     assert first["plan"]["spend"] == {"tv": [8_000.0] * 8, "search": [6_000.0] * 8}
     assert first["plan"]["controls"] == {"price": [10.0] * 8}
     # The page's arithmetic: 20% of the tv budget (64,000) moves to search (48,000).
-    assert first["scenarios"] == [
+    assert first["scenarios"][:2] == [
         {"id": "half", "multipliers": {"tv": 0.5, "search": 0.5}},
         {"id": "tv_to_search", "multipliers": {"tv": 0.8, "search": {"amount": 60_800}}},
     ]
     assert 0.8 * 8 * 8_000 + 60_800 == 8 * (8_000 + 6_000)
     assert (first["seed"], first["name"]) == (7, "first-scenarios")
+    assert [item["id"] for item in first["scenarios"]] == [*SCENARIOS, *GRID_SCENARIOS]
+    assert first["decision_weeks"] == [1, 8]
     assert backtest["context"] == {"start": HISTORY_START, "end": "2026-08-03"}
     assert backtest["query"] == {"end": HISTORY_END}
     assert (backtest["seed"], backtest["name"]) == (7, "first-backtest")
+    assert [item["channel"] for item in backtest["curves"]] == ["tv", "search"]
+    assert again["scenarios"] == [{"id": "search_x1.5", "multipliers": {"search": 1.5}}]
+    assert preview["preview"] is True and explore["preview"] is True
+    assert [item["channel"] for item in explore["curves"]] == ["tv", "search"]
 
-    # Step 4 saves the outcome rows of the service's table: the baseline and each scenario.
+    # The CSV contains every plan's outcome; the baseline has no paired comparison.
     expected = pd.DataFrame(compare_rows())
     expected = expected[expected["component"] == "outcome"][OUTCOME_COLUMNS]
     saved = pd.read_csv(workdir / "first_analysis.csv")
     pd.testing.assert_frame_equal(saved, expected.reset_index(drop=True), check_dtype=False)
-    assert list(saved["scenario_id"]) == ["baseline", *SCENARIOS]
+    scenario_ids = ["baseline", *SCENARIOS, *GRID_SCENARIOS]
+    assert list(saved["scenario_id"]) == scenario_ids
+    assert saved.loc[0, "status"] == "ok"
+    assert saved.loc[0, ["mean_difference", "simulation_se"]].isna().all()
 
     out, err = capsys.readouterr()
     lines = out.splitlines()
     assert lines[0] == "dataset ds_123 expires 2030-01-08 00:00:00+00:00"
     assert lines[1] == "dataset warning: history is shorter than 75 weeks"
     assert lines[2].split() == OUTCOME_COLUMNS
-    assert [line.split()[0] for line in lines[3:6]] == ["baseline", *SCENARIOS]
-    assert lines[6] == f"result page: {URL}"
+    plan_rows_end = 3 + len(scenario_ids)
+    assert [line.split()[0] for line in lines[3:plan_rows_end]] == scenario_ids
+    assert lines[plan_rows_end] == f"result page: {URL}"
     # The backtest's fit table: two windows times three scores, then its result page.
-    assert lines[7].split() == ["window", "metric", "value", "sd"]
-    fit = [line.split() for line in lines[8:14]]
+    assert lines[plan_rows_end + 1].split() == ["window", "metric", "value", "sd"]
+    fit = [line.split() for line in lines[plan_rows_end + 2 : -1]]
     assert [row[:2] for row in fit] == [
         [window, metric] for window in ("context", "query") for metric in ("r2", "mape", "crps")
     ]
     assert float(fit[0][2]) == fit_record()["context"]["r2"]["value"]
-    assert lines[14:] == [f"backtest result page: {URL}"]
+    assert lines[-1] == f"backtest result page: {URL}"
     # The resume hint that the page describes, once for each analysis.
     assert err.splitlines() == [
         "analysis id: an_1  (resume: client.get('an_1').wait())",
         "analysis id: an_2  (resume: client.get('an_2').wait())",
+        "analysis id: an_3  (resume: client.get('an_3').wait())",
     ]
 
 
-def test_get_started_backtest_without_fit_keeps_the_result_link(workdir, service, capsys):
+def test_http_guide_backtest_without_fit_keeps_the_result_link(workdir, service, capsys):
     service.on(
         "GET",
         "/v1/analyses/an_2",
@@ -194,7 +215,8 @@ def test_get_started_backtest_without_fit_keeps_the_result_link(workdir, service
     failed = result_rows("baseline", "baseline", failed=True)
     service.on("GET", "/v1/analyses/an_2/result", (200, {**result_record(failed), "fit": None}))
 
-    run(guide_example("quickstart") + guide_example("backtest"), GUIDE)
+    names = ("client-setup", "synthetic-data", "first-plan", "backtest")
+    run("\n".join(guide_example(name) for name in names), CLIENT_PAGE)
 
     assert capsys.readouterr().out.splitlines()[-2:] == [
         "No fit scores are available for this backtest.",
@@ -203,7 +225,7 @@ def test_get_started_backtest_without_fit_keeps_the_result_link(workdir, service
 
 
 @pytest.mark.parametrize("weeks", [104, 230])
-def test_own_data_block_replaces_step_1_of_the_script(workdir, service, capsys, weeks):
+def test_own_data_block_replaces_the_synthetic_data(workdir, service, capsys, weeks):
     # Own data ending on the same week as the synthetic data, unsorted on disk. With 230 weeks
     # the block keeps the last 200, so history plus the 8-week plan stays within 208 weeks.
     dates = pd.date_range(end=HISTORY_END, periods=weeks, freq="7D")
@@ -220,10 +242,8 @@ def test_own_data_block_replaces_step_1_of_the_script(workdir, service, capsys, 
     own_file = workdir / "path" / "to" / "your_history.csv"
     own_file.parent.mkdir(parents=True)
     own.sample(frac=1, random_state=0).to_csv(own_file, index=False)
-    script = guide_example("quickstart")
-    step_1 = re.search(r"# 1\..*?(?=# 2\.)", script, re.DOTALL).group(0)
-
-    run(script.replace(step_1, guide_example("own-data") + "\n"), GUIDE)
+    names = ("client-setup", "own-data", "first-plan")
+    run("\n".join(guide_example(name) for name in names), CLIENT_PAGE)
 
     kept = own.tail(min(weeks, 200))
     check_upload(service, kept)
@@ -231,29 +251,6 @@ def test_own_data_block_replaces_step_1_of_the_script(workdir, service, capsys, 
     assert first["plan"]["dates"] == PLAN_DATES
     assert len(kept) + len(first["plan"]["dates"]) <= 208
     assert f"result page: {URL}" in capsys.readouterr().out.splitlines()
-
-
-def test_client_page_blocks_run_in_page_order(workdir, service):
-    blocks = PYTHON_BLOCK.findall(CLIENT_PAGE.read_text())
-    assert len(blocks) == 5  # create a client, analyze, backtest, again, preview and explore
-    run("\n".join(blocks), CLIENT_PAGE)
-
-    check_upload(service, synthetic_history())
-    plan, backtest, again, preview, explore = analysis_posts(service)
-    assert [s["id"] for s in plan["scenarios"]] == [
-        *SCENARIOS,
-        "tv_0.5__search_0.5",
-        "tv_0.5__search_1.5",
-        "tv_1.5__search_0.5",
-        "tv_1.5__search_1.5",
-    ]
-    assert plan["scenarios"][1]["multipliers"] == {"tv": 0.8, "search": {"amount": 60_800}}
-    assert plan["decision_weeks"] == [1, 8]
-    assert backtest["context"] == {"start": HISTORY_START, "end": "2026-08-03"}
-    assert backtest["query"] == {"end": HISTORY_END}
-    assert again["scenarios"] == [{"id": "search_x1.5", "multipliers": {"search": 1.5}}]
-    assert preview["preview"] is True and explore["preview"] is True
-    assert [c["channel"] for c in explore["curves"]] == ["tv", "search"]
 
 
 def test_readme_client_example_runs_as_pasted(workdir, service):

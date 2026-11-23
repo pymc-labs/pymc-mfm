@@ -204,6 +204,8 @@ def from_pretrained(
     if local is not None:
         if revision is not None:
             raise ValueError("revision applies to Hub references, not local directories")
+        if not local.is_dir():
+            raise FileNotFoundError(f"no model folder at {str(local)!r}")
         bundle = _select_bundle(local, profile)
     else:
         repo_id = _repo_id(path_or_repo)
