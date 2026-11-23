@@ -96,9 +96,15 @@ Change only the `load` call to choose where River runs:
 
 River-1's weights are private to the PyMC Labs Hugging Face organization. Outside PyMC
 Labs, run River-1 on the hosted API by invitation, or load a bundle that you trained or
-were given. Hosted inference validates the inputs locally, sends them to River and
-downloads results, not weights. It keeps your dates and raises River's warnings as
-`UserWarning`, also stored in the result.
+were given. Hosted inference checks dates, weekly cadence, missing or infinite values,
+positive outcomes and nonnegative spend locally before any request, sends the inputs to
+River, waits until River finishes (no fixed time limit) and downloads results, not
+weights. It keeps your dates and raises River's warnings from inference and curve sweeps
+as `UserWarning`, also stored in the result. A failure after River accepted an analysis
+carries a note with its ID: calling the model again starts a new analysis, and
+`pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. On
+`engine="local"`, `token=` goes to Hugging Face, so `load` refuses a `token=` equal to
+`MFM_API_KEY`.
 [Get started](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/index.qmd) and the
 [River-1 quickstart notebook](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb)
 walk through this workflow.
@@ -248,9 +254,9 @@ on the inputs, not causal lift.
 
 `n_samples` defaults to 1,000 draws for each marginal in complete inference and for
 query-only prediction. Summaries from few draws change between runs: on the
-River-1 quickstart world, the posterior-mean contribution of one channel moved by
-up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws and by 3% at
-4,000 draws. Cost grows about linearly with draws. Historical **query-only**
+benchmark world of `benchmarks/inference_speed.py`, the posterior-mean contribution of
+one channel moved by up to about 36% across 20 seeds at 32 draws, by 9% at 1,000 draws
+and by 3% at 4,000 draws. Cost grows about linearly with draws. Historical **query-only**
 CPU measurements for River-1 (8 threads, shared Linux x86 machine,
 `benchmarks/inference_speed.py --repeats 3`, median of 3 runs) were
 2.6, 12.3 and 34.8 s at 1,000 draws and 4.4, 22.0 and 69.8 s at 2,000 draws, for 10, 50
@@ -912,9 +918,10 @@ To run the hosted SDK tests on their own:
 uv run --no-sync pytest -q tests/client --confcutdir=tests/client
 ```
 
-`benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1 on
-the quickstart data, read from the local Hugging Face cache (load River-1 once
-while logged in). `--write-reference` saves the seeded draws of one version and
+`benchmarks/inference_speed.py` times `decompose` with 1,000 draws of River-1, read
+from the local Hugging Face cache (load River-1 once while logged in), on its benchmark
+world: 208 synthetic weeks with two channels, a 166-week context and 42 query weeks.
+`--write-reference` saves the seeded draws of one version and
 `--check-reference` compares another version's draws against them; a check fails on any
 flipped graph by default. Write the reference with this script while the other version is
 the one imported (for example `PYTHONPATH=<main checkout>/src`) and the same

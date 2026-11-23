@@ -4,11 +4,11 @@ The world uses PyMC-Marketing's geometric adstock and logistic saturation,
 reproduced here in NumPy so the benchmark needs no extra dependency. River-1
 is loaded through ``from_pretrained`` from the local Hugging Face cache only.
 
-By default the benchmark times the query and context windows of the 208-week
-quickstart world. ``--query-weeks 10,50,150,205`` instead times the query window at
-each forecast horizon: the same generator runs for ``CONTEXT + 205`` weeks, the
-first ``CONTEXT`` (166) weeks are the context and the next ``N`` weeks the query, so
-every level shares one history and differs only in its number of query weeks.
+By default the benchmark times the query and context windows of its 208-week world
+(166 context and 42 query weeks). ``--query-weeks 10,50,150,205`` instead times the
+query window at each forecast horizon: the same generator runs for ``CONTEXT + 205``
+weeks, the first ``CONTEXT`` (166) weeks are the context and the next ``N`` weeks the
+query, so every level shares one history and differs only in its number of query weeks.
 
 ``--write-reference`` stores one seeded result per case together with the median
 times; ``--check-reference`` compares the current code against it: a case fails if any
@@ -73,8 +73,9 @@ def quickstart_observations(
     context: int = CONTEXT,
     query_weeks: int | None = None,
 ) -> dict[str, object]:
-    """The quickstart notebook's simulated world, as ``decompose`` observations.
+    """The benchmark world, as ``decompose`` observations.
 
+    The River-1 quickstart notebook used this world before it moved to ``pymc_mfm.load``.
     The world runs for ``n_weeks``; the first ``context`` rows are the context and the
     next ``query_weeks`` rows (default: all remaining weeks) the query.
     """

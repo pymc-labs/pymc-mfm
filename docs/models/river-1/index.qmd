@@ -213,8 +213,9 @@ MMM on eight CPU cores:
 </figure>
 ```
 
-Smaller problems are quicker. With the library's quickstart world (two channels,
-42 query weeks), 1,000 draws took 2.0 s on an Apple M3 Max CPU.
+Smaller problems are quicker. With the library's benchmark world
+(`benchmarks/inference_speed.py`: two channels, 42 query weeks), 1,000 draws took 2.0 s
+on an Apple M3 Max CPU.
 
 ## Causal structure {#structure}
 

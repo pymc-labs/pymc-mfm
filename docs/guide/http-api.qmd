@@ -196,7 +196,7 @@ An [Analysis](../reference/client.Analysis.qmd) begins queued. Use `status()` fo
 
 `draws()` refreshes expired signed URLs and fetches the result again; it never reruns the analysis. A `done` analysis can still have failed scenario or curve plans: their rows have `status == "failed"` and no numbers. A `failed` analysis means its baseline failed.
 
-::: {.callout-note}
+::: {#read-labels-before-comparing-plans .callout-note}
 ## Read labels before comparing plans
 
 Use `analysis.labels` or `analysis.table.attrs["labels"]` to interpret the result. Intervals are pointwise 5th–95th percentiles of expected outcome, exclude observation noise, and are not causal lift. The service supplies no interval for a difference between scenarios, only the paired mean difference `mean_difference`; `simulation_se` is numerical precision of that mean difference, not model uncertainty.

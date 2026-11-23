@@ -32,17 +32,24 @@ References to `client-v0.1.0` record the earlier client release plan.
   publishing after approval, and `conda.recipe/` builds and tests the conda package
   against conda-forge in CI. The private wheel handoff is removed.
 - **One Python workflow for local and hosted River.** `pymc_mfm.load` opens a
-  local bundle, a Hugging Face profile (`"river-1"` is the pinned River-1 bundle,
-  private to the PyMC Labs organization), or the hosted engine (by invitation). Use
-  `model.inference(context, query)` and `result.plot` on each. Hosted inference
-  validates history and plan locally before contacting River, downloads results,
-  never model weights, keeps the caller's dates, and emits River's warnings as
-  `UserWarning` while storing them in the result. A hosted `response_curves` sweep
-  raises `RuntimeError` and keeps the previous result when a channel has no successful
-  varied level; its charts mark points River warned about. A failure after River
-  accepted an analysis notes its ID and `pymc_mfm.client.Client().get("<id>")` to
-  resume it. `model.network` returns the local research `MFM`; `pymc_mfm.client` and
-  `from_pretrained` remain available.
+  local bundle, a Hugging Face profile (`"river-1"` is reserved for the pinned River-1
+  bundle, private to the PyMC Labs organization; `"./river-1"` is a folder), or the
+  hosted engine (by invitation). Use `model.inference(context, query)` and
+  `result.plot` on each. Hosted inference checks dates, weekly cadence, missing or
+  infinite values, positive outcomes and nonnegative spend locally before any request,
+  waits until River finishes (no fixed time limit), downloads results, never model
+  weights, and keeps the caller's dates. River's warnings from inference and curve
+  sweeps are emitted as `UserWarning` and stored in the result. A hosted
+  `response_curves` sweep stores River's mean and fixed 90% band in
+  `/response_curves/summary` (no draws, so another chart `interval=` raises
+  `NotSupported`); its charts ring the points River warned about and list the warnings
+  in the caption. It raises `RuntimeError` and keeps the previous result when a channel
+  has no successful varied level. A failure after River accepted an analysis carries a
+  note with its ID: calling the model again starts a new analysis, and
+  `pymc_mfm.client.Client(base_url=..., api_key=...).get("<id>")` inspects it. On
+  `engine="local"`, `token=` goes to Hugging Face, so `load` refuses a `token=` equal
+  to `MFM_API_KEY`. `model.network` returns the local research `MFM`;
+  `pymc_mfm.client` and `from_pretrained` remain available.
 - **Local sampling defaults to 1,000 draws.** `MFM.inference`, `MFM.predict`,
   `MFM.predict_batch`, `MFM.sample`, `MFM.sample_context`, `MFM.sample_disentangled`,
   `decompose` and the flow head's `sample` draw 1,000 samples when `n_samples`

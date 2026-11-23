@@ -44,7 +44,7 @@ river = from_pretrained(
 )
 ```
 
-River-1 is loaded as `from_pretrained("pymc-labs/mfm", profile="river-1", revision=...)`; `mfm.load("river-1", **roles)` in [Get started](index.qmd) loads the same profile at a pinned commit. The collection is private to the PyMC Labs organization, so users outside PyMC Labs cannot download River-1's weights: they run River-1 on the [hosted River API](index.qmd#hosted-api) by invitation, or load a bundle of their own. See the [River-1 release notes](../models/river-1/index.qmd) for the release record.
+River-1 is loaded as `from_pretrained("pymc-labs/mfm", profile="river-1", revision=...)`; `mfm.load("river-1", **roles)` in [Get started](index.qmd) loads the same profile at a pinned commit. In `mfm.load`, the name `"river-1"` is reserved for that bundle, even if a folder named `river-1` exists; load such a folder as `mfm.load("./river-1", **roles)`. The collection is private to the PyMC Labs organization, so users outside PyMC Labs cannot download River-1's weights: they run River-1 on the [hosted River API](index.qmd#hosted-api) by invitation, or load a bundle of their own. See the [River-1 release notes](../models/river-1/index.qmd) for the release record.
 
 Use a full commit in `revision=` for reproducibility. A branch or tag is resolved to one immutable commit before the bundle files are loaded, and `model.provenance["hub_revision"]` records that resolved commit. Reuse a listed revision to pin a later load.
 
