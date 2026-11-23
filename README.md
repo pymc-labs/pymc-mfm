@@ -990,8 +990,9 @@ button fixed. HTTP API samples wrap within their narrower panels instead.
 Nothing executes at build time: notebooks and posts render the outputs they were saved
 with. Prefer SVG figures (text files). A PNG or JPEG is binary and needs an entry in
 `.github/public-boundary-allow.toml`, pinned with `sha256`, like a notebook with image
-outputs. The Docs workflow builds the site on every pull request; publishing to GitHub
-Pages is a manual run of that workflow on `main`.
+outputs. [Approved CI](#pull-requests) renders the site for the exact PR commit after
+a repository admin authorizes CI, and again after a PR merges into `main`. To publish
+to GitHub Pages, run the separate **Docs** workflow manually on `main`.
 
 ### What may be committed
 
@@ -999,7 +1000,7 @@ This repository will be public, history included. Commit library code, tests,
 synthetic fixtures and docs. Never commit trained weights, credentials, user data,
 internal deployment names or private results.
 [AGENTS.md](https://github.com/pymc-labs/pymc-mfm/blob/main/AGENTS.md) has the full
-table and the boundary check, which CI runs on every pull request:
+table and the boundary check. Approved CI runs the check before and after merge:
 
 ```bash
 python3 scripts/check_public_boundary.py
