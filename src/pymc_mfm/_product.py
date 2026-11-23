@@ -179,8 +179,9 @@ class Model:
     ) -> Result:
         """Sweep media spend over the first query weeks of a completed inference.
 
-        Return a new result; previous results are unchanged. Hosted results store
-        a reported 90% curve band, not the draws behind that band.
+        Return a new result; previous results are unchanged, and a failed run keeps the
+        model's latest result. Hosted results store a reported 90% curve band, not the
+        draws behind that band.
         """
         from .inference.curves import _levels, select_channels
 
@@ -223,7 +224,7 @@ def _names(names: Sequence[str], role: str) -> tuple[str, ...]:
     values = tuple(names)
     if not values or any(not isinstance(name, str) or not name for name in values):
         raise ValueError(f"{role} must name at least one nonempty column")
-    return values
+    return tuple(str(name) for name in values)
 
 
 def load(
@@ -249,19 +250,23 @@ def load(
     weights. Its credential and service URL are ``token`` and ``base_url``, defaulting
     to ``MFM_API_KEY`` and ``MFM_API_URL``. These credentials are not interchangeable.
     """
-    roles: _Roles = {
-        "date_column": date_column,
-        "target_column": target_column,
-        "channel_columns": _names(channel_columns, "channel_columns"),
-        "control_columns": _names(control_columns, "control_columns"),
-    }
-    columns = (date_column, target_column, *roles["channel_columns"], *roles["control_columns"])
+    channels = _names(channel_columns, "channel_columns")
+    controls = _names(control_columns, "control_columns")
+    columns = (date_column, target_column, *channels, *controls)
     if any(not isinstance(name, str) or not name for name in columns) or len(set(columns)) != len(
         columns
     ):
         raise ValueError(
             "Date, target, channel, and control column names must be distinct and nonempty"
         )
+    # Built-in str on both engines, as local inference stores: NumPy text such as
+    # numpy.str_ cannot be an HDF5 attribute of the result tree.
+    roles: _Roles = {
+        "date_column": str(date_column),
+        "target_column": str(target_column),
+        "channel_columns": channels,
+        "control_columns": controls,
+    }
     if engine == "hosted":
         from ._hosted import HostedEngine
 

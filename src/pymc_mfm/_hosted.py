@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import json
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
 from datetime import date as calendar_date
-from typing import TYPE_CHECKING, Any, cast
+from numbers import Number
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+from xarray import DataArray, Dataset, DataTree
 
 from .client import Analysis, Client, Gone, curve
 from .client._dates import check_plan_follows_history, check_weekly_dates
 from .client._http import _service_options
-from .client._wire import iso_dates, require_columns
-from .client.plots import curve_points
-
-if TYPE_CHECKING:
-    from xarray import DataArray, Dataset, DataTree
+from .client._wire import dataset_body, plan_body, require_columns
+from .client.plots import _warning_list
 
 _BASELINE = "baseline"
+_BAND = ["mean", "p05", "p95"]
 _DRAWS_SCHEMA = "river-draws/1"
 _UNITS = "outcome"
 _WAIT_TIMEOUT = 30 * 60
@@ -40,15 +44,30 @@ _RESERVED = {
 }
 
 
+@dataclass(frozen=True, eq=False)
+class _Submitted:
+    """Private copies of what the latest successful inference sent to River.
+
+    Sweeps read these, never the public tree, which callers can edit. ``tree`` is the
+    result the model holds now; only a sweep of that tree may use these inputs.
+    """
+
+    tree: DataTree
+    context: pd.DataFrame  # the uploaded history columns, in date order
+    query: pd.DataFrame  # the plan columns, in date order
+    query_dates: np.ndarray  # the caller's query timestamps, as datetime64[ns]
+
+
 class HostedEngine:
     def __init__(self, *, roles: dict[str, Any], base_url: str | None, token: str | None) -> None:
         self._roles = roles.copy()
         self._base_url, self._token = _service_options(base_url, token)
+        self._latest: _Submitted | None = None
 
     def _client(self) -> Client:
         return Client(base_url=self._base_url, api_key=self._token)
 
-    def _analyze(
+    def _submit(
         self,
         client: Client,
         context: pd.DataFrame,
@@ -58,7 +77,11 @@ class HostedEngine:
         random_seed: int | None,
         explain_history: bool,
         curves: tuple[dict[str, Any], ...] = (),
-    ) -> Analysis:
+    ) -> tuple[tuple[str, ...], Analysis]:
+        """Upload the history and start one analysis; return the dataset warnings and it.
+
+        Both request bodies are built and checked first, so a bad value sends nothing.
+        """
         roles = self._roles
         columns = {
             "date": roles["date_column"],
@@ -66,6 +89,16 @@ class HostedEngine:
             "spend": roles["channel_columns"],
             "controls": roles["control_columns"],
         }
+        history = dataset_body(context, **columns, name=None)
+        # A reused dataset bypasses the client's upload-time cadence check.
+        check_weekly_dates(history["dates"], "context")
+        wire_plan = plan_body(
+            plan,
+            channels=columns["spend"],
+            controls=columns["controls"],
+            date_column=columns["date"],
+        )
+        check_plan_follows_history(wire_plan, calendar_date.fromisoformat(history["dates"][-1]))
         try:
             dataset = client.datasets.create(context, **columns, reuse=True)
         except Gone:
@@ -75,7 +108,7 @@ class HostedEngine:
             Analysis,
             client.analyze(
                 dataset,
-                plan=plan,
+                plan=wire_plan,
                 explain_history=explain_history,
                 fresh=True,
                 draws=n_samples,
@@ -83,7 +116,7 @@ class HostedEngine:
                 curves=curves,
             ),
         )
-        return analysis.wait(timeout=_WAIT_TIMEOUT, announce=False)
+        return dataset.warnings, analysis
 
     def inference(
         self,
@@ -94,40 +127,52 @@ class HostedEngine:
         random_seed: int | None,
         revision: int,
     ) -> DataTree:
-        xr = _require_xarray()
         roles = self._roles
         date = roles["date_column"]
         target = roles["target_column"]
         channels = roles["channel_columns"]
         controls = roles["control_columns"]
         inputs = [date, *channels, *controls]
-        context, context_days = _ordered(context, date, [*inputs, target], "context", least=2)
-        # A reused dataset bypasses the client's upload-time cadence check.
-        check_weekly_dates(context_days, "context")
-        query, query_days = _ordered(query, date, inputs, "query", least=1)
-        check_plan_follows_history(
-            {"dates": query_days}, calendar_date.fromisoformat(context_days[-1])
+        context, context_dates, context_days = _ordered(
+            context, date, [*inputs, target], "context", least=2
         )
-        context_dates = pd.to_datetime(context_days).to_numpy(dtype="datetime64[ns]")
-        query_dates = pd.to_datetime(query_days).to_numpy(dtype="datetime64[ns]")
+        query, query_dates, query_days = _ordered(query, date, inputs, "query", least=1)
+        history = context.loc[:, [*inputs, target]].copy()
+        plan = query.loc[:, inputs].copy()  # Query outcomes are for plotting only.
 
         with self._client() as client:
-            analysis = self._analyze(
+            dataset_warnings, analysis = self._submit(
                 client,
-                context.loc[:, [*inputs, target]],
-                query.loc[:, inputs],  # Query outcomes are for plotting only.
+                history,
+                plan,
                 n_samples=n_samples,
                 random_seed=random_seed,
                 explain_history=True,
             )
-            _baseline(analysis.table, analysis.id)
-            draws = _baseline_draws(analysis.draws([_BASELINE]))
+            with _resumable(analysis.id):
+                analysis.wait(timeout=_WAIT_TIMEOUT, announce=False)
+                baseline = _baseline(analysis.table, analysis.id)
+                draws = _baseline_draws(analysis.draws([_BASELINE]))
 
+        notes = list(
+            dict.fromkeys(
+                [
+                    *dataset_warnings,
+                    *(note for value in baseline["warnings"] for note in _warning_list(value)),
+                ]
+            )
+        )
         seed = {} if random_seed is None else {"random_seed": random_seed}
         provenance = json.dumps(
-            {"engine": "hosted", "analysis_id": analysis.id, "draws_schema": _DRAWS_SCHEMA, **seed}
+            {
+                "engine": "hosted",
+                "analysis_id": analysis.id,
+                "draws_schema": _DRAWS_SCHEMA,
+                **seed,
+                **({"warnings": notes} if notes else {}),
+            }
         )
-        root = xr.Dataset(
+        root = Dataset(
             attrs={
                 "schema_version": 1,
                 "inference_revision": revision,
@@ -140,31 +185,32 @@ class HostedEngine:
             }
         )
         groups = {"/": root}
-        for window, frame, dates, observed in (
+        for window, frame, dates, days, observed in (
             (
                 "context",
-                context,
+                history,
                 context_dates,
-                context[target].to_numpy(dtype=np.float64, copy=True),
+                context_days,
+                history[target].to_numpy(dtype=np.float64, copy=True),
             ),
-            ("query", query, query_dates, _query_outcome(query, target)),
+            ("query", plan, query_dates, query_days, _query_outcome(query, target)),
         ):
             attrs = {
                 "window": window,
                 "provenance": provenance,
                 "units": _UNITS,
                 "n_samples": n_samples,
-                "context_length": len(context),
+                "context_length": len(history),
             }
             posterior, labels, families = _posterior(
-                draws, window, dates, channels, controls, n_samples
+                draws, window, dates, days, channels, controls, n_samples
             )
             path = f"/{window}"
-            groups[path] = xr.Dataset(attrs=attrs)
+            groups[path] = Dataset(attrs=attrs)
             posterior.attrs = attrs
             groups[f"{path}/posterior"] = _freeze(posterior)
             groups[f"{path}/constant_data"] = _freeze(
-                xr.Dataset(
+                Dataset(
                     {
                         "component_family": ("component", np.asarray(families, dtype=str)),
                         "media": (("date", "channel"), _matrix(frame, channels)),
@@ -180,9 +226,13 @@ class HostedEngine:
             )
             if observed is not None:
                 groups[f"{path}/observed_data"] = _freeze(
-                    xr.Dataset({"outcome": ("date", observed)}, coords={"date": dates})
+                    Dataset({"outcome": ("date", observed)}, coords={"date": dates})
                 )
-        return xr.DataTree.from_dict(groups)
+        tree = DataTree.from_dict(groups)
+        self._latest = _Submitted(tree, history, plan, query_dates)
+        for note in notes:
+            warnings.warn(note, UserWarning, stacklevel=3)
+        return tree
 
     def response_curves(
         self,
@@ -194,9 +244,12 @@ class HostedEngine:
         n_samples: int,
         random_seed: int | None,
     ) -> DataTree:
-        xr = _require_xarray()
-        context = self._frame(tree, "context")
-        plan = self._frame(tree, "query").iloc[:weeks]
+        latest = self._latest
+        if latest is None or latest.tree is not tree:
+            raise RuntimeError(
+                "Run model.inference() again: this tree is not the model's latest hosted result."
+            )
+        plan = latest.query.iloc[:weeks]
         with np.errstate(over="ignore", invalid="ignore"):
             total_media = _matrix(plan, channels).sum(axis=0)
             media = total_media[:, None] * np.asarray(levels)
@@ -204,91 +257,106 @@ class HostedEngine:
             raise ValueError("Hosted response curve media must be finite and nonnegative")
 
         with self._client() as client:
-            analysis = self._analyze(
+            _, analysis = self._submit(
                 client,
-                context,
+                latest.context,
                 plan,
                 n_samples=n_samples,
                 random_seed=random_seed,
                 explain_history=False,
                 curves=tuple(curve(channel, levels) for channel in channels),
             )
-            table = analysis.table
-            baseline = _baseline(table, analysis.id)
-        stats = _curve_stats(table, baseline, channels, levels)
+            with _resumable(analysis.id):
+                analysis.wait(timeout=_WAIT_TIMEOUT, announce=False)
+                table = analysis.table
+                baseline = _baseline(table, analysis.id)
+        stats, notes = _curve_summary(table, baseline, channels, levels, analysis.id)
         dims = ("channel", "level")
-        coords = {"channel": np.asarray(channels, dtype=str), "level": np.asarray(levels)}
+        coords = {
+            "channel": np.asarray(channels, dtype=str),
+            "level": np.asarray(levels),
+            "date": latest.query_dates[:weeks],
+        }
         path = "/response_curves"
         groups = {
             node.path: node.to_dataset(inherit=False)
             for node in tree.subtree
             if node.path != path and not node.path.startswith(f"{path}/")
         }
-        groups[path] = xr.Dataset(
+        groups[path] = Dataset(
             attrs={
                 "weeks": weeks,
                 "n_samples": n_samples,
                 "units": _UNITS,
                 "source_inference_revision": tree.attrs["inference_revision"],
                 "source_provenance": tree["/query"].attrs["provenance"],
+                "provenance": json.dumps({"engine": "hosted", "analysis_id": analysis.id}),
                 **({} if random_seed is None else {"random_seed": random_seed}),
             }
         )
         groups[f"{path}/summary"] = _freeze(
-            xr.Dataset(
+            Dataset(
                 {
                     "mean": (dims, stats[..., 0]),
                     "low": (dims, stats[..., 1]),
                     "high": (dims, stats[..., 2]),
                     "media": (dims, media),
                     "total_media": ("channel", total_media),
+                    "warning": (dims, notes),
                 },
                 coords=coords,
                 attrs={"interval": 0.9},
             )
         )
-        return xr.DataTree.from_dict(groups, name=tree.name)
-
-    def _frame(self, tree: DataTree, window: str) -> pd.DataFrame:
-        """Reconstruct only the uploaded columns from a completed inference."""
-        roles = self._roles
-        window_node = tree.children[window]
-        constants = window_node.children["constant_data"].to_dataset(inherit=False)
-        columns = {roles["date_column"]: constants["date"].to_numpy()}
-        for variable, dim in (("media", "channel"), ("controls", "control")):
-            values = constants[variable]
-            for name in roles[f"{dim}_columns"]:
-                columns[name] = values.sel({dim: name}).to_numpy()
-        if window == "context":
-            observed = window_node.children["observed_data"].to_dataset(inherit=False)
-            columns[roles["target_column"]] = observed["outcome"].to_numpy()
-        return pd.DataFrame(columns)
+        updated = DataTree.from_dict(groups, name=tree.name)
+        # The model now holds this tree, so the next sweep starts from it.
+        self._latest = replace(latest, tree=updated)
+        return updated
 
 
-def _require_xarray():
+@contextmanager
+def _resumable(analysis_id: str) -> Iterator[None]:
+    """Name an accepted analysis on any later failure, so it is resumed, not run again."""
     try:
-        import h5netcdf  # noqa: F401
-        import xarray
-    except ImportError as error:
-        raise ImportError(
-            "Hosted model results need xarray and h5netcdf; install pymc-mfm[draws]."
-        ) from error
-    return xarray
+        yield
+    except BaseException as error:
+        quoted = json.dumps(analysis_id)
+        error.add_note(
+            f"River accepted analysis {quoted}. "
+            f"Resume it with pymc_mfm.client.Client().get({quoted})."
+        )
+        raise
 
 
 def _ordered(
     frame: pd.DataFrame, date: str, required: list[str], window: str, *, least: int
-) -> tuple[pd.DataFrame, list[str]]:
+) -> tuple[pd.DataFrame, np.ndarray, list[str]]:
+    """Rows in date order, their own timestamps and the calendar days River receives.
+
+    Dates follow the local engine's rules: no numeric labels and no time zones.
+    """
     if not isinstance(frame, pd.DataFrame) or len(frame) < least:
         raise ValueError(f"{window} must be a pandas DataFrame with at least {least} rows")
     if not frame.columns.is_unique:
         raise ValueError(f"{window} column names must be unique")
     require_columns(frame, required)
-    if pd.api.types.is_numeric_dtype(frame[date].dtype):
+    values = frame[date]
+    if pd.api.types.is_numeric_dtype(values.dtype) or any(
+        isinstance(value, (Number, np.bool_)) for value in values
+    ):
         raise ValueError(f"{window} column {date!r} must contain dates, not numeric row labels")
-    days = iso_dates(frame[date], name=date)
-    order = sorted(range(len(days)), key=days.__getitem__)
-    return frame.iloc[order], [days[index] for index in order]
+    try:
+        dates = pd.DatetimeIndex(pd.to_datetime(values, errors="raise"))
+        if dates.tz is not None:
+            raise ValueError("dates must be timezone-naive; convert them before inference")
+        dates = dates.as_unit("ns")
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"invalid dates in {window} column {date!r}: {error}") from None
+    if dates.hasnans:
+        raise ValueError(f"{window} column {date!r} has missing dates")
+    order = np.argsort(dates.asi8, kind="stable")
+    dates = dates[order]
+    return frame.iloc[order], dates.to_numpy(), dates.strftime("%Y-%m-%d").tolist()
 
 
 def _matrix(frame: pd.DataFrame, names: tuple[str, ...]) -> np.ndarray:
@@ -402,19 +470,23 @@ def _posterior(
     draws: Dataset,
     window: str,
     dates: np.ndarray,
+    days: list[str],
     channels: tuple[str, ...],
     controls: tuple[str, ...],
     n_samples: int,
 ) -> tuple[Dataset, list[str], list[str]]:
-    import xarray as xr
+    """The window's draws, labelled with the caller's own ``dates``.
 
+    River received only the calendar ``days``, so its labels are checked against those.
+    """
     path = f"/{window}/posterior"
     prefix = "history_" if window == "context" else ""
     wire_date = f"{prefix}date"
     index = _coordinate(draws, wire_date, path)
-    # Compare the full labels, not just axis lengths or calendar days.
+    # Compare every label, not just the axis length.
     if index.dtype.kind not in "MOUS" or not np.array_equal(
-        pd.to_datetime(index, errors="coerce").to_numpy(), dates
+        pd.to_datetime(index, errors="coerce").to_numpy(),
+        np.asarray(days, dtype="datetime64[ns]"),
     ):
         raise ValueError(f"{path}: hosted {wire_date!r} labels differ from the {window} inputs")
     draw_index = _coordinate(draws, "draw", path)
@@ -480,45 +552,72 @@ def _posterior(
             ):
                 variables["graph"] = (("chain", "draw", "edge"), values.astype(np.int8)[None])
                 coords["edge"] = names
-    return xr.Dataset(variables, coords=coords), labels, families
+    return Dataset(variables, coords=coords), labels, families
 
 
-def _curve_stats(
+def _curve_summary(
     table: pd.DataFrame,
     baseline: pd.DataFrame,
     channels: tuple[str, ...],
     levels: tuple[float, ...],
-) -> np.ndarray:
-    columns = ["mean", "p05", "p95"]
+    analysis_id: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """The reported mean, 5th and 95th percentiles and warnings at each channel and level.
+
+    A requested point whose run failed is a gap: NaN statistics and no warning. A channel
+    with no successful level other than 1 has no curve, so that raises ``RuntimeError``.
+    Rows of successful runs are checked here, before a missing mean could look like a gap.
+    """
+    stats = np.full((len(channels), len(levels), len(_BAND)), np.nan)
+    notes = np.full((len(channels), len(levels)), "", dtype=object)
+    varied = [level for level in levels if level != 1]
     # The plan already contains only the swept weeks, so whole-query bands cover that window.
-    successful = cast("pd.DataFrame", table.loc[table["status"].eq("ok")])
-    points = curve_points(successful)
-    points = points[(points["base_scenario_id"] == _BASELINE) & (points["level"] != 1)]
-    points = points.set_index(["varied_channel", "level"])
-    if not points.index.is_unique:
+    rows = table.loc[
+        table["kind"].eq("curve")
+        & table["status"].eq("ok")
+        & table["base_scenario_id"].eq(_BASELINE)
+        & table["component"].eq(table["varied_channel"])
+        & table["varied_channel"].isin(channels)
+        & table["level"].isin(varied)
+    ]
+    if rows.duplicated(["varied_channel", "level"]).any():
         raise ValueError("Hosted response curves returned duplicate channel/level points")
-    index = pd.MultiIndex.from_product([channels, levels])
-    stats = points.reindex(index)[columns].to_numpy(dtype=np.float64, copy=True)
-    stats = stats.reshape(len(channels), len(levels), len(columns))
+    points = list(
+        zip(
+            rows["varied_channel"],
+            rows["level"],
+            rows[_BAND].to_numpy(dtype=np.float64, na_value=np.nan),
+            rows["warnings"],
+            strict=True,
+        )
+    )
     if 1.0 in levels:
-        level_one = levels.index(1.0)
-        for row, channel in enumerate(channels):
-            base = baseline.loc[baseline["component"] == channel, columns]
-            band = base.to_numpy(dtype=np.float64)
-            if len(base) != 1 or not np.isfinite(band).all():
+        for channel in channels:
+            base = baseline.loc[baseline["component"].eq(channel)]
+            if len(base) != 1:
                 raise ValueError(
                     f"Hosted response curves are missing baseline statistics for {channel!r}"
                 )
-            stats[row, level_one] = band[0]
-    missing = np.isnan(stats).all(axis=-1)
-    valid = np.isfinite(stats).all(axis=-1) & (stats[..., 1] <= stats[..., 2])
-    invalid = np.argwhere(~(missing | valid))
-    if invalid.size:
-        row, col = invalid[0]
-        raise ValueError(
-            f"Hosted response curve statistics for {channels[row]!r} at level "
-            f"{levels[col]} do not have a finite 90% band"
+            band = base[_BAND].to_numpy(dtype=np.float64, na_value=np.nan)[0]
+            points.append((channel, 1.0, band, base["warnings"].iloc[0]))
+    for channel, level, band, warned in points:
+        if not (np.isfinite(band).all() and band[1] <= band[2]):
+            raise ValueError(
+                f"Hosted response curve statistics for {channel!r} at level {level:g} "
+                "do not have a finite 90% band"
+            )
+        at = (channels.index(channel), levels.index(level))
+        stats[at] = band
+        notes[at] = "\n".join(dict.fromkeys(_warning_list(warned)))
+    columns = [index for index, level in enumerate(levels) if level != 1]
+    failed = [
+        channel
+        for channel, means in zip(channels, stats[:, columns, 0], strict=True)
+        if np.isnan(means).all()
+    ]
+    if failed:
+        raise RuntimeError(
+            f"Hosted analysis {analysis_id!r} has no successful response curve level "
+            f"other than 1 for channels {failed}"
         )
-    if not valid.any():
-        raise RuntimeError("Hosted response curves have no successful requested points")
-    return stats
+    return stats, notes.astype(str)

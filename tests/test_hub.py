@@ -135,6 +135,8 @@ def test_local_and_cli_profile_layout_do_not_require_hub(model, batch, tmp_path,
     _assert_same_draws(model, from_pretrained(tmp_path / "profiles" / "A"), batch)
     with pytest.raises(FileNotFoundError):
         from_pretrained(tmp_path)
+    with pytest.raises(FileNotFoundError, match="no model folder"):
+        from_pretrained(tmp_path / "missing", profile="A")
     with pytest.raises(ValueError):
         from_pretrained(tmp_path / "profiles" / "A", profile="B")
 
