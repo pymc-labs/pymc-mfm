@@ -13,6 +13,8 @@
      initPhoneMenu     below 992px, the navbar panel also lists the current section's sidebar pages
      initMenuSheet     below 992px the menu covers the page: scroll lock while open, Escape closes
      initPhoneToc      below 992px (site.css) a closed "On this page" list under the page title
+     initFolderAddress shows ".../index.html" as ".../" in the address bar, so links to a section of
+                       the open page scroll and do not load the page again
    Search additions (labels, result paths, the empty message) are in search.js.
    Colours, icons and motion are in site.css; this file only adds classes, attributes and labels. */
 (() => {
@@ -274,19 +276,14 @@
     copy.querySelectorAll(".sidebar-item-toggle").forEach((el) => el.remove());
     copy.querySelectorAll(".sidebar-section").forEach((el) => el.classList.add("show"));
     nav.append(copy);
-    nav.addEventListener("click", (event) => {
-      // A link to this same page (a section anchor) leaves the panel open otherwise.
-      const link = event.target.closest("a[href]");
-      if (link && link.pathname === window.location.pathname && window.bootstrap) {
-        window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
-      }
-    });
     panel.append(nav);
 
   }
 
   /* Below 992px the menu is a sheet over the page (site.css): lock the page scroll while it
-     is open, and close it on Escape. */
+     is open, close it on Escape, and close it after a tap on a link that scrolls inside this
+     same page (an anchor such as Get access on the guide, or a page link to the open page),
+     which would otherwise leave the sheet over the target. */
   function initMenuSheet() {
     const panel = document.getElementById("navbarCollapse");
     if (!panel) return;
@@ -297,6 +294,26 @@
       if (event.key !== "Escape" || !panel.classList.contains("show") || !window.bootstrap) return;
       window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
       document.querySelector(".navbar-toggler")?.focus();
+    });
+    panel.addEventListener("click", (event) => {
+      const link = event.target.closest("a[href]");
+      if (!link || !panel.classList.contains("show") || !window.bootstrap) return;
+      // "/docs/guide/" and "/docs/guide/index.html" are the same page.
+      const page = (path) => path.replace(/index\.html$/, "");
+      if (page(link.pathname) !== page(window.location.pathname) || link.host !== window.location.host) return;
+      if (link.hash) {
+        // The page cannot scroll under the sheet (scroll lock): go to the anchor after it closes.
+        event.preventDefault();
+        panel.addEventListener(
+          "hidden.bs.collapse",
+          () => {
+            window.history.pushState(null, "", link.href);
+            document.getElementById(decodeURIComponent(link.hash.slice(1)))?.scrollIntoView();
+          },
+          { once: true },
+        );
+      }
+      window.bootstrap.Collapse.getOrCreateInstance(panel, { toggle: false }).hide();
     });
     window.matchMedia("(min-width: 992px)").addEventListener("change", (event) => {
       if (event.matches) root.classList.remove("mfm-menu-open");
@@ -338,7 +355,19 @@
     (title.closest("#title-block-header") || title).after(toc);
   }
 
+  /* Quarto rewrites every link of a page to the folder form ("guide/#install", never
+     "guide/index.html#install"). On a page opened as ".../index.html" a link to one of its own
+     sections is then a different address: the browser loads the page again and can lose the
+     place. Show the folder form in the address bar, which is the address Quarto's links use. */
+  function initFolderAddress() {
+    const { protocol, pathname, search, hash } = window.location;
+    if (!protocol.startsWith("http") || !pathname.endsWith("/index.html")) return;
+    const folder = pathname.slice(0, -"index.html".length);
+    window.history.replaceState(window.history.state, "", folder + search + hash);
+  }
+
   [
+    initFolderAddress,
     initModelsMenu,
     initConsoleButton,
     initExternalLinks,
