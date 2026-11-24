@@ -1,0 +1,62 @@
+/* Closing section, slides 23–28: knowledge frontier, limitations, open questions, conclusions, papers, thanks. */
+
+/* 23 · Knowledge frontier: a conceptual illustration whose geometry js/scenes/closing.js draws. */
+#knowledge-frontier .split-copy .kf-lede { margin-top: 28px; }
+#knowledge-frontier .split-copy .kf-key { display: flex; align-items: center; gap: 18px; margin-top: 44px; font-size: 22px; line-height: 1.4; }
+#knowledge-frontier .kf-key-dots { flex: none; width: 52px; height: 10px; fill: var(--aqua); }
+#knowledge-frontier .kf-legend { list-style: none; margin: 28px 0 0; padding: 28px 0 0; border-top: 1px solid var(--rule); display: grid; gap: 16px; }
+#knowledge-frontier .kf-legend li { display: flex; align-items: center; gap: 18px; font-size: 22px; line-height: 1.4; }
+#knowledge-frontier .kf-swatch { flex: none; width: 28px; height: 28px; }
+#knowledge-frontier .split-copy .fig-note { margin-top: 44px; max-width: 46ch; font-size: 16px; line-height: 1.45; color: var(--ink-3); }
+#knowledge-frontier .kf-figure { width: 100%; height: 100%; overflow: visible; }
+#knowledge-frontier .kf-band { fill: rgb(159 170 226 / 15%); }
+#knowledge-frontier .kf-edge { fill: none; stroke: var(--periwinkle); stroke-width: 2; stroke-linejoin: round; }
+#knowledge-frontier .kf-circle { fill: rgb(180 231 221 / 6%); stroke: var(--aqua); stroke-width: 2; }
+#knowledge-frontier .kf-points circle { fill: var(--aqua); transform-box: fill-box; transform-origin: center; }
+#knowledge-frontier.is-active .kf-points circle { animation: kf-point-in 700ms var(--ease-out) both; animation-delay: var(--d, 0ms); }
+@keyframes kf-point-in { from { opacity: 0; transform: scale(0); } }
+#knowledge-frontier .kf-figure text { font-family: var(--font-body); font-size: 17px; fill: var(--ink-2); }
+#knowledge-frontier .kf-figure .kf-title { font-size: 24px; font-weight: 500; fill: var(--ink); }
+#knowledge-frontier .kf-figure .kf-reach-title { font-size: 22px; font-weight: 500; fill: var(--periwinkle); }
+#knowledge-frontier .kf-leader { fill: none; stroke: var(--periwinkle); stroke-width: 1.5; }
+#knowledge-frontier .kf-ring { fill: none; stroke: rgb(247 247 247 / 50%); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 0 10; }
+#knowledge-frontier .kf-connectors path { fill: none; stroke: rgb(247 247 247 / 70%); stroke-width: 1.5; stroke-dasharray: 1; }
+#knowledge-frontier .kf-mark-ring { stroke-width: 2; }
+#knowledge-frontier .kf-mark.is-support .kf-mark-ring { fill: rgb(180 231 221 / 16%); stroke: var(--aqua); }
+#knowledge-frontier .kf-mark.is-support .kf-mark-dot { fill: var(--aqua); }
+#knowledge-frontier .kf-mark.is-inside .kf-mark-ring { fill: #384971; stroke: var(--periwinkle); }
+#knowledge-frontier .kf-mark.is-inside .kf-mark-dot { fill: var(--periwinkle); }
+#knowledge-frontier .kf-mark.is-beyond .kf-mark-ring { fill: var(--navy); stroke: var(--peach); }
+#knowledge-frontier .kf-mark.is-beyond .kf-mark-dot { fill: var(--peach); }
+
+/* Step 1 fades the frontier in while the scene script grows it; step 2 draws the probes one distance out. */
+#knowledge-frontier.has-steps .kf-frontier:not(.is-built) { opacity: 0; }
+#knowledge-frontier .kf-frontier-label.is-built { transition-delay: 900ms; }
+#knowledge-frontier.has-steps .kf-probes:not(.is-built) { opacity: 0; }
+#knowledge-frontier .kf-connectors path { transition: stroke-dashoffset 800ms var(--ease-out); }
+#knowledge-frontier .kf-probes .kf-mark { transform-box: fill-box; transform-origin: center; transition: opacity 400ms var(--ease-out) 650ms, transform 500ms var(--ease-out) 650ms; }
+#knowledge-frontier .kf-probes .kf-distance { transition: opacity 400ms var(--ease-out) 650ms; }
+#knowledge-frontier.has-steps .kf-probes:not(.is-built) .kf-connectors path { stroke-dashoffset: 1; transition: none; }
+#knowledge-frontier.has-steps .kf-probes:not(.is-built) .kf-mark { opacity: 0; transform: scale(.4); transition: none; }
+#knowledge-frontier.has-steps .kf-probes:not(.is-built) .kf-distance { opacity: 0; transition: none; }
+
+/* 27 · Papers: the public white paper (QR) and the first page of the academic paper. */
+#papers .papers { position: absolute; left: 80px; right: 80px; top: 130px; bottom: 110px; display: grid; grid-template-columns: minmax(0, 1fr) 520px; column-gap: 112px; align-items: center; }
+#papers .papers-copy h2 { font-size: 64px; line-height: 1.12; letter-spacing: -.03em; text-wrap: balance; }
+#papers .papers-copy h2 span { display: block; color: var(--accent-2); }
+#papers .papers-lede { margin: 36px 0 0; max-width: 58ch; font-size: 25px; line-height: 1.55; color: var(--ink-2); }
+#papers .papers-qr { display: flex; align-items: center; gap: 32px; margin-top: 56px; }
+#papers .papers-qr img { flex: none; display: block; width: 225px; height: 225px; }
+#papers .papers-qr p { margin: 0; font-size: 22px; line-height: 1.45; color: var(--ink-2); }
+#papers .papers-qr a { display: block; margin-top: 6px; color: var(--ink); text-decoration-thickness: 1px; text-decoration-color: var(--accent-2); }
+#papers .papers-preprint { margin: 0; }
+#papers .papers-preprint img { display: block; width: 100%; height: auto; background: #fff; border: 1px solid var(--rule); }
+#papers .papers-preprint figcaption { margin-top: 18px; }
+
+/* 28 · Thanks */
+#thanks .thanks-copy { position: absolute; left: 80px; top: 250px; }
+#thanks .thanks-copy h2 { font-size: 113px; line-height: 1.12; letter-spacing: -.035em; }
+#thanks .thanks-copy h2 span { display: block; }
+#thanks .thanks-copy h2 span:nth-child(2) { color: var(--peach); }
+#thanks .thanks-copy h2 span:nth-child(3) { color: var(--aqua); }
+#thanks .thanks-questions { margin: 64px 0 0; font-size: 41px; line-height: 1.45; color: var(--ink-2); }

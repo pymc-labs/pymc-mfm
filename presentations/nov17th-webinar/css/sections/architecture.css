@@ -1,0 +1,110 @@
+/* Architecture section: the MFM overview (slide 10), the world generator (11) and the transformer
+   encoder with its graph-conditional flow (12). Diagram SVGs are drawn at stage scale (1 unit = 1px),
+   so their labels keep the deck's 15px minimum. */
+
+/* ---- 10 · Architecture overview ---- */
+#architecture-overview .arch-figure { position: absolute; left: 80px; right: 80px; top: 300px; bottom: 100px; margin: 0; display: grid; place-items: center; }
+#architecture-overview .arch-diagram { display: block; width: 1760px; height: 648px; overflow: visible; }
+#architecture-overview .arch-node rect { fill: var(--panel); stroke: rgb(12 31 64 / 18%); stroke-width: 1; }
+#architecture-overview .arch-node.is-dark rect { fill: var(--navy); stroke: var(--navy); }
+#architecture-overview .arch-node text { text-anchor: middle; }
+#architecture-overview .arch-node .t { font-size: 20px; font-weight: 500; fill: var(--ink); }
+#architecture-overview .arch-node .s { font-size: 19px; font-weight: 500; fill: var(--ink); }
+#architecture-overview .arch-node .l { font-size: 19px; fill: var(--ink); }
+#architecture-overview .arch-node .a { font-size: 17px; fill: var(--ink-2); }
+#architecture-overview .arch-node .b { font-size: 15px; fill: var(--ink-3); }
+#architecture-overview .arch-node.is-dark .t { fill: var(--white); }
+#architecture-overview .arch-node.is-dark .a { fill: #c4cfe2; }
+#architecture-overview .arch-node.is-dark .b { fill: #aab7cc; }
+#architecture-overview .arch-edge { fill: none; stroke: var(--ink-2); stroke-width: 1.6; }
+#architecture-overview .arch-edge.is-target { stroke-dasharray: 7 5; }
+#architecture-overview .arch-edge.is-graph { stroke-dasharray: 2 4; }
+#architecture-overview .arch-head path, #architecture-overview .arch-dot { fill: var(--ink-2); }
+#architecture-overview .arch-label { font-size: 17px; fill: var(--ink-2); text-anchor: middle; }
+#architecture-overview .arch-label.is-small { font-size: 15px; }
+#architecture-overview .arch-label.is-strong { font-weight: 500; fill: var(--ink); text-anchor: start; }
+#architecture-overview .arch-caps { font-size: 15px; font-weight: 500; letter-spacing: .08em; fill: var(--ink-2); }
+#architecture-overview .arch-legend text { font-size: 16px; fill: var(--ink-2); }
+#architecture-overview .arch-key text { font-size: 16px; fill: var(--ink-3); text-anchor: end; }
+/* Signal pulse: a short dash the scene moves along the built inference connectors. */
+#architecture-overview .arch-pulse { fill: none; stroke: var(--accent); stroke-width: 3.5; visibility: hidden; }
+#architecture-overview.is-pulsing .arch-pulse { visibility: visible; }
+#architecture-overview.has-steps .arch-step:not(.is-built) { opacity: 0; }
+
+/* ---- 11 · World generator ---- */
+#create-worlds .world-lab { width: 100%; max-width: 1040px; display: grid; gap: 20px; }
+#create-worlds .world-card { background: var(--panel); border: 1px solid var(--rule); border-radius: 16px; padding: 22px 30px; }
+#create-worlds .world-card h3 { font-size: 25px; line-height: 1.25; letter-spacing: -.015em; }
+#create-worlds .world-series-head { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+#create-worlds .world-legend { display: flex; gap: 28px; margin: 0; padding: 0; list-style: none; font-size: 17px; color: var(--ink-2); }
+#create-worlds .world-legend li { display: flex; align-items: center; gap: 10px; }
+#create-worlds .world-key { display: block; flex: none; }
+#create-worlds .world-key.is-current { width: 10px; height: 10px; border-radius: 50%; background: var(--navy); }
+#create-worlds .world-key.is-start { width: 26px; height: 2px; background: #a7b0c0; }
+#create-worlds .world-change { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-top: 14px; }
+#create-worlds .world-tag { display: flex; align-items: center; gap: 10px; min-width: 300px; margin: 0; padding: 8px 16px; border-radius: 8px; background: rgb(12 31 64 / 5%); font-size: 17px; line-height: 1.4; color: var(--ink-2); }
+#create-worlds .world-tag-sign { width: .7em; text-align: center; color: var(--ink); }
+#create-worlds .world-tag-value { margin: 0; font-size: 22px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+#create-worlds .world-chart { height: 240px; margin-top: 12px; }
+#create-worlds .world-chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+#create-worlds .world-axes line { stroke: rgb(12 31 64 / 9%); stroke-width: 1; }
+#create-worlds .world-axes text { font-size: 15px; fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+#create-worlds .world-area { fill: rgb(12 31 64 / 4%); }
+#create-worlds .world-start { fill: none; stroke: #a7b0c0; stroke-width: 2; stroke-linejoin: round; }
+#create-worlds .world-line { fill: none; stroke: var(--navy); stroke-width: 2.75; stroke-linejoin: round; stroke-linecap: round; }
+#create-worlds .world-dot { fill: var(--panel); stroke: var(--navy); stroke-width: 2.5; }
+#create-worlds .world-series-foot { display: flex; justify-content: space-between; gap: 24px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--rule); font-size: 16px; color: var(--ink-3); }
+#create-worlds .world-params-head { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 10px; }
+#create-worlds .world-params-head p { margin: 4px 0 0; font-size: 17px; color: var(--ink-3); }
+#create-worlds .world-actions { display: flex; gap: 12px; }
+#create-worlds .world-actions button { min-height: 44px; padding: 0 20px; border: 1px solid var(--navy); border-radius: 8px; background: var(--navy); color: var(--white); font-size: 17px; font-weight: 500; transition: background-color 200ms var(--ease-out), border-color 200ms var(--ease-out); }
+#create-worlds .world-actions button:hover { background: #1d3966; border-color: #1d3966; }
+#create-worlds .world-actions .world-reset { background: transparent; border-color: rgb(12 31 64 / 28%); color: var(--navy); }
+#create-worlds .world-actions .world-reset:hover { background: rgb(12 31 64 / 5%); border-color: rgb(12 31 64 / 40%); }
+#create-worlds .world-param { display: grid; grid-template-columns: 150px minmax(0, 1fr) 68px; align-items: center; column-gap: 24px; min-height: 46px; }
+#create-worlds .world-param label { font-size: 19px; color: var(--ink); }
+#create-worlds .world-param output { justify-self: end; min-width: 62px; padding: 3px 10px; border-radius: 6px; background: rgb(12 31 64 / 5%); font-size: 17px; text-align: center; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* Themed range: 40px hit area, 6px track filled to the thumb centre, white thumb with a navy ring. */
+#create-worlds input[type="range"] { --fill: .25; -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 40px; margin: 0; background: transparent; cursor: pointer; }
+#create-worlds input[type="range"]:focus-visible { outline-offset: 2px; }
+#create-worlds .world-status { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#create-worlds input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--navy) 0 calc(11px + (100% - 22px) * var(--fill)), rgb(12 31 64 / 13%) 0); }
+#create-worlds input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; margin-top: -8px; border: 2px solid var(--navy); border-radius: 50%; background: var(--panel); }
+#create-worlds input[type="range"]::-moz-range-track { height: 6px; border-radius: 3px; background: rgb(12 31 64 / 13%); }
+#create-worlds input[type="range"]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--navy); }
+#create-worlds input[type="range"]::-moz-range-thumb { box-sizing: border-box; width: 22px; height: 22px; border: 2px solid var(--navy); border-radius: 50%; background: var(--panel); }
+
+/* ---- 12 · Transformer encoder and graph-conditional flow ---- */
+#transformer-encoder .split { grid-template-columns: 600px minmax(0, 1fr); column-gap: 72px; }
+#transformer-encoder .tx-figure { position: relative; width: 1080px; height: 804px; margin: 0; }
+#transformer-encoder .tx-diagram { display: block; width: 1080px; height: 804px; overflow: visible; }
+#transformer-encoder .tx-heading { font-size: 22px; font-weight: 500; fill: var(--ink); text-anchor: middle; }
+#transformer-encoder .tx-subheading { font-size: 16px; fill: var(--ink-3); text-anchor: middle; }
+#transformer-encoder .tx-column { font-size: 15px; font-weight: 500; letter-spacing: .08em; fill: var(--ink-2); text-anchor: middle; }
+#transformer-encoder .tx-block { fill: none; stroke: rgb(12 31 64 / 14%); stroke-width: 1; }
+#transformer-encoder .tx-block-label { font-size: 15px; font-weight: 500; letter-spacing: .08em; fill: var(--ink-3); }
+#transformer-encoder .tx-edge { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+#transformer-encoder .tx-head path { fill: var(--ink-2); }
+#transformer-encoder .tx-h { font-size: 17px; font-weight: 500; fill: var(--ink); text-anchor: middle; }
+#transformer-encoder .tx-feature, #transformer-encoder .tx-input { font-size: 15px; fill: var(--ink-2); text-anchor: middle; }
+#transformer-encoder .tx-node rect { fill: var(--panel); stroke: rgb(12 31 64 / 18%); stroke-width: 1; transition: stroke 450ms var(--ease-out), fill 450ms var(--ease-out); }
+#transformer-encoder .tx-node.is-dark rect { fill: var(--navy); stroke: var(--navy); }
+#transformer-encoder .tx-node text { text-anchor: middle; }
+#transformer-encoder .tx-node .t { font-size: 18px; font-weight: 500; fill: var(--ink); }
+#transformer-encoder .tx-node .a, #transformer-encoder .tx-node .n { font-size: 15px; fill: var(--ink-2); }
+#transformer-encoder .tx-node .b { font-size: 15px; fill: var(--ink-3); }
+#transformer-encoder .tx-node.is-dark .t { fill: var(--white); }
+#transformer-encoder .tx-node.is-dark .a { fill: #c4cfe2; }
+#transformer-encoder .tx-node.is-dark .b { fill: #aab7cc; }
+#transformer-encoder .tx-sum circle { fill: var(--panel); stroke: var(--ink-2); stroke-width: 1.5; transition: stroke 450ms var(--ease-out), fill 450ms var(--ease-out); }
+#transformer-encoder .tx-sum path { fill: none; stroke: var(--ink-2); stroke-width: 1.5; }
+/* The authored signal: nodes light as it climbs, a short dash travels the connectors between them. */
+#transformer-encoder .tx-node.is-lit rect, #transformer-encoder .tx-sum.is-lit circle { stroke: var(--accent); stroke-width: 2; fill: #edf6f3; }
+#transformer-encoder .tx-node.is-dark.is-lit rect { stroke: var(--aqua); fill: var(--navy); }
+#transformer-encoder .tx-signal { fill: none; stroke: var(--accent); stroke-width: 3.5; visibility: hidden; }
+#transformer-encoder.is-signalling .tx-signal { visibility: visible; }
+#transformer-encoder.has-steps .tx-step:not(.is-built) { opacity: 0; }
+#transformer-encoder .tx-notes { position: absolute; left: 580px; top: 703px; width: 500px; }
+#transformer-encoder .tx-notes p { margin: 0; font-size: 16px; line-height: 25px; color: var(--ink-3); }
+#transformer-encoder .tx-notes p:first-child { color: var(--ink-2); }
+#transformer-encoder .tx-oplus { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 1.3; }

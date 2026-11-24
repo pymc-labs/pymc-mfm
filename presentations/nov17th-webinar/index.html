@@ -1,0 +1,1375 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Marketing Foundational Models — PyMC Labs webinar, 17 November 2026.">
+  <title>Marketing Foundational Models · 17 November 2026 · PyMC Labs</title>
+  <link rel="icon" href="../../docs/assets/favicon/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../../docs/assets/fonts/fonts.css">
+  <link rel="stylesheet" href="css/deck.css">
+  <link rel="stylesheet" href="css/sections/problem.css">
+  <link rel="stylesheet" href="css/sections/architecture.css">
+  <link rel="stylesheet" href="css/sections/mechanics.css">
+  <link rel="stylesheet" href="css/sections/results.css">
+  <link rel="stylesheet" href="css/sections/closing.css">
+  <script src="js/field.js" defer></script>
+  <script src="js/chrome.js" defer></script>
+  <script src="js/scenes/problem.js" defer></script>
+  <script src="js/scenes/architecture.js" defer></script>
+  <script src="js/scenes/mechanics.js" defer></script>
+  <script src="js/scenes/results.js" defer></script>
+  <script src="js/scenes/closing.js" defer></script>
+  <script src="js/deck.js" defer></script>
+</head>
+<body data-theme="dark">
+  <main id="deck" class="stage" aria-label="Webinar presentation">
+    <canvas id="field" width="1920" height="1080" aria-hidden="true"></canvas>
+
+    <section class="slide slide-cover" id="cover" data-title="Marketing Foundational Models" data-summary="Bayesian media mix modeling without refitting for every dataset." data-theme="dark" data-field="contour" aria-labelledby="cover-title">
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="cover-copy">
+        <h1 id="cover-title">Marketing<br><span class="aqua">Foundational Models</span></h1>
+        <p class="cover-subtitle">Bayesian media mix modeling<br>without refitting for every dataset.</p>
+        <p class="river-caption">Introducing <strong>River</strong>, our first Marketing Foundational Model.</p>
+      </div>
+      <footer class="cover-authors">
+        <p class="authors-label">The research team · PyMC Labs</p>
+        <p>Carlos Trujillo · Teemu Säilynoja · Camilo Saldarriaga<br>Masataka Hayashi · Thomas Wiecki · Luca Fiaschi</p>
+      </footer>
+      <aside class="notes" hidden>
+        <p>Welcome to the PyMC Labs webinar on Marketing Foundational Models.</p>
+        <p>Today we introduce River: a pretrained model that reads weekly sales, spend and controls and estimates their contributions without fitting a new model to every dataset.</p>
+        <p>River is an early research prototype. Its validation so far is on synthetic data.</p>
+      </aside>
+    </section>
+
+    <section class="slide slide-agenda" id="agenda" data-title="Agenda" data-summary="Community context, the modeling bottleneck, our solution, how it works, the results, future work and Q&amp;A." data-theme="dark" data-field="ribbon-low" aria-labelledby="agenda-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="agenda-heading">
+        <h2 id="agenda-title">Agenda</h2>
+        <span class="heading-rule" aria-hidden="true"></span>
+      </div>
+      <ol class="agenda-list">
+        <li><a href="#measure-marketing"><span class="agenda-number" aria-hidden="true">01</span><div><h3>Current state of the community</h3><p>Where marketing mix modeling stands today.</p></div></a></li>
+        <li><a href="#decision-landscape"><span class="agenda-number" aria-hidden="true">02</span><div><h3>The problem</h3><p>Latent effects, competing assumptions and limited time.</p></div></a></li>
+        <li><a href="#start-backwards"><span class="agenda-number" aria-hidden="true">03</span><div><h3>Our solution</h3><p>A shared foundation for marketing inference.</p></div></a></li>
+        <li><a href="#create-worlds"><span class="agenda-number" aria-hidden="true">04</span><div><h3>How does it work?</h3><p>The knowledge-prior, simulation, transformers and flow matching.</p></div></a></li>
+        <li><a href="#can-it-decompose"><span class="agenda-number" aria-hidden="true">05</span><div><h3>The results</h3><p>Decomposition, causal structure, forecasting and inference speed.</p></div></a></li>
+        <li><a href="#knowledge-frontier"><span class="agenda-number" aria-hidden="true">06</span><div><h3>Next steps and future work</h3><p>Current limitations and the next research questions.</p></div></a></li>
+        <li><a href="#thanks"><span class="agenda-number" aria-hidden="true">07</span><div><h3>Q&amp;A</h3><p>Your questions for the team.</p></div></a></li>
+      </ol>
+      <aside class="notes" hidden>
+        <p>Community context: establish where marketing mix modeling stands today. Skip the executive summary and key insights; move directly into the modeling problem.</p>
+        <p>The problem: contributions are latent, several specifications can explain the same history, and analysts have limited time and specialist expertise to evaluate their assumptions.</p>
+        <p>Our solution: shift repeated model development into shared pre-training. Introduce the vision for marketing inference across the scenarios represented by a knowledge-prior.</p>
+        <p>How does it work: define the knowledge-prior, simulate worlds with known truth, and train a transformer to infer structure and time-dependent contributions. Explain PFNs and flow matching, then introduce River as the first implementation.</p>
+        <p>The results: organize the evidence around decomposition under correct specification and misspecification, causal discovery, forecasting trade-offs, out-of-prior scenarios and inference speed. Distinguish demonstrated results from proposed evaluations; use verified benchmarks for any numerical claims.</p>
+        <p>Next steps: explain current limitations and the uneven boundary of the model's knowledge, then discuss research toward richer marketing and mediation systems.</p>
+        <p>Close with questions and discussion with the team.</p>
+      </aside>
+    </section>
+
+    <section class="slide slide-team" id="team" data-title="The team behind River" data-summary="Meet the six PyMC Labs authors of the Marketing Foundational Models white paper." data-theme="light" data-field="ribbon" aria-labelledby="team-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="team-heading">
+        <h2 id="team-title">The team behind <span>River</span></h2>
+        <p>Research, engineering and marketing science at PyMC Labs.</p>
+      </div>
+      <!-- Public author list and portraits: https://www.pymc-labs.com/white-papers/marketing-foundation-models -->
+      <ul class="team-list">
+        <li><img src="assets/team/carlos-trujillo.jpg" alt="Carlos Trujillo" width="220" height="220"><a href="https://www.pymc-labs.com/team/carlos-trujillo" target="_blank" rel="noopener">Carlos<br>Trujillo</a></li>
+        <li><img src="assets/team/teemu-sailynoja.jpg" alt="Teemu Säilynoja" width="220" height="220"><a href="https://www.pymc-labs.com/team/teemu-saeilynoja" target="_blank" rel="noopener">Teemu<br>Säilynoja</a></li>
+        <li><img src="assets/team/camilo-saldarriaga.jpg" alt="Camilo Saldarriaga" width="220" height="220"><a href="https://www.pymc-labs.com/team/camilo-saldarriaga" target="_blank" rel="noopener">Camilo<br>Saldarriaga</a></li>
+        <li><img src="assets/team/masataka-hayashi.jpg" alt="Masataka Hayashi" width="220" height="220"><a href="https://www.pymc-labs.com/team/masataka-hayashi" target="_blank" rel="noopener">Masataka<br>Hayashi</a></li>
+        <li><img src="assets/team/thomas-wiecki.jpg" alt="Thomas Wiecki" width="220" height="220"><a href="https://www.pymc-labs.com/team/thomas-wiecki" target="_blank" rel="noopener">Thomas<br>Wiecki</a></li>
+        <li><img src="assets/team/luca-fiaschi.jpg" alt="Luca Fiaschi" width="220" height="220"><a href="https://www.pymc-labs.com/team/luca-fiaschi" target="_blank" rel="noopener">Luca<br>Fiaschi</a></li>
+      </ul>
+      <p class="team-credit">Authors of the Marketing Foundational Models white paper<span>pymc-labs.com/team</span></p>
+      <aside class="notes" hidden>
+        <p>Introduce the six authors of the PyMC Labs Marketing Foundational Models white paper: Carlos, Teemu, Camilo, Masataka, Thomas and Luca.</p>
+        <p>This is the research team, not a claim that all six are presenting this webinar.</p>
+      </aside>
+    </section>
+
+    <!-- BEGIN:problem (slides 4–8) -->
+    <section class="slide" id="measure-marketing" data-title="How do we measure marketing?" data-summary="Bayesian marketing mix models quantify how each marketing channel contributes to sales." data-theme="light" data-field="none" data-section="01 · Current state of the community" data-section-index="1" aria-labelledby="measure-marketing-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="measure-marketing-title" class="reveal">How do we measure marketing?</h2>
+          <p class="reveal" style="--d: 120ms">Bayesian marketing mix models (Bayesian MMMs) are advanced statistical frameworks using Bayesian inference to quantify marketing channel effectiveness on sales, enabling marketers to make accurate, flexible, and robust resource allocation decisions.</p>
+        </div>
+        <div class="split-visual">
+          <figure class="pb-figure">
+            <div class="pb-sum" role="img" aria-label="Illustrative series: y(t) is the sum of two components, f1(t) and f2(t). Each peak of y(t) lines up with a peak of one component.">
+              <svg viewBox="0 0 980 700" width="980" height="700" focusable="false">
+                <g class="pb-axes"></g>
+                <path class="pb-area pb-y"/>
+                <path class="pb-area pb-f1"/>
+                <path class="pb-area pb-f2"/>
+                <g class="pb-guides"></g>
+                <path class="pb-line pb-y"/>
+                <path class="pb-line pb-f1 draw" pathLength="1" style="--dur: 1200ms; --d: 200ms"/>
+                <path class="pb-line pb-f2 draw" pathLength="1" style="--dur: 1200ms; --d: 350ms"/>
+                <g class="pb-markers"></g>
+              </svg>
+              <math class="pb-label pb-y"><mi>y</mi><mo stretchy="false">(</mo><mi>t</mi><mo stretchy="false">)</mo><mo>=</mo><msub><mi>f</mi><mn>1</mn></msub><mo stretchy="false">(</mo><mi>t</mi><mo stretchy="false">)</mo><mo>+</mo><msub><mi>f</mi><mn>2</mn></msub><mo stretchy="false">(</mo><mi>t</mi><mo stretchy="false">)</mo></math>
+              <math class="pb-label pb-f1"><msub><mi>f</mi><mn>1</mn></msub><mo stretchy="false">(</mo><mi>t</mi><mo stretchy="false">)</mo></math>
+              <math class="pb-label pb-f2"><msub><mi>f</mi><mn>2</mn></msub><mo stretchy="false">(</mo><mi>t</mi><mo stretchy="false">)</mo></math>
+              <math class="pb-label pb-t"><mi>t</mi></math>
+            </div>
+            <figcaption class="fig-note">Illustrative</figcaption>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>How do we measure marketing? Bayesian marketing mix models, or Bayesian MMMs, are advanced statistical frameworks that use Bayesian inference to quantify how effective each marketing channel is at driving sales, so marketers can make accurate, flexible and robust resource allocation decisions.</p>
+        <p>The figure is illustrative. What we observe, y(t), is the sum of contributions we never see directly, here f1(t) and f2(t). Every peak in the total lines up with a peak in one component.</p>
+        <p>An MMM works backwards from the observed total to those contributions.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="decision-landscape" data-title="An infinite decision landscape" data-summary="Every modeling decision changes the structural causal model behind an MMM." data-theme="light" data-field="none" data-section="02 · The problem" data-section-index="2" aria-labelledby="decision-landscape-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="decision-landscape-title" class="reveal">An infinite decision landscape</h2>
+          <p class="reveal" style="--d: 120ms">Building a regression model takes many iterations where someone scientifically tests <em>how each change affects the model’s understanding of the world.</em> Each model is a structural causal model and must be coherent with how the real world behaves.</p>
+        </div>
+        <div class="split-visual">
+          <ol class="pb-variants" aria-label="Five variants of one regression model, each highlighting one modeling decision">
+            <li class="pb-variant"><div class="reveal" style="--d: 200ms"><math display="block">
+              <msub><mi>y</mi><mi>t</mi></msub><mo>=</mo>
+              <munder class="pb-term"><munder><mrow><mi>α</mi></mrow><mo stretchy="true">⏟</mo></munder><mtext class="pb-term-label">Baseline</mtext></munder>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><mi>M</mi></munderover><msub><mi>β</mi><mi>m</mi></msub><mi>f</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>m</mi><mo>,</mo><mi>t</mi></mrow></msub><mo stretchy="false">)</mo>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>c</mi><mo>=</mo><mn>1</mn></mrow><mi>C</mi></munderover><msub><mi>γ</mi><mi>c</mi></msub><msub><mi>z</mi><mrow><mi>c</mi><mo>,</mo><mi>t</mi></mrow></msub>
+              <mo>+</mo><msub><mi>ε</mi><mi>t</mi></msub>
+            </math></div></li>
+            <li class="pb-variant"><div class="reveal" style="--d: 320ms"><math display="block">
+              <msub><mi>y</mi><mi>t</mi></msub><mo>=</mo><mi>α</mi>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><mi>M</mi></munderover><msub><mi>β</mi><mi>m</mi></msub><mi>f</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>m</mi><mo>,</mo><mi>t</mi></mrow></msub><mo stretchy="false">)</mo>
+              <mo>+</mo><munder class="pb-term"><munder><mrow><munderover><mo>∑</mo><mrow><mi>c</mi><mo>=</mo><mn>1</mn></mrow><mi>C</mi></munderover><msub><mi>γ</mi><mi>c</mi></msub><msub><mi>z</mi><mrow><mi>c</mi><mo>,</mo><mi>t</mi></mrow></msub></mrow><mo stretchy="true">⏟</mo></munder><mtext class="pb-term-label">Additional covariates</mtext></munder>
+              <mo>+</mo><msub><mi>ε</mi><mi>t</mi></msub>
+            </math></div></li>
+            <li class="pb-variant"><div class="reveal" style="--d: 440ms"><math display="block">
+              <msub><mi>y</mi><mi>t</mi></msub><mo>=</mo><mi>α</mi>
+              <mo>+</mo><munder class="pb-term"><munder><mrow><munderover><mo>∑</mo><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><mi>M</mi></munderover><msub><mi>β</mi><mi>m</mi></msub><mi>f</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>m</mi><mo>,</mo><mi>t</mi></mrow></msub><mo stretchy="false">)</mo></mrow><mo stretchy="true">⏟</mo></munder><mtext class="pb-term-label">Media effect</mtext></munder>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>c</mi><mo>=</mo><mn>1</mn></mrow><mi>C</mi></munderover><msub><mi>γ</mi><mi>c</mi></msub><msub><mi>z</mi><mrow><mi>c</mi><mo>,</mo><mi>t</mi></mrow></msub>
+              <mo>+</mo><msub><mi>ε</mi><mi>t</mi></msub>
+            </math></div></li>
+            <li class="pb-variant"><div class="reveal" style="--d: 560ms"><math display="block">
+              <msub><mi>y</mi><mi>t</mi></msub><mo>=</mo><mi>α</mi>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><mi>M</mi></munderover><msub><mi>β</mi><mi>m</mi></msub><mi>f</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>m</mi><mo>,</mo><mi>t</mi></mrow></msub><mo stretchy="false">)</mo>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>c</mi><mo>=</mo><mn>1</mn></mrow><mi>C</mi></munderover><msub><mi>γ</mi><mi>c</mi></msub><msub><mi>z</mi><mrow><mi>c</mi><mo>,</mo><mi>t</mi></mrow></msub>
+              <mo>+</mo><munder class="pb-term"><munder><mrow><msub><mi>ε</mi><mi>t</mi></msub></mrow><mo stretchy="true">⏟</mo></munder><mtext class="pb-term-label">Noise</mtext></munder>
+            </math></div></li>
+            <li class="pb-variant"><div class="reveal" style="--d: 680ms"><math display="block">
+              <munder class="pb-term"><munder><mrow><msub><mi>y</mi><mi>t</mi></msub></mrow><mo stretchy="true">⏟</mo></munder><mtext class="pb-term-label">Observed outcome</mtext></munder><mo>=</mo><mi>α</mi>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><mi>M</mi></munderover><msub><mi>β</mi><mi>m</mi></msub><mi>f</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>m</mi><mo>,</mo><mi>t</mi></mrow></msub><mo stretchy="false">)</mo>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>c</mi><mo>=</mo><mn>1</mn></mrow><mi>C</mi></munderover><msub><mi>γ</mi><mi>c</mi></msub><msub><mi>z</mi><mrow><mi>c</mi><mo>,</mo><mi>t</mi></mrow></msub>
+              <mo>+</mo><msub><mi>ε</mi><mi>t</mi></msub>
+            </math></div></li>
+          </ol>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>Building a regression model takes many iterations, where someone scientifically tests how each change affects the model’s understanding of the world. Each model is a structural causal model and must be coherent with how the real world behaves.</p>
+        <p>The five equations are the same model. Each one highlights a decision the analyst has to make: the baseline, the additional covariates, the media effect, the noise and even the observed outcome.</p>
+        <p>Every choice changes the model; together they form an effectively infinite decision landscape.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="no-right-answer" data-title="Sometimes there is no “right” answer" data-summary="Different model versions can fit the same observations equally well." data-theme="light" data-field="none" data-section="02 · The problem" data-section-index="2" aria-labelledby="no-right-answer-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="no-right-answer-title" class="reveal">Sometimes there is no <span class="pb-right">“right”</span> answer</h2>
+          <p class="reveal" style="--d: 120ms">In marketing science, a model is only as good as the assumptions that hold it. Just like in any other area of science, where the “truth” is often unobserved, latent, and irreproducible, in marketing, there is no retrospective validation that can truly justify or inform our actions.</p>
+        </div>
+        <div class="split-visual">
+          <figure class="pb-figure">
+            <div class="pb-versions" role="img" aria-label="Illustrative fits: model versions 1, 2, 3 and n each fit the same observed series with R² = 0.90, but with different model fits and 90% HDI bands.">
+              <ul class="pb-legend">
+                <li><svg viewBox="0 0 40 14" width="40" height="14" focusable="false"><line class="pb-observed" x1="1" x2="39" y1="7" y2="7"/></svg>Observed series</li>
+                <li><svg viewBox="0 0 40 14" width="40" height="14" focusable="false"><line class="pb-legend-fit" x1="1" x2="39" y1="7" y2="7"/></svg>Model fit</li>
+                <li><svg viewBox="0 0 40 14" width="40" height="14" focusable="false"><rect class="pb-legend-band" x="1" y="1" width="38" height="12" rx="2"/></svg>90% HDI</li>
+              </ul>
+              <ol class="pb-version-list">
+                <li class="pb-version pb-v1" style="--row: 0ms">
+                  <svg viewBox="0 0 760 128" width="760" height="128" focusable="false"><path class="pb-band"/><path class="pb-observed"/><path class="pb-fit draw" pathLength="1"/><line class="pb-axis"/></svg>
+                  <p class="pb-version-label"><span>Model version 1</span><math><msup><mi>R</mi><mn>2</mn></msup><mo>=</mo><mn>0.90</mn></math></p>
+                </li>
+                <li class="pb-version pb-v2" style="--row: 240ms">
+                  <svg viewBox="0 0 760 128" width="760" height="128" focusable="false"><path class="pb-band"/><path class="pb-observed"/><path class="pb-fit draw" pathLength="1"/><line class="pb-axis"/></svg>
+                  <p class="pb-version-label"><span>Model version 2</span><math><msup><mi>R</mi><mn>2</mn></msup><mo>=</mo><mn>0.90</mn></math></p>
+                </li>
+                <li class="pb-version pb-v3" style="--row: 480ms">
+                  <svg viewBox="0 0 760 128" width="760" height="128" focusable="false"><path class="pb-band"/><path class="pb-observed"/><path class="pb-fit draw" pathLength="1"/><line class="pb-axis"/></svg>
+                  <p class="pb-version-label"><span>Model version 3</span><math><msup><mi>R</mi><mn>2</mn></msup><mo>=</mo><mn>0.90</mn></math></p>
+                </li>
+                <li class="pb-version-more" style="--row: 640ms"><svg viewBox="0 0 8 34" width="8" height="34" focusable="false"><circle cx="4" cy="4" r="2.6"/><circle cx="4" cy="17" r="2.6"/><circle cx="4" cy="30" r="2.6"/></svg></li>
+                <li class="pb-version pb-vn" style="--row: 720ms">
+                  <svg viewBox="0 0 760 128" width="760" height="128" focusable="false"><path class="pb-band"/><path class="pb-observed"/><path class="pb-fit draw" pathLength="1"/><line class="pb-axis"/></svg>
+                  <math class="pb-t"><mi>t</mi></math>
+                  <p class="pb-version-label"><span>Model version <i>n</i></span><math><msup><mi>R</mi><mn>2</mn></msup><mo>=</mo><mn>0.90</mn></math></p>
+                </li>
+              </ol>
+            </div>
+            <figcaption class="fig-note">Illustrative fits · same observations and R²</figcaption>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>In marketing science, a model is only as good as the assumptions that hold it. Just like in any other area of science, the “truth” is often unobserved, latent and irreproducible; in marketing there is no retrospective validation that can truly justify or inform our actions.</p>
+        <p>The fits are illustrative: several model versions explain the same observed series with the same R² of 0.90, yet their fits and 90% HDI bands differ.</p>
+        <p>Goodness of fit alone cannot tell us which version is right.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="underestimate-uncertainty" data-title="We always underestimate uncertainty" data-summary="Our uncertainty is conditional on the model specification we chose." data-theme="light" data-field="none" data-section="02 · The problem" data-section-index="2" aria-labelledby="underestimate-uncertainty-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="underestimate-uncertainty-title" class="reveal">We always underestimate uncertainty</h2>
+          <p class="reveal" style="--d: 120ms">Whether you are building frequentist or Bayesian linear regressions, like PyMC-Marketing, you are constantly conditioning the uncertainty of your estimates on the decisions you made when building the model.</p>
+        </div>
+        <div class="split-visual">
+          <figure class="pb-figure">
+            <div class="pb-density" role="img" aria-label="Illustrative posterior densities of one estimate: a narrow density conditional on one model specification, and a wider density across specifications.">
+              <svg viewBox="0 0 960 440" width="960" height="440" focusable="false">
+                <g class="reveal"><g class="pb-bars step-custom" data-step="1" data-caption="The density widens across specifications."></g></g>
+                <path class="pb-density-one draw" pathLength="1" style="--dur: 1400ms; --d: 300ms"/>
+                <line class="pb-axis"/>
+              </svg>
+              <p class="pb-density-label pb-label-one reveal" style="--d: 500ms">Conditional on one specification</p>
+              <p class="pb-density-label pb-label-all" data-step="1">Across specifications</p>
+            </div>
+            <div class="pb-model reveal" style="--d: 200ms"><math display="block">
+              <msub><mi>y</mi><mi>t</mi></msub><mo>=</mo><mi>α</mi>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>m</mi><mo>=</mo><mn>1</mn></mrow><mi>M</mi></munderover><msub><mi>β</mi><mi>m</mi></msub><mi>f</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>m</mi><mo>,</mo><mi>t</mi></mrow></msub><mo stretchy="false">)</mo>
+              <mo>+</mo><munderover><mo>∑</mo><mrow><mi>c</mi><mo>=</mo><mn>1</mn></mrow><mi>C</mi></munderover><msub><mi>γ</mi><mi>c</mi></msub><msub><mi>z</mi><mrow><mi>c</mi><mo>,</mo><mi>t</mi></mrow></msub>
+              <mo>+</mo><msub><mi>ε</mi><mi>t</mi></msub>
+            </math></div>
+            <figcaption class="fig-note">Illustrative</figcaption>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>Whether you are building frequentist or Bayesian linear regressions, like PyMC-Marketing, you are constantly conditioning the uncertainty of your estimates on the decisions you made when building the model.</p>
+        <p>Click: the narrow density is the posterior conditional on one specification. Across the specifications we could reasonably have chosen, the same estimate is far less certain.</p>
+        <p>The uncertainty we report rarely includes the uncertainty of choosing the model.</p>
+      </aside>
+    </section>
+
+    <section class="slide slide-statement tone-aqua" id="experimentation-luxury" data-title="Experimentation is a “luxury”" data-summary="Many organizations can’t afford experimentation." data-theme="light" data-field="none" data-section="02 · The problem" data-section-index="2" aria-labelledby="experimentation-luxury-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="statement">
+        <h2 id="experimentation-luxury-title"><span class="quiet reveal">Experimentation is a “luxury”,</span> <span class="pb-strong reveal" style="--d: 220ms">and many organizations can’t afford it.</span></h2>
+      </div>
+      <aside class="notes" hidden>
+        <p>Experimentation is a “luxury”, and many organizations can’t afford it.</p>
+        <p>Without experiments, the modeling decisions from the previous slides carry the whole weight of the analysis.</p>
+      </aside>
+    </section>
+
+    <!-- END:problem -->
+
+    <!-- BEGIN:mechanics-backwards (slide 9) -->
+    <section class="slide" id="start-backwards" data-title="What if we could start backwards?" data-summary="Instead of testing one assumption at a time, assume many things at the beginning, validate them together and keep the best path forward." data-theme="light" data-field="none" data-section="03 · Our solution" data-section-index="3" aria-labelledby="start-backwards-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="start-backwards-title" class="reveal">What if we could start backwards?</h2>
+          <p class="reveal" style="--d: 120ms">What if, instead of assuming one thing, taking action, measuring the result, and iterating sequentially, we could assume many things at the beginning, validate them all together, and identify the best path forward? How can we shift from a sequential way of learning to a parallel one?</p>
+        </div>
+        <div class="split-visual">
+          <div class="mech-sb">
+            <figure class="mech-seq reveal" style="--d: 240ms">
+              <figcaption class="mech-mode">Sequential<span class="mech-sr">: assume one thing, act, measure, then iterate.</span></figcaption>
+              <svg viewBox="0 0 1000 206" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
+                <g class="mech-seq-shapes">
+                  <path class="mech-flow" d="M110 70H610"/>
+                  <path class="mech-flow" d="M610 70C610 186 110 186 110 70"/>
+                  <path class="mech-head" d="M337 63L349 70L337 77Z"/>
+                  <path class="mech-head" d="M587 63L599 70L587 77Z"/>
+                  <path class="mech-head" d="M103 93L110 81L117 93Z"/>
+                  <circle class="mech-dot" cx="110" cy="70" r="11"/>
+                  <circle class="mech-dot" cx="360" cy="70" r="11"/>
+                  <circle class="mech-dot" cx="610" cy="70" r="11"/>
+                </g>
+                <text x="110" y="34">Assume</text>
+                <text x="360" y="34">Act</text>
+                <text x="610" y="34">Measure</text>
+                <text class="mech-quiet" x="360" y="192">Iterate</text>
+                <path class="mech-seq-route" d="M110 70H610C610 186 110 186 110 70" fill="none"/>
+                <circle class="mech-seq-token" cx="110" cy="70" r="7"/>
+              </svg>
+            </figure>
+            <figure class="mech-par" data-step="1" data-caption="Parallel: assume many things, validate them all together and keep the best path forward.">
+              <figcaption class="mech-mode">Parallel<span class="mech-sr">: assume many things at the beginning, validate them all together and continue on the best path forward.</span></figcaption>
+              <svg viewBox="0 0 1000 384" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
+                <text x="110" y="30">Assume many things</text>
+                <text x="610" y="30">Validate them all together</text>
+                <rect class="mech-band" x="582" y="58" width="56" height="308" rx="28"/>
+                <path class="mech-lane" pathLength="1" d="M110 80H610"/>
+                <path class="mech-lane" pathLength="1" d="M110 124H610"/>
+                <path class="mech-lane" pathLength="1" d="M110 168H610"/>
+                <path class="mech-lane" pathLength="1" d="M110 212H610"/>
+                <path class="mech-lane" pathLength="1" d="M110 256H610"/>
+                <path class="mech-lane" pathLength="1" d="M110 300H610"/>
+                <path class="mech-lane" pathLength="1" d="M110 344H610"/>
+                <path class="mech-stub" d="M610 80H700"/>
+                <path class="mech-stub" d="M610 124H700"/>
+                <path class="mech-stub" d="M610 212H700"/>
+                <path class="mech-stub" d="M610 256H700"/>
+                <path class="mech-stub" d="M610 300H700"/>
+                <path class="mech-stub" d="M610 344H700"/>
+                <path class="mech-best-in" d="M110 168H610"/>
+                <path class="mech-best-out" pathLength="1" d="M610 168H976"/>
+                <path class="mech-best-head" d="M972 159L990 168L972 177Z"/>
+                <text class="mech-best-label is-end" x="990" y="146">Best path forward</text>
+                <circle class="mech-dot" cx="110" cy="80" r="9"/>
+                <circle class="mech-dot" cx="110" cy="124" r="9"/>
+                <circle class="mech-dot is-best" cx="110" cy="168" r="9"/>
+                <circle class="mech-dot" cx="110" cy="212" r="9"/>
+                <circle class="mech-dot" cx="110" cy="256" r="9"/>
+                <circle class="mech-dot" cx="110" cy="300" r="9"/>
+                <circle class="mech-dot" cx="110" cy="344" r="9"/>
+                <circle class="mech-token" cx="610" cy="80" r="6"/>
+                <circle class="mech-token" cx="610" cy="124" r="6"/>
+                <circle class="mech-token is-best" cx="976" cy="168" r="6"/>
+                <circle class="mech-token" cx="610" cy="212" r="6"/>
+                <circle class="mech-token" cx="610" cy="256" r="6"/>
+                <circle class="mech-token" cx="610" cy="300" r="6"/>
+                <circle class="mech-token" cx="610" cy="344" r="6"/>
+              </svg>
+            </figure>
+          </div>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>What if we could start backwards? What if, instead of assuming one thing, taking action, measuring the result and iterating sequentially, we could assume many things at the beginning, validate them all together and identify the best path forward?</p>
+        <p>The top diagram is how we learn today: one assumption at a time goes through action and measurement before we can iterate.</p>
+        <p>Click for the parallel view: many assumptions start together, are validated together, and only the best path continues. That is the question for the rest of the talk: how can we shift from a sequential way of learning to a parallel one?</p>
+      </aside>
+    </section>
+    <!-- END:mechanics-backwards -->
+
+    <!-- BEGIN:architecture (slides 10–12) -->
+    <section class="slide" id="architecture-overview" data-title="MFM architecture overview" data-summary="Observed inputs pass through a shared encoder and two flow heads to graph-conditioned effects; simulation targets supervise training." data-theme="light" data-field="none" data-section="03 · Our solution" data-section-index="3" aria-labelledby="architecture-overview-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="slide-title">
+        <h2 id="architecture-overview-title" class="reveal">Marketing Foundational Model</h2>
+        <p class="reveal" style="--d: 120ms">Observed inputs to graph-conditioned effects</p>
+      </div>
+      <figure class="arch-figure reveal" style="--d: 240ms">
+        <svg class="arch-diagram" viewBox="0 0 1760 648" width="1760" height="648" role="img" aria-labelledby="arch-diagram-title arch-diagram-desc" focusable="false">
+          <title id="arch-diagram-title">Marketing Foundational Model architecture</title>
+          <desc id="arch-diagram-desc">Inference path: observed inputs (treatments, covariates, outcomes, time and masks, with unobserved outcomes masked) feed a shared encoder with causal time attention and variable attention that produces representations h. A joint flow head models effects and the graph with a joint continuous flow. A sampled graph G and the shared representations h drive graph conditioning: graph-guided features and an effect support mask. A conditional flow head models effects for graph G with a conditional continuous flow and outputs the effect decomposition d: base, treatment, covariate, latent and indirect. Training supervision: an auxiliary classifier on the encoder gives edge logits, with no graph selection, trained by a graph classification loss (edge cross-entropy); a joint velocity loss on effects d and graph G and a conditional velocity loss on effects d given the true graph G, both over context and query windows. Simulation targets (graph G and effects d, training only) supply every training target, and the true graph G conditions graph conditioning during training.</desc>
+          <defs>
+            <marker id="arch-head" class="arch-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1.5 9 5 0 8.5z"/></marker>
+          </defs>
+          <g class="arch-legend">
+            <path class="arch-edge" d="M0 611H40" marker-end="url(#arch-head)"/>
+            <text x="54" y="616">Network signal</text>
+            <path class="arch-edge is-target" d="M230 611H270" marker-end="url(#arch-head)"/>
+            <text x="284" y="616">Training target</text>
+            <path class="arch-edge is-graph" d="M460 611H500" marker-end="url(#arch-head)"/>
+            <text x="514" y="616">Inference graph</text>
+          </g>
+          <g class="arch-key">
+            <text x="1760" y="616">d = effect components · G = graph structure · h = encoded representations</text>
+            <text x="1760" y="642">Flow readouts require integration of the learned velocity field.</text>
+          </g>
+          <g>
+            <path class="arch-edge" d="M248 134H292" marker-end="url(#arch-head)"/>
+            <path class="arch-pulse" d="M248 134H283" data-at="0"/>
+            <g class="arch-node">
+              <rect x="0" y="66" width="248" height="136" rx="10"/>
+              <text class="t" x="124" y="105">Observed inputs</text>
+              <text class="a" x="124" y="131">Treatments · covariates</text>
+              <text class="a" x="124" y="155">Outcomes · time · masks</text>
+              <text class="b" x="124" y="178">Unobserved outcomes masked</text>
+            </g>
+            <g class="arch-node">
+              <rect x="292" y="66" width="248" height="136" rx="10"/>
+              <text class="t" x="416" y="105">Shared encoder</text>
+              <text class="a" x="416" y="131">Causal time attention</text>
+              <text class="a" x="416" y="155">Variable attention</text>
+              <text class="b" x="416" y="178">Representations h</text>
+            </g>
+          </g>
+          <g class="arch-step step-custom" data-step="1" data-caption="Joint flow head: effects and graph together">
+            <path class="arch-edge" d="M540 134H584" marker-end="url(#arch-head)"/>
+            <path class="arch-pulse" d="M540 134H575" data-at="292"/>
+            <g class="arch-node is-dark">
+              <rect x="584" y="66" width="248" height="136" rx="10"/>
+              <text class="t" x="708" y="117">Joint flow head</text>
+              <text class="a" x="708" y="143">Effects + graph</text>
+              <text class="b" x="708" y="166">Joint continuous flow</text>
+            </g>
+          </g>
+          <g class="arch-step step-custom" data-step="2" data-caption="A sampled graph G and the shared representations h drive graph conditioning">
+            <text class="arch-label" x="734" y="26">Shared representations h</text>
+            <path class="arch-edge" d="M416 66V40H1052V66" marker-end="url(#arch-head)"/>
+            <path class="arch-pulse" d="M416 66V40H1052V57" data-at="168"/>
+            <path class="arch-edge is-graph" d="M832 134H928" marker-end="url(#arch-head)"/>
+            <text class="arch-label is-small" x="880" y="160">Sampled G</text>
+            <g class="arch-node">
+              <rect x="928" y="66" width="248" height="136" rx="10"/>
+              <text class="t" x="1052" y="117">Graph conditioning</text>
+              <text class="a" x="1052" y="143">Graph-guided features</text>
+              <text class="a" x="1052" y="167">+ effect support mask</text>
+            </g>
+          </g>
+          <g class="arch-step step-custom" data-step="3" data-caption="Conditional flow head and the effect decomposition">
+            <path class="arch-edge" d="M1176 134H1220" marker-end="url(#arch-head)"/>
+            <path class="arch-pulse" d="M1176 134H1211" data-at="928"/>
+            <path class="arch-edge" d="M1468 134H1512" marker-end="url(#arch-head)"/>
+            <path class="arch-pulse" d="M1468 134H1503" data-at="1220"/>
+            <g class="arch-node is-dark">
+              <rect x="1220" y="66" width="248" height="136" rx="10"/>
+              <text class="t" x="1344" y="117">Conditional flow head</text>
+              <text class="a" x="1344" y="143">Effects for graph G</text>
+              <text class="b" x="1344" y="166">Conditional continuous flow</text>
+            </g>
+            <g class="arch-node">
+              <rect x="1512" y="66" width="248" height="136" rx="10"/>
+              <text class="t" x="1636" y="117">Effect decomposition d</text>
+              <text class="a" x="1636" y="143">Base · treatment</text>
+              <text class="a" x="1636" y="167">Covariate · latent · indirect</text>
+            </g>
+          </g>
+          <g class="arch-step step-custom" data-step="4" data-caption="Training supervision from simulation targets">
+            <text class="arch-caps" x="0" y="249">TRAINING SUPERVISION</text>
+            <path class="arch-edge" d="M416 202V286" marker-end="url(#arch-head)"/>
+            <path class="arch-edge" d="M708 202V286" marker-end="url(#arch-head)"/>
+            <path class="arch-edge" d="M1344 202V286" marker-end="url(#arch-head)"/>
+            <path class="arch-edge" d="M416 386V420" marker-end="url(#arch-head)"/>
+            <path class="arch-edge is-target" d="M248 470H270V556H1344"/>
+            <path class="arch-edge is-target" d="M416 556V496" marker-end="url(#arch-head)"/>
+            <path class="arch-edge is-target" d="M708 556V386" marker-end="url(#arch-head)"/>
+            <path class="arch-edge is-target" d="M1052 556V202" marker-end="url(#arch-head)"/>
+            <path class="arch-edge is-target" d="M1344 556V386" marker-end="url(#arch-head)"/>
+            <circle class="arch-dot" cx="416" cy="556" r="3.5"/>
+            <circle class="arch-dot" cx="708" cy="556" r="3.5"/>
+            <circle class="arch-dot" cx="1052" cy="556" r="3.5"/>
+            <circle class="arch-dot" cx="1344" cy="556" r="3.5"/>
+            <text class="arch-label is-strong" x="1066" y="476">True graph G</text>
+            <g class="arch-node">
+              <rect x="292" y="286" width="248" height="100" rx="10"/>
+              <text class="s" x="416" y="318">Auxiliary classifier</text>
+              <text class="a" x="416" y="343">Edge logits</text>
+              <text class="b" x="416" y="366">No graph selection</text>
+            </g>
+            <g class="arch-node">
+              <rect x="584" y="286" width="248" height="100" rx="10"/>
+              <text class="l" x="708" y="318">Joint velocity loss</text>
+              <text class="a" x="708" y="343">Effects d + graph G</text>
+              <text class="b" x="708" y="366">Context and query windows</text>
+            </g>
+            <g class="arch-node">
+              <rect x="1220" y="286" width="248" height="100" rx="10"/>
+              <text class="l" x="1344" y="318">Conditional velocity loss</text>
+              <text class="a" x="1344" y="343">Effects d given true G</text>
+              <text class="b" x="1344" y="366">Context and query windows</text>
+            </g>
+            <g class="arch-node">
+              <rect x="0" y="420" width="248" height="100" rx="10"/>
+              <text class="s" x="124" y="452">Simulation targets</text>
+              <text class="a" x="124" y="477">Graph G · effects d</text>
+              <text class="b" x="124" y="500">Training only</text>
+            </g>
+            <g class="arch-node">
+              <rect x="292" y="420" width="248" height="76" rx="10"/>
+              <text class="l" x="416" y="453">Graph classification loss</text>
+              <text class="b" x="416" y="476">Edge cross-entropy</text>
+            </g>
+          </g>
+        </svg>
+      </figure>
+      <aside class="notes" hidden>
+        <p>This is the Marketing Foundational Model, from observed inputs to graph-conditioned effects. Click through the inference path first, then the training supervision.</p>
+        <p>Observed inputs (treatments, covariates, outcomes, time and masks, with unobserved outcomes masked) go into a shared encoder that applies causal time attention and variable attention and produces representations h.</p>
+        <p>A joint flow head models the effects and the graph together. A graph G sampled from it, together with the shared representations h, drives graph conditioning: graph-guided features plus an effect support mask. The conditional flow head then gives the effects for that graph, decomposed into base, treatment, covariate, latent and indirect components.</p>
+        <p>In training, simulation targets (graph G and effects d, used only for training) supervise three losses: a graph classification loss (edge cross-entropy) on the auxiliary classifier’s edge logits, plus a joint velocity loss on effects and graph and a conditional velocity loss on effects given the true graph, both over context and query windows. The true graph G conditions the features during training, and the auxiliary classifier does not select the graph.</p>
+        <p>Flow readouts require integrating the learned velocity field.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="create-worlds" data-title="How can we create “worlds”?" data-summary="Each simulated world has its own inputs, causal relationships, response parameters and sales history, so every contribution is known." data-theme="light" data-field="none" data-section="04 · How does it work?" data-section-index="4" aria-labelledby="create-worlds-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="create-worlds-title" class="reveal">How can we create “worlds”?</h2>
+          <p class="reveal" style="--d: 120ms">In this simulation framework, each generated “world” features unique inputs, causal relationships, response parameters, and sales histories, allowing the simulator to track every input’s contribution for reliable training targets. Media spend is represented by channels, measured non-media factors serve as controls, and the intrinsic baseline captures all unassigned sales components.</p>
+        </div>
+        <div class="split-visual">
+          <div class="world-lab reveal" style="--d: 240ms">
+            <div class="world-card world-series" role="group" aria-labelledby="world-series-title">
+              <div class="world-series-head">
+                <h3 id="world-series-title">Generated time series</h3>
+                <ul class="world-legend">
+                  <li><span class="world-key is-current" aria-hidden="true"></span>Current</li>
+                  <li><span class="world-key is-start" aria-hidden="true"></span>Starting values</li>
+                </ul>
+              </div>
+              <div class="world-change">
+                <p class="world-tag"><span class="world-tag-sign" aria-hidden="true" hidden></span><span class="world-tag-text">Starting values</span></p>
+                <p class="world-tag-value"></p>
+              </div>
+              <div class="world-chart"><svg role="img" aria-label="Illustrative generated weekly series from January to December on a 0 to 100 scale, with the starting values as a reference line." focusable="false"></svg></div>
+              <div class="world-series-foot"><span>Illustrative data</span><span>5 parameters / 1 changing series</span></div>
+            </div>
+            <div class="world-card world-params" role="group" aria-labelledby="world-params-title">
+              <div class="world-params-head">
+                <div>
+                  <h3 id="world-params-title">Parameters</h3>
+                  <p>Adjust values. See the response.</p>
+                </div>
+                <div class="world-actions">
+                  <button type="button" class="world-new">New world</button>
+                  <button type="button" class="world-reset">Reset</button>
+                </div>
+              </div>
+              <div class="world-param"><label for="world-trend">Trend</label><input id="world-trend" type="range" min="0" max="100" step="1" value="25" data-param="trend"><output for="world-trend">25%</output></div>
+              <div class="world-param"><label for="world-seasonality">Seasonality</label><input id="world-seasonality" type="range" min="0" max="100" step="1" value="24" data-param="seasonality"><output for="world-seasonality">24%</output></div>
+              <div class="world-param"><label for="world-frequency">Frequency</label><input id="world-frequency" type="range" min="0" max="100" step="1" value="30" data-param="frequency"><output for="world-frequency">30%</output></div>
+              <div class="world-param"><label for="world-volatility">Volatility</label><input id="world-volatility" type="range" min="0" max="100" step="1" value="18" data-param="volatility"><output for="world-volatility">18%</output></div>
+              <div class="world-param"><label for="world-lift">Campaign lift</label><input id="world-lift" type="range" min="0" max="100" step="1" value="18" data-param="lift"><output for="world-lift">18%</output></div>
+              <p class="world-status" role="status" aria-live="polite"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>In this simulation framework, each generated world features unique inputs, causal relationships, response parameters and sales histories, so the simulator can track every input’s contribution and give reliable training targets.</p>
+        <p>Media spend is represented by channels, measured non-media factors serve as controls, and the intrinsic baseline captures all unassigned sales components.</p>
+        <p>The panel is an illustrative generator, not the training simulator. On entry the trend sweeps up once; then drag a slider or use the arrow keys, press New world to draw another parameter set, and Reset to return to the starting values.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="transformer-encoder" data-title="Transformers are not only for LLMs" data-summary="A shared transformer encodes sales and covariates with attention across time and variables; a graph-conditional flow decodes effects over time." data-theme="light" data-field="none" data-section="04 · How does it work?" data-section-index="4" aria-labelledby="transformer-encoder-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="transformer-encoder-title" class="reveal">Transformers are not only for LLMs</h2>
+          <p class="reveal" style="--d: 120ms">Now, a transformer reads weekly sales and marketing covariates, using attention across time and variables, alongside sales history summaries and withheld-week markers. Doing so, it makes a representation of the dataset.</p>
+        </div>
+        <div class="split-visual">
+          <figure class="tx-figure reveal" style="--d: 240ms">
+            <svg class="tx-diagram" viewBox="0 0 1080 804" width="1080" height="804" role="img" aria-labelledby="tx-diagram-title tx-diagram-desc" focusable="false">
+              <title id="tx-diagram-title">Marketing Foundational Model: shared transformer and graph-conditional flow</title>
+              <desc id="tx-diagram-desc">Shared encoder, from bottom to top: treatments, covariates and observed outcomes enter as time by variables (values, time and observation masks), pass through a shared input embedding and a bi-attention block of causal time self-attention across time steps for each variable, variable self-attention across variables at each time step, and a feed-forward network, each with normalization and a residual addition, then a final normalization to encoded representations h over time, treatment and covariate. Graph-conditional flow, from bottom to top: flow inputs (state, flow time and trajectory noise, separate for each head) and h feed a joint graph flow over effects and graph structure (trajectory summaries and velocity field), which gives graph structure G; graph conditioning (graph-guided message passing and an effect support mask) also receives h and passes conditioned features and the support mask to the conditional flow decoder, which gives effects for a given graph: effects over time for base, treatment, covariate, latent and indirect components.</desc>
+              <defs>
+                <marker id="tx-head" class="tx-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 1.5 9 5 0 8.5z"/></marker>
+              </defs>
+              <text class="tx-heading" x="540" y="22">Marketing Foundational Model</text>
+              <text class="tx-subheading" x="540" y="46">Shared transformer + graph-conditional flow</text>
+              <g>
+                <text class="tx-column" x="260" y="80">SHARED ENCODER</text>
+                <rect class="tx-block" x="0" y="204" width="490" height="445" rx="14"/>
+                <text class="tx-block-label" x="20" y="226">BI-ATTENTION BLOCK</text>
+                <path class="tx-edge" d="M260 783V765" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 713V699" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 663V625" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 599V587" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 535V523" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 505V484" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 458V446" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 394V382" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 364V343" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 317V305" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 267V255" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 237V190" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 162V148" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 637H40V514H251" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 496H40V373H251" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M260 355H40V246H251" marker-end="url(#tx-head)"/>
+                <path class="tx-signal" d="M260 783V148" data-at="0"/>
+                <g class="tx-node" data-lit="18 70">
+                  <rect x="40" y="713" width="440" height="52" rx="9"/>
+                  <text class="t" x="260" y="735">Time × variables</text>
+                  <text class="a" x="260" y="755">Values · time · observation masks</text>
+                </g>
+                <g class="tx-node" data-lit="84 120">
+                  <rect x="60" y="663" width="400" height="36" rx="9"/>
+                  <text class="t" x="260" y="687">Shared input embedding</text>
+                </g>
+                <g class="tx-node" data-lit="158 184">
+                  <rect x="80" y="599" width="360" height="26" rx="7"/>
+                  <text class="n" x="260" y="617">Normalization</text>
+                </g>
+                <g class="tx-node" data-lit="196 248">
+                  <rect x="80" y="535" width="360" height="52" rx="9"/>
+                  <text class="t" x="260" y="557">Causal time self-attention</text>
+                  <text class="a" x="260" y="577">Across time steps for each variable</text>
+                </g>
+                <g class="tx-sum" data-lit="260 278"><circle cx="260" cy="514" r="9"/><path d="M260 509V519M255 514H265"/></g>
+                <g class="tx-node" data-lit="299 325">
+                  <rect x="80" y="458" width="360" height="26" rx="7"/>
+                  <text class="n" x="260" y="476">Normalization</text>
+                </g>
+                <g class="tx-node" data-lit="337 389">
+                  <rect x="80" y="394" width="360" height="52" rx="9"/>
+                  <text class="t" x="260" y="416">Variable self-attention</text>
+                  <text class="a" x="260" y="436">Across variables at each time step</text>
+                </g>
+                <g class="tx-sum" data-lit="401 419"><circle cx="260" cy="373" r="9"/><path d="M260 368V378M255 373H265"/></g>
+                <g class="tx-node" data-lit="440 466">
+                  <rect x="80" y="317" width="360" height="26" rx="7"/>
+                  <text class="n" x="260" y="335">Normalization</text>
+                </g>
+                <g class="tx-node" data-lit="478 516">
+                  <rect x="80" y="267" width="360" height="38" rx="9"/>
+                  <text class="t" x="260" y="292">Feed-forward network</text>
+                </g>
+                <g class="tx-sum" data-lit="528 546"><circle cx="260" cy="246" r="9"/><path d="M260 241V251M255 246H265"/></g>
+                <g class="tx-node" data-lit="593 621">
+                  <rect x="80" y="162" width="360" height="28" rx="7"/>
+                  <text class="n" x="260" y="181">Normalization</text>
+                </g>
+                <g class="tx-node" data-lit="635 687">
+                  <rect x="60" y="96" width="400" height="52" rx="9"/>
+                  <text class="t" x="260" y="118">Encoded representations</text>
+                  <text class="a" x="260" y="138">Time · treatment · covariate</text>
+                </g>
+                <text class="tx-input" x="260" y="797">Treatments · covariates · observed outcomes</text>
+              </g>
+              <g class="tx-step step-custom" data-step="1" data-caption="Graph-conditional flow: h feeds the joint graph flow and graph conditioning">
+                <text class="tx-column" x="820" y="80">GRAPH-CONDITIONAL FLOW</text>
+                <rect class="tx-block" x="580" y="186" width="500" height="510" rx="14"/>
+                <path class="tx-edge" d="M460 122H540V520H620" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M540 366H620" marker-end="url(#tx-head)"/>
+                <text class="tx-h" x="500" y="114">h</text>
+                <path class="tx-edge" d="M820 484V460" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M820 424V402" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M820 330V318"/>
+                <text class="tx-feature" x="820" y="309">Conditioned features + support mask</text>
+                <path class="tx-edge" d="M820 294V278" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M820 206V166" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M820 604V582H1052V242H1020" marker-end="url(#tx-head)"/>
+                <path class="tx-edge" d="M1052 520H1020" marker-end="url(#tx-head)"/>
+                <path class="tx-signal" d="M460 122H540V520H613" data-at="700"/>
+                <path class="tx-signal" d="M540 366H613" data-at="1024"/>
+                <path class="tx-signal" d="M820 484V166" data-at="1287"/>
+                <g class="tx-node" data-lit="1605 1675">
+                  <rect x="620" y="96" width="400" height="70" rx="9"/>
+                  <text class="t" x="820" y="118">Effects over time</text>
+                  <text class="a" x="820" y="139">Base · treatment · covariate</text>
+                  <text class="a" x="820" y="158">Latent · indirect</text>
+                </g>
+                <g class="tx-node is-dark" data-lit="1493 1565">
+                  <rect x="620" y="206" width="400" height="72" rx="9"/>
+                  <text class="t" x="820" y="230">Conditional flow decoder</text>
+                  <text class="a" x="820" y="250">Effects for a given graph</text>
+                  <text class="b" x="820" y="269">Trajectory summaries + velocity field</text>
+                </g>
+                <g class="tx-node" data-lit="1097 1441">
+                  <rect x="620" y="330" width="400" height="72" rx="9"/>
+                  <text class="t" x="820" y="354">Graph conditioning</text>
+                  <text class="a" x="820" y="374">Graph-guided message passing</text>
+                  <text class="a" x="820" y="393">Effect support mask</text>
+                </g>
+                <g class="tx-node" data-lit="1311 1347">
+                  <rect x="700" y="424" width="240" height="36" rx="9"/>
+                  <text class="t" x="820" y="448">Graph structure G</text>
+                </g>
+                <g class="tx-node is-dark" data-lit="1251 1323">
+                  <rect x="620" y="484" width="400" height="72" rx="9"/>
+                  <text class="t" x="820" y="508">Joint graph flow</text>
+                  <text class="a" x="820" y="528">Effects + graph structure</text>
+                  <text class="b" x="820" y="547">Trajectory summaries + velocity field</text>
+                </g>
+                <g class="tx-node">
+                  <rect x="620" y="604" width="400" height="72" rx="9"/>
+                  <text class="t" x="820" y="628">Flow inputs</text>
+                  <text class="a" x="820" y="648">State · flow time · trajectory noise</text>
+                  <text class="b" x="820" y="667">Separate state and noise for each head</text>
+                </g>
+              </g>
+            </svg>
+            <div class="tx-notes" data-step="1">
+              <p>Effects excluded by the graph are zero.</p>
+              <p>Flow time is separate from observation time.</p>
+              <p>h = encoded representations · <svg class="tx-oplus" viewBox="0 0 16 16" width="16" height="16" role="img" aria-label="circled plus" focusable="false"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5V11.5M4.5 8H11.5"/></svg> = residual addition</p>
+            </div>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>Now a transformer reads weekly sales and marketing covariates, using attention across time and across variables, alongside sales history summaries and withheld-week markers. In doing so it builds a representation of the dataset.</p>
+        <p>Each bi-attention block applies causal self-attention across time steps for each variable, then self-attention across variables at each time step, then a feed-forward network; every sub-layer is normalized and added back through a residual connection.</p>
+        <p>Click to add the graph-conditional flow. The encoded representations h feed a joint graph flow over effects and graph structure; a graph G drives graph-guided message passing and an effect support mask; the conditional flow decoder then gives the effects over time for that graph. Effects excluded by the graph are zero, and flow time is separate from observation time.</p>
+      </aside>
+    </section>
+
+    <!-- END:architecture -->
+
+    <!-- BEGIN:mechanics (slides 13–15) -->
+    <section class="slide" id="decompose-in-code" data-title="From a CSV to posterior draws" data-summary="Load the pretrained model, read a weekly CSV, run inference and read the posterior draws, one block per step." data-theme="dark" data-field="none" data-section="04 · How does it work?" data-section-index="4" aria-labelledby="decompose-in-code-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="decompose-in-code-title" class="reveal">From a CSV to posterior draws</h2>
+          <ol class="mech-steps reveal" style="--d: 120ms">
+            <li><span class="n">01</span>Load model</li>
+            <li><span class="n">02</span>Read the data</li>
+            <li><span class="n">03</span>Run inference</li>
+            <li><span class="n">04</span>Read the posterior</li>
+          </ol>
+        </div>
+        <div class="split-visual">
+          <figure class="mech-term reveal" style="--d: 200ms" aria-labelledby="mech-term-title">
+            <div class="mech-term-bar"><span class="mech-term-dots" aria-hidden="true"><i></i><i></i><i></i></span><p class="mech-term-title" id="mech-term-title">pfn_decompose.py — Python</p></div>
+            <p class="mech-term-crumb"><span data-crumb="0">PyMC MFM</span> <span aria-hidden="true">/</span> <span data-crumb="1">CSV → context</span> → <span data-crumb="2">inference</span> → <span data-crumb="3">idata</span></p>
+            <pre><code class="mech-code">
+              <span class="mech-block" data-number="01" data-name="Load model">
+                <span class="ln"><span class="tk-k">import</span> pandas <span class="tk-k">as</span> pd</span>
+                <span class="ln"><span class="tk-k">from</span> pymc_mfm <span class="tk-k">import</span> from_pretrained</span>
+                <span class="ln"></span>
+                <span class="ln">model = <span class="tk-f">from_pretrained</span>(<span class="tk-s">"pymc-labs/mfm"</span>, profile=<span class="tk-s">"river-1"</span>)</span>
+              </span>
+              <span class="ln"></span>
+              <span class="mech-block step-custom" data-step="1" data-caption="02 Read the data" data-number="02" data-name="Read the data">
+                <span class="ln">data = pd.<span class="tk-f">read_csv</span>(<span class="tk-s">"weekly_sales.csv"</span>, parse_dates=[<span class="tk-s">"date"</span>])</span>
+                <span class="ln">history, future = data.iloc[:<span class="tk-n">-12</span>], data.iloc[<span class="tk-n">-12</span>:]</span>
+              </span>
+              <span class="ln"></span>
+              <span class="mech-block step-custom" data-step="2" data-caption="03 Run inference" data-number="03" data-name="Run inference">
+                <span class="ln">idata = model.<span class="tk-f">inference</span>(</span>
+                <span class="ln">    history, future,</span>
+                <span class="ln">    date_column=<span class="tk-s">"date"</span>, target_column=<span class="tk-s">"sales"</span>,</span>
+                <span class="ln">    channel_columns=[<span class="tk-s">"tv"</span>, <span class="tk-s">"search"</span>, <span class="tk-s">"social"</span>],</span>
+                <span class="ln">    control_columns=[<span class="tk-s">"price"</span>],</span>
+                <span class="ln">    n_samples=<span class="tk-n">500</span>,</span>
+                <span class="ln">)</span>
+              </span>
+              <span class="ln"></span>
+              <span class="mech-block step-custom" data-step="3" data-caption="04 Read the posterior" data-number="04" data-name="Read the posterior">
+                <span class="ln">posterior = idata[<span class="tk-s">"query"</span>][<span class="tk-s">"posterior"</span>]</span>
+                <span class="ln">posterior[<span class="tk-s">"channel_contribution"</span>]  <span class="tk-c"># (chain, draw, date, channel)</span></span>
+                <span class="ln">posterior[<span class="tk-s">"graph"</span>]                 <span class="tk-c"># (chain, draw, edge)</span></span>
+                <span class="ln">model.plot.<span class="tk-f">contributions_over_time</span>()</span>
+              </span>
+              <span class="mech-caret is-idle" style="--row: 19; --col: 36" aria-hidden="true"></span>
+            </code></pre>
+            <div class="mech-term-foot"><span>pymc-labs/pymc-mfm</span><span class="mech-term-step"><span class="n">01</span><span class="mech-term-step-name">Load model</span></span></div>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>This is the whole workflow in code: from a CSV to posterior draws, in four steps. Each click types the next block.</p>
+        <p>01 Load model: from_pretrained loads the River-1 profile from the Hugging Face Hub. 02 Read the data: a weekly CSV with dates, sales, media spend and controls, split into history and the weeks to forecast. 03 Run inference: name the date, target, channel and control columns; the network conditions on the history without training its weights. 04 Read the posterior: inference returns an xarray DataTree, also stored as model.idata, with context and query windows.</p>
+        <p>Each posterior draw carries the channel contributions and the causal graph sampled with it. That is why the outcome is not a single number.</p>
+      </aside>
+    </section>
+
+    <!-- Temporarily omitted from the internal presentation.
+    <section class="slide slide-statement tone-peach" id="outcome-is-a-system" data-title="Not a number, a system" data-summary="The outcome from the model is not a number; it is a system." data-theme="light" data-field="none" data-section="04 · How does it work?" data-section-index="4" aria-labelledby="outcome-is-a-system-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="statement">
+        <h2 id="outcome-is-a-system-title"><span class="quiet reveal">The outcome from the model</span> <span class="mech-line reveal" style="--d: 220ms">is not a number.</span> <span class="mech-line reveal" style="--d: 560ms">It is a system.</span></h2>
+      </div>
+      <aside class="notes" hidden>
+        <p>The outcome from the model is not a number. It is a system.</p>
+        <p>A single estimate hides the structural choices behind it. Here the answer keeps them: the structures that could explain the data, and what each one implies for the effects we care about.</p>
+      </aside>
+    </section>
+
+    -->
+    <section class="slide" id="model-outcome" data-title="Model outcome" data-summary="A set of plausible causal DAGs, and a posterior over the variable of interest conditional on each DAG." data-theme="light" data-field="none" data-section="04 · How does it work?" data-section-index="4" aria-labelledby="model-outcome-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="model-outcome-title" class="reveal">Model outcome</h2>
+          <ol class="numbered mech-outcome-list">
+            <li class="reveal" style="--d: 120ms"><span class="n">1</span><p>A set of structural systems, or causal DAGs, behind different plausible explanations.</p></li>
+            <li data-step="1" data-caption="Item 2 and the posterior given the selected DAG."><span class="n">2</span><p>A posterior distribution over your variable of interest, conditional on each DAG that could explain your data.</p></li>
+          </ol>
+        </div>
+        <div class="split-visual">
+          <div class="mech-outcome" data-selected="a">
+            <div class="mech-fig-head reveal" style="--d: 200ms"><p class="mech-fig-label" id="mech-dags-label">Candidate causal DAGs and their relative plausibility</p><p class="fig-note">Illustrative, not model output</p></div>
+            <div class="mech-dags reveal" style="--d: 260ms" role="group" aria-labelledby="mech-dags-label">
+              <button type="button" class="mech-dag" data-dag="a" data-name="DAG A" aria-pressed="true">
+                <span class="mech-dag-head"><span class="mech-dag-name">DAG A</span><span class="mech-plaus" style="--p: 1" aria-hidden="true"></span></span>
+                <svg viewBox="0 0 300 160" aria-hidden="true">
+                  <path class="mech-e" d="M70 50L121 102"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(128 109) rotate(45)"/>
+                  <path class="mech-e" d="M150 50V99"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(150 109) rotate(90)"/>
+                  <path class="mech-e" d="M230 50L179 102"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(172 109) rotate(135)"/>
+                  <rect class="mech-n" x="15" y="18" width="74" height="32" rx="16"/><text x="52" y="40">Price</text>
+                  <rect class="mech-n" x="124" y="18" width="52" height="32" rx="16"/><text x="150" y="40">TV</text>
+                  <rect class="mech-n" x="208" y="18" width="84" height="32" rx="16"/><text x="250" y="40">Search</text>
+                  <rect class="mech-n is-outcome" x="110" y="110" width="80" height="34" rx="17"/><text class="is-outcome" x="150" y="133">Sales</text>
+                </svg>
+                <span class="mech-sr">Price, TV and search each drive sales. Most plausible.</span>
+              </button>
+              <button type="button" class="mech-dag" data-dag="b" data-name="DAG B" aria-pressed="false">
+                <span class="mech-dag-head"><span class="mech-dag-name">DAG B</span><span class="mech-plaus" style="--p: .58" aria-hidden="true"></span></span>
+                <svg viewBox="0 0 300 160" aria-hidden="true">
+                  <path class="mech-e" d="M89 34H113"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(123 34)"/>
+                  <path class="mech-e" d="M70 50L121 102"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(128 109) rotate(45)"/>
+                  <path class="mech-e" d="M150 50V99"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(150 109) rotate(90)"/>
+                  <path class="mech-e" d="M230 50L179 102"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(172 109) rotate(135)"/>
+                  <rect class="mech-n" x="15" y="18" width="74" height="32" rx="16"/><text x="52" y="40">Price</text>
+                  <rect class="mech-n" x="124" y="18" width="52" height="32" rx="16"/><text x="150" y="40">TV</text>
+                  <rect class="mech-n" x="208" y="18" width="84" height="32" rx="16"/><text x="250" y="40">Search</text>
+                  <rect class="mech-n is-outcome" x="110" y="110" width="80" height="34" rx="17"/><text class="is-outcome" x="150" y="133">Sales</text>
+                </svg>
+                <span class="mech-sr">Price also drives TV spend; price, TV and search drive sales. Less plausible.</span>
+              </button>
+              <button type="button" class="mech-dag" data-dag="c" data-name="DAG C" aria-pressed="false">
+                <span class="mech-dag-head"><span class="mech-dag-name">DAG C</span><span class="mech-plaus" style="--p: .24" aria-hidden="true"></span></span>
+                <svg viewBox="0 0 300 160" aria-hidden="true">
+                  <path class="mech-e" d="M70 50L121 102"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(128 109) rotate(45)"/>
+                  <path class="mech-e" d="M230 50L179 102"/><path class="mech-e-head" d="M0 0L-11-5.5L-11 5.5Z" transform="translate(172 109) rotate(135)"/>
+                  <rect class="mech-n" x="15" y="18" width="74" height="32" rx="16"/><text x="52" y="40">Price</text>
+                  <rect class="mech-n" x="124" y="18" width="52" height="32" rx="16"/><text x="150" y="40">TV</text>
+                  <rect class="mech-n" x="208" y="18" width="84" height="32" rx="16"/><text x="250" y="40">Search</text>
+                  <rect class="mech-n is-outcome" x="110" y="110" width="80" height="34" rx="17"/><text class="is-outcome" x="150" y="133">Sales</text>
+                </svg>
+                <span class="mech-sr">TV has no effect; price and search drive sales. Least plausible.</span>
+              </button>
+            </div>
+            <figure class="mech-post" data-step="1">
+              <figcaption>Posterior of TV’s contribution to sales, given <span class="mech-post-dag">DAG A</span></figcaption>
+              <svg viewBox="0 0 1000 236" preserveAspectRatio="xMinYMid meet" aria-hidden="true">
+                <line class="mech-axis" x1="24" y1="196" x2="976" y2="196"/>
+                <line class="mech-zero" x1="100" y1="196" x2="100" y2="205"/>
+                <path class="mech-curve" data-dag="b" d="M34 196L34 195.8L50.5 195.6L67 195.4L83.5 195L100 194.5L116.5 193.7L133 192.4L149.5 190.7L166 188.4L182.5 185.2L199 181L215.5 175.7L232 169.1L248.5 161.1L265 151.8L281.5 141.3L298 129.8L314.5 117.6L331 105.3L347.5 93.3L364 82.4L380.5 73.1L397 66L413.5 61.5L430 60L446.5 61.5L463 66L479.5 73.1L496 82.4L512.5 93.3L529 105.3L545.5 117.6L562 129.8L578.5 141.3L595 151.8L611.5 161.1L628 169.1L644.5 175.7L661 181L677.5 185.2L694 188.4L710.5 190.7L727 192.4L743.5 193.7L760 194.5L776.5 195L793 195.4L809.5 195.6L826 195.8L826 196Z"/>
+                <path class="mech-curve" data-dag="a" d="M380.8 196L380.8 195.8L391.6 195.6L402.4 195.4L413.2 195L424 194.5L434.8 193.7L445.6 192.4L456.4 190.7L467.2 188.4L478 185.2L488.8 181L499.6 175.7L510.4 169.1L521.2 161.1L532 151.8L542.8 141.3L553.6 129.8L564.4 117.6L575.2 105.3L586 93.3L596.8 82.4L607.6 73.1L618.4 66L629.2 61.5L640 60L650.8 61.5L661.6 66L672.4 73.1L683.2 82.4L694 93.3L704.8 105.3L715.6 117.6L726.4 129.8L737.2 141.3L748 151.8L758.8 161.1L769.6 169.1L780.4 175.7L791.2 181L802 185.2L812.8 188.4L823.6 190.7L834.4 192.4L845.2 193.7L856 194.5L866.8 195L877.6 195.4L888.4 195.6L899.2 195.8L899.2 196Z"/>
+                <path class="mech-curve" data-dag="c" d="M71.2 196L71.2 195.8L72.4 195.6L73.6 195.4L74.8 195L76 194.5L77.2 193.7L78.4 192.4L79.6 190.7L80.8 188.4L82 185.2L83.2 181L84.4 175.7L85.6 169.1L86.8 161.1L88 151.8L89.2 141.3L90.4 129.8L91.6 117.6L92.8 105.3L94 93.3L95.2 82.4L96.4 73.1L97.6 66L98.8 61.5L100 60L101.2 61.5L102.4 66L103.6 73.1L104.8 82.4L106 93.3L107.2 105.3L108.4 117.6L109.6 129.8L110.8 141.3L112 151.8L113.2 161.1L114.4 169.1L115.6 175.7L116.8 181L118 185.2L119.2 188.4L120.4 190.7L121.6 192.4L122.8 193.7L124 194.5L125.2 195L126.4 195.4L127.6 195.6L128.8 195.8L128.8 196Z"/>
+                <text class="mech-curve-label" data-dag="c" x="100" y="46">C</text>
+                <text class="mech-curve-label" data-dag="b" x="430" y="46">B</text>
+                <text class="mech-curve-label" data-dag="a" x="640" y="46">A</text>
+                <text class="mech-tick" x="100" y="226">zero</text>
+                <text class="mech-tick is-end" x="976" y="226">higher →</text>
+              </svg>
+              <p class="mech-sr">Given DAG A, TV’s contribution is clearly positive; given DAG B it is smaller and less certain; given DAG C it is zero.</p>
+            </figure>
+          </div>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>Model outcome. One: a set of structural systems, or causal DAGs, behind different plausible explanations of your data.</p>
+        <p>Click for item two: a posterior distribution over your variable of interest, conditional on each DAG that could explain your data.</p>
+        <p>The figure is illustrative, not model output. Select a DAG to see the posterior of TV’s contribution under it: if price also drives TV spend (B), TV gets less credit; if TV has no edge to sales (C), its contribution is zero. In the library, each posterior draw carries its sampled graph, and inference averages over graphs by default.</p>
+      </aside>
+    </section>
+    <!-- END:mechanics -->
+
+    <!-- BEGIN:results (slides 16–22) -->
+    <section class="slide slide-statement tone-periwinkle" id="can-it-decompose" data-title="Can it decompose?" data-summary="The question for the results: can the network decompose sales into the contribution of each component?" data-theme="light" data-field="none" data-section="05 · The results" data-section-index="5" aria-labelledby="can-it-decompose-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="statement">
+        <h2 id="can-it-decompose-title"><span class="quiet reveal">The important question:</span> <span class="reveal" style="--d: 220ms">“Can it decompose?”</span></h2>
+      </div>
+      <aside class="notes" hidden>
+        <p>The important question: can it decompose?</p>
+        <p>So far the network returns a system rather than a single number. The results check whether that system is right: whether the network recovers the contribution of each channel, each control and the baseline.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="how-we-evaluate" data-title="How do we evaluate?" data-summary="Unseen datasets, several scenarios run around five hundred times, comparisons with an oracle, PathMC and OLS, and a checkpoint every 6,000 training steps." data-theme="light" data-field="none" data-section="05 · The results" data-section-index="5" aria-labelledby="how-we-evaluate-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="slide-title">
+        <h2 id="how-we-evaluate-title" class="reveal">How do we evaluate?</h2>
+      </div>
+      <ol class="numbered">
+        <li class="reveal" style="--d: 150ms"><span class="n">1</span><p>We generate a set of datasets that the network never observed, using ranges and seeds independent of those used during training.</p></li>
+        <li data-step="1" data-caption="Scenarios: hidden variables and baseline terms, around five hundred runs each."><span class="n">2</span><p>We test every dataset in different scenarios, such as hidden variables and fixed or varying baseline terms, running each scenario around five hundred times.</p></li>
+        <li data-step="2" data-caption="Comparisons: an oracle, PathMC and OLS."><span class="n">3</span><p>We compare each result from the network against an oracle that receives the true model structure, a Bayesian regression (PathMC) and a frequentist least-squares regression (OLS).</p></li>
+        <li data-step="3" data-caption="A checkpoint every 6,000 training steps."><span class="n">4</span><p>Every 6,000 training steps, we save a checkpoint, rerun all the comparisons and measure how each checkpoint improves or degrades in each condition.</p></li>
+      </ol>
+      <aside class="notes" hidden>
+        <p>How do we evaluate? We generate a set of datasets that the network never observed, using ranges and seeds independent of those used during training.</p>
+        <p>We test every dataset in different scenarios, such as hidden variables and fixed or varying baseline terms, and run each scenario around five hundred times. We compare each result against an oracle that receives the true model structure, a Bayesian regression (PathMC) and a frequentist least-squares regression (OLS).</p>
+        <p>Every 6,000 training steps we save a checkpoint and rerun all the comparisons, so we can see how each checkpoint improves or degrades in each condition. The oracle is a reference, not a competitor: it knows the true structure.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="error-over-training" data-title="Network error over training" data-summary="Across training checkpoints the network’s error falls for every component, in some cases approaching the oracle." data-theme="light" data-field="none" data-section="05 · The results" data-section-index="5" aria-labelledby="error-over-training-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split results-split">
+        <div class="split-copy">
+          <h2 id="error-over-training-title" class="reveal">Network error over training</h2>
+          <p class="reveal" style="--d: 120ms">As the network progresses in the number of steps, we can see that across all the different components of the equation the error starts to decrease, in some cases getting close to the oracle.</p>
+        </div>
+        <div class="split-visual results-visual">
+          <figure class="results-frame">
+            <img src="assets/figures/results-error-over-training.webp" alt="Line charts of network error over training steps from 5k to 62.5k, as error relative to the sales scale on a log axis. Top row, 99 context weeks and 109 query weeks: live channels, live controls, intrinsic baseline and observed sales. Bottom row: the same four panels for 207 context weeks and 1 query week. The MFM mean, with a 95% world-bootstrap band, decreases over training; for channels, controls and baseline it sits far below PathMC and OLS and approaches the oracle. For observed sales, MFM intervals are noise-free totals while the references include observation noise." width="1879" height="1363" decoding="async">
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>As the network progresses through training, the error starts to decrease across all the different components of the equation, in some cases getting close to the oracle.</p>
+        <p>Top row: 99 context weeks and 109 query weeks. Bottom row: 207 context weeks and a single query week. The vertical axis is error relative to the sales scale, on a log scale.</p>
+        <p>Purple is the MFM mean with its 95% world-bootstrap band; dashed is the oracle, dash-dot PathMC and dotted OLS. In the observed-sales panels, MFM intervals are noise-free totals while the references include observation noise.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="interval-coverage" data-title="Interval coverage" data-summary="How often each method’s central 95% interval contains the true weekly value, for two context lengths." data-theme="light" data-field="none" data-section="05 · The results" data-section-index="5" aria-labelledby="interval-coverage-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split results-split">
+        <div class="split-copy">
+          <h2 id="interval-coverage-title" class="reveal">Interval coverage</h2>
+          <p class="reveal" style="--d: 120ms">We evaluate how often the true contribution value falls within the uncertainty interval generated by each method.</p>
+        </div>
+        <div class="split-visual">
+          <figure class="results-coverage reveal" style="--d: 150ms">
+            <div class="results-coverage-group">
+              <p class="results-coverage-setting">99 context weeks, 109 query weeks</p>
+              <div class="results-coverage-grid">
+                <ul class="results-coverage-methods" aria-hidden="true"><li>MFM</li><li>Oracle</li><li>PathMC</li><li>OLS</li></ul>
+                <div class="results-coverage-panel">
+                  <h3><span>a</span> Live channels</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 84.8"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">84.8%</span></li>
+                    <li class="results-oracle" style="--v: 91.3"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">91.3%</span></li>
+                    <li class="results-pathmc" style="--v: 65.8"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">65.8%</span></li>
+                    <li class="results-ols" style="--v: 53.9"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">53.9%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+                <div class="results-coverage-panel">
+                  <h3><span>b</span> Live controls</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 86.5"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">86.5%</span></li>
+                    <li class="results-oracle" style="--v: 92.5"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">92.5%</span></li>
+                    <li class="results-pathmc" style="--v: 83.5"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">83.5%</span></li>
+                    <li class="results-ols" style="--v: 76.9"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">76.9%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+                <div class="results-coverage-panel">
+                  <h3><span>c</span> Noise-free total</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 96.8"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">96.8%</span></li>
+                    <li class="results-oracle" style="--v: 95.7"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">95.7%</span></li>
+                    <li class="results-pathmc" style="--v: 64.2"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">64.2%</span></li>
+                    <li class="results-ols" style="--v: 55.2"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">55.2%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+                <div class="results-coverage-panel">
+                  <h3><span>d</span> Observed sales†</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 95.8"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">95.8%</span></li>
+                    <li class="results-oracle" style="--v: 95.6"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">95.6%</span></li>
+                    <li class="results-pathmc" style="--v: 74.6"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">74.6%</span></li>
+                    <li class="results-ols" style="--v: 67.8"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">67.8%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+              </div>
+            </div>
+            <div class="results-coverage-group" data-step="1" data-caption="Add the second setting: 207 context weeks, 1 query week.">
+              <p class="results-coverage-setting">207 context weeks, 1 query week</p>
+              <div class="results-coverage-grid">
+                <ul class="results-coverage-methods" aria-hidden="true"><li>MFM</li><li>Oracle</li><li>PathMC</li><li>OLS</li></ul>
+                <div class="results-coverage-panel">
+                  <h3><span>e</span> Live channels</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 91.8"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">91.8%</span></li>
+                    <li class="results-oracle" style="--v: 92.4"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">92.4%</span></li>
+                    <li class="results-pathmc" style="--v: 61.8"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">61.8%</span></li>
+                    <li class="results-ols" style="--v: 42.3"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">42.3%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+                <div class="results-coverage-panel">
+                  <h3><span>f</span> Live controls</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 93.5"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">93.5%</span></li>
+                    <li class="results-oracle" style="--v: 92.0"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">92.0%</span></li>
+                    <li class="results-pathmc" style="--v: 68.9"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">68.9%</span></li>
+                    <li class="results-ols" style="--v: 61.1"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">61.1%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+                <div class="results-coverage-panel">
+                  <h3><span>g</span> Noise-free total</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 100.0"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">100.0%</span></li>
+                    <li class="results-oracle" style="--v: 96.0"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">96.0%</span></li>
+                    <li class="results-pathmc" style="--v: 56.0"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">56.0%</span></li>
+                    <li class="results-ols" style="--v: 48.0"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">48.0%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+                <div class="results-coverage-panel">
+                  <h3><span>h</span> Observed sales†</h3>
+                  <ul class="results-coverage-plot">
+                    <li class="results-mfm" style="--v: 99.0"><span class="results-sr">MFM</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">99.0%</span></li>
+                    <li class="results-oracle" style="--v: 96.0"><span class="results-sr">Oracle</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">96.0%</span></li>
+                    <li class="results-pathmc" style="--v: 93.0"><span class="results-sr">PathMC</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">93.0%</span></li>
+                    <li class="results-ols" style="--v: 93.0"><span class="results-sr">OLS</span><span class="results-stem"></span><span class="results-dot"></span><span class="results-coverage-value">93.0%</span></li>
+                  </ul>
+                  <p class="results-coverage-ticks" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></p>
+                </div>
+              </div>
+            </div>
+            <figcaption>
+              <p class="results-coverage-axis">share of weekly truths inside the central 95% interval</p>
+              <p class="fig-note">Vertical line: nominal 95%, not a 100% target; read with interval width.</p>
+              <p class="fig-note">† MFM uses its noise-free band against observed sales.</p>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>We evaluate how often the true contribution value falls within the uncertainty interval generated by each method.</p>
+        <p>Each dot is the share of weekly truths inside the central 95% interval, and its stem runs to the nominal 95% line. Nominal 95% is not a 100% target; read coverage together with interval width.</p>
+        <p>With 99 context weeks, MFM covers 84.8% of live-channel truths against 65.8% for PathMC and 53.9% for OLS. With 207 context weeks, shown at the next step, MFM is close to the oracle: 91.8% against 92.4% for live channels and 93.5% against 92.0% for live controls.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="general-recovery" data-title="General recovery" data-summary="One world, three methods: MFM recovers each component, while the regressions explain the total but misallocate its parts." data-theme="light" data-field="none" data-section="05 · The results" data-section-index="5" aria-labelledby="general-recovery-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="general-recovery-title" class="reveal">General recovery</h2>
+          <p class="reveal" style="--d: 120ms">The following case clearly illustrates how neural networks behave compared to traditional regression models, which often misallocate variance. Even when the target is well explained, the internal feature attribution remains incorrect.</p>
+        </div>
+        <div class="split-visual results-visual">
+          <figure class="results-frame reveal" style="--d: 150ms">
+            <img class="results-layer-base" src="assets/figures/results-general-recovery.webp" alt="Weekly time series for one world over 208 weeks, with context and query split at week 99, for MFM, PathMC and OLS. Rows: intrinsic baseline, visible channel sum, visible control sum, and sales with the noise-free total; orange is the true component. The MFM median and central 90% band follow the truth in every row. PathMC and OLS follow the sales total, but their components drift from the truth or carry very wide bands; the OLS control sum, for example, sits well above its true value." width="1871" height="1744" decoding="async">
+            <img class="results-layer-pathmc step-custom" data-step="1" data-caption="Reveal the PathMC column." src="assets/figures/results-general-recovery.webp" alt="" width="1871" height="1744" decoding="async">
+            <img class="results-layer-ols step-custom" data-step="2" data-caption="Reveal the OLS column." src="assets/figures/results-general-recovery.webp" alt="" width="1871" height="1744" decoding="async">
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>The following case clearly illustrates how neural networks behave compared to traditional regression models, which often misallocate variance. Even when the target is well explained, the internal feature attribution remains incorrect.</p>
+        <p>Rows: intrinsic baseline, visible channel sum, visible control sum, and sales with the noise-free total. Orange is the true component; bands are central 90% intervals that exclude noise.</p>
+        <p>Start with MFM, which follows the truth in every row. Step 1 adds PathMC and step 2 adds OLS: both follow the sales total, but their components drift from the truth or carry very wide bands.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="hidden-input-recovery" data-title="Out of distribution: a hidden control" data-summary="With the most important control hidden from every method, MFM keeps the remaining components well attributed and gives up accuracy on the total." data-theme="light" data-field="none" data-section="05 · The results" data-section-index="5" aria-labelledby="hidden-input-recovery-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="hidden-input-recovery-title" class="reveal">Out of distribution: a hidden control</h2>
+          <p class="reveal" style="--d: 120ms">Removing the most important covariate highlights the problem: all models receive an incomplete view of the system. However, the transformer sacrifices accuracy on the target while keeping the remaining system components well attributed.</p>
+        </div>
+        <div class="split-visual results-visual">
+          <figure class="results-frame reveal" style="--d: 150ms">
+            <img src="assets/figures/results-hidden-input-recovery.webp" alt="Weekly time series over 208 weeks with control 1 hidden from every method and no estimate of the hidden input, for MFM, PathMC and OLS. Rows: estimated baseline, retained channel sum, retained control sum, and sales with the noise-free total. MFM keeps its baseline on the retained truth, below the dashed reference of baseline plus hidden truth, and its channel and control sums follow the truth, while its sales total falls below observed sales. PathMC and OLS raise the baseline well above both references and push the retained channel and control sums below the truth, which keeps their totals on observed sales." width="1870" height="1868" decoding="async">
+            <svg viewBox="0 0 1870 1868" aria-hidden="true" focusable="false">
+              <path class="results-box step-custom" data-step="1" data-caption="Highlight the MFM estimated baseline." pathLength="1" d="M110 368H668A22 22 0 0 1 690 390V456A22 22 0 0 1 668 478H110A22 22 0 0 1 88 456V390A22 22 0 0 1 110 368Z"/>
+              <path class="results-box step-custom" data-step="2" data-caption="Highlight the PathMC and OLS retained sums." pathLength="1" d="M738 486H1250A22 22 0 0 1 1272 508V1216A22 22 0 0 1 1250 1238H738A22 22 0 0 1 716 1216V508A22 22 0 0 1 738 486Z"/>
+              <path class="results-box step-custom" data-step="2" pathLength="1" d="M1321 486H1833A22 22 0 0 1 1855 508V1216A22 22 0 0 1 1833 1238H1321A22 22 0 0 1 1299 1216V508A22 22 0 0 1 1321 486Z"/>
+            </svg>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>Removing the most important covariate highlights the problem: all models receive an incomplete view of the system. However, the transformer sacrifices accuracy on the target while keeping the remaining system components well attributed.</p>
+        <p>Control 1 is hidden from every method and no method estimates the hidden input. The dashed orange line, baseline plus hidden truth, is a reference only.</p>
+        <p>Step 1: MFM keeps its estimated baseline on the retained truth instead of absorbing the hidden control. Step 2: PathMC and OLS raise the baseline and push the retained channel and control sums below the truth, which keeps their totals on observed sales.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="hidden-input-bias" data-title="Out of distribution: where the error goes" data-summary="In world 38 each method’s signed errors sum to the hidden true mean: MFM leaves most of it as a total shortfall, while PathMC and OLS overstate the baseline and offset it elsewhere." data-theme="light" data-field="none" data-section="05 · The results" data-section-index="5" aria-labelledby="hidden-input-bias-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="hidden-input-bias-title" class="reveal">Out of distribution: where the error goes</h2>
+          <p class="reveal" style="--d: 120ms">Removing the most important covariate highlights the problem: all models receive an incomplete view of the system. However, the transformer sacrifices accuracy on the target while keeping the remaining system components well attributed.</p>
+        </div>
+        <div class="split-visual">
+          <figure class="results-bars reveal" style="--d: 150ms">
+            <figcaption class="results-bars-heading"><span>World 38: control omission | query | 99 context weeks</span> <span>Four signed bars sum to the hidden true mean; not a causal allocation.</span></figcaption>
+            <div class="results-bars-grid">
+              <ul class="results-bars-labels" aria-hidden="true"><li>baseline error</li><li>channel error</li><li>retained-control error</li><li>total shortfall (+)</li></ul>
+              <div class="results-bars-panel results-mfm">
+                <h3>MFM</h3>
+                <div class="results-bars-area">
+                  <ul class="results-bars-plot">
+                    <li style="--v: 0.028"><span class="results-sr">baseline error</span><span class="results-bar"></span><span class="results-bars-value">+0.028</span></li>
+                    <li class="results-neg" style="--v: -0.023"><span class="results-sr">channel error</span><span class="results-bar"></span><span class="results-bars-value">−0.023</span></li>
+                    <li style="--v: 0.078"><span class="results-sr">retained-control error</span><span class="results-bar"></span><span class="results-bars-value">+0.078</span></li>
+                    <li style="--v: 0.111"><span class="results-sr">total shortfall (+)</span><span class="results-bar"></span><span class="results-bars-value">+0.111</span></li>
+                  </ul>
+                  <svg class="results-truth" aria-hidden="true" focusable="false"><line x1="50%" y1="0" x2="50%" y2="100%"/></svg>
+                </div>
+                <p class="results-bars-ticks" aria-hidden="true"><span>−0.5</span><span>0.0</span><span>0.5</span><span>1.0</span></p>
+              </div>
+              <div class="results-bars-panel results-pathmc">
+                <h3>PathMC</h3>
+                <div class="results-bars-area">
+                  <ul class="results-bars-plot">
+                    <li style="--v: 1.308"><span class="results-sr">baseline error</span><span class="results-bar"></span><span class="results-bars-value">+1.308</span></li>
+                    <li class="results-neg" style="--v: -0.302"><span class="results-sr">channel error</span><span class="results-bar"></span><span class="results-bars-value">−0.302</span></li>
+                    <li class="results-neg" style="--v: -0.763"><span class="results-sr">retained-control error</span><span class="results-bar"></span><span class="results-bars-value">−0.763</span></li>
+                    <li class="results-neg" style="--v: -0.049"><span class="results-sr">total shortfall (+)</span><span class="results-bar"></span><span class="results-bars-value">−0.049</span></li>
+                  </ul>
+                  <svg class="results-truth" aria-hidden="true" focusable="false"><line x1="50%" y1="0" x2="50%" y2="100%"/></svg>
+                </div>
+                <p class="results-bars-ticks" aria-hidden="true"><span>−0.5</span><span>0.0</span><span>0.5</span><span>1.0</span></p>
+              </div>
+              <div class="results-bars-panel results-ols">
+                <h3>OLS</h3>
+                <div class="results-bars-area">
+                  <ul class="results-bars-plot">
+                    <li style="--v: 0.725"><span class="results-sr">baseline error</span><span class="results-bar"></span><span class="results-bars-value">+0.725</span></li>
+                    <li class="results-neg" style="--v: -0.144"><span class="results-sr">channel error</span><span class="results-bar"></span><span class="results-bars-value">−0.144</span></li>
+                    <li class="results-neg" style="--v: -0.366"><span class="results-sr">retained-control error</span><span class="results-bar"></span><span class="results-bars-value">−0.366</span></li>
+                    <li class="results-neg" style="--v: -0.021"><span class="results-sr">total shortfall (+)</span><span class="results-bar"></span><span class="results-bars-value">−0.021</span></li>
+                  </ul>
+                  <svg class="results-truth" aria-hidden="true" focusable="false"><line x1="50%" y1="0" x2="50%" y2="100%"/></svg>
+                </div>
+                <p class="results-bars-ticks" aria-hidden="true"><span>−0.5</span><span>0.0</span><span>0.5</span><span>1.0</span></p>
+              </div>
+            </div>
+            <p class="results-bars-axis">signed mean / context-sales scale</p>
+            <p class="results-bars-legend"><svg class="results-truth-swatch" aria-hidden="true" focusable="false"><line x1="0" y1="50%" x2="100%" y2="50%"/></svg>hidden true mean (sum reference, not an estimate)</p>
+          </figure>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>Removing the most important covariate highlights the problem: all models receive an incomplete view of the system. However, the transformer sacrifices accuracy on the target while keeping the remaining system components well attributed.</p>
+        <p>World 38, control omission, query period, 99 context weeks. For each method the four signed bars add up to the hidden true mean, the dashed line, so this is an accounting of the error, not a causal allocation.</p>
+        <p>MFM keeps baseline, channel and retained-control errors small (+0.028, −0.023, +0.078) and leaves +0.111 as a total shortfall. PathMC moves +1.308 into the baseline and offsets it with −0.302 in channels and −0.763 in retained controls; OLS repeats the pattern at a smaller scale.</p>
+      </aside>
+    </section>
+
+    <!-- END:results -->
+
+    <!-- BEGIN:closing (slides 23–28) -->
+    <section class="slide" id="knowledge-frontier" data-title="Knowledge expands unevenly" data-summary="The same distance from the learning region can give different results: the knowledge frontier reaches further in some directions than others." data-theme="dark" data-field="none" data-section="06 · Next steps and future work" data-section-index="6" aria-labelledby="knowledge-frontier-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="split">
+        <div class="split-copy">
+          <h2 id="knowledge-frontier-title" class="reveal">Knowledge expands unevenly</h2>
+          <p class="kf-lede reveal" style="--d: 120ms">The same distance from the learning region can give different results.</p>
+          <p class="kf-key reveal" style="--d: 240ms"><svg class="kf-key-dots" viewBox="0 0 52 10" aria-hidden="true"><circle cx="5" cy="5" r="3.5"/><circle cx="19" cy="5" r="3.5"/><circle cx="33" cy="5" r="3.5"/><circle cx="47" cy="5" r="3.5"/></svg>Generated priors define the learning region.</p>
+          <ul class="kf-legend" aria-label="Legend">
+            <li class="reveal" style="--d: 320ms"><svg class="kf-swatch" viewBox="0 0 28 28" aria-hidden="true"><g class="kf-mark is-support"><circle class="kf-mark-ring" cx="14" cy="14" r="11"/><circle class="kf-mark-dot" cx="14" cy="14" r="4"/></g></svg>Prior-data support</li>
+            <li data-step="1"><svg class="kf-swatch" viewBox="0 0 28 28" aria-hidden="true"><g class="kf-mark is-inside"><circle class="kf-mark-ring" cx="14" cy="14" r="11"/><circle class="kf-mark-dot" cx="14" cy="14" r="4"/></g></svg>Extrapolation region</li>
+            <li data-step="2"><svg class="kf-swatch" viewBox="0 0 28 28" aria-hidden="true"><g class="kf-mark is-beyond"><circle class="kf-mark-ring" cx="14" cy="14" r="11"/><circle class="kf-mark-dot" cx="14" cy="14" r="4"/></g></svg>Beyond the frontier</li>
+          </ul>
+          <p class="fig-note reveal" style="--d: 400ms">Conceptual illustration, not measured model performance. A frontier does not guarantee accuracy.</p>
+        </div>
+        <div class="split-visual">
+          <!-- js/scenes/closing.js draws the frontier, the prior-data points, the probes and the label leader. -->
+          <svg class="kf-figure" viewBox="0 0 1040 840" role="img" aria-labelledby="kf-figure-title" aria-describedby="kf-figure-desc">
+            <title id="kf-figure-title">Conceptual illustration of an uneven knowledge frontier</title>
+            <desc id="kf-figure-desc">A learning circle, where the transformer learns, is filled with generated prior-data points. Around it, an irregular knowledge frontier reaches much further in some directions than in others. Six probes at the same distance from the circle land inside the frontier in three directions and beyond it in the other three.</desc>
+            <g class="kf-frontier step-custom" data-step="1" data-caption="The knowledge frontier grows unevenly beyond the learning circle.">
+              <path class="kf-band" fill-rule="evenodd"/>
+              <path class="kf-edge"/>
+            </g>
+            <circle class="kf-circle" cx="470" cy="430" r="158"/>
+            <g class="kf-points"></g>
+            <text class="kf-title" x="470" y="426" text-anchor="middle">Learning circle</text>
+            <text x="470" y="456" text-anchor="middle">The transformer learns here</text>
+            <g class="kf-frontier-label" data-step="1">
+              <path class="kf-leader"/>
+              <text class="kf-reach-title" x="1030" y="126" text-anchor="end">Knowledge frontier</text>
+              <text x="1030" y="154" text-anchor="end">Uneven reach beyond the prior-data region</text>
+            </g>
+            <g class="kf-probes step-custom" data-step="2" data-caption="Probes at the same distance land inside or beyond the frontier.">
+              <circle class="kf-ring" cx="470" cy="430" r="286"/>
+              <g class="kf-connectors"></g>
+              <g class="kf-probe-marks"></g>
+              <text class="kf-distance" x="430" y="128" text-anchor="middle">Same distance</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <aside class="notes" hidden>
+        <p>Knowledge expands unevenly. The transformer learns inside the learning circle, the region that the generated priors define. Beyond it, the knowledge frontier reaches further in some directions than in others, so the same distance from the learning region can give different results.</p>
+        <p>Click once: the frontier grows outward, unevenly, beyond the prior-data region.</p>
+        <p>Click again: probes at the same distance from the circle land inside the frontier in some directions and beyond it in others.</p>
+        <p>This is a conceptual illustration, not measured model performance. A frontier does not guarantee accuracy.</p>
+      </aside>
+    </section>
+
+    <section class="slide slide-statement tone-periwinkle" id="limitations-conclusions" data-title="Limitations and conclusions" data-summary="Section break: the open questions, then what we conclude from this first model." data-theme="light" data-field="none" data-section="06 · Next steps and future work" data-section-index="6" aria-labelledby="limitations-conclusions-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="statement">
+        <h2 id="limitations-conclusions-title"><span class="quiet">Limitations and</span> conclusions</h2>
+      </div>
+      <aside class="notes" hidden>
+        <p>Limitations and conclusions.</p>
+        <p>First the questions this work leaves open, then what we can conclude from this first model.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="open-questions" data-title="Open questions" data-summary="The calibration of effect shapes, the limits of extrapolation and structural breaks." data-theme="light" data-field="none" data-section="06 · Next steps and future work" data-section-index="6" aria-labelledby="open-questions-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="slide-title reveal">
+        <h2 id="open-questions-title">Open questions</h2>
+      </div>
+      <ol class="numbered">
+        <li class="reveal" style="--d: 150ms"><span class="n">1</span><p>Even when recovery is demonstrated, the shape of effects such as carryover and saturation is not fully calibrated.</p></li>
+        <li data-step="1" data-caption="Open question 2: the limits of extrapolation."><span class="n">2</span><p>The limits of extrapolation remain unclear: models can appear remarkably clever, yet behave foolishly when tested on data outside their training horizon.</p></li>
+        <li data-step="2" data-caption="Open question 3: structural breaks in the time series."><span class="n">3</span><p>It is still unknown how the model behaves under structural breaks in the time series.</p></li>
+      </ol>
+      <aside class="notes" hidden>
+        <p>Open questions. One: even when recovery is demonstrated, the shape of effects such as carryover and saturation is not fully calibrated. Two: the limits of extrapolation remain unclear; models can appear remarkably clever, yet behave foolishly when tested on data outside their training horizon. Three: it is still unknown how the model behaves under structural breaks in the time series.</p>
+        <p>Each click reveals the next question.</p>
+        <p>Question two connects back to the knowledge frontier: the same distance from the learning region can land inside or beyond what the model knows.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="conclusions" data-title="Conclusions" data-summary="Better decomposition within the learning horizon, less repetitive model training, and larger networks ahead." data-theme="light" data-field="none" data-section="06 · Next steps and future work" data-section-index="6" aria-labelledby="conclusions-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="slide-title reveal">
+        <h2 id="conclusions-title">Conclusions</h2>
+      </div>
+      <ol class="numbered">
+        <li class="reveal" style="--d: 150ms"><span class="n">1</span><p>Within the learning horizon, the network decomposes better than traditional approaches such as linear regressions.</p></li>
+        <li data-step="1" data-caption="Conclusion 2: less repetitive model training, many assumptions at once."><span class="n">2</span><p>Reduce repetitive model training to focus on understanding systems and their consequences. Test multiple assumptions and structures simultaneously, under uncertainty, without committing to just one.</p></li>
+        <li data-step="2" data-caption="Conclusion 3: an early-stage model; larger networks are next."><span class="n">3</span><p>The current foundational model is an early-stage experiment and the smallest in our roadmap. Future networks, with a larger training corpus and more capacity, will offer greater capability and broader use-case coverage.</p></li>
+      </ol>
+      <aside class="notes" hidden>
+        <p>Conclusions. One: within the learning horizon, the network decomposes better than traditional approaches such as linear regressions. Two: reduce repetitive model training to focus on understanding systems and their consequences; test multiple assumptions and structures simultaneously, under uncertainty, without committing to just one. Three: the current foundational model is an early-stage experiment and the smallest in our roadmap; future networks, with a larger training corpus and more capacity, will offer greater capability and broader use-case coverage.</p>
+        <p>Each click reveals the next conclusion.</p>
+        <p>“Within the learning horizon” matters: River has been validated on synthetic data only.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="papers" data-title="The white paper is out" data-summary="The white paper is public; the academic paper follows as an arXiv preprint and the trained model is coming soon on Hugging Face." data-theme="light" data-field="none" data-section="06 · Next steps and future work" data-section-index="6" aria-labelledby="papers-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="papers">
+        <div class="papers-copy">
+          <h2 id="papers-title" class="reveal">The white paper is out. <span>The academic paper is next.</span></h2>
+          <p class="papers-lede reveal" style="--d: 120ms">The white paper covers how MFM is trained, how it was tested and where its limits are. The academic paper, with the full numerical results, follows as an arXiv preprint. The trained model is coming soon on Hugging Face.</p>
+          <div class="papers-qr reveal" style="--d: 240ms">
+            <img src="assets/figures/closing-white-paper-qr.svg" width="225" height="225" alt="QR code for pymc-labs.com/white-papers/marketing-foundation-models">
+            <p>Get the white paper<a href="https://www.pymc-labs.com/white-papers/marketing-foundation-models" target="_blank" rel="noopener">pymc-labs.com/white-papers/marketing-foundation-models</a></p>
+          </div>
+        </div>
+        <figure class="papers-preprint reveal" style="--d: 200ms">
+          <img src="assets/figures/closing-academic-paper.webp" width="1402" height="1724" alt="First page of the academic paper: its title, the six authors from PyMC Labs, October 2026, and the abstract.">
+          <figcaption class="fig-note">Marketing Foundational Models: Amortized Bayesian Inference over Mixtures of Media Mix Models · arXiv preprint coming soon</figcaption>
+        </figure>
+      </div>
+      <aside class="notes" hidden>
+        <p>The white paper is out, and the academic paper is next. The white paper covers how MFM is trained, how it was tested and where its limits are. The academic paper, with the full numerical results, follows as an arXiv preprint. The trained model is coming soon on Hugging Face.</p>
+        <p>Point to the QR code: it opens pymc-labs.com/white-papers/marketing-foundation-models.</p>
+        <p>Update since ODSC West: that talk announced a draft paper and early-access registration; the white paper is now public.</p>
+      </aside>
+    </section>
+
+    <section class="slide" id="thanks" data-title="Thanks!" data-summary="Thank you, and questions for the team." data-theme="dark" data-field="contour" data-section="07 · Q&amp;A" data-section-index="7" aria-labelledby="thanks-title" hidden>
+      <header class="slide-header">
+        <img class="brand" src="assets/pymc-labs-logo-navy.svg" alt="PyMC Labs" width="120" height="42">
+        <p class="event-meta">Marketing Foundational Models <span aria-hidden="true">·</span> <time datetime="2026-11-17">17 November 2026</time></p>
+      </header>
+      <div class="thanks-copy">
+        <h2 id="thanks-title"><span class="reveal">Thanks!</span> <span class="reveal" lang="es" style="--d: 220ms">Gracias!</span> <span class="reveal" lang="pt" style="--d: 440ms">Obrigado!</span></h2>
+        <p class="thanks-questions reveal" style="--d: 760ms">Questions?</p>
+      </div>
+      <aside class="notes" hidden>
+        <p>Thanks! Gracias! Obrigado!</p>
+        <p>Open the floor: questions for the team.</p>
+      </aside>
+    </section>
+    <!-- END:closing -->
+
+    <footer class="deck-footer"><span class="deck-section"><span class="section-track" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span id="deck-section">PyMC Labs · River · Research prototype</span></span><span id="slide-count" aria-live="polite">1 / 3</span></footer>
+    <div class="progress-track" aria-hidden="true"><div id="progress"></div></div>
+  </main>
+
+  <nav class="toolbar" aria-label="Presentation controls">
+    <button type="button" data-action="prev" aria-label="Previous slide" title="Previous slide (←)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"/></svg></button>
+    <button type="button" data-action="next" aria-label="Next slide" title="Next slide (→)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 5 7 7-7 7"/></svg></button>
+    <span class="toolbar-divider" aria-hidden="true"></span>
+    <button type="button" data-action="overview" title="Slide overview (O)">Overview <kbd>O</kbd></button>
+    <button type="button" data-action="notes" title="Speaker notes (N)">Notes <kbd>N</kbd></button>
+    <button type="button" data-action="presenter" title="Open presenter screen (P)">Presenter <kbd>P</kbd></button>
+    <button type="button" data-action="fullscreen" title="Full screen (F)">Full screen <kbd>F</kbd></button>
+  </nav>
+  <p id="status" role="status" aria-live="polite"></p>
+  <dialog id="overview" aria-labelledby="overview-title"><header class="dialog-header"><h2 id="overview-title">Slides</h2><button type="button" data-action="overview" aria-label="Close slide overview">Close <kbd>Esc</kbd></button></header><div id="overview-grid" class="overview-grid"></div></dialog>
+  <dialog id="notes-panel" aria-labelledby="notes-title"><header class="dialog-header"><h2 id="notes-title">Speaker notes</h2><button type="button" data-action="notes" aria-label="Close speaker notes">Close <kbd>Esc</kbd></button></header><div id="notes-text"></div></dialog>
+  <noscript><p class="no-script">Enable JavaScript for slide navigation and the presenter screen.</p></noscript>
+</body>
+</html>

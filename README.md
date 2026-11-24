@@ -960,6 +960,39 @@ Replace `123` and `FULL_REVIEWED_HEAD_SHA` with the PR number and the full SHA
 you reviewed. The **Approved CI** run links its results to that SHA. Dispatching
 does not approve or merge the PR on GitHub.
 
+### November 17 webinar
+
+The deck in `presentations/nov17th-webinar/` is the full talk: the title, agenda
+and research team, then the ODSC West 2026 talk translated into seven agenda
+sections, from the current state of the community to Q&A. Run its
+standard-library-only server from the repository root:
+
+```bash
+uv run --no-sync python presentations/nov17th-webinar/serve.py --port 8717
+```
+
+Open <http://127.0.0.1:8717>. Arrow keys, Space, Page Up/Down and a clicker step
+through each slide's build steps, then the next slide; going back returns to the
+fully built previous slide. **P** opens a smaller presenter window with the live
+slide, the next step or slide, editable notes and an elapsed timer. **F** enters
+or leaves fullscreen directly; it does not open a popup. Use **P** separately for
+the presenter, so popup permissions cannot consume the fullscreen gesture. The
+audience canvas fills the viewport without stretching text or cropping slides.
+**O** or **Esc** opens the overview, **N** shows notes, **B** blanks the screen,
+and **Z** then a click (or Alt-click) zooms into the slide.
+
+Agenda items link to their sections, and the footer shows the current section.
+The address bar keeps the position as `#/slide` or `#/slide/step`; `#slide-id`
+(for example `#interval-coverage`) opens a slide by its id. Every slide sets
+`data-section`; elements marked `data-step="k"` appear at build step `k`.
+
+Speaker-note edits and timer state stay in this browser, not in source files.
+The deck runs offline: its fonts reuse the website's SIL OFL assets, while the
+team portraits and wordmark are local copies from the
+[public PyMC Labs white-paper page](https://www.pymc-labs.com/white-papers/marketing-foundation-models)
+and public website. Portrait hashes and origins are pinned in the public-boundary
+allowlist. No trained model, account or token is needed to present.
+
 ### Documentation site
 
 The website in `docs/` is a [Quarto](https://quarto.org) project: a landing page, the

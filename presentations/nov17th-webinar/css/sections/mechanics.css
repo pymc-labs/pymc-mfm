@@ -1,0 +1,141 @@
+/* Mechanics section: start backwards (9), decompose in code (13), outcome is a system (14) and
+   model outcome (15). Every selector is scoped to one of these slide ids. Base styles are the
+   final state, so reduced motion and the presenter mirror show complete figures. */
+
+:is(#start-backwards, #model-outcome) .mech-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* ---- 9 · What if we could start backwards? Sequential loop, then the parallel view (step 1). ---- */
+#start-backwards .mech-sb { width: 100%; max-width: 1000px; display: grid; gap: 52px; transition: transform 650ms var(--ease-out); }
+/* Step 0 centres the sequential loop (half the parallel figure plus the gap); step 1 makes room below it. */
+#start-backwards[data-current-step="0"] .mech-sb { transform: translateY(234px); }
+#start-backwards .mech-sb figure { margin: 0; }
+#start-backwards .mech-mode { margin: 0 0 6px; font-size: 21px; font-weight: 500; color: var(--ink); transition: color 500ms var(--ease-out); }
+#start-backwards .mech-sb svg { display: block; width: 100%; overflow: visible; }
+#start-backwards .mech-seq svg { height: 206px; }
+#start-backwards .mech-par svg { height: 384px; }
+#start-backwards .mech-sb text { font-family: var(--font-body); font-size: 20px; fill: var(--ink); text-anchor: middle; transition: fill 500ms var(--ease-out); }
+#start-backwards .mech-sb text.is-end { text-anchor: end; }
+#start-backwards .mech-sb .mech-quiet { font-size: 19px; fill: var(--ink-2); }
+#start-backwards .mech-flow, #start-backwards .mech-lane { fill: none; stroke: var(--ink-3); stroke-width: 2; }
+#start-backwards .mech-head { fill: var(--ink-3); }
+#start-backwards .mech-dot { fill: var(--panel); stroke: var(--ink-2); stroke-width: 2; }
+#start-backwards .mech-seq-shapes { transition: opacity 500ms var(--ease-out); }
+#start-backwards .mech-seq-token { fill: var(--hot); transition: opacity 300ms var(--ease-out); }
+/* Step 1: the sequential loop recedes (labels stay readable) while the parallel view takes over. */
+#start-backwards[data-current-step="1"] .mech-seq-shapes { opacity: .32; }
+#start-backwards[data-current-step="1"] .mech-seq-token { opacity: 0; }
+#start-backwards[data-current-step="1"] .mech-seq .mech-mode { color: var(--ink-2); }
+#start-backwards[data-current-step="1"] .mech-seq text { fill: var(--ink-2); }
+#start-backwards .mech-band { fill: var(--accent); fill-opacity: .08; stroke: var(--accent); stroke-width: 1.5; }
+#start-backwards .mech-stub { fill: none; stroke: var(--ink-3); stroke-width: 2; opacity: .3; }
+#start-backwards .mech-best-in, #start-backwards .mech-best-out { fill: none; stroke: var(--hot); stroke-width: 3.5; }
+#start-backwards .mech-best-head { fill: var(--hot); }
+#start-backwards .mech-dot.is-best { fill: var(--hot); stroke: var(--hot); }
+#start-backwards .mech-token { fill: var(--hot); opacity: 0; }
+/* One authored moment when step 1 is reached on the active slide: every assumption travels at once,
+   meets the validation band together and only the best path continues. Entering the slide already
+   built (going back) or in the mirror adds .mech-instant and shows the final state. */
+#start-backwards .mech-par.is-built:not(.mech-instant) .mech-band { animation: mech-fade 600ms var(--ease-out) 200ms both; }
+#start-backwards .mech-par.is-built:not(.mech-instant) .mech-lane { stroke-dasharray: 1; animation: mech-draw 700ms var(--ease-out) 250ms both; }
+#start-backwards .mech-par.is-built:not(.mech-instant) .mech-token { animation: mech-token 1400ms var(--ease-in-out) 500ms both; }
+#start-backwards .mech-par.is-built:not(.mech-instant) .mech-token.is-best { animation: mech-token-best 2300ms var(--ease-in-out) 500ms both; }
+#start-backwards .mech-par.is-built:not(.mech-instant) :is(.mech-stub, .mech-best-in) { animation: mech-fade 400ms var(--ease-out) 1600ms both; }
+#start-backwards .mech-par.is-built:not(.mech-instant) .mech-dot.is-best { animation: mech-best-dot 400ms var(--ease-out) 1600ms both; }
+#start-backwards .mech-par.is-built:not(.mech-instant) .mech-best-out { stroke-dasharray: 1; animation: mech-draw 900ms var(--ease-in-out) 1600ms both; }
+#start-backwards .mech-par.is-built:not(.mech-instant) :is(.mech-best-head, .mech-best-label) { animation: mech-fade 500ms var(--ease-out) 2400ms both; }
+@keyframes mech-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes mech-fade { from { opacity: 0; } }
+@keyframes mech-best-dot { from { fill: var(--panel); stroke: var(--ink-2); } }
+@keyframes mech-token { 0% { transform: translateX(-500px); opacity: 0; } 6% { opacity: 1; } 78.6% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(0); opacity: 0; } }
+@keyframes mech-token-best { 0% { transform: translateX(-866px); opacity: 0; } 4% { opacity: 1; } 47.8% { transform: translateX(-366px); } 87% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(0); opacity: 0; } }
+
+/* ---- 13 · From a CSV to posterior draws: the ODSC terminal, typed one block per build step. ---- */
+#decompose-in-code .mech-steps { list-style: none; margin: 46px 0 0; padding: 0; }
+#decompose-in-code .mech-steps li { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: baseline; padding: 16px 0; border-top: 1px solid var(--rule); font-size: 24px; line-height: 1.35; color: var(--ink-2); transition: color 400ms var(--ease-out); }
+#decompose-in-code .mech-steps li:last-child { border-bottom: 1px solid var(--rule); }
+#decompose-in-code .mech-steps .n { font-size: 19px; font-variant-numeric: tabular-nums; color: var(--ink-3); transition: color 400ms var(--ease-out); }
+#decompose-in-code[data-current-step] .mech-steps li { color: var(--ink-3); }
+#decompose-in-code[data-current-step="1"] .mech-steps li:nth-child(-n+1),
+#decompose-in-code[data-current-step="2"] .mech-steps li:nth-child(-n+2),
+#decompose-in-code[data-current-step="3"] .mech-steps li:nth-child(-n+3) { color: var(--ink-2); }
+#decompose-in-code[data-current-step="0"] .mech-steps li:nth-child(1),
+#decompose-in-code[data-current-step="1"] .mech-steps li:nth-child(2),
+#decompose-in-code[data-current-step="2"] .mech-steps li:nth-child(3),
+#decompose-in-code[data-current-step="3"] .mech-steps li:nth-child(4) { color: var(--ink); }
+#decompose-in-code[data-current-step="0"] .mech-steps li:nth-child(1) .n,
+#decompose-in-code[data-current-step="1"] .mech-steps li:nth-child(2) .n,
+#decompose-in-code[data-current-step="2"] .mech-steps li:nth-child(3) .n,
+#decompose-in-code[data-current-step="3"] .mech-steps li:nth-child(4) .n { color: var(--accent); }
+#decompose-in-code .mech-term { width: 100%; max-width: 1100px; margin: 0; display: flex; flex-direction: column; background: #050f24; border: 1px solid rgb(180 231 221 / 16%); border-radius: 14px; overflow: hidden; }
+#decompose-in-code .mech-term-bar { position: relative; display: flex; align-items: center; justify-content: center; height: 50px; background: #0f2244; border-bottom: 1px solid rgb(247 247 247 / 6%); }
+#decompose-in-code .mech-term-dots { position: absolute; left: 20px; top: 50%; display: flex; gap: 9px; transform: translateY(-50%); }
+#decompose-in-code .mech-term-dots i { width: 13px; height: 13px; border-radius: 50%; background: #ff5f57; }
+#decompose-in-code .mech-term-dots i:nth-child(2) { background: #febc2e; }
+#decompose-in-code .mech-term-dots i:nth-child(3) { background: #28c840; }
+#decompose-in-code .mech-term-title { margin: 0; font-size: 17px; color: var(--ink-2); }
+#decompose-in-code .mech-term-crumb { margin: 0; padding: 20px 44px 0; font-size: 17px; color: var(--ink-3); }
+#decompose-in-code .mech-term-crumb [data-crumb] { transition: color 400ms var(--ease-out); }
+#decompose-in-code[data-current-step="0"] [data-crumb="0"],
+#decompose-in-code[data-current-step="1"] [data-crumb="1"],
+#decompose-in-code[data-current-step="2"] [data-crumb="2"],
+#decompose-in-code[data-current-step="3"] [data-crumb="3"] { color: var(--ink); }
+#decompose-in-code .mech-term pre { flex: 1; margin: 0; padding: 22px 44px 26px; }
+#decompose-in-code .mech-code { position: relative; display: block; font: 400 22px/31px "IBM Plex Mono", monospace; color: var(--ink-2); font-variant-ligatures: none; white-space: normal; }
+#decompose-in-code .mech-block { display: block; }
+#decompose-in-code .mech-code .ln { display: block; height: 31px; white-space: pre; }
+#decompose-in-code .mech-code .ln.is-hidden { visibility: hidden; }
+#decompose-in-code .mech-code .ln.is-typing { clip-path: inset(0 calc(100% - var(--n, 0) * 1ch) 0 0); }
+#decompose-in-code .tk-k { color: var(--periwinkle); }
+#decompose-in-code .tk-s { color: var(--aqua); }
+#decompose-in-code .tk-n { color: var(--peach); }
+#decompose-in-code .tk-f { color: var(--white); }
+#decompose-in-code .tk-c { color: var(--ink-3); }
+#decompose-in-code .mech-caret { position: absolute; left: calc(var(--col, 0) * 1ch); top: calc(var(--row, 0) * 31px + 4px); width: 1ch; height: 24px; background: var(--aqua); }
+#decompose-in-code .mech-caret.is-idle { animation: mech-blink 1100ms steps(1, end) infinite; }
+@keyframes mech-blink { 50% { opacity: 0; } }
+#decompose-in-code .mech-term-foot { display: flex; justify-content: space-between; align-items: center; margin: 0 20px; padding: 16px 24px 18px; border-top: 1px solid rgb(247 247 247 / 9%); font-size: 16px; color: var(--ink-3); }
+#decompose-in-code .mech-term-step { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+#decompose-in-code .mech-term-step .n { margin-right: 10px; color: var(--accent); }
+
+/* ---- 14 · The outcome from the model is not a number. It is a system. ---- */
+#outcome-is-a-system .mech-line { display: block; }
+
+/* ---- 15 · Model outcome: candidate DAGs (step 0) and the posterior given the selected DAG (step 1). ---- */
+#model-outcome .mech-outcome-list { position: static; margin: 44px 0 0; }
+#model-outcome .mech-outcome-list li { grid-template-columns: 70px minmax(0, 1fr); padding: 26px 0; border-top: 0; border-bottom: 1px solid var(--rule); }
+#model-outcome .mech-outcome-list li:first-child { border-top: 1px solid var(--rule); }
+#model-outcome .mech-outcome-list p { font-size: 26px; }
+#model-outcome .mech-outcome { width: 100%; max-width: 1040px; }
+#model-outcome .mech-fig-head { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin: 0 0 14px; }
+#model-outcome .mech-fig-label, #model-outcome .mech-post figcaption { margin: 0; font-size: 20px; line-height: 1.4; color: var(--ink-2); }
+#model-outcome .mech-post figcaption { margin-bottom: 14px; }
+#model-outcome .mech-post-dag { font-weight: 500; color: var(--ink); }
+#model-outcome .mech-dags { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+#model-outcome .mech-dag { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 16px 18px 12px; border: 1.5px solid var(--rule); border-radius: 12px; background: var(--panel); color: var(--ink); font: inherit; text-align: left; transition: border-color 250ms var(--ease-out), box-shadow 250ms var(--ease-out); }
+#model-outcome .mech-dag:hover { border-color: var(--ink-3); }
+#model-outcome .mech-dag[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+#model-outcome .mech-dag-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+#model-outcome .mech-dag-name { font-size: 20px; font-weight: 500; }
+#model-outcome .mech-plaus { position: relative; width: 120px; height: 8px; border-radius: 4px; background: var(--rule); overflow: hidden; }
+#model-outcome .mech-plaus::before { content: ""; position: absolute; inset: 0 auto 0 0; width: calc(var(--p) * 100%); border-radius: inherit; background: var(--accent); }
+#model-outcome .mech-dag svg { display: block; width: 100%; height: 160px; }
+#model-outcome .mech-outcome text { font-family: var(--font-body); font-size: 16px; fill: var(--ink); text-anchor: middle; }
+#model-outcome .mech-n { fill: var(--panel); stroke: var(--ink-3); stroke-width: 1.5; }
+#model-outcome .mech-n.is-outcome { fill: var(--ink); stroke: var(--ink); }
+#model-outcome .mech-outcome text.is-outcome { fill: var(--white); }
+#model-outcome .mech-e { fill: none; stroke: var(--ink-2); stroke-width: 2; }
+#model-outcome .mech-e-head { fill: var(--ink-2); }
+#model-outcome .mech-post { margin: 40px 0 0; }
+#model-outcome .mech-post svg { display: block; width: 100%; height: 236px; }
+#model-outcome .mech-axis { stroke: var(--ink-3); stroke-width: 1.5; }
+#model-outcome .mech-zero { stroke: var(--ink-2); stroke-width: 1.5; }
+#model-outcome .mech-outcome text.mech-tick { fill: var(--ink-2); }
+#model-outcome .mech-outcome text.is-end { text-anchor: end; }
+#model-outcome .mech-curve { fill: var(--accent); fill-opacity: 0; stroke: var(--ink-3); stroke-opacity: .5; stroke-width: 1.5; stroke-linejoin: round; transition: fill-opacity 300ms var(--ease-out), stroke 300ms var(--ease-out), stroke-opacity 300ms var(--ease-out), stroke-width 300ms var(--ease-out); }
+#model-outcome .mech-outcome text.mech-curve-label { fill: var(--ink-3); transition: fill 300ms var(--ease-out); }
+#model-outcome .mech-outcome[data-selected="a"] .mech-curve[data-dag="a"],
+#model-outcome .mech-outcome[data-selected="b"] .mech-curve[data-dag="b"],
+#model-outcome .mech-outcome[data-selected="c"] .mech-curve[data-dag="c"] { fill-opacity: .14; stroke: var(--accent); stroke-opacity: 1; stroke-width: 3; }
+#model-outcome .mech-outcome[data-selected="a"] .mech-curve-label[data-dag="a"],
+#model-outcome .mech-outcome[data-selected="b"] .mech-curve-label[data-dag="b"],
+#model-outcome .mech-outcome[data-selected="c"] .mech-curve-label[data-dag="c"] { fill: var(--accent); font-weight: 500; }

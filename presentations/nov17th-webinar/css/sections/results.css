@@ -1,0 +1,149 @@
+/* Results section (slides 16–22). Figures use the shared method colors (--c-mfm, --c-oracle,
+   --c-pathmc, --c-ols, --c-truth). Motion is CSS only: entering a slide runs its figure wipe, the
+   coverage dots or the signed bars; build steps wipe in method columns and draw highlight boxes.
+   The deck's reduced-motion rule leaves every figure in its final state. */
+
+/* Animatable coverage position, so each stem follows its dot while the dot travels. */
+@property --results-x {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+.results-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.results-mfm { --results-c: var(--c-mfm); }
+.results-oracle { --results-c: var(--c-oracle); }
+.results-pathmc { --results-c: var(--c-pathmc); }
+.results-ols { --results-c: var(--c-ols); }
+@keyframes results-fade { from { opacity: 0; } }
+
+/* 16 · Statement: the two lines rise in turn. */
+#can-it-decompose .statement .reveal { display: block; }
+
+/* 17 · Evaluation protocol. */
+#how-we-evaluate .numbered { top: 290px; }
+#how-we-evaluate .numbered p { max-width: 66ch; }
+
+/* 18–19 · A narrower copy column gives the widest charts most of the width. */
+.split.results-split { grid-template-columns: minmax(520px, 1fr) minmax(0, 1160px); column-gap: 72px; }
+.results-split .split-copy { max-width: 560px; }
+/* 18, 20, 21 · Raster figures fill the visual cell at their own aspect ratio. */
+.results-visual { container-type: size; }
+.results-frame { position: relative; width: min(100cqw, 100cqh * var(--results-ratio)); aspect-ratio: var(--results-ratio); margin: 0; }
+.results-frame > img, .results-frame > svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+
+/* 18 · One wipe on entry, in the direction of training. */
+#error-over-training .results-frame { --results-ratio: 1879 / 1363; }
+#error-over-training.is-active .results-frame { animation: results-wipe 1400ms var(--ease-out) 150ms both; }
+@keyframes results-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0); }
+}
+
+/* 19 · Interval coverage: a dot per method, a stem to the nominal 95% line. */
+.results-coverage { width: 100%; margin: 0; }
+.results-coverage-group + .results-coverage-group { margin-top: 26px; }
+.results-coverage-setting { margin: 0 0 6px; font-size: 18px; line-height: 1.4; font-weight: 500; color: var(--ink-2); }
+.results-coverage-grid { display: grid; grid-template-columns: 76px repeat(4, minmax(0, 1fr)); column-gap: 48px; }
+.results-coverage-methods { margin: 0; padding: 42px 0 0; list-style: none; }
+.results-coverage-methods li { height: 44px; display: flex; align-items: center; justify-content: flex-end; font-size: 18px; color: var(--ink-2); }
+.results-coverage-panel { min-width: 0; }
+.results-coverage-panel h3 { height: 42px; font-family: var(--font-body); font-stretch: normal; font-size: 20px; line-height: 32px; font-weight: 500; letter-spacing: 0; white-space: nowrap; }
+.results-coverage-panel h3 span { margin-right: 10px; font-weight: 400; color: var(--ink-3); }
+.results-coverage-plot { position: relative; margin: 0; padding: 0; list-style: none; border: 1px solid var(--rule); border-top: 0; }
+.results-coverage-plot::before, .results-coverage-plot::after { content: ""; position: absolute; top: 0; bottom: 0; }
+.results-coverage-plot::before { left: 50%; width: 1px; background: var(--rule); }
+.results-coverage-plot::after { left: 95%; width: 2px; margin-left: -1px; background: var(--ink-2); }
+.results-coverage-plot li { --results-x: var(--v); position: relative; height: 44px; }
+.results-stem, .results-dot, .results-coverage-value { position: absolute; top: 50%; }
+.results-stem { left: calc(min(var(--results-x), 95) * 1%); right: calc(100% - max(var(--results-x), 95) * 1%); height: 3px; margin-top: -1.5px; background: color-mix(in srgb, var(--results-c) 45%, var(--white)); }
+.results-dot { z-index: 2; left: calc(var(--results-x) * 1%); width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid var(--white); border-radius: 50%; background: var(--results-c); }
+.results-coverage-value { z-index: 1; right: calc(100% - var(--v) * 1% + 12px); transform: translateY(-50%); padding: 0 3px; background: var(--white); font-size: 18px; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; color: color-mix(in srgb, var(--results-c) 75%, var(--navy)); }
+.results-coverage-ticks { position: relative; height: 30px; margin: 0; font-size: 16px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.results-coverage-ticks span { position: absolute; top: 6px; transform: translateX(-50%); }
+.results-coverage-ticks span:nth-child(1) { left: 0; }
+.results-coverage-ticks span:nth-child(2) { left: 50%; }
+.results-coverage-ticks span:nth-child(3) { left: 100%; }
+.results-coverage figcaption { margin-top: 16px; }
+.results-coverage-axis { margin: 0 0 12px; padding-left: 124px; text-align: center; font-size: 18px; color: var(--ink-2); }
+/* Dots travel from 0% to their value, panel by panel; the second setting starts when it is built. */
+.results-coverage-group:not([data-step]) { --results-base: 250ms; }
+.results-coverage-panel:nth-child(3) { --results-panel-d: 110ms; }
+.results-coverage-panel:nth-child(4) { --results-panel-d: 220ms; }
+.results-coverage-panel:nth-child(5) { --results-panel-d: 330ms; }
+.results-coverage-plot li:nth-child(2) { --results-row-d: 50ms; }
+.results-coverage-plot li:nth-child(3) { --results-row-d: 100ms; }
+.results-coverage-plot li:nth-child(4) { --results-row-d: 150ms; }
+#interval-coverage.is-active :is(.results-coverage-group:not([data-step]), .results-coverage-group.is-built) .results-coverage-plot li {
+  animation: results-travel 1300ms var(--ease-out) both;
+  animation-delay: calc(var(--results-base, 0ms) + var(--results-panel-d, 0ms) + var(--results-row-d, 0ms));
+}
+#interval-coverage.is-active :is(.results-coverage-group:not([data-step]), .results-coverage-group.is-built) .results-coverage-value {
+  animation: results-fade 500ms var(--ease-out) both;
+  animation-delay: calc(var(--results-base, 0ms) + var(--results-panel-d, 0ms) + var(--results-row-d, 0ms) + 800ms);
+}
+@keyframes results-travel { from { --results-x: 0; } }
+
+/* 20 · General recovery: PathMC and OLS columns wipe in at steps 1 and 2. Edges measured on the
+   1871 × 1744 figure: columns split at x 712 and 1295, the legend starts at y 1637. */
+#general-recovery .results-frame { --results-ratio: 1871 / 1744; }
+#general-recovery .results-layer-base { clip-path: polygon(0 0, 38.05% 0, 38.05% 93.86%, 100% 93.86%, 100% 100%, 0 100%); }
+#general-recovery .results-layer-pathmc, #general-recovery .results-layer-ols { transition: clip-path 1100ms var(--ease-out); }
+#general-recovery .results-layer-pathmc { clip-path: inset(0 61.95% 6.14% 38.05%); }
+#general-recovery .results-layer-pathmc.is-built { clip-path: inset(0 30.79% 6.14% 38.05%); }
+#general-recovery .results-layer-ols { clip-path: inset(0 30.79% 6.14% 69.21%); }
+#general-recovery .results-layer-ols.is-built { clip-path: inset(0 0 6.14% 69.21%); }
+
+/* 21 · Hidden control: rounded boxes draw at steps 1 and 2 (paths in figure pixels). */
+#hidden-input-recovery .results-frame { --results-ratio: 1870 / 1868; }
+#hidden-input-recovery .results-box { fill: none; stroke: var(--ink); stroke-width: 6; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 1000ms var(--ease-out); }
+#hidden-input-recovery .results-box.is-built { stroke-dashoffset: 0; }
+
+/* 22 · Signed error bars. The domain matches the source chart: −0.867 to 1.412. */
+.results-bars { --results-min: -0.867; --results-span: 2.279; --results-labels: 190px; --results-gap: 76px; width: 100%; margin: 0; }
+/* Heading, shared axis title and legend center over the three panels, not the row labels. */
+.results-bars-heading, .results-bars-axis, .results-bars-legend { margin-left: calc(var(--results-labels) + var(--results-gap)); text-align: center; color: var(--ink-2); }
+.results-bars-heading { margin-bottom: 26px; font-size: 18px; line-height: 1.5; }
+.results-bars-heading span { display: block; }
+.results-bars-grid { display: grid; grid-template-columns: var(--results-labels) repeat(3, minmax(0, 1fr)); column-gap: var(--results-gap); }
+.results-bars-labels { margin: 0; padding: 46px 0 0; list-style: none; }
+.results-bars-labels li { height: 76px; display: flex; align-items: center; justify-content: flex-end; font-size: 18px; color: var(--ink-2); white-space: nowrap; }
+.results-bars-panel { min-width: 0; }
+.results-bars-panel h3 { height: 46px; font-family: var(--font-body); font-stretch: normal; font-size: 22px; line-height: 1.2; font-weight: 500; letter-spacing: 0; }
+.results-bars-area { position: relative; border-bottom: 2px solid var(--rule); }
+.results-bars-area::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc((0 - var(--results-min)) / var(--results-span) * 100%); width: 2px; margin-left: -1px; background: var(--rule); }
+.results-bars-plot { position: relative; margin: 0; padding: 0; list-style: none; }
+.results-truth { position: absolute; z-index: 1; top: 0; left: calc((0.194 - var(--results-min)) / var(--results-span) * 100%); width: 4px; height: 100%; margin-left: -2px; overflow: visible; }
+.results-truth line, .results-truth-swatch line { stroke: var(--c-truth); stroke-width: 3; stroke-dasharray: 10 6; }
+.results-bars-plot li { position: relative; height: 76px; }
+.results-bars-plot li::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--rule); }
+.results-bar { position: absolute; top: 50%; left: calc((min(var(--v), 0) - var(--results-min)) / var(--results-span) * 100%); width: calc(max(var(--v), -1 * var(--v)) / var(--results-span) * 100%); height: 34px; margin-top: -17px; background: var(--results-c); transform-origin: left center; }
+.results-neg .results-bar { transform-origin: right center; }
+/* Values sit 10px past their bar end on a stage-colored halo that masks the truth line (z-index above it). */
+.results-bars-value { position: absolute; z-index: 2; top: 50%; left: calc((var(--v) - var(--results-min)) / var(--results-span) * 100% + 2px); transform: translateY(-50%); padding: 4px 8px; background: var(--white); font-size: 18px; line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.results-neg .results-bars-value { left: auto; right: calc(100% - (var(--v) - var(--results-min)) / var(--results-span) * 100% + 2px); }
+.results-bars-ticks { position: relative; height: 34px; margin: 0; font-size: 16px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.results-bars-ticks span { position: absolute; top: 10px; left: calc((var(--results-t) - var(--results-min)) / var(--results-span) * 100%); transform: translateX(-50%); }
+.results-bars-ticks span::before { content: ""; position: absolute; left: 50%; top: -10px; width: 1px; height: 6px; background: var(--ink-3); }
+.results-bars-ticks span:nth-child(1) { --results-t: -0.5; }
+.results-bars-ticks span:nth-child(2) { --results-t: 0; }
+.results-bars-ticks span:nth-child(3) { --results-t: 0.5; }
+.results-bars-ticks span:nth-child(4) { --results-t: 1; }
+.results-bars-axis { margin-top: 4px; margin-bottom: 0; font-size: 17px; }
+.results-bars-legend { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 28px; margin-bottom: 0; font-size: 17px; }
+.results-truth-swatch { width: 26px; height: 4px; overflow: visible; }
+/* Bars grow from zero, one panel after another; values follow their bar. */
+.results-bars-panel:nth-child(3) { --results-panel-d: 500ms; }
+.results-bars-panel:nth-child(4) { --results-panel-d: 1000ms; }
+.results-bars-plot li:nth-child(2) { --results-row-d: 70ms; }
+.results-bars-plot li:nth-child(3) { --results-row-d: 140ms; }
+.results-bars-plot li:nth-child(4) { --results-row-d: 210ms; }
+#hidden-input-bias.is-active .results-bar {
+  animation: results-grow 900ms var(--ease-out) both;
+  animation-delay: calc(350ms + var(--results-panel-d, 0ms) + var(--results-row-d, 0ms));
+}
+#hidden-input-bias.is-active .results-bars-value {
+  animation: results-fade 450ms var(--ease-out) both;
+  animation-delay: calc(950ms + var(--results-panel-d, 0ms) + var(--results-row-d, 0ms));
+}
+@keyframes results-grow { from { transform: scaleX(0); } }

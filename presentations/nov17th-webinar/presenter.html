@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0C1F40">
+  <title>Presenter — PyMC MFM</title>
+  <link rel="stylesheet" href="../../docs/assets/fonts/fonts.css">
+  <link rel="stylesheet" href="css/deck.css">
+  <link rel="stylesheet" href="css/presenter.css">
+  <script src="js/presenter.js" defer></script>
+</head>
+<body class="presenter" data-audience="connecting">
+  <header class="presenter-header">
+    <div class="presenter-identity">
+      <h1>Presenter</h1>
+      <p>PyMC MFM <span aria-hidden="true">/</span> November 17, 2026</p>
+    </div>
+    <a class="presenter-button presenter-button-secondary" href="index.html" target="pymc-mfm-nov17th-webinar-audience" data-presenter-action="open-audience">
+      Open audience
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/></svg>
+    </a>
+  </header>
+
+  <div class="presenter-connection" role="status" aria-live="polite" aria-atomic="true">
+    <span class="presenter-connection-dot" aria-hidden="true"></span>
+    <p><strong id="presenter-connection-label">Connecting to audience</strong><span id="presenter-connection-detail">Looking for an open audience window.</span></p>
+  </div>
+
+  <main class="presenter-workspace">
+    <div class="presenter-slide-column">
+      <section class="presenter-current" aria-labelledby="presenter-current-heading">
+        <div class="presenter-section-heading">
+          <h2 id="presenter-current-heading">Current slide</h2>
+          <p id="presenter-position" aria-label="Slide position">— / —</p>
+        </div>
+        <figure class="presenter-preview">
+          <iframe src="index.html?mirror=1" title="Audience slide preview" tabindex="-1" inert></iframe>
+          <div class="presenter-preview-empty" id="presenter-preview-empty">
+            <p>Your audience view will appear here.</p>
+            <a href="index.html" target="pymc-mfm-nov17th-webinar-audience" data-presenter-action="open-audience">Open the audience deck</a>
+          </div>
+          <figcaption class="presenter-visually-hidden" id="presenter-preview-caption">Waiting for an audience slide.</figcaption>
+        </figure>
+        <h3 id="presenter-current-title">Ready when you are</h3>
+        <p class="presenter-summary" id="presenter-current-summary">Open the audience deck to load your slides. Your notes and timer stay on this screen.</p>
+      </section>
+
+      <section class="presenter-next" aria-labelledby="presenter-next-heading">
+        <div class="presenter-section-heading">
+          <h2 id="presenter-next-heading">Up next</h2>
+          <p id="presenter-next-position"></p>
+        </div>
+        <h3 id="presenter-next-title">Waiting for audience</h3>
+        <p class="presenter-summary" id="presenter-next-summary">The next slide’s title and summary will appear here.</p>
+      </section>
+    </div>
+
+    <section class="presenter-notes" aria-labelledby="presenter-notes-heading">
+      <div class="presenter-section-heading">
+        <h2 id="presenter-notes-heading"><label for="presenter-notes-input">Speaker notes</label></h2>
+        <button class="presenter-button presenter-button-quiet" type="button" data-presenter-action="save-notes" aria-keyshortcuts="Control+s Meta+s" disabled>Save notes</button>
+      </div>
+      <p class="presenter-notes-help" id="presenter-notes-help">Stored in this browser, slide by slide. Edits save automatically.</p>
+      <textarea id="presenter-notes-input" name="speaker-notes" rows="12" spellcheck="true" aria-describedby="presenter-notes-help presenter-notes-status" placeholder="Add a cue, transition, or reminder for this slide." disabled></textarea>
+      <p class="presenter-notes-status" id="presenter-notes-status" role="status" aria-live="polite">Open the audience deck to load notes.</p>
+    </section>
+  </main>
+
+  <footer class="presenter-footer">
+    <div class="presenter-controls">
+      <section class="presenter-timer" aria-labelledby="presenter-timer-heading">
+        <div class="presenter-timer-reading">
+          <h2 id="presenter-timer-heading">Elapsed time</h2>
+          <output id="presenter-elapsed" aria-label="Elapsed presentation time" aria-live="off" aria-describedby="presenter-timer-state">00:00</output>
+          <p id="presenter-timer-state">Ready</p>
+        </div>
+        <div class="presenter-timer-actions">
+          <button class="presenter-button presenter-button-secondary" type="button" data-presenter-action="timer-toggle">Start timer</button>
+          <button class="presenter-button presenter-button-quiet" type="button" data-presenter-action="timer-reset" disabled>Reset timer</button>
+        </div>
+      </section>
+      <nav class="presenter-navigation" aria-label="Slide navigation">
+        <button class="presenter-button presenter-button-secondary" type="button" data-presenter-action="prev" aria-keyshortcuts="ArrowLeft ArrowUp PageUp Backspace" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m6-6-6 6 6 6"/></svg>
+          Previous
+        </button>
+        <button class="presenter-button presenter-button-primary" type="button" data-presenter-action="next" aria-keyshortcuts="ArrowRight ArrowDown PageDown" disabled>
+          Next
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+        </button>
+      </nav>
+    </div>
+    <p class="presenter-shortcuts">Arrow keys or Page Up / Page Down navigate. <kbd>Esc</kbd> leaves notes. <kbd>Ctrl/Cmd</kbd> + <kbd>S</kbd> saves.</p>
+    <p class="presenter-storage-warning" id="presenter-storage-warning" role="status" hidden>Browser storage is unavailable. Notes and timer are kept for this session only; allow site storage to recover them after a reload.</p>
+    <p class="presenter-feedback" id="presenter-feedback" role="status" aria-live="polite"></p>
+    <noscript><p class="presenter-storage-warning">Enable JavaScript to connect to the audience, edit notes, and run the timer.</p></noscript>
+  </footer>
+</body>
+</html>
