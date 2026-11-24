@@ -500,31 +500,268 @@
   onScroll(hero);
 })();
 
-/* Reveal the charts, numbers and resource lists as they scroll into view.
-   With reduced motion, or without IntersectionObserver, everything shows at once. */
+/* Start the article's one-shot animations when their elements enter the viewport. */
 (() => {
   "use strict";
 
-  const items = document.querySelectorAll(".mfm-reveal");
+  const items = document.querySelectorAll(".mfm-reveal, [data-river-motion]");
   if (!items.length) return;
 
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduceMotion || !("IntersectionObserver" in window)) {
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  if (reduceMotion.matches || !("IntersectionObserver" in window)) {
     items.forEach((el) => el.classList.add("is-visible"));
     return;
   }
 
-  // The bars start collapsed only once scripts run; without them they show in full.
   document.documentElement.classList.add("mfm-js");
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
+        if (entry.intersectionRatio < 0.18) continue;
         entry.target.classList.add("is-visible");
+        if (!reduceMotion.matches) {
+          for (const build of entry.target.querySelectorAll("animate[data-river-build]")) {
+            build.beginElement?.();
+          }
+        }
         observer.unobserve(entry.target);
       }
     },
     { threshold: 0.18 },
   );
   items.forEach((el) => observer.observe(el));
+  reduceMotion.addEventListener("change", () => {
+    if (!reduceMotion.matches) return;
+    for (const build of document.querySelectorAll("animate[data-river-build]")) {
+      build.endElement?.();
+    }
+  });
+})();
+
+/* Open a benchmark before the browser scrolls to it. */
+(() => {
+  const map = document.querySelector(".mfm-test-map");
+  if (!map) return;
+
+  function expandTest(hash) {
+    const test = document.getElementById(hash.slice(1));
+    if (!test?.matches("details.mfm-test-panel")) return;
+    test.open = true;
+    return test;
+  }
+
+  map.addEventListener("click", (event) => {
+    const link = event.target.closest("a");
+    if (link && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+      expandTest(link.hash);
+    }
+  });
+
+  const revealLinkedTest = () => expandTest(location.hash)?.scrollIntoView();
+  window.addEventListener("hashchange", revealLinkedTest);
+  if (document.readyState === "complete") revealLinkedTest();
+  else window.addEventListener("load", revealLinkedTest, { once: true });
+})();
+
+/* Morph the visible benchmark without changing its static scores. */
+(() => {
+  const chart = document.getElementById("benchmark-distributions");
+  if (!chart) return;
+
+  const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const svgNS = "http://www.w3.org/2000/svg";
+  const duration = 420;
+  const ease = "cubic-bezier(0.16, 1, 0.3, 1)";
+  const foldIn = [
+    { opacity: 0, rotate: "x -65deg", translate: "0 0.35em" },
+    { opacity: 1, rotate: "x 0deg", translate: "0 0" },
+  ];
+  const foldOut = [
+    { opacity: 1, rotate: "x 0deg", translate: "0 0" },
+    { opacity: 0, rotate: "x 65deg", translate: "0 -0.25em" },
+  ];
+
+  function selected(body) {
+    const metric = body.querySelector('input[name^="error-"]:checked').value;
+    const fits = body.querySelector('input[name^="fits-"]:checked').value;
+    return body.querySelector(`[data-metric="${metric}"] > [data-fit-scope="${fits}"]`);
+  }
+
+  const views = new Map(Array.from(chart.querySelectorAll(".mfm-case-body"), (body) =>
+    [body, selected(body)]));
+  let stop;
+
+  function morph(from, to) {
+    const animations = [];
+    const ghosts = [];
+    const masks = [];
+
+    function play(el, frames, time, delay = 0) {
+      animations.push(el.animate(frames, { duration: time, delay, easing: ease, fill: "both" }));
+    }
+
+    function ghost(el) {
+      el.setAttribute("aria-hidden", "true");
+      el.classList.remove("mfm-morph-source");
+      el.classList.add("mfm-morph-ghost");
+      ghosts.push(el);
+      return el;
+    }
+
+    function mask(el) {
+      el.classList.add("mfm-morph-source");
+      masks.push(el);
+    }
+
+    function path(anchor, template, shape = template.getAttribute("d")) {
+      const copy = ghost(template.cloneNode(false));
+      copy.setAttribute("d", shape);
+      anchor.before(copy);
+      return copy;
+    }
+
+    function slidePath(el, first, last) {
+      if (first === last) return;
+      const animation = document.createElementNS(svgNS, "animate");
+      animation.setAttribute("attributeName", "d");
+      animation.setAttribute("values", `${first};${last}`);
+      animation.setAttribute("calcMode", "spline");
+      animation.setAttribute("keyTimes", "0;1");
+      animation.setAttribute("keySplines", "0.16 1 0.3 1");
+      animation.setAttribute("dur", `${duration}ms`);
+      animation.setAttribute("begin", "indefinite");
+      animation.setAttribute("fill", "freeze");
+      el.append(animation);
+      animation.beginElement();
+    }
+
+    function dots(before, after) {
+      const first = before.querySelector(".mfm-error-samples");
+      const last = after.querySelector(".mfm-error-samples");
+      if (before.dataset.cases === after.dataset.cases &&
+          first.getAttribute("d") === last.getAttribute("d")) return;
+      const samples = (node, marks) => {
+        const commands = marks.getAttribute("d").match(/M[^M]+/g);
+        return new Map(node.dataset.cases.split(" ").map((id, i) => [id, commands[i]]));
+      };
+      const leaving = samples(before, first);
+      const arriving = [];
+      const matchedFrom = [];
+      const matchedTo = [];
+      for (const [id, dot] of samples(after, last)) {
+        if (leaving.has(id)) {
+          matchedFrom.push(leaving.get(id));
+          matchedTo.push(dot);
+          leaving.delete(id);
+        } else {
+          arriving.push(dot);
+        }
+      }
+      mask(last);
+      if (matchedTo.length) {
+        const start = matchedFrom.join("");
+        slidePath(path(last, last, start), start, matchedTo.join(""));
+      }
+      if (leaving.size) play(path(last, first, [...leaving.values()].join("")),
+        [{ opacity: 1 }, { opacity: 0 }], 180);
+      if (arriving.length) play(path(last, last, arriving.join("")),
+        [{ opacity: 0 }, { opacity: 1 }], 250, 70);
+    }
+
+    function plot(before, after) {
+      if (!before.dataset.cases) {
+        play(after, [{ opacity: 0 }, { opacity: 1 }], 260);
+        return;
+      }
+      if (!after.dataset.cases) {
+        const layer = ghost(document.createElementNS(svgNS, "g"));
+        for (const mark of before.children) layer.append(mark.cloneNode(false));
+        after.append(layer);
+        play(layer, [{ opacity: 1 }, { opacity: 0 }], 190);
+        return;
+      }
+      for (const [kind, successor] of [
+        ["grid", "samples"], ["zero", "samples"], ["range", "mean"], ["mean", "mean"],
+      ]) {
+        const first = before.querySelector(`.mfm-error-${kind}`);
+        const last = after.querySelector(`.mfm-error-${kind}`);
+        const start = first?.getAttribute("d");
+        const end = last?.getAttribute("d");
+        if (start === end) continue;
+        if (first && last && kind !== "grid") {
+          mask(last);
+          slidePath(path(last, last, start), start, end);
+        } else {
+          if (first) play(path(last || after.querySelector(`.mfm-error-${successor}`), first),
+            [{ opacity: 1 }, { opacity: 0 }], 170);
+          if (last) play(last, [{ opacity: 0 }, { opacity: 1 }], 250, 60);
+        }
+      }
+      dots(before, after);
+    }
+
+    function axis(before, after) {
+      if (before.innerHTML === after.innerHTML) return;
+      const previous = new Map(Array.from(before.children, (tick) => [tick.textContent, tick]));
+      const position = (tick) => parseFloat(tick.style.getPropertyValue("--tick"));
+      const alignment = (tick) =>
+        tick.classList.contains("first") ? 0 : tick.classList.contains("last") ? -1 : -0.5;
+      const width = after.clientWidth;
+      for (const tick of after.children) {
+        const old = previous.get(tick.textContent);
+        if (old) {
+          const shift = width * (position(old) - position(tick)) / 100 +
+            tick.offsetWidth * (alignment(old) - alignment(tick));
+          if (shift) play(tick, [{ translate: `${shift}px 0` }, { translate: "0 0" }], duration);
+          previous.delete(tick.textContent);
+        } else {
+          play(tick, foldIn, 230, 75);
+        }
+      }
+      for (const old of previous.values()) {
+        const copy = ghost(old.cloneNode(true));
+        after.append(copy);
+        play(copy, foldOut, 155);
+      }
+    }
+
+    const previous = new Map(Array.from(from.querySelectorAll("[data-series]"),
+      (row) => [row.dataset.series, row]));
+    to.querySelectorAll("[data-series]").forEach((row, i) => {
+      const old = previous.get(row.dataset.series);
+      plot(old.querySelector("svg"), row.querySelector("svg"));
+      const first = old.querySelector(".mfm-error-value");
+      const last = row.querySelector(".mfm-error-value");
+      if (first.textContent === last.textContent) return;
+      const flap = ghost(first.cloneNode(true));
+      flap.classList.add("mfm-number-flap");
+      const delay = i * 16;
+      for (const number of last.children) play(number, foldIn, 230, 80 + delay);
+      last.append(flap);
+      play(flap, foldOut, 155, delay);
+    });
+    axis(from.querySelector(".mfm-error-ticks"), to.querySelector(".mfm-error-ticks"));
+
+    function clear() {
+      clearTimeout(timer);
+      for (const animation of animations) animation.cancel();
+      for (const el of ghosts) el.remove();
+      for (const el of masks) el.classList.remove("mfm-morph-source");
+      if (stop === clear) stop = undefined;
+    }
+    const timer = setTimeout(clear, duration);
+    return clear;
+  }
+
+  chart.addEventListener("change", (event) => {
+    if (!event.target.matches('.mfm-case-options input[type="radio"]')) return;
+    const body = event.target.closest(".mfm-case-body");
+    const from = views.get(body);
+    const to = selected(body);
+    if (from === to) return;
+    views.set(body, to);
+    stop?.();
+    if (!motion.matches && !document.hidden) stop = morph(from, to);
+  });
+  motion.addEventListener("change", () => { if (motion.matches) stop?.(); });
 })();

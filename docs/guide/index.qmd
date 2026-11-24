@@ -115,7 +115,7 @@ If you installed `pymc-mfm` 0.1.2, a client-only build published by mistake, run
 
 Replace `history` and `future` in the first example with your own tables. Use one row per week, oldest first, with no gaps. Include the outcome in `history`. In `future`, include the same date, channel and control columns starting exactly one week after the history ends. See [input limits for hosted analysis](http-api.qmd#use-your-own-data) before you upload anything.
 
-River is pretrained, so inference does not fit a model on your data. Its intervals describe uncertainty in the expected outcome, exclude observation noise, and are not evidence of causal lift. Read the [River-1 limits](../models/river-1/index.qmd#limits) before using results in a decision.
+River is pretrained, so inference does not fit a model on your data. Its intervals describe uncertainty in the expected outcome, exclude observation noise, and are not evidence of causal lift. Read the [River-1 evaluation](../models/river-1/index.qmd#benchmarks) before using results in a decision.
 
 ## Where next
 

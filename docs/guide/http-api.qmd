@@ -155,7 +155,7 @@ The three are `None` for an analysis of a plan. A backtest explains the history 
 
 For `r2` and `mape`, `value` scores the mean forecast and `sd` is the spread over draws. `crps` (continuous ranked probability score) scores the draw distribution itself; lower is better, and there is no `sd`.
 
-River is pretrained; it does not fit with MCMC on your data, so `r_hat` and effective sample size do not apply. Its draws approximate a posterior under the simulator's assumptions, and the intervals exclude observation noise. River was tested on simulated data only. Read the [model limits](../models/river-1/index.qmd#limits), check your forecasts with a backtest, and do not use River alone for budget decisions.
+River is pretrained; it does not fit with MCMC on your data, so `r_hat` and effective sample size do not apply. Its draws approximate a posterior under the simulator's assumptions, and the intervals exclude observation noise. River was tested on simulated data only. Read the [River-1 evaluation](../models/river-1/index.qmd#benchmarks), check your forecasts with a backtest, and do not use River alone for budget decisions.
 
 ## Try more scenarios
 
