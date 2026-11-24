@@ -1,0 +1,140 @@
+name: Test suite
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      approved-pr:
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+          python-version: "3.13"
+      - name: Check formatting and lint without installing the package
+        run: |
+          uv sync --locked --only-group dev
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+
+  contracts:
+    # Test the standard installation and the repository's generation and notebook tooling.
+    name: contracts (${{ matrix.installation }}, ${{ matrix.lane }})
+    runs-on: ubuntu-latest
+    # Whole-job hang guard: the longest observed full lane took 30.3 min, serial.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        installation: [standard, tooling]
+        lane: [fast, slow]
+    env:
+      MPLBACKEND: Agg
+      HF_HUB_OFFLINE: "1"
+      MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING: "false"
+      # The fast lane's two xdist workers use the two vCPUs of a runner, one math thread
+      # each. The slow lane runs serially on both threads: its notebook tests are single
+      # long processes that took over 120 s when they shared the CPUs.
+      OMP_NUM_THREADS: ${{ matrix.lane == 'slow' && '2' || '1' }}
+      MKL_NUM_THREADS: ${{ matrix.lane == 'slow' && '2' || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: ${{ !inputs.approved-pr }}
+          python-version: "3.13"
+      - name: Install the native graph renderer
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
+      - name: Install the standard package and test tools
+        if: matrix.installation == 'standard'
+        run: uv sync --locked
+      - name: Install the package and contributor tooling
+        if: matrix.installation == 'tooling'
+        run: uv sync --locked --group generation --group examples
+      # Static check of the deprecated top-level names; it only reads tests/typing.
+      - name: Check static types of the deprecated top-level names
+        if: matrix.installation == 'standard' && matrix.lane == 'fast'
+        run: uv run --no-sync pyright tests/typing
+      # Each lane selects its marker expression explicitly; plain pytest runs all tests.
+      - name: Exercise local contracts without publication credentials
+        run: >-
+          uv run --no-sync pytest -q ${{ matrix.lane == 'slow' && '-m slow' || '-n 2 --dist worksteal -m "not slow"' }}
+          --durations=25 --junitxml=junit/contracts-${{ matrix.installation }}-${{ matrix.lane }}.xml
+          --timeout=120
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-contracts-${{ matrix.installation }}-${{ matrix.lane }}
+          path: junit/
+          retention-days: 30
+
+  installed-smoke:
+    # Builds the sdist and wheel, then exercises each in a clean environment.
+    runs-on: ubuntu-latest
+    # Whole-job hang guard: observed about 4 min.
+    timeout-minutes: 20
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: ${{ !inputs.approved-pr }}
+          python-version: "3.13"
+      - name: Install the native graph renderer
+        # The installed workflow check renders diagnostic graphs.
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes graphviz
+      - name: Install test tools
+        run: uv sync --locked --only-group dev
+      - name: Plant ignored local files the build must leave out
+        # The installed-distribution check rejects any of these in the sdist or wheels.
+        run: touch src/pymc_mfm/canary.pt tests/canary.npz examples/.env.canary
+      - name: Build distributable artifacts
+        run: uv build
+      - name: Verify the installed sdist and wheel
+        run: uv run --no-sync python .github/scripts/installed_smoke.py --work-dir artifacts/installed
+
+  result:
+    if: always()
+    needs: [lint, contracts, installed-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          bad=0
+          table="| job | result |"$'\n'"|---|---|"
+          while IFS=$'\t' read -r job result; do
+            table+=$'\n'"| $job | $result |"
+            case "$result" in
+              success) ;;
+              *) bad=1 ;;
+            esac
+          done < <(jq -r 'to_entries[] | "\(.key)\t\(.value.result)"' <<< "$NEEDS_JSON")
+          echo "$table"
+          [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "$table" >> "$GITHUB_STEP_SUMMARY"
+          exit "$bad"

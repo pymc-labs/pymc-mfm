@@ -1,0 +1,156 @@
+{
+  "contract_version": 1,
+  "about": "What the SDK expects of the River API v1: the part of the API the SDK supports, not all of it. test_contract.py checks the client and its test fakes against this file, and that the spec in docs/api/openapi-v1.json supports every field here (the spec may send more). A \"types\" entry names the type the SDK reads for a key. Update this file in the same change as any API change the SDK uses.",
+  "spec_file": "docs/api/openapi-v1.json",
+  "idempotency_key_pattern": "^[A-Za-z0-9._:-]{1,200}$",
+  "routes": [
+    {"method": "POST", "path": "/v1/datasets", "sdk": true, "response": ["dataset_response"]},
+    {"method": "GET", "path": "/v1/datasets", "sdk": true, "response": ["dataset_response"]},
+    {"method": "GET", "path": "/v1/datasets/{id}", "sdk": true, "response": ["dataset_response"]},
+    {"method": "DELETE", "path": "/v1/datasets/{id}", "sdk": true},
+    {"method": "POST", "path": "/v1/analyses", "sdk": true, "response": ["analysis_started_response", "analysis_preview_response"]},
+    {"method": "GET", "path": "/v1/analyses", "sdk": true, "response": ["analysis_list_item"]},
+    {"method": "GET", "path": "/v1/analyses/{id}", "sdk": true, "response": ["analysis_status_response"]},
+    {"method": "GET", "path": "/v1/analyses/{id}/result", "sdk": true, "response": ["result_response"]},
+    {"method": "GET", "path": "/v1/analyses/{id}/weekly", "sdk": true, "response": ["weekly_response", "weekly_row"]},
+    {"method": "GET", "path": "/v1/analyses/{id}/export", "sdk": true, "response": ["export_response", "export_scenario"]},
+    {"method": "DELETE", "path": "/v1/analyses/{id}", "sdk": true}
+  ],
+  "errors": [
+    {"status": 401, "code": "unauthorized"},
+    {"status": 404, "code": "not_found"},
+    {"status": 404, "code": "unknown_scenario"},
+    {"status": 409, "code": "idempotency_conflict"},
+    {"status": 409, "code": "not_ready"},
+    {"status": 409, "code": "plan_failed"},
+    {"status": 410, "code": "gone"},
+    {"status": 413, "code": "body_too_large"},
+    {"status": 422, "code": "invalid_json"},
+    {"status": 422, "code": "invalid_input"},
+    {"status": 422, "code": "missing_field"},
+    {"status": 422, "code": "steps_removed"},
+    {"status": 429, "code": "overloaded_*"},
+    {"status": 500, "code": "internal_error"},
+    {"status": 503, "code": "maintenance"},
+    {"status": 503, "code": "busy"}
+  ],
+  "http_reference": {
+    "file": "skills/mfm/reference/http.md",
+    "about": "The public HTTP reference names every response key below, and the table row of each SDK route names only keys listed under that route's response types (plus the words below).",
+    "not_keys": ["preview", "not_ready", "null"]
+  },
+  "retry_statuses": [429, 502, 503, 504],
+  "fields": {
+    "dataset_response": {
+      "required": ["dataset_id", "expires_at", "summary"],
+      "types": {"dataset_id": "string", "expires_at": "date-time", "summary": "object", "history_ranges": "object", "warnings": "array", "content_hash": "string", "created_at": "date-time", "last_used_at": "date-time", "analyses": "integer", "name": "string|null", "warning_details": "array"},
+      "optional": ["history_ranges", "warnings", "content_hash", "created_at", "last_used_at", "analyses", "name", "warning_details"],
+      "objects": {"summary": "dataset_summary"}
+    },
+    "dataset_summary": {
+      "typed": true,
+      "required": ["weeks", "start", "end", "channels", "controls"],
+      "types": {"weeks": "integer", "start": "date", "end": "date", "channels": "array", "controls": "array", "outcome": "string", "currency": "string|null"},
+      "optional": ["outcome", "currency"]
+    },
+    "analysis_started_response": {
+      "required": ["analysis_id", "runs_total", "estimate_seconds", "expires_at"],
+      "types": {"analysis_id": "string", "runs_total": "integer", "estimate_seconds": "number", "expires_at": "date-time", "name": "string|null", "url": "string|null"},
+      "optional": ["name", "url"]
+    },
+    "analysis_preview_response": {
+      "required": ["plans", "runs_total", "estimate_seconds"],
+      "types": {"plans": "array", "runs_total": "integer", "estimate_seconds": "number", "assumptions": "object", "warnings": "array"},
+      "optional": ["assumptions", "warnings"]
+    },
+    "analysis_status_response": {
+      "required": ["status", "runs_total", "runs_done", "runs_failed", "estimate_seconds", "expires_at"],
+      "types": {"status": "string", "runs_total": "integer", "runs_done": "integer", "runs_failed": "integer", "estimate_seconds": "number", "expires_at": "date-time", "name": "string|null", "url": "string|null", "dataset_id": "string", "context": "object|null", "seed": "integer", "draws": "integer", "explain_history": "boolean", "runs_cancelled": "integer", "warning_details": "array"},
+      "optional": ["name", "url", "dataset_id", "context", "seed", "draws", "explain_history", "runs_cancelled", "warning_details"]
+    },
+    "analysis_list_item": {
+      "typed": true,
+      "ordered": ["analysis_id", "dataset_id", "name", "url", "status", "runs_total", "runs_done", "runs_failed", "created_at", "expires_at"],
+      "types": {"analysis_id": "string", "dataset_id": "string", "name": "string|null", "url": "string|null", "status": "string", "runs_total": "integer", "runs_done": "integer", "runs_failed": "integer", "created_at": "date-time", "expires_at": "date-time"}
+    },
+    "result_response": {
+      "required": ["table", "labels"],
+      "types": {"table": "array", "labels": "object", "history": "array|null", "assumptions": "object", "meta": "object", "context": "object|null", "fit": "object|null", "response_curves": "array|null", "input_usage": "object|null"},
+      "optional": ["history", "assumptions", "meta", "context", "fit", "response_curves", "input_usage"],
+      "nested": {"table": "result_row", "response_curves": "response_curve"},
+      "objects": {"fit": "fit_pair"}
+    },
+    "weekly_response": {
+      "required": ["scenario_id", "rows"],
+      "types": {"scenario_id": "string", "rows": "array"},
+      "optional": [],
+      "nested": {"rows": "weekly_row"}
+    },
+    "weekly_row": {
+      "typed": true,
+      "ordered": ["date", "component", "mean", "p05", "p95"],
+      "types": {"date": "date", "component": "string", "mean": "number", "p05": "number", "p95": "number"}
+    },
+    "export_response": {
+      "required": ["format", "scenarios"],
+      "types": {"format": "string", "scenarios": "array"},
+      "optional": ["analysis_id", "name", "created_at", "expires_at", "dataset", "request", "units", "results", "seed", "draws", "model_revision", "library_revision", "exported_at"],
+      "nested": {"scenarios": "export_scenario"}
+    },
+    "export_scenario": {
+      "required": ["kind", "inputs"],
+      "optional": ["scenario_id", "base_scenario_id", "multipliers", "status", "failure_code", "warnings", "warning_details"]
+    },
+    "result_row": {
+      "typed": true,
+      "types": {"scenario_id": "string", "kind": "string", "base_scenario_id": "string|null", "varied_channel": "string|null", "level": "number|null", "multipliers": "object", "run_id": "string|null", "status": "string", "spend_total": "number|null", "component": "string", "mean": "number|null", "p05": "number|null", "p95": "number|null", "window_mean": "number|null", "mean_difference": "number|null", "simulation_se": "number|null", "sensitivity": "boolean", "warnings": "array", "draws_url": "string|null", "draws_url_expires_at": "date-time|null"},
+      "ordered": ["scenario_id", "kind", "base_scenario_id", "varied_channel", "level", "multipliers", "run_id", "status", "spend_total", "component", "mean", "p05", "p95", "window_mean", "mean_difference", "simulation_se", "sensitivity", "warnings", "draws_url", "draws_url_expires_at"]
+    },
+    "response_curve": {
+      "typed": true,
+      "required": ["channel", "spend", "points"],
+      "types": {"channel": "string", "spend": "number", "points": "array"},
+      "nested": {"points": "curve_point"}
+    },
+    "curve_point": {
+      "typed": true,
+      "ordered": ["level", "value", "p05", "p95"],
+      "types": {"level": "number", "value": "number|null", "p05": "number|null", "p95": "number|null"}
+    },
+    "fit_pair": {
+      "typed": true,
+      "required": ["context", "query"],
+      "types": {"context": "object", "query": "object"},
+      "objects": {"context": "fit_window", "query": "fit_window"}
+    },
+    "fit_window": {
+      "typed": true,
+      "required": ["dates", "actual", "mean", "p05", "p95", "r2", "mape", "crps", "shares"],
+      "types": {"dates": "array", "actual": "array", "mean": "array", "p05": "array", "p95": "array", "r2": "object|null", "mape": "object", "crps": "number|null", "shares": "array|null"},
+      "objects": {"r2": "fit_score", "mape": "fit_score"},
+      "nested": {"shares": "share"}
+    },
+    "fit_score": {
+      "typed": true,
+      "required": ["value", "sd"],
+      "types": {"value": "number|null", "sd": "number|null"}
+    },
+    "share": {
+      "typed": true,
+      "required": ["name", "group", "mean", "total"],
+      "types": {"name": "string", "group": "string", "mean": "object", "total": "object"},
+      "objects": {"mean": "share_band", "total": "share_band"}
+    },
+    "share_band": {
+      "typed": true,
+      "required": ["value", "p05", "p95"],
+      "types": {"value": "number|null", "p05": "number|null", "p95": "number|null"}
+    },
+    "analysis_request": {
+      "optional": ["dataset_id", "plan", "context", "query", "channels", "controls", "scenarios", "curves", "decision_weeks", "draws", "seed", "explain_history", "name", "preview"]
+    },
+    "dataset_request": {
+      "optional": ["dates", "outcome", "spend", "controls", "name", "outcome_name", "currency"]
+    }
+  }
+}

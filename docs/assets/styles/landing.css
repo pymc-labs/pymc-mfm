@@ -1,0 +1,1506 @@
+/* Landing page only (index.qmd sets body class mfm-landing). Always dark: the
+   pymc-labs.com navy, with aqua, periwinkle, peach and violet as light. One message per
+   section; motion lives in landing.js. */
+
+body.mfm-landing {
+  --mfm-bg: #07142a;
+  --mfm-bg-2: #0c1f40;
+  --mfm-fg: #f7f7f7;
+  --mfm-fg-2: rgba(247, 247, 247, 0.72);
+  --mfm-fg-3: rgba(247, 247, 247, 0.46);
+  --mfm-line: rgba(255, 255, 255, 0.08);
+  --mfm-line-2: rgba(255, 255, 255, 0.14);
+  --mfm-aqua: #b4e7dd;
+  --mfm-periwinkle: #9faae2;
+  --mfm-peach: #f6ae72;
+  --mfm-violet: #c8b4e7;
+  /* The landing keeps its own dark palette; accent is the dark-mode Cobalt. Fonts come
+     from the theme tokens, with local fallbacks. */
+  --mfm-accent-on-dark: #8fa9ff;
+  --mfm-mono: var(--mfm-font-mono, /* taste-skill-ignore: fallback stack for literal code */ "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace);
+  --lp-sans: var(--mfm-font-sans, "Inter", system-ui, -apple-system, "Segoe UI", sans-serif);
+  --lp-display: var(--mfm-font-display, "Archivo", system-ui, sans-serif);
+  --lp-nav-h: var(--mfm-nav-h, 48px);
+  --lp-r: var(--mfm-r, 8px);
+  --lp-r-card: var(--mfm-r-card, 12px);
+  background: var(--mfm-bg);
+  color: var(--mfm-fg);
+  font-family: var(--lp-sans);
+  font-weight: 400;
+}
+
+/* Chrome --------------------------------------------------------------------- */
+body.mfm-landing #title-block-header {
+  display: none;
+}
+
+/* The bar is the site's glass (site.css) over the landing navy. */
+body.mfm-landing .navbar {
+  border-bottom-color: transparent;
+  --bs-navbar-color: rgba(247, 247, 247, 0.78);
+  --bs-navbar-hover-color: #ffffff;
+  --bs-navbar-active-color: #ffffff;
+  --bs-navbar-brand-color: #ffffff;
+  --bs-navbar-brand-hover-color: #ffffff;
+}
+
+/* The Get access button keeps the theme's light-on-navy colours. */
+body.mfm-landing .navbar .nav-link:not([data-mfm="console"]),
+body.mfm-landing .navbar .navbar-title,
+body.mfm-landing .navbar .bi {
+  color: rgba(247, 247, 247, 0.82) !important;
+}
+
+body.mfm-landing .navbar .nav-link:not([data-mfm="console"]):hover {
+  color: #ffffff !important;
+}
+
+body.mfm-landing .navbar .navbar-toggler-icon {
+  filter: brightness(0) invert(0.85);
+}
+
+body.mfm-landing .navbar-logo {
+  filter: brightness(0) invert(0.97);
+}
+
+/* The landing is always dark: no dark-mode button here. */
+body.mfm-landing .quarto-color-scheme-toggle {
+  display: none !important;
+}
+
+body.mfm-landing #quarto-content,
+body.mfm-landing main.content {
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  width: 100%;
+}
+
+body.mfm-landing .nav-footer {
+  background: var(--mfm-bg);
+  border-top-color: var(--mfm-line);
+  color: var(--mfm-fg-3);
+}
+
+body.mfm-landing .nav-footer a {
+  color: var(--mfm-fg-2);
+}
+
+/* Base ------------------------------------------------------------------------ */
+.mfm {
+  --mfm-max: 1180px;
+  --mfm-gutter: clamp(1.25rem, 4vw, 2.5rem);
+  position: relative;
+  padding: 0 !important;
+  overflow: clip;
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+
+.mfm a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.mfm h1,
+.mfm h2,
+.mfm h3 {
+  margin: 0;
+  border: 0;
+  color: var(--mfm-fg);
+}
+
+.mfm p {
+  margin: 0;
+}
+
+/* Film grain over the hero and the stage. */
+.mfm-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Buttons --------------------------------------------------------------------- */
+.mfm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.25rem;
+  border: 0;
+  border-radius: var(--lp-r);
+  font-family: var(--lp-sans);
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1;
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+
+/* Phosphor icons: the GitHub logo and the arrow, which moves 3px on hover. */
+.mfm-btn__icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.mfm-btn__arrow {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  transition: transform 0.25s ease;
+}
+
+.mfm-btn:hover .mfm-btn__arrow {
+  transform: translateX(3px);
+}
+
+/* Phosphor ArrowRight after a text link, at the text's size. */
+.mfm-arrow {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  vertical-align: -0.125em;
+}
+
+/* ".mfm .mfm-btn--x" outranks the ".mfm a { color: inherit }" reset without !important. */
+.mfm .mfm-btn--primary {
+  color: #0c1f40;
+  background: #ffffff;
+}
+
+.mfm .mfm-btn--primary:hover {
+  background: #dce6ff;
+}
+
+.mfm .mfm-btn--ghost {
+  color: var(--mfm-fg);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mfm .mfm-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.mfm .mfm-btn:focus-visible,
+.mfm a:focus-visible,
+.mfm button:focus-visible {
+  outline: 2px solid var(--mfm-accent-on-dark);
+  outline-offset: 3px;
+  border-radius: var(--lp-r);
+}
+
+/* 1. Hero ---------------------------------------------------------------------- */
+.mfm-hero {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  min-height: calc(100vh - var(--lp-nav-h));
+  min-height: calc(100svh - var(--lp-nav-h));
+  padding: clamp(4rem, 14vh, 9rem) var(--mfm-gutter) 6rem;
+  isolation: isolate;
+  background: var(--mfm-bg);
+}
+
+/* Ridgeline field: rows of drifting distributions (landing.js, WebGL). */
+.mfm-hero__field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 2.4s ease;
+}
+
+.mfm-hero__field.is-ready {
+  opacity: 1;
+}
+
+.mfm-hero::after {
+  /* Melts the hero into the page below. */
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: 22%;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(7, 20, 42, 0), var(--mfm-bg)); /* taste-skill-ignore: neutral scrim that melts the hero into the page */
+}
+
+.mfm-hero__copy {
+  position: relative;
+  z-index: 2;
+  max-width: 64rem;
+  text-align: center;
+}
+
+/* The MFM mark (light version, #F7F7F7), with its clear space of about one bar. */
+.mfm-hero__mark {
+  display: block;
+  width: clamp(48px, 5vw, 68px);
+  height: auto;
+  margin: 0 auto 1.9rem;
+}
+
+.mfm-hero__mark.is-glitching {
+  filter: drop-shadow(-4px 0 0 rgba(180, 231, 221, 0.85)) drop-shadow(4px 0 0 rgba(246, 174, 114, 0.8)); /* taste-skill-ignore: one-time glitch frame, not a resting shadow */
+  animation: mfm-jitter 0.14s steps(2) infinite;
+}
+
+/* The name and its line: the box is as wide as the name, and the line wraps inside it, so it
+   never runs wider than the title. The line adds no width of its own (width 0, then 100% of
+   the box). While "PyMC" glitches into the longer "Bayesian", landing.js holds the box at its
+   width; the title overflows it evenly on both sides and the line does not reflow. */
+.mfm-hero__name {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+/* The entry hero: Archivo Expanded at full display size, 118px at most. In px: the page root
+   is 17px, so rem would overshoot. */
+.mfm-hero__title {
+  font-family: var(--lp-display);
+  font-stretch: 125%;
+  font-size: clamp(44px, 8.2vw, 118px);
+  line-height: 0.95;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  color: var(--mfm-fg);
+  white-space: nowrap;
+}
+
+/* Each word is its own box so it can move on its own. */
+.mfm-hero__word {
+  position: relative;
+  display: inline-block;
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
+  color: var(--mfm-fg);
+}
+
+/* Glitch: two tinted copies of the word, sliced and offset, shown only while it flips. */
+.mfm-glitch::before,
+.mfm-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  padding-bottom: inherit;
+  background: none;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.mfm-glitch::before {
+  color: var(--mfm-aqua);
+  -webkit-text-fill-color: var(--mfm-aqua);
+}
+
+.mfm-glitch::after {
+  color: var(--mfm-peach);
+  -webkit-text-fill-color: var(--mfm-peach);
+}
+
+.mfm-glitch.is-glitching {
+  animation: mfm-jitter 0.14s steps(2) infinite;
+}
+
+.mfm-glitch.is-glitching::before {
+  opacity: 0.9;
+  animation: mfm-slice-a 0.36s steps(1) infinite;
+}
+
+.mfm-glitch.is-glitching::after {
+  opacity: 0.85;
+  animation: mfm-slice-b 0.3s steps(1) infinite;
+}
+
+@keyframes mfm-jitter {
+  0% { transform: translate(0, 0) skewX(0deg); }
+  50% { transform: translate(-2px, 1px) skewX(-4deg); }
+  100% { transform: translate(2px, -1px) skewX(3deg); }
+}
+
+@keyframes mfm-slice-a {
+  0% { clip-path: inset(10% 0 72% 0); transform: translate(-6px, 0); }
+  20% { clip-path: inset(58% 0 22% 0); transform: translate(5px, 0); }
+  40% { clip-path: inset(32% 0 46% 0); transform: translate(-3px, 0); }
+  60% { clip-path: inset(80% 0 4% 0); transform: translate(7px, 0); }
+  80% { clip-path: inset(4% 0 86% 0); transform: translate(-5px, 0); }
+  100% { clip-path: inset(44% 0 38% 0); transform: translate(3px, 0); }
+}
+
+@keyframes mfm-slice-b {
+  0% { clip-path: inset(66% 0 14% 0); transform: translate(6px, 0); }
+  25% { clip-path: inset(18% 0 64% 0); transform: translate(-7px, 0); }
+  50% { clip-path: inset(46% 0 30% 0); transform: translate(4px, 0); }
+  75% { clip-path: inset(2% 0 80% 0); transform: translate(-4px, 0); }
+  100% { clip-path: inset(74% 0 8% 0); transform: translate(5px, 0); }
+}
+
+.mfm-hero__line {
+  width: 0;
+  min-width: 100%;
+  margin-top: 1.4rem !important;
+  font-family: var(--lp-display);
+  font-stretch: 125%;
+  font-size: clamp(15px, 1.5vw, 21px);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--mfm-fg-2);
+  text-wrap: balance;
+}
+
+.mfm-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 2.4rem;
+}
+
+/* Set by an inline script before first paint; landing.js removes it when the intro
+   starts. If the script never runs, the copy fades in on its own. */
+.mfm-intro .mfm-hero__copy {
+  opacity: 0;
+  animation: mfm-failsafe 0.6s ease 1.6s forwards;
+}
+
+@keyframes mfm-failsafe {
+  to { opacity: 1; }
+}
+
+/* 2. Notebook show --------------------------------------------------------------- */
+.mfm-show {
+  max-width: calc(var(--mfm-max) + 2 * var(--mfm-gutter));
+  margin: 0 auto;
+  padding: clamp(2rem, 6vh, 4rem) var(--mfm-gutter) clamp(5rem, 14vh, 9rem);
+}
+
+/* The claim heads the show (.mfm-claim, below), as wide as the editor's box and close to
+   it: with the editor's height below, claim and editor fit one desktop screen. */
+.mfm-show__head {
+  margin-bottom: 2.25rem;
+  text-align: center;
+}
+
+.mfm-show__head h2,
+.mfm-section h2 {
+  font-family: var(--lp-display);
+  font-stretch: 125%;
+  font-size: clamp(26px, 3vw, 44px);
+  line-height: 1.1;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+/* The editor window stands in a box of colour: a navy wash with four soft lights (aqua,
+   periwinkle, peach, violet) drifting behind it. The window sits on the box's bottom edge. */
+.mfm-stage {
+  position: relative;
+  margin: 0;
+  padding: clamp(1rem, 3.5vw, 3rem) clamp(1rem, 5vw, 4.5rem) 0;
+  border-radius: var(--lp-r-card);
+  overflow: hidden;
+  isolation: isolate;
+  background: #0b1b38;
+}
+
+.mfm-stage__bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 50% 120%, rgba(7, 20, 42, 0.9), transparent 60%), /* taste-skill-ignore: landing stage wash */
+    linear-gradient(160deg, #10284f 0%, #0b1b38 55%, #0a1730 100%); /* taste-skill-ignore: landing stage wash */
+}
+
+.mfm-stage__bg i {
+  position: absolute;
+  width: 60%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.55;
+  animation: mfm-drift 22s ease-in-out infinite alternate;
+}
+
+.mfm-stage__bg i:nth-child(1) { top: -30%; left: -15%; background: rgba(180, 231, 221, 0.55); }
+.mfm-stage__bg i:nth-child(2) { top: -25%; right: -20%; background: rgba(159, 170, 226, 0.6); animation-duration: 26s; animation-delay: -6s; }
+.mfm-stage__bg i:nth-child(3) { bottom: -45%; left: 20%; background: rgba(246, 174, 114, 0.4); animation-duration: 30s; animation-delay: -12s; }
+.mfm-stage__bg i:nth-child(4) { bottom: -40%; right: -10%; background: rgba(200, 180, 231, 0.45); animation-duration: 24s; animation-delay: -3s; }
+
+@keyframes mfm-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(6%, 4%, 0) scale(1.08); }
+  100% { transform: translate3d(-5%, -3%, 0) scale(0.96); }
+}
+
+.mfm-show__install {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+/* One line for invited testers, above the library install: the hosted API is their path. */
+.mfm-show__testers {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--mfm-fg-2);
+  text-align: center;
+}
+
+.mfm-show__testers a {
+  color: var(--mfm-accent-on-dark) !important;
+  white-space: nowrap;
+}
+
+.mfm-show__note {
+  font-size: 0.85rem;
+  color: var(--mfm-fg-3);
+}
+
+.mfm-show__note a {
+  color: var(--mfm-accent-on-dark) !important;
+}
+
+.mfm-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  max-width: 100%;
+  padding: 0.45rem 0.5rem 0.45rem 1rem;
+  border-radius: var(--lp-r);
+  background: rgba(255, 255, 255, 0.06);
+  font-family: var(--mfm-mono); /* taste-skill-ignore: the install command is literal code */
+  font-size: 0.78rem;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-install__prompt {
+  color: var(--mfm-accent-on-dark);
+}
+
+.mfm .mfm-install__cmd {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+  scrollbar-width: none;
+}
+
+/* The editor: a VS Code-like window in its Dark Modern colors. */
+.mfm-ide {
+  --ide-bg: #1f1f1f;
+  --ide-chrome: #181818;
+  --ide-border: #2b2b2b;
+  --ide-fg: #cccccc;
+  --ide-dim: #9d9d9d;
+  --ide-accent: #4a9ede;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  height: clamp(440px, calc(100vh - 21rem), 660px);
+  height: clamp(440px, calc(100svh - 21rem), 660px);
+  border: 1px solid rgba(255, 255, 255, 0.1); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  overflow: hidden;
+  background: var(--ide-bg);
+  box-shadow: 0 50px 120px -30px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(0, 0, 0, 0.4); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  color: var(--ide-fg);
+  font-family: var(--lp-sans);
+  font-size: 13px;
+  text-align: left;
+}
+
+.mfm-ide__titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 38px;
+  background: var(--ide-chrome);
+  border-bottom: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+}
+
+.mfm-ide__lights {
+  position: absolute;
+  left: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.mfm-ide__lights i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+
+.mfm-ide__lights i:nth-child(2) { background: #febc2e; }
+.mfm-ide__lights i:nth-child(3) { background: #28c840; }
+
+.mfm-ide__command {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: min(40%, 380px);
+  height: 24px;
+  border: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  border-radius: 6px;
+  background: #222222;
+  color: var(--ide-dim);
+  font-size: 12px;
+}
+
+.mfm-ide__command svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+
+.mfm-ide__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.mfm-ide__activity {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 48px;
+  padding-top: 12px;
+  background: var(--ide-chrome);
+  border-right: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+}
+
+.mfm-ide__activity svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: #868686;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.mfm-ide__activity svg.is-active {
+  stroke: #e7e7e7;
+}
+
+.mfm-ide__explorer {
+  flex: none;
+  width: 210px;
+  padding: 8px 0;
+  background: var(--ide-chrome);
+  border-right: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  font-size: 12.5px;
+}
+
+.mfm-ide__explorer-title {
+  padding: 4px 20px 10px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ide-dim);
+}
+
+.mfm-ide__explorer ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mfm-ide__explorer li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-left: 12px;
+  color: var(--ide-fg);
+  white-space: nowrap;
+}
+
+.mfm-ide__explorer li.is-l1 { padding-left: 24px; }
+.mfm-ide__explorer li.is-l2 { padding-left: 38px; }
+.mfm-ide__explorer li.is-folder { font-weight: 500; }
+.mfm-ide__explorer li.is-folder::before { content: "⌄"; color: var(--ide-dim); margin-right: 2px; }
+.mfm-ide__explorer li.is-active { background: #37373d; }
+
+.mfm-ide__explorer li:not(.is-folder)::before,
+.mfm-ide__tab i {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #8a8a8a;
+}
+
+.mfm-ide__explorer li.is-csv::before,
+.mfm-ide__tab i.is-csv { background: #89d185; }
+.mfm-ide__explorer li.is-ipynb::before,
+.mfm-ide__tab i.is-ipynb { background: #f6ae72; }
+.mfm-ide__explorer li.is-toml::before { background: #9faae2; }
+.mfm-ide__explorer li.is-md::before { background: #4a9ede; }
+
+.mfm-ide__editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mfm-ide__tabs {
+  display: flex;
+  flex: none;
+  height: 35px;
+  background: var(--ide-chrome);
+  border-bottom: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+}
+
+.mfm-ide__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-right: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  color: var(--ide-dim);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.mfm-ide__tab.is-active {
+  background: var(--ide-bg);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 var(--ide-accent); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+}
+
+.mfm-ide__toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 16px;
+  height: 34px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  color: var(--ide-fg);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mfm-ide__dim {
+  color: var(--ide-dim);
+}
+
+.mfm-ide__runall {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ide-fg);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.mfm-ide__runall svg {
+  width: 11px;
+  height: 11px;
+  fill: #89d185;
+}
+
+.mfm-ide__runall:hover,
+.mfm-ide__runall.is-pressed {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mfm-ide__kernel {
+  margin-left: auto;
+  color: var(--ide-dim);
+}
+
+.mfm-ide__cells {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 18px 22px 120px 6px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #424242 transparent;
+}
+
+.mfm-cell {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 18px;
+}
+
+.mfm-cell__gutter {
+  flex: none;
+  width: 50px;
+  padding-top: 10px;
+  text-align: right;
+  font-family: var(--lp-sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: #858585;
+}
+
+.mfm-cell__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.mfm-cell__box {
+  position: relative;
+  border: 1px solid var(--ide-border); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  border-radius: 6px;
+  background: #181818;
+  transition: border-color 0.3s ease;
+}
+
+.mfm-cell.is-running .mfm-cell__box,
+.mfm-cell.is-focus .mfm-cell__box {
+  border-color: rgba(74, 158, 222, 0.55);
+}
+
+.mfm-cell__bar {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0;
+  border-radius: 6px 6px 0 0;
+}
+
+.mfm-cell.is-running .mfm-cell__bar {
+  opacity: 1;
+}
+
+.mfm-cell__bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: var(--ide-accent);
+  animation: mfm-busy 1.1s ease-in-out infinite;
+}
+
+@keyframes mfm-busy {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+.mfm .mfm-cell__code {
+  margin: 0;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: #d4d4d4;
+  font-family: var(--mfm-mono); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mfm .mfm-cell__code code {
+  padding: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* Dark Modern syntax colors. */
+.mfm-cell__code .k { color: #c586c0; }
+.mfm-cell__code .m,
+.mfm-cell__code .t { color: #4ec9b0; }
+.mfm-cell__code .f { color: #dcdcaa; }
+.mfm-cell__code .v,
+.mfm-cell__code .p { color: #9cdcfe; }
+.mfm-cell__code .s { color: #a9c98f; }
+.mfm-cell__code .n { color: #b5cea8; }
+.mfm-cell__code .o { color: #d4d4d4; }
+.mfm-cell__code .c { color: #6a9955; }
+
+/* A drawn check mark: the editor mock holds no emoji or symbol glyphs. */
+.mfm-cell__status {
+  position: absolute;
+  bottom: 8px;
+  left: -40px;
+  width: 8px;
+  height: 4px;
+  border: solid #89d185;
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(-45deg);
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.mfm-cell__output {
+  padding: 10px 2px 0 14px;
+  overflow-x: auto;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.mfm .mfm-cell__text {
+  margin: 0 0 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #d4d4d4;
+  font-family: var(--mfm-mono); /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  font-size: 12.5px;
+}
+
+.mfm-df {
+  border-collapse: collapse;
+  font-family: var(--lp-sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: #d4d4d4;
+}
+
+.mfm-df th,
+.mfm-df td {
+  padding: 5px 12px;
+  border: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mfm-df thead th {
+  font-weight: 500;
+  border-bottom: 1px solid #3c3c3c; /* taste-skill-ignore: the editor mock is a picture of a real interface */
+}
+
+.mfm-df tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+/* The index: Quarto keeps these cells as <th> (it used to write <td>); they stay in the weight
+   of the cells beside them. */
+.mfm-df tbody th {
+  font-weight: 400;
+}
+
+.mfm-df tbody tr {
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+/* matplotlib figures from the run; they wipe in from the left when the cell finishes. */
+.mfm-chart {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  clip-path: inset(0 0 0 0);
+  transition: clip-path 1.3s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+/* xarray's rich repr, in its dark-theme colours. */
+.mfm-xr {
+  max-width: 640px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #d4d4d4;
+}
+
+.mfm .mfm-xr p {
+  margin: 0;
+}
+
+.mfm-xr__head {
+  padding-bottom: 4px;
+  margin-bottom: 4px !important;
+  border-bottom: 1px solid #3c3c3c; /* taste-skill-ignore: the editor mock is a picture of a real interface */
+  color: #9d9d9d;
+}
+
+.mfm-xr__head span {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.mfm-xr__sec {
+  font-weight: 500;
+  color: #cfcfcf;
+}
+
+.mfm-xr__sec span {
+  font-weight: 400;
+  color: #9d9d9d;
+}
+
+.mfm-xr__vars {
+  margin: 2px 0 4px 14px;
+  border-collapse: collapse;
+  font-family: var(--lp-sans);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+.mfm-xr__vars th,
+.mfm-xr__vars td {
+  padding: 1px 10px 1px 0;
+  border: 0;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* Variable names (<th>, as above) keep the weight and colour of the row. */
+.mfm-xr__vars th {
+  font-weight: 400;
+}
+
+.mfm-xr__vars td:nth-child(2) {
+  font-style: italic;
+  color: #b8b8b8;
+}
+
+.mfm-xr__vars td:nth-child(3),
+.mfm-xr__vars td:nth-child(4) {
+  color: #8a8a8a;
+}
+
+.mfm-ide__statusbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 14px;
+  height: 24px;
+  padding: 0 12px;
+  background: #154a72;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mfm-ide__spacer {
+  flex: 1;
+}
+
+/* States set by landing.js while the notebook runs. Without JavaScript the finished
+   notebook shows as is. */
+.mfm-ide.is-playing .mfm-cell:not(.is-done) .mfm-cell__status,
+.mfm-ide.is-playing .mfm-cell:not(.is-done) .mfm-cell__count {
+  opacity: 0;
+}
+
+.mfm-ide.is-playing .mfm-cell:not(.is-done) .mfm-cell__output {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.mfm-ide.is-playing .mfm-cell:not(.is-done) .mfm-df tbody tr {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.mfm-ide.is-playing .mfm-cell:not(.is-done) .mfm-chart {
+  clip-path: inset(0 100% 0 0);
+}
+
+.mfm-cell.is-done .mfm-df tbody tr:nth-child(2) { transition-delay: 0.06s; }
+.mfm-cell.is-done .mfm-df tbody tr:nth-child(3) { transition-delay: 0.12s; }
+.mfm-cell.is-done .mfm-df tbody tr:nth-child(4) { transition-delay: 0.18s; }
+.mfm-cell.is-done .mfm-df tbody tr:nth-child(5) { transition-delay: 0.24s; }
+
+.mfm-cell__count {
+  transition: opacity 0.2s ease;
+}
+
+.mfm-cell.is-running .mfm-cell__gutter::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--ide-accent);
+  border-radius: 50%;
+  animation: mfm-spin 0.8s linear infinite;
+}
+
+@keyframes mfm-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Text sections, explore, outro ------------------------------------------------ */
+.mfm-section {
+  max-width: var(--mfm-max);
+  margin: 0 auto;
+  padding: clamp(4rem, 10vh, 6rem) var(--mfm-gutter);
+}
+
+/* Sections in a row are one gap apart, not two paddings. */
+.mfm-section + .mfm-section {
+  padding-top: 0;
+}
+
+/* The River release: the heading in the first third, the content in the other two. */
+.mfm-split {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem clamp(1.5rem, 3vw, 2.5rem);
+  align-items: start;
+}
+
+.mfm-split__body {
+  grid-column: 2 / -1;
+}
+
+/* Pale text on navy: the full on-navy ink. */
+.mfm-split__body > p {
+  color: #dde3ee;
+  font-size: 17px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.mfm .mfm-split__body p a,
+.mfm .mfm-faq__card a {
+  color: var(--mfm-fg);
+  text-decoration: underline;
+  text-decoration-color: var(--mfm-fg-3);
+  text-underline-offset: 5px;
+  transition: text-decoration-color 0.2s ease;
+}
+
+.mfm .mfm-split__body p a:hover,
+.mfm .mfm-faq__card a:hover {
+  text-decoration-color: var(--mfm-accent-on-dark);
+}
+
+/* A model name, not a headline. */
+.mfm .mfm-release h2 {
+  font-family: var(--lp-sans);
+  font-size: clamp(28px, 3vw, 44px);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+
+.mfm-release__links {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 1.2rem !important;
+  font-size: 0.95rem;
+}
+
+/* The claim, heading the notebook show: a centred headline, a smaller line under it and
+   the two ways to PyMC Labs. */
+.mfm-claim {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* One line as wide as the editor's box on desktop: the sentence runs about 25 times its
+   font size, so the box width over 25. */
+.mfm .mfm-claim h2 {
+  font-size: clamp(28px, (100vw - 2 * var(--mfm-gutter)) / 25, var(--mfm-max) / 25);
+}
+
+.mfm .mfm-claim p {
+  margin-top: 0.9rem;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--mfm-fg-2);
+  text-wrap: balance;
+}
+
+.mfm-claim__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1.4rem;
+}
+
+/* FAQ: a full-width strip of answer cards that repeats both ways (landing.js copies the
+   set onto each side). The card in the middle is full size, in a matte aqua; the cards
+   beside it are smaller and blur their answers, so only the questions read. All cards are
+   one size. The arrows sit on the line of the cards. Without JavaScript nothing is
+   filled or blurred, the strip scrolls sideways and the arrows stay hidden. */
+.mfm-section.mfm-faq {
+  max-width: none;
+  padding-inline: 0;
+  padding-top: clamp(3rem, 7vh, 4rem);
+}
+
+/* One line across the content width on desktop. */
+.mfm .mfm-faq__title {
+  padding: 0 var(--mfm-gutter);
+  font-size: clamp(30px, 5.4vw, 70px);
+  font-weight: 500; /* the heaviest cut of the self-hosted Archivo */
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.mfm-faq__stage {
+  --mfm-faq-edge: max(var(--mfm-gutter), (100% - var(--mfm-max)) / 2 + var(--mfm-gutter));
+  position: relative;
+}
+
+.mfm .mfm-faq__btn {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  display: none;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--mfm-line-2);
+  border-radius: 50%;
+  color: var(--mfm-fg);
+  background: var(--mfm-bg-2);
+  transform: translateY(-50%);
+  cursor: pointer;
+  transition: border-color 0.25s ease, color 0.25s ease;
+}
+
+.mfm-js .mfm-faq__btn {
+  display: grid;
+}
+
+.mfm .mfm-faq__btn--prev {
+  left: var(--mfm-faq-edge);
+}
+
+.mfm .mfm-faq__btn--next {
+  right: var(--mfm-faq-edge);
+}
+
+.mfm .mfm-faq__btn:hover {
+  border-color: var(--mfm-aqua);
+  color: var(--mfm-aqua);
+}
+
+.mfm .mfm-faq__btn:focus-visible {
+  border-radius: 50%;
+}
+
+.mfm-faq__btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Side padding centres the first card when nothing scrolls it. */
+.mfm .mfm-faq__track {
+  --mfm-faq-card: min(26rem, 72vw);
+  --mfm-faq-fade: clamp(1rem, 6vw, 7rem);
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--mfm-faq-card);
+  gap: 1rem;
+  margin: 0;
+  padding: 1.75rem calc(50% - var(--mfm-faq-card) / 2);
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--mfm-faq-fade), #000 calc(100% - var(--mfm-faq-fade)), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 var(--mfm-faq-fade), #000 calc(100% - var(--mfm-faq-fade)), transparent);
+}
+
+.mfm-faq__track::-webkit-scrollbar {
+  display: none;
+}
+
+@media (pointer: fine) {
+  .mfm-js .mfm-faq__track {
+    cursor: grab;
+  }
+}
+
+/* While a mouse drags it, and until it settles on a card. */
+.mfm .mfm-faq__track.is-dragging {
+  cursor: grabbing;
+  scroll-snap-type: none;
+  user-select: none;
+}
+
+.mfm .mfm-faq__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 1.75rem 1.75rem 2rem;
+  border-radius: var(--lp-r-card);
+  background: rgba(255, 255, 255, 0.05);
+  scroll-snap-align: center;
+  transition: background-color 0.5s ease;
+}
+
+.mfm .mfm-faq__card h3 {
+  font-family: var(--lp-sans);
+  font-size: 1.15rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0;
+  transition: color 0.5s ease;
+}
+
+.mfm-faq__card p {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--mfm-fg-2);
+  text-wrap: pretty;
+  transition: color 0.5s ease, filter 0.5s ease, opacity 0.5s ease;
+}
+
+.mfm-js .mfm-faq__card {
+  transform: scale(0.88);
+  transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1), background-color 0.5s ease;
+}
+
+.mfm-js .mfm-faq__card:not(.is-active) {
+  cursor: pointer;
+}
+
+.mfm-js .mfm-faq__card:not(.is-active):hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mfm-js .mfm-faq__card:not(.is-active) p {
+  filter: blur(5px);
+  opacity: 0.45;
+}
+
+/* Matte: the palette's aqua toned toward the navy, flat, no glow. */
+.mfm-js .mfm-faq__card.is-active {
+  transform: none;
+  background: color-mix(in srgb, var(--mfm-aqua) 85%, var(--mfm-bg));
+}
+
+.mfm-js .mfm-faq__card.is-active h3 {
+  color: var(--mfm-bg-2);
+}
+
+.mfm-js .mfm-faq__card.is-active p {
+  color: rgba(12, 31, 64, 0.8);
+}
+
+.mfm .mfm-faq__card.is-active a {
+  color: var(--mfm-bg-2);
+  text-decoration-color: rgba(12, 31, 64, 0.4);
+}
+
+.mfm .mfm-faq__card.is-active a:hover {
+  text-decoration-color: var(--mfm-bg-2);
+}
+
+/* A jump by one whole set swaps which copy sits in the middle: no transition may show it. */
+.mfm-faq__track.is-jumping .mfm-faq__card,
+.mfm-faq__track.is-jumping .mfm-faq__card h3,
+.mfm-faq__track.is-jumping .mfm-faq__card p {
+  transition: none;
+}
+
+.mfm-explore {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.mfm-explore a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.25rem 1.5rem 0.25rem 0;
+}
+
+.mfm-explore a + a {
+  padding-left: 1.5rem;
+}
+
+.mfm-explore__title {
+  font-family: var(--lp-sans);
+  font-size: clamp(1.2rem, 2vw, 1.6rem);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--mfm-fg);
+}
+
+.mfm-explore__title .mfm-arrow {
+  display: inline-block;
+  color: var(--mfm-fg-3);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.mfm-explore a:hover .mfm-explore__title .mfm-arrow {
+  transform: translateX(4px);
+  color: var(--mfm-accent-on-dark);
+}
+
+.mfm-explore__text {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--mfm-fg-3);
+}
+
+.mfm-outro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+  padding: clamp(4rem, 10vh, 6.5rem) var(--mfm-gutter) clamp(5rem, 12vh, 7rem);
+  text-align: center;
+}
+
+.mfm-outro p {
+  font-family: var(--lp-sans);
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  font-weight: 400;
+  color: var(--mfm-fg-2);
+}
+
+.mfm-outro p a {
+  color: var(--mfm-fg) !important;
+  text-decoration: underline;
+  text-decoration-color: var(--mfm-accent-on-dark);
+  text-underline-offset: 5px;
+}
+
+/* Reveal on scroll: landing.js marks the root .mfm-js and adds .is-visible; without
+   JavaScript every section stays visible. */
+.mfm-js .mfm-reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 1s ease, transform 1s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.mfm-js .mfm-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mfm-stage__bg i {
+    animation: none;
+  }
+
+  .mfm-btn,
+  .mfm-btn__arrow,
+  .mfm-explore__title .mfm-arrow,
+  .mfm-hero__field {
+    transition: none;
+  }
+
+  .mfm-js .mfm-faq__card {
+    transition: none;
+  }
+
+  .mfm-btn:hover .mfm-btn__arrow,
+  .mfm-explore a:hover .mfm-explore__title .mfm-arrow {
+    transform: none;
+  }
+}
+
+/* Responsive ---------------------------------------------------------------- */
+@media (max-width: 1000px) {
+  .mfm-ide__explorer {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .mfm-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mfm-split__body {
+    grid-column: auto;
+  }
+
+  .mfm-explore {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 2rem;
+  }
+
+  .mfm-explore a:nth-child(3) {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .mfm-ide {
+    height: 520px;
+    font-size: 12px;
+  }
+
+  .mfm-ide__activity,
+  .mfm-ide__tab:not(.is-active),
+  .mfm-ide__toolbar > span:not(.mfm-ide__kernel) {
+    display: none;
+  }
+
+  .mfm-ide__command {
+    width: 50%;
+  }
+
+  .mfm .mfm-cell__code {
+    font-size: 11.5px;
+  }
+
+  .mfm-cell__gutter {
+    width: 34px;
+  }
+
+  .mfm-cell__status {
+    left: -28px;
+  }
+
+  .mfm-explore {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mfm-explore a,
+  .mfm-explore a + a {
+    padding: 0 0 1.5rem;
+  }
+
+  /* Arrows at the screen edge, clear of the middle card. */
+  .mfm-faq__stage {
+    --mfm-faq-edge: 0.5rem;
+  }
+}

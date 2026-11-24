@@ -1,0 +1,33 @@
+name: Docs
+
+# Publishing to GitHub Pages is a manual step on main. Approved CI calls docs-build.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.run_id }}
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/docs-build.yml
+    with:
+      revision: ${{ github.sha }}
+      publish-artifact: true
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

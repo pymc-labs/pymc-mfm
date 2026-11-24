@@ -1,0 +1,130 @@
+"""docs/_scripts/prepare.py and finish.py: reference links resolve; one <h1> per page; callout
+labels stay out of the search index."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+DOCS_SCRIPTS = Path(__file__).resolve().parent.parent / "docs" / "_scripts"
+sys.path.insert(0, str(DOCS_SCRIPTS))
+
+import prepare  # noqa: E402
+
+PAGE = """# client.Analysis { #pymc_mfm.client.Analysis }
+
+| Name | Description |
+| --- | --- |
+| [curves](#pymc_mfm.client.Analysis.curves) | Response curves. |
+| [wait](#pymc_mfm.client.Analysis.wait) | Wait for the analysis. |
+
+See [the class](#pymc_mfm.client.Analysis) and [the guide](../guide/index.qmd).
+
+### wait { #pymc_mfm.client.Analysis.wait }
+"""
+
+
+def test_links_to_missing_sections_become_plain_names() -> None:
+    fixed = prepare.unlink_missing_sections(PAGE)
+    assert "| curves | Response curves. |" in fixed
+    assert "[wait](#pymc_mfm.client.Analysis.wait)" in fixed
+    assert "[the class](#pymc_mfm.client.Analysis)" in fixed
+    assert "[the guide](../guide/index.qmd)" in fixed
+
+
+def test_partial_renders_keep_existing_generated_pages(monkeypatch, tmp_path: Path) -> None:
+    for folder in ("reference", "api"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / "_sidebar.yml").write_text("website: {}\n", encoding="utf-8")
+    monkeypatch.setattr(prepare, "REFERENCE", tmp_path / "reference")
+    monkeypatch.setattr(prepare, "API", tmp_path / "api")
+    monkeypatch.setattr(prepare, "sync_examples", list)
+    monkeypatch.delenv("QUARTO_PROJECT_RENDER_ALL", raising=False)
+
+    def fail() -> None:
+        raise AssertionError("a partial render regenerated the reference")
+
+    monkeypatch.setattr(prepare, "build_reference", fail)
+    prepare.main()  # returns before regenerating anything
+
+
+def test_finish_leaves_one_h1_per_page(monkeypatch, tmp_path: Path) -> None:
+    import finish
+
+    page = tmp_path / "index.html"
+    page.write_text(
+        '<nav id="TOC"><h2 id="toc-title">On this page</h2></nav>\n'
+        '<nav class="quarto-secondary-nav"><a>\n'
+        '  <h1 class="quarto-secondary-nav-title">PyMC MFM: Guide</h1>\n'
+        "</a></nav>\n"
+        '<header><h1 class="title d-none d-lg-block">PyMC MFM: Guide</h1></header>\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("QUARTO_PROJECT_OUTPUT_FILES", f"{page}\n{tmp_path / 'search.json'}")
+    finish.main()
+
+    tidy = page.read_text(encoding="utf-8")
+    assert tidy.count("<h1") == 1
+    assert '<h1 class="title d-none d-lg-block">PyMC MFM: Guide</h1>' in tidy
+    assert '<div class="quarto-secondary-nav-title">PyMC MFM: Guide</div>' in tidy
+    assert "<h2" not in tidy and '<div id="toc-title">On this page</div>' in tidy
+
+
+def test_finish_names_the_site_once_in_the_title() -> None:
+    import finish
+
+    home = "<title>PyMC MFM: Open-Source Marketing Foundational Models in Python – PyMC MFM</title>"
+    guide = "<title>Get started – PyMC MFM</title>"
+    assert finish.demote_nav_title(home) == (
+        "<title>PyMC MFM: Open-Source Marketing Foundational Models in Python</title>"
+    )
+    assert finish.demote_nav_title(guide) == guide
+
+
+@pytest.mark.parametrize("listed", [True, False])
+def test_finish_keeps_callout_labels_out_of_search(
+    monkeypatch, tmp_path: Path, listed: bool
+) -> None:
+    import finish
+
+    site = tmp_path / "_site"
+    (site / "guide").mkdir(parents=True)
+    (site / "guide" / "concepts.html").write_text(
+        "".join(
+            '<div class="callout-title-container flex-fill">\n'
+            f'<span class="screen-reader-only">{label}</span>{title}\n</div>\n'
+            for label, title in [
+                ("Note", "Separate marginals"),
+                ("Tip", "<code>idata</code> first"),
+                ("Warning", "Fit &amp; refit"),
+                ("Important", "<code>&lt;name&gt;</code> rows"),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    # Quarto's index has the text with only < and > escaped.
+    entries = [
+        {"href": "guide/concepts.html#windows", "text": "Noteworthy.\nNoteSeparate marginals\n"},
+        {"href": "guide/other.html", "text": "NoteSeparate marginals"},
+        {"href": "guide/concepts.html#more", "text": "Tipidata first\nWarningFit & refit\n"},
+        {"href": "guide/concepts.html#rows", "text": "Important&lt;name&gt; rows\n"},
+    ]
+    (site / "search.json").write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    monkeypatch.setattr(finish, "DOCS", tmp_path)
+    monkeypatch.setattr(finish, "SITE", site)
+    if listed:  # as Quarto runs it: the pages it wrote, relative to docs/
+        monkeypatch.setenv("QUARTO_PROJECT_OUTPUT_FILES", "_site/guide/concepts.html")
+    else:
+        monkeypatch.delenv("QUARTO_PROJECT_OUTPUT_FILES", raising=False)
+    finish.main()
+
+    texts = [e["text"] for e in json.loads((site / "search.json").read_text(encoding="utf-8"))]
+    assert texts == [
+        "Noteworthy.\nSeparate marginals\n",  # the label goes, the page's own words stay
+        "NoteSeparate marginals",  # another page's entry is left alone
+        "idata first\nFit & refit\n",
+        "&lt;name&gt; rows\n",
+    ]

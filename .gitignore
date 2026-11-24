@@ -1,0 +1,42 @@
+.venv/
+.conda/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.env
+.env.*
+!.env.example
+.DS_Store
+/artifacts/
+/checkpoints/
+/corpora/
+/data/
+/runs/
+/mlruns/
+*.pt
+*.pth
+*.safetensors
+*.npz
+*.npy
+*.nc
+*.h5
+
+# Local link to a maintainer's private companion checkout. Never tracked.
+/.private
+CLAUDE.local.md
+
+# Website build (docs/): rendered site, Quarto cache and pages generated at pre-render.
+# Quarto also writes docs/.gitignore, but the sdist build reads only this file.
+/docs/_site/
+/docs/.quarto/
+/docs/guide/examples/
+/docs/reference/
+/docs/api/*.qmd
+/docs/api/_sidebar.yml
+/docs/objects.json
+/docs/**/*.quarto_ipynb

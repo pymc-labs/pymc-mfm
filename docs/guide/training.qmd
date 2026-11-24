@@ -1,0 +1,117 @@
+---
+title: "Train a network"
+description: "Prepare a simulated corpus and train one amortized PyMC MFM network."
+---
+
+## Corpus contract
+
+Training consumes one or more simulated corpora. A corpus is a dictionary of NumPy arrays for `N` simulated worlds. Every world shares `T`; `K`, `M`, and `J` are padded channel, control, and latent widths. Masks mark represented slots, and padded slots are zero in every array.
+
+| Key | Shape | Content |
+| --- | --- | --- |
+| `treatment_raw` | `[N, T, K]` | Media spend, `>= 0` |
+| `covariates` | `[N, T, M]` | Controls |
+| `outcome_raw` | `[N, T]` | Outcome; positive in context |
+| `support_mask` | `[N, T]` | `1` for context then `0` for query; both parts are nonempty |
+| `treatment_active_mask` | `[N, K]` | Real channels; at least one per world |
+| `covariate_active_mask` | `[N, M]` | Real controls; at least one per world |
+| `latent_active_mask` | `[N, J]` | Real latent factors |
+| `baseline_intrinsic` | `[N, T]` | True baseline |
+| `treatment_contribution_raw` | `[N, T, K]` | True channel contributions, `>= 0` |
+| `covariate_contribution` | `[N, T, M]` | True control contributions |
+| `latent_unobserved_contribution` | `[N, T, J]` | True latent contributions |
+| `indirect_effects_by_source` | `[N, T, 3]` | True indirect effects, ordered `cc`, `zc`, `dc` |
+| `outcome_noise` | `[N, T]` | Observation noise |
+| `g` | `[N, L]` | Binary true causal graph |
+| `is_val` | `[N]` | `1` for held-out evaluation worlds; at least one is required |
+| `cell_id` | `[N]` | Integer group of related worlds; keep a group in one split |
+| `diagnostics` | `dict` | `{"schema_version": 4, "edge_types": ["cy", "dc", "dz", "dy", "zy", "zc", "cc", "zz"]}` |
+
+The listed components plus `outcome_noise` add to `outcome_raw`. Worlds with `is_val == 0` train the network; worlds with `is_val == 1` evaluate it.
+
+## Graph edge blocks
+
+`g` concatenates source-major edge blocks. Its total length is `L`; `EdgeSlotLayout(K, M, J).n_slots` returns that value.
+
+| Block | Edges | Size |
+| --- | --- | --- |
+| `cy` | channel → outcome | `K` |
+| `dc` | latent → channel | `J·K` |
+| `dz` | latent → control | `J·M` |
+| `dy` | latent → outcome | `J` |
+| `zy` | control → outcome | `M` |
+| `zc` | control → channel | `M·K` |
+| `cc` | channel → channel, no self-loops | `K·(K-1)` |
+| `zz` | control → control, no self-loops | `M·(M-1)` |
+
+## Run training
+
+Use the standard [installation](index.qmd#install-client), then call [train](../reference/training.train.qmd) with a new output directory. Pass a [ModelConfig](../reference/model.ModelConfig.qmd) for architecture and corpus geometry plus a [TrainingConfig](../reference/training.TrainingConfig.qmd) for the run budget.
+
+```python
+from pymc_mfm.model import ModelConfig
+from pymc_mfm.training import TrainingConfig, train
+
+result = train(
+    [corpus],
+    out_dir="runs/my-model",
+    model_config=ModelConfig(
+        n_controls=corpus["covariates"].shape[2],
+        n_demand=corpus["latent_active_mask"].shape[1],
+    ),
+    training=TrainingConfig(
+        steps=5_000,
+        batch_size=64,
+        warmup_steps=250,
+        eval_every=1_000,
+        milestone_steps=(),
+    ),
+    device="auto",
+)
+model = result.model
+```
+
+`device="auto"` prefers CUDA, then MPS, then CPU. All supplied corpora must share the same padded `K`, `M`, `J`, and `T` geometry.
+
+## Defaults
+
+[ModelConfig](../reference/model.ModelConfig.qmd) holds architecture size and corpus geometry. It does not fix the channel count.
+
+| `ModelConfig` field | Default |
+| --- | --- |
+| `d_model`, `n_layers`, `n_heads`, `d_ff`, `flow_hidden` | `128`, `4`, `8`, `512`, `256` |
+| `n_controls` | `6` |
+| `n_demand` | `1` |
+
+[TrainingConfig](../reference/training.TrainingConfig.qmd) defines the canonical full run.
+
+| `TrainingConfig` setting | Default |
+| --- | --- |
+| Updates and batch size | `62,500` AdamW updates of `64` worlds |
+| Learning rate and schedule | peak `2.8e-3`, `3,125` warmup updates, cosine decay to zero |
+| Regularization | weight decay `0.01`; global gradient clipping `1.0` |
+| Evaluation | every `6,250` updates on `16` held-out worlds with `128` draws |
+| Milestones and seed | updates `25,000` and `50,000`; seed `31` |
+| Checkpoint selection | held-out conditional query energy score, with context and structure gates |
+
+For shorter runs, reduce `warmup_steps`, `eval_every`, and `milestone_steps` together with `steps`.
+
+## Tracking, CLI, and outputs
+
+MLflow tracking is enabled by default. Local JSON evidence remains authoritative; MLflow receives a projection of it. By default its SQLite store is in `out_dir`; set `MLFLOW_TRACKING_URI` or [TrackingConfig](../reference/training.TrackingConfig.qmd) `tracking_uri` to choose another backend. Disable tracking with `tracking=TrackingConfig(enabled=False)`.
+
+```bash
+python -m pymc_mfm.training --help
+```
+
+The CLI exposes the same training options. Pass existing supported `.npz` corpora with `--corpus`; no generator is needed. To produce synthetic corpora with `python -m pymc_mfm.data generate`, run `uv sync --locked --group generation` in a repository checkout first.
+
+| Path in `out_dir` | Content |
+| --- | --- |
+| `model/` | Final model folder |
+| `checkpoint_best.pt` | Best qualifying held-out checkpoint, written after a promotion |
+| `checkpoint_last.pt` | Latest checkpoint |
+| `run.json` | Configuration, corpus summary, and run status |
+| `metrics.jsonl`, `evaluations.jsonl` | Training losses and held-out evaluations |
+
+Checkpoints do not hold optimizer state and cannot resume a training run. For bitwise-repeatable CPU runs, set `OMP_NUM_THREADS=1` before starting the process.

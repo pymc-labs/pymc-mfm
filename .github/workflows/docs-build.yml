@@ -1,0 +1,41 @@
+name: Docs build
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      publish-artifact:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: ${{ inputs.publish-artifact }}
+          python-version: "3.13"
+      # Quartodoc reads docstrings statically; notebooks render from stored outputs.
+      - name: Install the package and the docs group
+        run: uv sync --locked --group docs
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.11.9
+      - name: Render the site
+        run: uv run --no-sync quarto render docs
+      - name: Upload the site for Pages
+        if: inputs.publish-artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site

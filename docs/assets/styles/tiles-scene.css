@@ -1,0 +1,132 @@
+/* Painted tiles scene: Amortized, Causal, Bayesian. Everything is scoped to .tiles-scene.
+   The section pins one screen while you scroll and the chapter changes in place. The word is
+   the centre of the screen, big, with its line under it; behind it, a small box of painted
+   tiles (tiles-scene.js), blurred and faded at its edges, gives the word a coloured glow
+   without competing with it. Sizes follow the section's own width (container units), not the
+   window. Fonts: the site's "Archivo" (wdth 125), "Inter" and "IBM Plex Mono".
+   Sticky needs no ancestor with overflow: hidden/auto. */
+.tiles-scene {
+  --ts-ground: #07142a;
+  --ts-ink: #f2f5fa;
+  --ts-ink-2: #c3cde0;
+  --ts-muted: #8593ab;
+  --ts-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  container: tiles / inline-size;
+  position: relative;
+  height: 390vh;
+  background: var(--ts-ground);
+  color: var(--ts-ink);
+  font-family: var(--mfm-font-sans, "Inter", system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+.tiles-scene *, .tiles-scene *::before, .tiles-scene *::after { box-sizing: border-box; }
+
+/* One screen, one cell: the wall and the text stack, the text on top. */
+.tiles-scene .ts-pin {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+.tiles-scene .ts-pin > * { grid-area: 1 / 1; }
+
+/* ---------- the text ---------- */
+.tiles-scene .ts-text {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 72rem);
+  padding: 0 24px;
+  text-align: center;
+}
+
+/* "01 / 03": the chapter on screen (tiles-scene.js moves .is-on). */
+.tiles-scene .ts-steps {
+  list-style: none;
+  margin: 0 0 clamp(16px, 2vw, 24px);
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  font: 400 13px/1 "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing: 0.14em;
+  color: var(--ts-muted);
+}
+.tiles-scene .ts-steps li:not(.is-on) { display: none; }
+.tiles-scene .ts-steps::after { content: "\00a0/\00a0 03"; }
+
+.tiles-scene .ts-copies { display: grid; }
+.tiles-scene .ts-copy {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(18px);
+  filter: blur(10px);
+  transition: opacity 0.4s ease, transform 0.6s var(--ts-ease), filter 0.4s ease;
+  pointer-events: none;
+}
+.tiles-scene .ts-copy.is-on {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition-delay: 0.1s;
+  pointer-events: auto;
+}
+.tiles-scene .ts-copy:nth-child(1) { --ts-tone: #b4e7dd; }
+.tiles-scene .ts-copy:nth-child(2) { --ts-tone: #f6ae72; }
+.tiles-scene .ts-copy:nth-child(3) { --ts-tone: #c8b4e7; }
+
+.tiles-scene .ts-title {
+  margin: 0 0 clamp(18px, 2.2vw, 28px);
+  padding: 0 0 0.06em; /* the page's h2 rules add a bottom padding; this keeps descenders */
+  font-family: "Archivo", sans-serif;
+  font-stretch: 125%;
+  font-weight: 400;
+  font-size: clamp(44px, 9cqw, 128px);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  color: var(--ts-ink);
+  /* White at the top, the chapter's tone at the foot. */
+  background: linear-gradient(180deg, #ffffff 35%, color-mix(in srgb, #ffffff 45%, var(--ts-tone)) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.tiles-scene .ts-line {
+  margin: 0 auto;
+  max-width: 32em;
+  font-size: clamp(16px, 1.4cqw, 19px);
+  line-height: 1.6;
+  color: var(--ts-ink-2);
+  text-wrap: balance;
+}
+
+/* ---------- the wall behind: a small blurred box of tiles ---------- */
+.tiles-scene .ts-wall {
+  position: relative;
+  z-index: 0;
+  width: min(64cqw, 880px);
+  aspect-ratio: 1.45;
+  max-height: 72vh;
+  border-radius: 16px;
+  overflow: hidden;
+  opacity: 0.42;
+  filter: blur(9px) saturate(1.2);
+  -webkit-mask: radial-gradient(closest-side, #000 60%, transparent);
+  mask: radial-gradient(closest-side, #000 60%, transparent);
+}
+.tiles-scene .ts-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+@container tiles (max-width: 1023px) {
+  .tiles-scene .ts-wall { width: 92cqw; aspect-ratio: 0.9; max-height: 64svh; }
+}
+
+/* phones and tablets: a little less scroll per chapter */
+@media (max-width: 1023px) {
+  .tiles-scene { height: 360vh; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tiles-scene .ts-copy, .tiles-scene .ts-copy.is-on { transform: none; filter: none; transition: none; }
+}

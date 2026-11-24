@@ -1,0 +1,59 @@
+name: Release
+
+# Every run builds the sdist and wheel, checks them and installs the wheel the way users
+# will. Only a pushed v* tag on a commit of main, in a public repository, publishes: to
+# PyPI through trusted publishing in the `pypi` environment, then as a GitHub release.
+# Manual runs are dry runs and report version problems as warnings.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/release-build.yml
+    with:
+      revision: ${{ github.sha }}
+      release-tag: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || '' }}
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pymc-mfm/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes

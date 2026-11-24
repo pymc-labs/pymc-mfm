@@ -1,0 +1,106 @@
+/*-- scss:defaults --*/
+// MFM docs theme, dark: the Cobalt tokens turned over. Page background is the PyMC Labs
+// navy-deep. Tones are white at 5% and 9% (solid mixes here, for Bootstrap's colour functions).
+// Mirrors light.scss; Quarto layers this file over it, so only differences are repeated.
+
+$navy-deep: #07142a;
+$ink: #dde3ee;
+$ink-2: #9aa7bd;
+$accent: #8fa9ff;
+$accent-strong: #b9c9ff;
+$tone-1: mix(#ffffff, $navy-deep, 5%);
+$tone-2: mix(#ffffff, $navy-deep, 9%);
+$danger: #ff9b8f;
+$heading: #f2f5fa;
+
+$font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; // taste-skill-ignore: code font
+$font-display: "Archivo", "Inter", system-ui, sans-serif;
+
+$font-family-sans-serif: $font-sans;
+$font-family-monospace: $font-mono; // taste-skill-ignore: code font
+$headings-font-family: $font-sans;
+$line-height-base: 1.65;
+
+$font-weight-base: 400;
+$font-weight-normal: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 500;
+$font-weight-bold: 500;
+$font-weight-bolder: 500;
+// Only 400 and 500 are self-hosted: Bootstrap's light weights (.lead, .display-*) fall to 400.
+$font-weight-light: 400;
+$font-weight-lighter: 400;
+$lead-font-weight: 400;
+$headings-font-weight: 500;
+$navbar-brand-font-weight: 500;
+
+$border-radius: 8px;
+$border-radius-sm: 6px;
+$border-radius-lg: 12px;
+$border-radius-xl: 12px;
+$border-radius-xxl: 12px;
+$border-radius-pill: 8px;
+
+$body-bg: $navy-deep;
+$body-color: $ink;
+$body-secondary-color: $ink-2;
+$headings-color: $heading;
+$primary: $accent;
+$secondary: $ink-2;
+$success: $accent;
+$info: $accent;
+$warning: $ink-2;
+$link-color: $accent;
+$link-hover-color: $accent-strong;
+$link-decoration: none;
+$border-color: $tone-2;
+// Quarto's keyboard focus ring (the outline on buttons, nav links and form controls) in the
+// --mfm-accent token, like every other focus outline, so it follows the surfaces where
+// site.css swaps the accent (the navy navbars of the homepage and River's hero).
+$focus-ring-outer-color: var(--mfm-accent);
+
+$navbar-bg: $navy-deep;
+$navbar-fg: $ink-2;
+$navbar-hl: $heading;
+$sidebar-fg: $ink-2;
+$sidebar-hl: $accent;
+$toc-color: $accent;
+$footer-bg: $navy-deep;
+$footer-fg: $ink-2;
+$footer-border-color: transparent;
+
+$code-color: $heading;
+$code-bg: transparent;
+$code-block-bg: $tone-1;
+$code-block-color: $ink;
+$code-block-border-color: transparent;
+$code-block-border-left: false;
+$input-bg: $tone-1;
+$input-border-color: transparent;
+
+$table-border-color: $tone-2;
+$table-striped-bg: $tone-1;
+
+$callout-color-note: $accent;
+$callout-color-tip: $accent;
+$callout-color-important: $danger;
+$callout-color-caution: $ink-2;
+$callout-color-warning: $ink-2;
+
+/*-- scss:rules --*/
+body.quarto-dark {
+  --mfm-bg: #{$body-bg};
+  --mfm-ink: #{$ink};
+  --mfm-ink-2: #{$ink-2};
+  --mfm-navy: #0c1f40;
+  --mfm-heading: #{$heading};
+  --mfm-accent: #{$accent};
+  --mfm-tone-1: rgba(255, 255, 255, 0.05);
+  --mfm-tone-2: rgba(255, 255, 255, 0.09);
+  --mfm-danger: #{$danger};
+  --mfm-on-navy: #{$navy-deep};
+  --mfm-console-bg: #f2f5fa;
+  --mfm-console-fg: #0c1f40;
+  --mfm-console-hover: #ffffff;
+}

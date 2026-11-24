@@ -1,0 +1,123 @@
+/*-- scss:defaults --*/
+// MFM docs theme, light: Cobalt. White pages, navy text, one cobalt accent, blue-grey tone steps.
+// Each token is set once here as a Sass variable. Bootstrap and Quarto read the variables, so their
+// own components follow the theme without overrides. The same values leave as --mfm-* custom
+// properties (rules section) for site.css and the page stylesheets. dark.scss mirrors this file.
+
+$navy: #0c1f40;
+$ink: #0c1f40;
+$ink-2: #4d5b78;
+$accent: #2650c8;
+$accent-strong: #1b3f9f;
+$tone-1: #f1f4fa;
+$tone-2: #e3e9f4;
+$danger: #b3261e;
+
+// The PyMC Labs brand pair: Inter for text and captions, Archivo Expanded (Archivo at width 125)
+// for headlines, large text and expressive subheadings. Plex Mono for code.
+$font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; // taste-skill-ignore: code font
+$font-display: "Archivo", "Inter", system-ui, sans-serif;
+
+$font-family-sans-serif: $font-sans;
+$font-family-monospace: $font-mono; // taste-skill-ignore: code font
+$headings-font-family: $font-sans;
+$line-height-base: 1.65;
+
+// Weights: nothing above 500 outside the Archivo page titles.
+$font-weight-base: 400;
+$font-weight-normal: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 500;
+$font-weight-bold: 500;
+$font-weight-bolder: 500;
+// Only 400 and 500 are self-hosted: Bootstrap's light weights (.lead, .display-*) fall to 400.
+$font-weight-light: 400;
+$font-weight-lighter: 400;
+$lead-font-weight: 400;
+$headings-font-weight: 500;
+$navbar-brand-font-weight: 500;
+
+// Corners: chips 6, controls 8, cards 12. No pills.
+$border-radius: 8px;
+$border-radius-sm: 6px;
+$border-radius-lg: 12px;
+$border-radius-xl: 12px;
+$border-radius-xxl: 12px;
+$border-radius-pill: 8px;
+
+$body-bg: #ffffff;
+$body-color: $ink;
+$body-secondary-color: $ink-2;
+$headings-color: $navy;
+$primary: $accent;
+$secondary: $ink-2;
+$success: $accent;
+$info: $accent;
+$warning: $ink-2;
+$link-color: $accent;
+$link-hover-color: $accent-strong;
+$link-decoration: none;
+$border-color: $tone-2;
+// Quarto's keyboard focus ring (the outline on buttons, nav links and form controls) in the
+// --mfm-accent token, like every other focus outline, so it follows the surfaces where
+// site.css swaps the accent (the navy navbars of the homepage and River's hero).
+$focus-ring-outer-color: var(--mfm-accent);
+
+$navbar-bg: #ffffff;
+$navbar-fg: $ink-2;
+$navbar-hl: $navy;
+$sidebar-fg: $ink-2;
+$sidebar-hl: $accent;
+$toc-color: $accent;
+$footer-bg: #ffffff;
+$footer-fg: $ink-2;
+$footer-border-color: transparent;
+
+$code-color: $navy;
+$code-bg: transparent;
+$code-block-bg: $tone-1;
+$code-block-color: $ink;
+$code-block-border-color: transparent;
+$code-block-border-left: false;
+$input-bg: $tone-1;
+$input-border-color: transparent;
+
+$table-border-color: $tone-2;
+$table-striped-bg: $tone-1;
+
+$callout-color-note: $accent;
+$callout-color-tip: $accent;
+$callout-color-important: $danger;
+$callout-color-caution: $ink-2;
+$callout-color-warning: $ink-2;
+
+/*-- scss:rules --*/
+body.quarto-light {
+  --mfm-bg: #{$body-bg};
+  --mfm-ink: #{$ink};
+  --mfm-ink-2: #{$ink-2};
+  --mfm-navy: #{$navy};
+  --mfm-heading: #{$navy};
+  --mfm-accent: #{$accent};
+  --mfm-tone-1: #{$tone-1};
+  --mfm-tone-2: #{$tone-2};
+  --mfm-danger: #{$danger};
+  --mfm-on-navy: #ffffff;
+  --mfm-console-bg: #{$navy};
+  --mfm-console-fg: #ffffff;
+  --mfm-console-hover: #{$accent};
+}
+
+:root {
+  --mfm-r-chip: 6px;
+  --mfm-r: 8px;
+  --mfm-r-card: 12px;
+  --mfm-font-sans: #{$font-sans};
+  --mfm-font-mono: #{$font-mono}; /* taste-skill-ignore: code font */
+  --mfm-font-display: #{$font-display};
+  --mfm-measure: 72ch;
+  --mfm-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mfm-dur: 0.18s;
+  --mfm-nav-h: 64px;
+}

@@ -1,0 +1,37 @@
+---
+title: "Models"
+description: "Trained networks for PyMC MFM (marketing foundational models). Each released model has its own page."
+listing:
+  id: releases
+  contents:
+    - "*/index.qmd"
+    - upcoming.yml
+  sort: "order"
+  template: models.ejs
+  date-format: "MMM D, YYYY"
+  feed: true
+  fields: [title, name, date, summary, image, badge, specs, status, order]
+page-layout: article
+toc: false
+body-classes: mfm-models-page
+css: ../assets/styles/model.css
+---
+
+
+::: {#releases}
+:::
+
+## Load a model
+A model is a folder with `config.json`, `model.safetensors` and `manifest.json`.
+PyMC Labs publishes models as profiles of a Hugging Face Hub repository, and any
+of them loads with one call:
+
+```python
+from pymc_mfm import from_pretrained
+
+model = from_pretrained("pymc-labs/mfm", profile="river-1")
+```
+
+Pin `revision=` to a full commit for reproducible results. See
+[Load and share models](../guide/models-hub.qmd) for local folders, caches and
+publishing your own.

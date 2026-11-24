@@ -1,0 +1,48 @@
+name: Conda package
+
+# Builds the noarch conda package from conda.recipe/ against conda-forge and runs its
+# tests, so a dependency conda-forge lacks, or a recipe that drifts from pyproject.toml,
+# fails here before a conda-forge submission does.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pyproject.toml
+      - conda.recipe/**
+      - .github/workflows/conda.yml
+      - src/**
+      - tests/**
+      - docs/_scripts/**
+      - docs/api/openapi-v1.json
+      - skills/mfm/reference/http.md
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Conda package build
+    runs-on: ubuntu-latest
+    # Whole-job hang guard: the test environments download PyTorch from conda-forge.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+          persist-credentials: false
+      - uses: prefix-dev/rattler-build-action@v0.2.39
+        with:
+          recipe-path: conda.recipe/recipe.yaml
+          build-args: --channel conda-forge
+          upload-artifact: false

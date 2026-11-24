@@ -1,0 +1,72 @@
+name: Release package build
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        required: true
+        type: string
+      release-tag:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The wheel install downloads PyTorch.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+          python-version: "3.13"
+      - name: Check the version against the tag and PyPI
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then mode=(--tag "$RELEASE_TAG"); else mode=(--warn-only); fi
+          uv run --no-project --with 'packaging>=24.2' \
+            python scripts/check_release_version.py "${mode[@]}"
+      - name: Require the tagged commit to be on main
+        if: inputs.release-tag != ''
+        run: git merge-base --is-ancestor HEAD origin/main
+      - name: Require a public repository
+        # The package metadata, README and conda recipe link to the repository.
+        if: inputs.release-tag != ''
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [[ $REPOSITORY_PRIVATE != false ]]; then
+            echo "::error::Make the repository public before releasing; the package links to it."
+            exit 1
+          fi
+      - name: Build distributions
+        run: uv build
+      - name: Check the distributions
+        run: |
+          python3 scripts/check_public_boundary.py --release --archive dist/*
+          uvx twine check --strict dist/*
+      - name: Install the wheel as users will and smoke test it
+        # Resolves dependencies from PyPI, not uv.lock.
+        run: |
+          uv venv --python 3.13 "$RUNNER_TEMP/wheel"
+          python="$RUNNER_TEMP/wheel/bin/python"
+          uv pip install --python "$python" dist/*.whl 'pytest>=8.3'
+          uv pip check --python "$python"
+          "$python" -I -m pytest -q -p no:cacheprovider \
+            tests/client/test_http.py \
+            tests/test_training.py::test_cli_trains_and_evaluates_saved_corpora_without_generator
+      - uses: actions/upload-artifact@v4
+        if: inputs.release-tag != ''
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

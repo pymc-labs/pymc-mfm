@@ -1,0 +1,192 @@
+{
+  "format_version": 1,
+  "step_axis": "completed optimizer updates; step zero is initialization",
+  "name_contract": "Readable name plus full SHA-256; names.json preserves full original names and JSON paths. Each event contains the exact scalar projection and a leaf-by-leaf field inventory, including every structured or undefined value.",
+  "local_contract": "Every observer event is saved before delivery under tracking/events. Checkpoint bytes are copied to objects/step/kind/sha256 before a mutable last/best filename can be replaced. Failure receipts identify undelivered events and files. Delivery has two channels, tracking-server writes and artifact uploads, and a failure on one never skips a delivery on the other. A receipt with delivery_stopped=true ends network delivery on its channel: after a failed backend start on both, so every later event and file stays local; during the run end on the channel whose one bounded attempt failed. A receipt with transport=true and delivery_stopped=false pauses its channel: later deliveries on it are skipped, never replayed, until a probe gets through (an upload probes with itself; a tracking-server write follows a bounded mfm.delivery_status tag probe), first after 60 s, then after a cool-down that doubles per failed probe up to 600 s and resets once a delivery on the channel succeeds. tracking/state.json keeps each channel's open pause and totals; each closed pause is appended to tracking/delivery_pauses.jsonl. The run end waits for no cool-down: a paused channel probes at its first terminal delivery. Every create_run attempt carries the execution's random mfm.start_id tag (start_id in tracking/state.json). After a successful start against a tracking server (http, https or databricks), one bounded search finds running runs that a retried create_run left with the same mfm.start_id; each is tagged mfm.duplicate_of and ended FAILED, and a duplicate_runs event records them. This is housekeeping, not delivery: a failed search or end is a local duplicate_search_failed event with its operation and error_type, pauses nothing and leaves delivery_status unchanged. Canonical run/metrics/evaluations/diagnostics records remain independent.",
+  "privacy": "Camel/snake/hyphen credential keys, credential-bearing text and URI credentials are redacted before scalar projection. Private/unknown-origin or credential-bearing reports are wholly LOCAL ONLY, including manifests, support summaries, scalars, HTML and figures; the backend receives only safe hash/status receipts. Synthetic report delivery uses the recursive manifest allowlist, never the working directory. No corpus array upload or implicit Hub publication.",
+  "catalog_expansion": "fields and scalars arrays in each saved event instantiate these producer field patterns for every emitted leaf, so non-headline or newly added producer fields remain represented rather than being silently dropped.",
+  "entries": [
+    {
+      "producer": "trainer.train",
+      "fields": ["format_version", "run_id", "run_name", "profile", "status", "created_at", "finished_at", "final_step", "error", "error_type", "requested_device", "requested_model_config"],
+      "representation": "run_start/run_end JSON events; lifecycle and profile MLflow tags; immutable resolved values as indexed parameters",
+      "cadence": "before device/model/stream construction and at honest terminal exit",
+      "applicability": "all executions, including failed initialization and explicit tracking opt-out"
+    },
+    {
+      "producer": "trainer._train_run",
+      "fields": ["model_config.*", "training_config.*", "optimizer.*", "objective_weights.*", "geometry.*", "parameter_count", "total_parameter_count", "parameter_counts.*", "evaluation_policy.*", "selection_policy.*", "consumption_budget.*"],
+      "representation": "complete configuration JSON artifact plus indexed parameters; bounded indexed values refer to full artifact by digest; per-module parameter_counts (encoder, router, structure_head, graph_conditioner, conditional_head, total) as config/parameter_counts/* parameters",
+      "cadence": "once after setup and before optimizer updates",
+      "applicability": "successful initialization; training config is independent of tracking config"
+    },
+    {
+      "producer": "training._provenance.environment_record/code_record",
+      "fields": ["environment.python", "environment.platform", "environment.device", "environment.packages.*", "environment.hardware.*", "environment.torch", "environment.numpy", "environment.pymc_mfm", "code.source_sha256", "code.source_files.*", "code.revision", "code.modified_from_revision", "code.revision_status"],
+      "representation": "configuration JSON and indexed parameters; absent packages/hardware/revision are null or explicitly not_available, never assumed",
+      "cadence": "resolved setup",
+      "applicability": "actual installed package/source bytes and actual selected device"
+    },
+    {
+      "producer": "data.recipes.provenance/trainer.default_corpus_provenance/training._provenance.corpus_identity",
+      "fields": ["corpus[].path", "corpus[].sha256", "corpus[].prior_sidecar", "corpus[].data_origin", "corpus[].index", "corpus[].n_worlds", "corpus[].n_train", "corpus[].n_holdout", "corpus[].n_cells", "corpus[].context_lengths", "corpus[].actual_inputs.content_sha256", "corpus[].actual_inputs.arrays.*.dtype", "corpus[].actual_inputs.arrays.*.shape", "corpus[].actual_inputs.arrays.*.sha256", "corpus[].actual_inputs.metadata_sha256.*", "corpus[].actual_inputs.unavailable.*", "corpus[].actual_inputs.identity_scope"],
+      "representation": "complete corpus identity JSON; hashes and references only, no corpus array upload",
+      "cadence": "resolved setup",
+      "applicability": "all actual corpora; file hash/manifest/prior metadata only when provided; no invented external references"
+    },
+    {
+      "producer": "training.summary.corpus_summary",
+      "fields": ["corpus_summary.corpora", "corpus_summary.{train,holdout}.{worlds,cells,distinct_graphs}", "corpus_summary.{train,holdout}.{context_lengths,active_channels,active_controls,active_latents}.*", "corpus_summary.{train,holdout}.edges.*.*", "corpus_summary.shared_graphs", "corpus_summary.generator.*.{min,max}"],
+      "representation": "configuration JSON plus one corpus/<path> MLflow metric point per numeric leaf at step 0; not indexed as parameters",
+      "cadence": "once after setup, before optimizer updates",
+      "applicability": "all actual corpora; the generator block holds only the finite numeric diagnostics the corpora carry, as min/max across corpora"
+    },
+    {
+      "producer": "MFM.loss_terms/trainer optimization record",
+      "fields": ["loss", "flow_loss", "context_flow_loss", "graph_conditional_flow_loss", "graph_conditional_context_flow_loss", "task_loss", "struct_loss", "struct_loss_raw", "struct_loss_raw_status"],
+      "representation": "train/* scalar histories and complete step JSON; struct_loss is already weighted, struct_loss_raw is reconstructed from the weighted term (loss weights are strictly positive)",
+      "cadence": "first update and TrainingConfig.log_every updates",
+      "applicability": "all active objectives; joint router query/context, conditional decoder query/context and auxiliary structure remain distinct"
+    },
+    {
+      "producer": "trainer optimization record from TrainingConfig.loss_weights",
+      "fields": ["objective_weights.struct_weight", "objective_weights.struct_cy_weight", "objective_weights.graph_conditional_weight", "objective_weights.context_decomposition_weight", "objective_weights.context_graph_weight", "objective_weights.graph_conditional_context_weight"],
+      "representation": "weight scalar histories plus JSON/config parameters",
+      "cadence": "same as loss series",
+      "applicability": "actual applied coefficients; context_graph_weight is the internal context graph coefficient, not an extra whole-term multiplier"
+    },
+    {
+      "producer": "trainer optimization record/CorpusStream",
+      "fields": ["step", "epoch", "consumed_rows", "row_sequence_sha256", "batch_rows", "batch_context_length", "lr", "grad_norm", "grad_clipped", "elapsed_seconds", "step_seconds", "batch_wait_seconds", "worlds_per_second", "nonfinite.*"],
+      "representation": "finite train/* scalar histories; exact ordered row IDs/hash and nonfinite status in step JSON",
+      "cadence": "same as loss series; consumption hash advances on every completed update",
+      "applicability": "timings describe host-observed durations, not synchronized GPU kernel timing; nonfinite values retained before training raises"
+    },
+    {
+      "producer": "MFM.loss_terms(return_trace=True)",
+      "fields": ["executed_objectives", "structure.*", "context_graph_weight", "loss_reconstruction.*"],
+      "representation": "full objective_trace.json including per-family BCE normalization/weights and raw first-step terms",
+      "cadence": "first update, snapshotted at first step event and terminal exit",
+      "applicability": "executed objectives only; no objective rerun for tracking"
+    },
+    {
+      "producer": "trainer.evaluate/evaluate_rows",
+      "fields": ["step", "epoch", "consumed_rows", "n_samples", "legs.*.leg", "legs.*.n_worlds", "legs.*.n_samples", "legs.*.seed", "legs.*.rows", "legs.*.labels.*", "legs.*.undefined.*", "legs.*.result_capture.*", "legs.*.counts.*", "legs.*.metric_worlds.*", "legs.*.tables.*", "flat.*", "selection.*"],
+      "representation": "all flat finite values (including {leg}/counts/*) as evaluation/<original name> histories; seeds and selection numerics as scalar histories; complete unflattened record, labels, rows, statuses, capture failures, metric_worlds and reliability/CORP/threshold tables as JSON only (tables also in evaluation_tables/step_<N:09d>.json; reliability rows are the non-empty of 10 equal-width bins; corp rows are the blocks of the isotonic fit of edge truth on probability, empty for a one-class edge family); per-effect strata tables only in evaluation_tables/step_<N:09d>.json as legs.<leg>.strata, never in the event, checkpoints or metrics",
+      "cadence": "TrainingConfig.eval_every and final update",
+      "applicability": "seen/holdout legs when present"
+    },
+    {
+      "producer": "evaluation._score_decomposition",
+      "fields": ["legs.*.heads.{joint,conditional}.{query,context}.{baseline_intrinsic,contribution,control_contribution,confounder_total,indirect_cc,indirect_zc,indirect_dc,indirect_total}_{scaled_mae,crps,cov80}", "legs.*.heads.{joint,conditional}.{query,context}.contribution_padding_leakage_scaled_mae", "legs.*.heads.{joint,conditional}.{query,context}.closure_rel_err", "legs.*.heads.{joint,conditional}.{query,context}.decomposition_energy_score", "legs.*.heads.{joint,conditional}.{query,context}.latent_sales_temporal_energy_score", "legs.*.heads.{joint,conditional}.{query,context}.contribution_temporal_energy_score", "legs.*.heads.{joint,conditional}.{query,context}.attribution_live_{media,control}_{crps,mean_bias,mean_abs_error,demeaned_rmse}", "legs.*.heads.{joint,conditional}.{query,context}.attribution_live_{media,control}_conditional_cov80", "legs.*.heads.{joint,conditional}.{query,context}.attribution_dead_{media,control}_{leakage,draw_leakage}_scaled_mae", "legs.*.heads.{joint,conditional}.{query,context}.closure_draw_{rel_err,q90_rel_err}", "legs.*.heads.{joint,conditional}.{query,context}.contribution_{truth_lag1,draw_lag1,lag1_tracking_abs_error,truth_error_residual_lag1,posterior_centered_residual_lag1,adjacent_draw_correlation}", "legs.*.heads.{joint,conditional}.{query,context}.timeavg_contribution_cov80{,_live,_dead}", "legs.*.heads.{joint,conditional}.{query,context}.timeavg_{contribution,control_contribution}_simcov80_live", "legs.*.heads.{joint,conditional}.{query,context}.contribution_cumulative_energy_score", "legs.*.heads.{joint,conditional}.{query,context}.latent_sales_r2"],
+      "representation": "every finite value via flat mapping to MLflow metrics; every None/partially nonfinite denominator/empty family reason in full record",
+      "cadence": "existing evaluation cadence",
+      "applicability": "scaled-space evaluator scores; latent sales totals are not noisy observed sales, and joint baseline is not conditional decoder quality; conditional live coverage uses each head/window's own graph-aligned draws and truly live slots with at least two edge-on samples"
+    },
+    {
+      "producer": "diagnostics.coverage/trainer.evaluate/TrainingRun.derived_metrics",
+      "fields": ["legs.*.coverage[].{corpus_index,row,cell_id,values,weights,undefined}", "coverage_intervals.*.*.{mean,ci_low,ci_high,n_worlds,n_cells,n_slots,status,reason,confidence_level,seed,bootstrap_samples,bootstrap_unit,estimand,undefined}"],
+      "representation": "coverage-only per-world/cell evidence in evaluation_tables/step_<N:09d>.json; 95% cell-clustered intervals derived report-side and frozen separately in diagnostic evidence, summary, manifest and HTML, never in scalar metrics, evaluation events, checkpoints or MLflow histories",
+      "cadence": "evidence at existing evaluation cadence; intervals when derived_metrics or diagnostic reports consume saved tables",
+      "applicability": "recorded equal-world coverage means; resample corpus/cell pairs using scored-world counts, not slot weights; n_slots sums recorded weights only; missing identity or fewer than two scored cells leaves bounds unavailable; old evidence is not_recorded"
+    },
+    {
+      "producer": "evaluation._edge_record/_score_batch",
+      "fields": ["legs.*.heads.structure_head.*.{log_score,brier,auroc,auprc,ece,mcb,dsc,unc,null_fpr,prevalence,n,n_pos}", "legs.*.heads.joint_router.edge.*.{log_score,brier,auroc,auprc,ece,mcb,dsc,unc,null_fpr,prevalence,n,n_pos}", "legs.*.heads.joint_router.graph.{shd_mean,shd_median,normalized_shd_mean,exact_recovery,energy_score,categorical_brier_score,entropy,n_distinct,cc_two_cycle_rate,cc_cycle_rate,zz_two_cycle_rate,zz_cycle_rate,pairwise_comoment_abs_err,pairwise_comoment_max_abs_err}"],
+      "representation": "all finite flat scalar histories and original structured JSON; one-class/empty/nonfinite statuses retained (mcb/dsc/unc, the CORP Brier decomposition, are one_class-undefined for a family with one truth class; its recorded ece is not calibration evidence)",
+      "cadence": "existing evaluation cadence",
+      "applicability": "auxiliary structure probabilities remain separate from router-draw edge/whole-graph probabilities"
+    },
+    {
+      "producer": "trainer._select_checkpoint",
+      "fields": ["selection.head", "selection.monitor", "selection.value", "selection.direction", "selection.gates.*", "selection.nonfinite_keys.*", "selection.gates_passing", "selection.bounds_violations[]", "selection.promoted", "selection.rationale", "selection.best_value", "selection.best_step", "selection.readout", "selection.terminal_checkpoint"],
+      "representation": "structured selection decision and all finite scalar leaves",
+      "cadence": "each evaluation and linked checkpoint event",
+      "applicability": "holdout gates of TrainingConfig.selection_head (conditional by default) checked against METRIC_BOUNDS; tracking cannot promote or change terminal-checkpoint semantics"
+    },
+    {
+      "producer": "trainer.record_checkpoint/training.checkpoint.save_checkpoint",
+      "fields": ["kind", "step", "file", "path", "sha256", "evaluation_sha256", "selection.*", "artifact.*"],
+      "representation": "immutable checkpoint bytes and complete event under step/kind/sha256; evaluation canonical-JSON SHA links exact scored state",
+      "cadence": "each last/best/milestone checkpoint write",
+      "applicability": "only actually supported kinds; no optimizer continuation or Hub publication is claimed"
+    },
+    {
+      "producer": "trainer.record_diagnostics/diagnostics.build_report",
+      "fields": ["format_version", "provenance.*", "dimensions.*", "metrics.*", "statuses.*", "panels.*", "artifacts[].path", "artifacts[].kind", "artifacts[].sha256", "artifacts[].sensitive", "evidence.*"],
+      "representation": "Complete per-world metric tables, statuses, arrays and recursive figures as versioned artifacts, explicitly metric_representation=per_world_table. These high-dimensional details and embedded historical records are not duplicated into growing run-level metric namespaces; all canonical train/evaluation scalar histories retain their original optimizer steps. Synthetic, credential-free evidence only; otherwise local report plus safe hash/status receipt.",
+      "cadence": "each existing evaluation event after checkpoint save; all captured conditional worlds and windows",
+      "applicability": "report uses existing computed draws, actual checkpoint SHA, source_step and training run identity; never inference or MCMC for logging"
+    },
+    {
+      "producer": "trainer holdout_archives/diagnostics.EvaluationArchive",
+      "fields": ["evaluation_policy.holdout_archives.*", "diagnostics[].name", "diagnostics[].sha256", "diagnostics[].checkpoint_sha256", "diagnostics[].best_checkpoint_sha256", "diagnostics[].state_sha256", "diagnostics[].archive_sha256", "diagnostics[].path", "diagnostics[].kinds", "diagnostics[].status", "diagnostics[].recipe", "diagnostics[].error_type", "archives/step_<N:09d>/manifest.json", "archives/step_<N:09d>/entries/<NNNN>/{result.json,arrays.npz,truth.npz}"],
+      "representation": "local hash-bound evaluation archive of the held-out leg's existing conditional captures (one saved DecompositionResult directory plus truth.npz per world window, in the declared capture order); run.json references it by manifest SHA-256 (recipe holdout_evaluation_archive) and the exported bundle's provenance diagnostics reference the terminal archive; never uploaded to MLflow",
+      "cadence": "evaluation events that promote checkpoint_best.pt and/or the final evaluation, as selected by train(holdout_archives=...)",
+      "applicability": "opt-in; no additional inference; with the option unset nothing in the run changes; enabling it adds legs.holdout.result_capture to the evaluation records of events that can be archived (every event with best, the final event with terminal only)"
+    },
+    {
+      "producer": "diagnostics metric/report suite",
+      "fields": ["metrics.*", "statuses.*", "panels.*", "artifacts.*"],
+      "families": ["component/total errors and proper scores", "coverage/interval width", "closure and per-draw closure", "per-family/channel/control recovery", "live/dead attribution and dead-effect leakage", "temporal coherence per family", "window totals and cumulative contribution", "per-effect window-total residuals and coverage by true/predicted size, edge-frequency and channel-count strata (arrays.strata, never metrics)", "graph edge/whole-graph probabilities, scores (including the CORP Brier decomposition graph/{mcb,dsc,unc}) and edge reliability (binned and CORP isotonic, one-class edge sets marked not evidenced)", "complete-graph statistics (evaluator joint_router/graph keys as graph/*) and directed-cycle check (complete graph, cc/zz cycle and two-cycle rates)", "graph support/cardinality and rare graph frequency", "zero atom/false exclusion/padding", "PIT/ECDF/rank distributions", "within/between-graph uncertainty", "report-only share MAEs", "recorded raw input support", "truth/reference/data health and qualification", "reference comparisons when supplied", "A/B and stress comparison records when supplied"],
+      "representation": "Full original names, units and values in manifest; comparison and calibration reports delivered by the caller through on_diagnostic use dimensioned MLflow metrics. Training-world details use per_world_table artifacts. Rank arrays, matrices, posterior tables and saved figure inputs remain lossless JSON/NPZ/figure artifacts.",
+      "cadence": "producer-scheduled report events, never every optimization batch",
+      "applicability": "undefined/missing/noncomputed/failed statuses remain explicit; no SBC or calibration claim from one-world rank plots"
+    },
+    {
+      "producer": "diagnostics.plotting/render_report",
+      "fields": ["artifacts with plot/report/table/array/result kinds", "panels.*", "statuses.*"],
+      "representation": "human-readable HTML report, recursive figures, training trajectories, decomposition/recovery, DAG/posterior, uncertainty/calibration, comparisons and machine-readable inputs exactly as saved in manifest",
+      "cadence": "report events versioned by step/checkpoint/manifest hash",
+      "applicability": "lazy optional plotting; missing packages and failed panels recorded; tracker never rerenders"
+    },
+    {
+      "producer": "trainer.record_diagnostics failure path",
+      "fields": ["step", "checkpoint_sha256", "path", "status", "error_type", "provenance.*"],
+      "representation": "diagnostics.jsonl and diagnostic_failure event, plus delivery health failure receipt",
+      "cadence": "each failed capture/render event",
+      "applicability": "training remains numerically independent; exception text withheld for privacy"
+    },
+    {
+      "producer": "inference.checkpoint.save_pretrained/trainer terminal export",
+      "fields": ["export.path", "export.source_checkpoint_sha256", "export.source_step", "export.files", "manifest.json", "config.json", "model.safetensors", "provenance.data[].content_hash", "provenance.data[].sha256", "provenance.prior.config.corpus_prior_hashes.*", "provenance.prior.config_hash", "provenance.prior.status", "provenance.diagnostics[]"],
+      "representation": "Complete safe bundle; training-checkpoint, exported-tensor, source-file and in-memory content hashes remain distinct. Bundle prior metadata is explicitly hash-referenced per corpus, avoiding repeated full configs across canonical multi-shard runs. Full prior configs remain retained in the canonical run/checkpoint/configuration artifacts joined by local run identity.",
+      "cadence": "completed training only",
+      "applicability": "no publication required; optional supplied Hub repo/revision stays provenance, never invented"
+    },
+    {
+      "producer": "trainer terminal run record",
+      "fields": ["consumed.*", "best.*", "checkpoints[]", "diagnostics[]", "elapsed_seconds", "export.*", "tracking.*"],
+      "representation": "terminal run JSON snapshot plus terminal local run.json",
+      "cadence": "finished/failed/interrupted finalization",
+      "applicability": "completed optimizer updates only; abrupt process death leaves lifecycle running"
+    },
+    {
+      "producer": "MlflowTrainingObserver",
+      "fields": ["status", "lifecycle_status", "delivery_status", "enabled", "local_run_id", "start_id", "run_id", "experiment_id", "tracking_uri", "experiment_name", "profile", "failure_count", "delivery_seconds", "delivery_pauses.{tracking,artifacts}.open.{channel,sequence,resumed_sequence,skipped_deliveries,failed_probes}", "delivery_pauses.{tracking,artifacts}.{pauses,skipped_deliveries,failed_probes}", "evidence", "failures", "closed_pauses", "name_table", "config.enabled", "config.tracking_uri", "config.experiment_name", "config.profile", "config.diagnostics", "config.http_timeout", "config.http_max_retries"],
+      "representation": "tracking/state.json, tracking_config event, run tracking section, lifecycle/delivery tags and the mfm.start_id tag of every created run",
+      "cadence": "start, every event/failure and finalization",
+      "applicability": "disabled, degraded, running, finished, failed and interrupted remain distinguishable; MLflow FINISHED is not asserted after known incomplete delivery"
+    },
+    {
+      "producer": "caller via MlflowTrainingObserver.on_diagnostic(build_comparison_report/write_calibration_report manifest)",
+      "fields": ["provenance.records[]", "provenance.synthetic_training_evaluation", "metric_dimensions.*", "metrics.*", "statuses.*", "artifacts[]", "panels.*"],
+      "representation": "Same report privacy and recursive allowlist contract; per-metric profile/method/checkpoint/split/head/mode/window/units/world dimensions and source optimizer step retained. Multi-checkpoint reports have no fabricated common checkpoint; unbound report events use step zero while bound metric points use their own producer source_step.",
+      "cadence": "only when the caller delivers a saved comparison or calibration report manifest; no library path schedules it, and it never implies reference fitting or SBC",
+      "applicability": "saved comparison/stress/reference/SBC tables and plots the caller delivers, subject to explicit scientific health and report-wide privacy qualification"
+    },
+    {
+      "producer": "MlflowTrainingObserver event/delivery ledger",
+      "fields": ["format_version", "sequence", "kind", "step", "timestamp_ms", "payload.*", "scalars[].key", "scalars[].original", "scalars[].path", "scalars[].value", "scalars[].step", "fields[].path", "fields[].representation", "fields[].status", "operation", "error_type", "artifact", "reason", "transport", "delivery_stopped", "channel", "resumed_sequence", "skipped_deliveries", "failed_probes", "names.*.original", "names.*.path", "names.*.kind", "report_sha256", "checkpoint_sha256", "delivery_status", "http_settings.applied.*", "http_settings.requested.*", "http_settings.unparsable[]", "http_settings.conflicting[]", "duplicate_runs.count", "duplicate_runs.run_ids[]", "duplicate_search_failed.operation", "duplicate_search_failed.error_type"],
+      "representation": "complete local events, name table, delivery failure/withheld receipts, the closed-pause ledger and scalar histories",
+      "cadence": "every emitted event or delivery failure",
+      "applicability": "every original leaf has a destination; undefined/nonfinite/structured values never silently become zero"
+    }
+  ],
+  "not_applicable": [
+    {"field": "resource GPU utilization/power/peak memory/update norm", "reason": "not emitted by the canonical trainer; no invented synchronized resource measurements"},
+    {"field": "reference fits/posterior SBC/stress runs", "reason": "not scheduled by logging; already-computed supplied report outputs are retained"},
+    {"field": "published Hub repository/revision", "reason": "absent unless authorized publication actually exists; common checkpoint digest supports joining without publication"},
+    {"field": "optimizer resume state", "reason": "training checkpoints are strict weight/provenance snapshots, not resumable optimizer checkpoints"}
+  ]
+}
