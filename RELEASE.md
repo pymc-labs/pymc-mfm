@@ -367,7 +367,7 @@ They are not current workflow instructions.
   contact page, and the Models menu the white paper. `docs/_scripts/mount.py` writes the
   host's `robots.txt` (the pymc-labs.com policy: search engines yes, AI training crawlers
   no; closed on staging) and, given the public origin with `--site-url`, points it to
-  `/docs/sitemap.xml`. The sitemap and canonical links use trailing-slash URLs for
+  `/sitemap.xml` at the host root, so the sitemap's scope covers the homepage. The sitemap and canonical links use trailing-slash URLs for
   directory pages. The homepage is canonical at the host root `/`, the `/docs/`
   copy points to it, and the sitemap lists it once, as `/`. The script also gives the built site the host's address
   in place of Quarto's `site-url`, so the site's own links open in the same tab and share

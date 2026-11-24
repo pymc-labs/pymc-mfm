@@ -19,7 +19,7 @@ served address ``<origin>/<prefix>`` instead, so the site's own links open in th
 and link previews find their image. The repository never names the host.
 
 With ``--site-url`` and without ``--noindex``, root ``robots.txt`` names the sitemap
-at ``/<prefix>/sitemap.xml``. The sitemap and canonical links use trailing-slash
+at the host root, ``/sitemap.xml``, so its scope covers the landing page at ``/``. The sitemap and canonical links use trailing-slash
 URLs for directory indexes. The landing page is canonical at the host root ``/``, and
 its copy at ``/<prefix>/`` points to the same canonical URL. The sitemap lists the landing
 page once, as ``/``.
@@ -186,10 +186,12 @@ def mount(
             raise MountError(f"--site-url {site_url} is not an origin such as https://example.com")
     docs_out = out / prefix
     shutil.copytree(site, docs_out, dirs_exist_ok=True)
-    sitemap_file = docs_out / "sitemap.xml"
     # Quarto's crawler policy points to the unmapped site. Staging gets no sitemap.
     (docs_out / "robots.txt").unlink(missing_ok=True)
-    sitemap_file.unlink(missing_ok=True)
+    (docs_out / "sitemap.xml").unlink(missing_ok=True)
+    # The sitemap lists the landing page at "/", so it must sit at the host root: the
+    # sitemaps protocol only admits URLs at or below the sitemap's own directory.
+    sitemap_file = out / "sitemap.xml"
     sitemap = None
     if site_url is not None:
         built_sitemap = site / "sitemap.xml"
@@ -212,7 +214,7 @@ def mount(
             sitemap_file.write_text(
                 served_sitemap(sitemap_xml, site, site_url, docs_url), encoding="utf-8"
             )
-            sitemap = f"{docs_url}/sitemap.xml"
+            sitemap = f"{site_url}/sitemap.xml"
 
     mounted_landing = docs_out / "index.html"
     landing_html = landing_at_root(mounted_landing.read_text(encoding="utf-8"), prefix, noindex)

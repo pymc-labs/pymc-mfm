@@ -131,9 +131,10 @@ def test_site_url_serves_the_sitemap_at_the_mounted_addresses(
     robots = (out / "robots.txt").read_text(encoding="utf-8")
     docs_url = f"https://mfm.example.com/{prefix}/"
     assert "User-agent: *\nContent-Signal: search=yes,ai-train=no\nAllow: /\n" in robots
-    assert robots.endswith(f"\nSitemap: {docs_url}sitemap.xml\n")
-    assert not (out / "sitemap.xml").exists()
-    sitemap = ElementTree.parse(out / prefix / "sitemap.xml")
+    # At the host root, so the landing page at "/" is inside the sitemap's scope.
+    assert robots.endswith("\nSitemap: https://mfm.example.com/sitemap.xml\n")
+    assert not (out / prefix / "sitemap.xml").exists()
+    sitemap = ElementTree.parse(out / "sitemap.xml")
     assert [loc.text for loc in sitemap.findall(".//{*}loc")] == [
         "https://mfm.example.com/",
         docs_url + "guide/",
