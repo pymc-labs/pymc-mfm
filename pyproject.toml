@@ -87,6 +87,7 @@ only-include = [
     "docs",
     "environment.yml",
     "examples",
+    "presentations",
     "pyproject.toml",
     "scripts",
     "skills",

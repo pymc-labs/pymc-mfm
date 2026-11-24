@@ -1,0 +1,94 @@
+/* Problem section (slides 4–8): how MMMs measure marketing, the decision landscape, equally good fits and
+   specification uncertainty. Figures are fixed-size SVG/MathML (the visual column is at least 1044px wide);
+   js/scenes/problem.js draws their synthetic data. Every selector is scoped to a section slide id. */
+
+:is(#measure-marketing, #decision-landscape, #no-right-answer, #underestimate-uncertainty) {
+  /* Figure hues on the light theme. Teal is a shade darker than --accent so 17px labels keep 4.5:1. */
+  --pb-teal: #2a7567;
+  --pb-indigo: var(--accent-2);
+  --pb-green: #437537;
+  --pb-orange: #a65817;
+}
+:is(#measure-marketing, #decision-landscape, #no-right-answer, #underestimate-uncertainty) math {
+  font-family: "STIX Two Math", "Cambria Math", math;
+}
+:is(#measure-marketing, #no-right-answer, #underestimate-uncertainty) .pb-figure { margin: 0; display: grid; gap: 14px; }
+@keyframes pb-fade { from { opacity: 0; } }
+
+/* 4 · y(t) = f1(t) + f2(t): the components draw, then the scene assembles the sum from them. */
+#measure-marketing .pb-sum { position: relative; width: 980px; height: 700px; }
+#measure-marketing .pb-sum svg { display: block; overflow: visible; }
+#measure-marketing .pb-y { --c: var(--pb-teal); }
+#measure-marketing .pb-f1 { --c: var(--pb-indigo); }
+#measure-marketing .pb-f2 { --c: var(--pb-green); }
+#measure-marketing .pb-axes line { stroke: rgb(12 31 64 / 24%); stroke-width: 1.5; }
+#measure-marketing .pb-area { stroke: none; }
+#measure-marketing .pb-area.pb-y { fill: rgb(180 231 221 / 66%); }
+#measure-marketing .pb-area.pb-f1 { fill: rgb(159 170 226 / 40%); }
+#measure-marketing .pb-area.pb-f2 { fill: rgb(165 205 150 / 44%); }
+#measure-marketing.is-active :is(.pb-area.pb-f1, .pb-area.pb-f2) { animation: pb-fade 700ms var(--ease-out) 800ms both; }
+#measure-marketing .pb-line { fill: none; stroke: var(--c); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+#measure-marketing .pb-guides line { stroke: var(--c); stroke-width: 1.75; stroke-dasharray: 5 6; }
+#measure-marketing .pb-markers circle { fill: var(--panel); stroke: var(--c); stroke-width: 2; }
+#measure-marketing .pb-label { position: absolute; left: 60px; font-size: 26px; color: var(--c); }
+#measure-marketing .pb-label.pb-y { top: 4px; }
+#measure-marketing .pb-label.pb-f1 { top: 270px; }
+#measure-marketing .pb-label.pb-f2 { top: 496px; }
+#measure-marketing .pb-label.pb-t { left: 954px; top: 674px; color: var(--ink-2); }
+#measure-marketing .pb-figure .fig-note { padding-left: 60px; }
+
+/* 5 · Five variants of one model; the scene walks attention across them once, then all stay lit. */
+/* Equal rows keep the equations' baselines on an even pitch, whatever depth a term's label adds. */
+#decision-landscape .pb-variants { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; grid-auto-rows: 1fr; gap: 14px; }
+#decision-landscape .pb-variant { transition: opacity 800ms var(--ease-out); }
+#decision-landscape .pb-variants.has-focus .pb-variant:not(.is-focus) { opacity: .5; }
+#decision-landscape math { font-size: 32px; color: var(--ink); }
+#decision-landscape .pb-term { color: var(--pb-teal); }
+/* Symmetric negative margins keep a label from widening its equation; it stays centred under the term. */
+#decision-landscape .pb-term-label { font-family: var(--font-body); font-size: 17px; white-space: nowrap; padding-top: 6px; margin-inline: -120px; }
+
+/* 6 · Model versions with the same observations and R²; rows draw in sequence. */
+#no-right-answer .pb-right { color: var(--accent-2); }
+#no-right-answer .pb-versions { width: 1000px; display: grid; gap: 20px; }
+#no-right-answer .pb-v1 { --c: var(--pb-teal); --band: rgb(42 117 103 / 22%); }
+#no-right-answer .pb-v2 { --c: var(--pb-indigo); --band: rgb(90 99 173 / 22%); }
+#no-right-answer .pb-v3 { --c: var(--pb-green); --band: rgb(67 117 55 / 22%); }
+#no-right-answer .pb-vn { --c: var(--pb-orange); --band: rgb(184 98 28 / 22%); }
+#no-right-answer .pb-legend { list-style: none; margin: 0; padding: 0; display: flex; gap: 36px; font-size: 17px; color: var(--ink-2); }
+#no-right-answer .pb-legend li { display: flex; align-items: center; gap: 12px; }
+#no-right-answer .pb-legend svg { display: block; }
+#no-right-answer .pb-legend-fit { stroke: var(--ink-3); stroke-width: 2.5; }
+#no-right-answer .pb-legend-band { fill: rgb(102 116 142 / 26%); }
+#no-right-answer .pb-version-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+#no-right-answer .pb-version { position: relative; display: grid; grid-template-columns: 760px minmax(0, 1fr); column-gap: 40px; align-items: center; }
+#no-right-answer .pb-version svg { display: block; overflow: visible; }
+#no-right-answer .pb-band { fill: var(--band); }
+#no-right-answer .pb-observed { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .78; }
+#no-right-answer .pb-fit { fill: none; stroke: var(--c); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; --dur: 1100ms; --d: calc(var(--row) + 150ms); }
+#no-right-answer .pb-axis { stroke: rgb(12 31 64 / 24%); stroke-width: 1.5; }
+#no-right-answer .pb-version-label { margin: 0; display: grid; gap: 2px; font-size: 17px; color: var(--ink-2); }
+#no-right-answer .pb-version-label math { justify-self: start; font-size: 26px; color: var(--c); }
+#no-right-answer .pb-version-more { width: 760px; display: grid; justify-items: center; }
+#no-right-answer .pb-version-more circle { fill: var(--ink-3); }
+#no-right-answer .pb-t { position: absolute; left: 770px; bottom: -10px; font-size: 24px; color: var(--ink-2); }
+#no-right-answer.is-active .pb-observed { animation: pb-fade 500ms var(--ease-out) both; animation-delay: var(--row); }
+#no-right-answer.is-active .pb-band { animation: pb-fade 700ms var(--ease-out) both; animation-delay: calc(var(--row) + 450ms); }
+#no-right-answer.is-active :is(.pb-version-label, .pb-version-more) { animation: reveal 800ms var(--ease-out) both; animation-delay: calc(var(--row) + 350ms); }
+#no-right-answer.is-active .pb-legend .pb-observed { animation: none; }
+
+/* 7 · One build step: the narrow posterior's bars spread into the wider density across specifications. */
+#underestimate-uncertainty .pb-density { position: relative; width: 960px; height: 440px; }
+#underestimate-uncertainty .pb-density svg { display: block; overflow: visible; }
+#underestimate-uncertainty .pb-bars rect { fill: rgb(42 117 103 / 62%); transform-box: fill-box; transform-origin: 50% 100%; transform: scaleY(var(--n)); transition: transform 1100ms var(--ease-out), fill 700ms var(--ease-out); }
+#underestimate-uncertainty .pb-bars.is-built rect { fill: rgb(90 99 173 / 62%); transform: scaleY(var(--w)); }
+#underestimate-uncertainty .pb-density-one { fill: none; stroke: var(--pb-teal); stroke-width: 2.25; stroke-linejoin: round; }
+#underestimate-uncertainty .pb-axis { stroke: rgb(12 31 64 / 24%); stroke-width: 1.5; }
+#underestimate-uncertainty .pb-density-label { position: absolute; margin: 0; font-size: 17px; line-height: 1.3; white-space: nowrap; }
+#underestimate-uncertainty .pb-label-one { left: 478px; top: 40px; color: var(--pb-teal); }
+#underestimate-uncertainty .pb-label-all { left: 690px; top: 330px; color: var(--pb-indigo); }
+#underestimate-uncertainty .pb-model { margin-top: 18px; }
+#underestimate-uncertainty .pb-figure .fig-note { padding-left: 20px; }
+#underestimate-uncertainty .pb-model math { font-size: 32px; color: var(--ink); }
+
+/* 8 · Statement: the second line reveals after the quiet first line. */
+#experimentation-luxury .pb-strong { display: block; }

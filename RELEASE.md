@@ -63,6 +63,19 @@ References to `client-v0.1.0` record the earlier client release plan.
   curves inherit its draw count by default, fixed mode requires that count,
   and MAP mode inherits the source router count. The hosted API sets its own
   `draws` default.
+- **November 17 webinar deck.** A locally served talk introduces Marketing
+  Foundational Models, the agenda and the research team, then translates the
+  ODSC West 2026 talk into the seven agenda sections: community context, the
+  modeling problem, the proposed solution, how it works, the results, future
+  work and Q&A, without executive-summary or key-insights sections. Slides use
+  public PyMC Labs branding, HTML/SVG figures with restrained motion, clicker
+  build steps, interactive illustrations and the talk's result charts. The deck
+  offers first-press fullscreen, a viewport-filling audience canvas, a separate
+  live presenter screen with step-aware cues, browser-local speaker notes, a
+  timer, agenda links to each section and a section indicator. Fullscreen and
+  presenter actions are independent, preserving the browser's fullscreen
+  gesture. Its launcher uses only Python's standard library; it requires no
+  model weights, credentials or presentation dependencies.
 - **Complete paired inference and automatic idata.**
   `model.inference(context, query, date_column=..., target_column=...,
   channel_columns=..., control_columns=...)` samples query and context and
