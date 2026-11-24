@@ -135,7 +135,7 @@ def test_site_url_serves_the_sitemap_at_the_mounted_addresses(
     assert not (out / "sitemap.xml").exists()
     sitemap = ElementTree.parse(out / prefix / "sitemap.xml")
     assert [loc.text for loc in sitemap.findall(".//{*}loc")] == [
-        docs_url,
+        "https://mfm.example.com/",
         docs_url + "guide/",
         docs_url + "reference/",
         docs_url + "guide/python-client.html",
@@ -166,8 +166,8 @@ def test_site_url_names_each_page_at_its_served_address(pages: Path, tmp_path: P
     mount.mount(pages, out, site_url="https://example.com/")
 
     for name, path in (
-        ("index.html", "/docs/"),
-        ("docs/index.html", "/docs/"),
+        ("index.html", "/"),
+        ("docs/index.html", "/"),
         ("docs/guide/index.html", "/docs/guide/"),
         ("docs/reference/index.html", "/docs/reference/"),
         ("docs/guide/python-client.html", "/docs/guide/python-client.html"),

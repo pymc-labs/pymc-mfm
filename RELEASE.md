@@ -368,8 +368,8 @@ They are not current workflow instructions.
   host's `robots.txt` (the pymc-labs.com policy: search engines yes, AI training crawlers
   no; closed on staging) and, given the public origin with `--site-url`, points it to
   `/docs/sitemap.xml`. The sitemap and canonical links use trailing-slash URLs for
-  directory pages. The homepage is canonical at `/docs/`; the copy at `/` is not
-  listed in the sitemap. The script also gives the built site the host's address
+  directory pages. The homepage is canonical at the host root `/`, the `/docs/`
+  copy points to it, and the sitemap lists it once, as `/`. The script also gives the built site the host's address
   in place of Quarto's `site-url`, so the site's own links open in the same tab and share
   images resolve on the host. Served from any other address, the site's own links still
   open in the same tab and are not announced as opening a new one. The navbar and the
