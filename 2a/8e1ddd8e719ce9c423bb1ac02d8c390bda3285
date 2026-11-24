@@ -1,0 +1,24 @@
+tests/test_mount.py
+  s_ccdfd708a86da5::t_90c3443154798a 138,169-170
+docs/_scripts/mount.py
+  s_ccdfd708a86da5::t_1ad13223431692 212-214
+  s_ccdfd708a86da5::t_90c3443154798a 23-25,133-141,145,208
+RELEASE.md
+  s_ccdfd708a86da5::t_90c3443154798a 371-372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2a8e1ddd8e719ce9c423bb1ac02d8c390bda3285",
+  "prompts": {},
+  "sessions": {
+    "s_ccdfd708a86da5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26b5e960-615c-4da3-89bf-ef28fae04a52",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
