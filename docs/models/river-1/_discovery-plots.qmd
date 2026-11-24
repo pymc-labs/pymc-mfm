@@ -1,0 +1,294 @@
+```{=html}
+<figure class="mfm-chart mfm-discovery" id="discovery-benchmark">
+  <figcaption>
+    <strong>Direct effects on sales</strong>
+    <span>These plots score visible direct effects in simulations, not recovery of the full causal graph.</span>
+  </figcaption>
+  <div class="mfm-chart__legend">
+    <div><svg viewBox="0 0 24 16" aria-hidden="true" style="display: inline-block; width: 1.5em; height: 1em; vertical-align: -0.15em">
+      <path d="M1 8H23" stroke="var(--mfm-accent)" stroke-width="2.1" />
+      <circle cx="12" cy="8" r="4.5" fill="none" stroke="var(--mfm-accent)" stroke-width="1.8" />
+    </svg> River scorer</div>
+    <div><svg viewBox="0 0 24 16" aria-hidden="true" style="display: inline-block; width: 1.5em; height: 1em; vertical-align: -0.15em">
+      <path d="M1 8H23" stroke="var(--mfm-ink-2)" stroke-width="2.1" stroke-dasharray="5 4" />
+      <path d="M12 4l3.5 6.5h-7Z" fill="var(--mfm-ink-2)" />
+    </svg> River sampler</div>
+    <div><svg viewBox="0 0 24 16" aria-hidden="true" style="display: inline-block; width: 1.5em; height: 1em; vertical-align: -0.15em">
+      <rect x="8.5" y="4.5" width="7" height="7" fill="var(--mfm-tone-2)" stroke="var(--mfm-ink)" stroke-width="1.7" />
+    </svg> PC</div>
+    <div><svg viewBox="0 0 24 16" aria-hidden="true" style="display: inline-block; width: 1.5em; height: 1em; vertical-align: -0.15em">
+      <path d="M8.5 4.5l7 7m-7 0l7-7" fill="none" stroke="var(--mfm-ink)" stroke-width="1.7" stroke-linecap="round" />
+    </svg> GES</div>
+  </div>
+  <details name="mfm-discovery-conditions">
+    <summary>Healthy-sampling cases</summary>
+    <div class="mfm-chart__panels">
+      <div class="mfm-chart__group">
+        <p>Calibration</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Calibration for healthy-sampling cases. Both River curves are mostly above the ideal diagonal. The scorer’s lowest bin averages 3.8% predicted probability and contains 7.4% true edges.">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 166L306 14" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="65.6,154.7 93.6,140.2 116.5,91.9 143.6,92.3 171,64.7 195.8,66.9 216.2,74.8 243.2,27.8 268.8,29.2 304,15.6" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="65.3,155.5 91.8,129.9 117.4,112 142.8,76.9 167.8,76.6 193.8,66.9 216.5,42.5 243.5,35.7 270.1,31.4 304,15.6" />
+          </g>
+          <g fill="var(--mfm-accent)">
+            <circle cx="65.6" cy="154.7" r="2.3" /><circle cx="93.6" cy="140.2" r="2.3" /><circle cx="116.5" cy="91.9" r="2.3" /><circle cx="143.6" cy="92.3" r="2.3" /><circle cx="171" cy="64.7" r="2.3" />
+            <circle cx="195.8" cy="66.9" r="2.3" /><circle cx="216.2" cy="74.8" r="2.3" /><circle cx="243.2" cy="27.8" r="2.3" /><circle cx="268.8" cy="29.2" r="2.3" /><circle cx="304" cy="15.6" r="2.3" />
+          </g>
+          <path fill="var(--mfm-ink-2)" d="M65.3 152.7l2.9 4.9h-5.8Z M91.8 127.1l2.9 4.9h-5.8Z M117.4 109.2l2.9 4.9h-5.8Z M142.8 74.1l2.9 4.9h-5.8Z M167.8 73.8l2.9 4.9h-5.8Z M193.8 64.1l2.9 4.9h-5.8Z M216.5 39.7l2.9 4.9h-5.8Z M243.5 32.9l2.9 4.9h-5.8Z M270.1 28.6l2.9 4.9h-5.8Z M304 12.8l2.9 4.9h-5.8Z" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Mean predicted edge probability</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">True edge fraction</text>
+          </g>
+        </svg>
+      </div>
+      <div class="mfm-chart__group">
+        <p>Precision–recall</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Precision–recall for healthy-sampling cases. Both River readouts at 0.5 have higher recall and lower precision than the PC and GES decisions." aria-describedby="discovery-a-scores">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 56H306" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="56.4,14 96.5,14 96.5,15.5 141.3,14.7 234.7,14.3 235.5,15 237.5,15.3 253.5,15.8 255.1,16.7 269.1,16.8 270.3,17.3 270.3,17.9
+              276,19.1 276.4,19.6 278.4,19.5 280,20.3 280,20.8 280,21.3 284.8,22.1 285.2,23.2 287.6,23.8 288,25 290.4,25.1 290.4,26.2
+              293.2,26.7 293.2,27.1 294,27.1 294.4,28.1 298,28.6 298,29.6 298.8,29.7 298.8,30.7 299.2,30.7 299.2,33.2 300.4,33.2 300.8,37.2
+              302,37.3 302.8,38.1 302.8,39.8 303.6,40.4 303.6,41.6 304.4,42.6 304.8,46.2 305.6,47 306,56" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="132.1,14.8 233.9,14.3 237.1,15 241.9,15 242.7,15.6 251.9,15.8 251.9,16.4 258.7,16.7 259.5,17.2 271.9,17.6 274.3,18.6 276,18.6
+              276.4,19.3 278,19.3 278,19.8 279.6,19.8 279.6,20.3 280.8,20.5 281.6,21.4 288,22.9 288,24.1 291.6,25 291.6,26.3 293.2,26.9
+              293.2,28 296,29.1 296.4,30.3 297.2,30.4 298,31.6 299.6,32.1 299.6,33 300.4,33.2 300.8,34.8 301.2,34.8 301.2,35.9 302.4,35.8
+              302.4,38.3 303.2,39.1 303.2,41 304,41.2 304.4,42.2 304.8,44.8 305.2,44.8 305.2,47.5 306,49 306,56" />
+          </g>
+          <circle cx="280" cy="20.8" r="5.5" fill="none" stroke="var(--mfm-accent)" stroke-width="1.8" />
+          <path transform="translate(279.6 20.3)" d="M0 -4l3.5 6.5h-7Z" fill="var(--mfm-ink-2)" />
+          <rect x="140.2" y="14.6" width="7" height="7" fill="var(--mfm-tone-2)" stroke="var(--mfm-ink)" stroke-width="1.7" />
+          <path transform="translate(188.6 16.7)" d="M-3.5 -3.5l7 7m-7 0l7-7" fill="none" stroke="var(--mfm-ink)" stroke-width="1.7" stroke-linecap="round" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Recall</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">Precision</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <p class="mfm-chart__note" id="discovery-a-scores">Precision / recall: River scorer 95.6% / 89.6%; River sampler 95.9% / 89.4%; PC 97.3% / 35.1%; GES 98.2% / 53.0%.</p>
+  </details>
+  <details name="mfm-discovery-conditions" open>
+    <summary>One channel hidden</summary>
+    <div class="mfm-chart__panels">
+      <div class="mfm-chart__group">
+        <p>Calibration</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Calibration with one channel hidden. Both curves start above the ideal diagonal and end just below it. The scorer’s highest bin averages 98.5% predicted probability and contains 95.4% true edges.">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 166L306 14" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="65.2,153 93.9,128 119.1,113 142.6,103.6 169.4,78.5 193.4,85.9 218.9,62.3 244.1,44.4 266.9,39.7 302.3,21" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="65.4,153 93.9,126.2 118.2,115.3 143,98.8 170,86.4 193.3,72.6 218.3,60.1 245.3,44.7 267.4,47.6 302.1,21.6" />
+          </g>
+          <g fill="var(--mfm-accent)">
+            <circle cx="65.2" cy="153" r="2.3" /><circle cx="93.9" cy="128" r="2.3" /><circle cx="119.1" cy="113" r="2.3" /><circle cx="142.6" cy="103.6" r="2.3" /><circle cx="169.4" cy="78.5" r="2.3" />
+            <circle cx="193.4" cy="85.9" r="2.3" /><circle cx="218.9" cy="62.3" r="2.3" /><circle cx="244.1" cy="44.4" r="2.3" /><circle cx="266.9" cy="39.7" r="2.3" /><circle cx="302.3" cy="21" r="2.3" />
+          </g>
+          <path fill="var(--mfm-ink-2)" d="M65.4 150.2l2.9 4.9h-5.8Z M93.9 123.4l2.9 4.9h-5.8Z M118.2 112.5l2.9 4.9h-5.8Z M143 96l2.9 4.9h-5.8Z M170 83.6l2.9 4.9h-5.8Z M193.3 69.8l2.9 4.9h-5.8Z M218.3 57.3l2.9 4.9h-5.8Z M245.3 41.9l2.9 4.9h-5.8Z M267.4 44.8l2.9 4.9h-5.8Z M302.1 18.8l2.9 4.9h-5.8Z" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Mean predicted edge probability</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">True edge fraction</text>
+          </g>
+        </svg>
+      </div>
+      <div class="mfm-chart__group">
+        <p>Precision–recall</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Precision–recall with one channel hidden. The River curves nearly overlap. Both River readouts at 0.5 find more true edges than PC or GES, with lower precision." aria-describedby="discovery-c-scores">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 69.8H306" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="56.5,14 72.2,14 72.2,18.5 79.6,17.1 89.9,16.2 90.4,20.2 96.8,19.3 96.8,21 99.2,20.6 99.2,22.2 120.8,19.5 120.8,20.6
+              128.2,20 128.2,20.9 133.1,20.5 133.1,21.4 140,20.8 140,22.4 146.4,21.8 146.4,22.6 147.4,22.5 147.4,23.9 148.3,23.8 148.3,24.5
+              153.2,24 153.2,25.4 159.6,24.7 159.6,25.3 162.6,25 163.1,26.2 167.5,25.7 167.5,26.9 168.5,26.8 168.5,27.3 172.9,26.9 173.4,27.9
+              175.8,27.6 176.3,28.6 177.8,28.4 177.8,29.9 178.8,29.8 178.8,30.3 188.6,29.7 188.6,30.1 191.1,29.8 191.1,30.7 196.5,30.2 197,30.9
+              203.3,30.7 203.3,31.5 205.3,31.7 205.3,32.5 210.2,31.9 211.7,32.9 214.2,32.6 214.6,33.3 216.1,33.2 216.1,34.2 220,33.8 222.5,34.2
+              223,34.8 225.4,34.6 225.9,35.2 226.9,35.1 227.4,36 230.9,36.2 231.3,37.7 234.3,37.4 234.8,37.9 237.2,38.2 237.2,38.8 241.2,38.4
+              241.2,38.9 245.1,39.1 246.1,39.8 247.6,39.6 247.6,40.1 250,39.9 250,40.4 253.4,40.5 254.4,40.9 254.4,42.2 256.9,42.2 256.9,42.7
+              259.8,42.3 259.8,43 261.8,43.5 261.8,44.7 262.8,44.6 263.8,45.6 265.2,45.4 266.7,45.9 266.7,46.4 268.7,46.1 269.7,47.1 273.1,46.9
+              274.1,47.6 278,47.1 278,47.5 281.9,48.1 281.9,49.1 282.4,49.2 286.4,49.1 286.4,49.7 288.8,50 289.3,51.8 290.3,52 290.8,53.7
+              292.2,53.9 292.2,54.4 293.7,54.7 293.7,55.4 294.7,55.9 297.2,56.1 297.7,56.8 300.1,56.7 300.1,58.2 302.1,59.5 302.6,60.8 303.5,60.8
+              303.5,61.6 305.5,62.2 306,69.8" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="82,19.5 93.8,19.7 99.7,19 105.1,21.2 121.3,19.5 121.3,20.6 124.8,20.2 124.8,21.2 128.7,20.9 128.7,21.8 137,21 137,21.9
+              141,21.5 141,22.3 147.8,21.7 147.8,22.4 148.8,23.1 149.3,25.1 155.7,24.5 155.7,25.1 159.6,24.7 159.6,25.3 161.1,25.2 161.1,25.8
+              163.6,25.5 163.6,26.1 164.5,26 164.5,26.6 166,26.5 166.5,28.1 168.5,28.4 168.5,29 169.5,28.8 169.5,29.4 171.4,29.1 171.4,29.7
+              175.8,29.1 175.8,29.6 179.8,29.2 180.8,30.5 182.2,30.4 182.2,30.8 183.7,31.1 188.1,30.6 188.1,31.1 190.6,31.2 190.6,31.7 201.9,30.8
+              201.9,32.4 203.8,32.2 204.3,32.9 207.3,32.6 208.8,33.6 210.7,33.4 216.6,34.2 221.5,33.6 221.5,34.7 222,34.9 226.4,34.5 226.4,35.4
+              227.4,36 229.4,35.8 229.9,36.3 232.3,36.7 232.3,37.6 233.8,37.4 234.3,38.3 239.2,38.6 241.2,39.5 243.6,39.2 243.6,39.8 246.1,40.3
+              246.1,40.8 251,40.5 251,41.1 256.9,41.2 257.4,42.3 259.8,42.1 262.3,42.5 262.8,43.9 264.3,44.2 264.7,44.1 264.7,44.8 266.7,44.6
+              269.2,45.4 269.2,46.5 272.6,47.1 273.1,48.3 279.5,48 279.5,48.8 281.9,48.9 282.9,49.5 287.3,49.6 287.3,50.5 289.3,50.7 289.3,51.6
+              289.8,51.5 289.8,52.1 290.8,51.9 291.3,52.9 292.2,52.8 292.7,54.1 294.2,54.1 294.7,55.9 299.6,56.4 299.6,57.4 300.1,57.3 300.1,58.2
+              300.6,58.2 300.6,59.4 301.6,59.3 301.6,60 304,60.8 304,62.3 305,62.3 305,63.9 306,64.1 306,69.8" />
+          </g>
+          <circle cx="263.8" cy="45.6" r="5.5" fill="none" stroke="var(--mfm-accent)" stroke-width="1.8" />
+          <path transform="translate(264.3 44.2)" d="M0 -4l3.5 6.5h-7Z" fill="var(--mfm-ink-2)" />
+          <rect x="101.1" y="32.8" width="7" height="7" fill="var(--mfm-tone-2)" stroke="var(--mfm-ink)" stroke-width="1.7" />
+          <path transform="translate(135.1 41.1)" d="M-3.5 -3.5l7 7m-7 0l7-7" fill="none" stroke="var(--mfm-ink)" stroke-width="1.7" stroke-linecap="round" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Recall</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">Precision</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <p class="mfm-chart__note" id="discovery-c-scores">Precision / recall: River scorer 79.2% / 83.1%; River sampler 80.2% / 83.3%; PC 85.3% / 19.4%; GES 82.1% / 31.6%.</p>
+  </details>
+  <details name="mfm-discovery-conditions">
+    <summary>One control hidden</summary>
+    <div class="mfm-chart__panels">
+      <div class="mfm-chart__group">
+        <p>Calibration</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Calibration with one control hidden. Both River curves track the ideal diagonal at most probabilities. The scorer’s highest bin averages 98.8% predicted probability and contains 96.2% true edges.">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 166L306 14" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="65,155.1 93.1,132.8 116.6,125.2 144,112.6 170.3,84.9 193.1,68 220.1,63.8 243.4,56.3 268,43.9 303,19.8" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="66,153.6 96.2,133.4 119.3,130.2 145.3,111.1 170.1,88.7 192.7,60.8 219.2,63.7 244.5,59.4 267.7,45.3 302.7,20.4" />
+          </g>
+          <g fill="var(--mfm-accent)">
+            <circle cx="65" cy="155.1" r="2.3" /><circle cx="93.1" cy="132.8" r="2.3" /><circle cx="116.6" cy="125.2" r="2.3" /><circle cx="144" cy="112.6" r="2.3" /><circle cx="170.3" cy="84.9" r="2.3" />
+            <circle cx="193.1" cy="68" r="2.3" /><circle cx="220.1" cy="63.8" r="2.3" /><circle cx="243.4" cy="56.3" r="2.3" /><circle cx="268" cy="43.9" r="2.3" /><circle cx="303" cy="19.8" r="2.3" />
+          </g>
+          <path fill="var(--mfm-ink-2)" d="M66 150.8l2.9 4.9h-5.8Z M96.2 130.6l2.9 4.9h-5.8Z M119.3 127.4l2.9 4.9h-5.8Z M145.3 108.3l2.9 4.9h-5.8Z M170.1 85.9l2.9 4.9h-5.8Z M192.7 58l2.9 4.9h-5.8Z M219.2 60.9l2.9 4.9h-5.8Z M244.5 56.6l2.9 4.9h-5.8Z M267.7 42.5l2.9 4.9h-5.8Z M302.7 17.6l2.9 4.9h-5.8Z" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Mean predicted edge probability</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">True edge fraction</text>
+          </g>
+        </svg>
+      </div>
+      <div class="mfm-chart__group">
+        <p>Precision–recall</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Precision–recall with one control hidden. PC and GES have recall below 40%. Both River readouts at 0.5 have recall above 85%, with lower precision." aria-describedby="discovery-d-scores">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 69.8H306" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="56.5,14 68.8,14 68.8,19.6 76.1,17.6 76.1,24.4 83.5,21.7 83.5,24.1 94.8,21.3 110,19.3 110,20.6 127.2,19.1 149.3,17.9
+              149.3,18.7 153.2,18.5 153.2,19.9 161.1,19.5 161.1,20.1 162.1,20.1 162.6,22.6 167,22.3 167,22.9 169.5,22.7 169.9,23.8 172.4,23.6
+              172.9,24.7 175.8,24.4 175.8,25 178.8,25.3 178.8,25.8 179.8,25.7 179.8,26.7 184.2,26.8 184.7,28.2 187.6,27.9 187.6,28.4 189.1,28.2
+              189.1,28.7 194.5,28.6 194.5,29.5 195.5,29.4 195.5,30.3 197.5,30 198.4,30.8 206.8,30.7 206.8,31.9 208.3,32.1 208.8,32.8 210.7,32.6
+              210.7,33.4 214.6,32.9 215.6,33.6 217.1,33.4 217.1,34.1 219.1,34.2 219.1,35.6 221,36 226.9,35.4 227.9,35.9 229.4,35.8 229.4,36.4
+              233.8,36.5 233.8,37.1 234.8,37 234.8,37.6 236.3,37.8 237.2,38.5 240.2,38.5 240.7,39.3 244.1,39.2 244.1,39.7 245.1,39.6 246.1,40.6
+              248,40.4 249,41 253.9,40.5 259.8,40.8 259.8,41.6 262.3,41.3 263.3,42.6 268.7,43.2 268.7,44.1 272.1,44.4 273.6,44.5 273.6,45.1
+              275.5,45.1 276.5,45.8 278.5,45.8 278.5,46.3 283.4,46.3 283.9,46.9 285.9,47 285.9,48 289.3,48.8 289.3,49.4 292.7,51.2 292.7,51.9
+              295.2,52.1 295.2,52.8 296.7,52.8 296.7,53.3 297.7,53.2 297.7,53.9 298.6,53.9 298.6,55.3 299.6,55.5 299.6,57.1 300.1,57 300.1,58.7
+              300.6,58.6 300.6,59.2 303.1,59.5 303.1,63.1 306,63.7 306,69.8" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="95.3,15.9 107.1,19.6 125.3,18.2 126.2,19.1 148.8,17.9 148.8,18.7 151.3,18.6 151.3,19.3 155.7,19.1 155.7,20.5 157.7,20.3 157.7,21
+              161.1,20.8 161.1,21.4 163.1,21.3 163.6,22.5 166.5,22.3 166.5,23.5 167.5,23.4 168,24.5 174.9,24 174.9,24.5 178.3,24.8 178.8,26.3
+              184.2,26.3 185.2,27.7 187.6,27.4 187.6,27.9 189.1,27.8 189.1,28.2 192.1,28 193.5,29.2 195,29 196,29.8 198.9,29.5 199.4,30.3
+              201.9,30.4 202.4,31.2 208.3,31 208.3,31.4 210.7,31.9 211.2,32.9 213.2,32.7 213.2,34.2 220.5,33.7 221,34.4 222.5,34.2 225,35
+              229.4,34.8 230.4,35.7 232.3,35.5 233.3,35.7 233.8,36.5 237.7,37 238.2,37.3 238.2,38.1 239.2,38 239.2,38.6 240.2,38.5 240.7,39.3
+              243.6,39.2 243.6,40 245.1,40.7 249,40.2 254.4,40.9 261.3,40.4 263.3,40.7 263.8,41.6 264.7,41.5 264.7,42.2 273.6,43.3 273.6,43.8
+              277,44.9 277.5,46.2 281,47 281,47.6 287.8,47.2 289.3,49.7 292.2,50.1 292.7,51 294.2,51.2 294.2,52.4 297.7,53.2 297.7,53.7
+              298.1,53.7 298.1,55.3 299.1,55.5 299.1,56.5 299.6,56.4 299.6,57.7 302.6,59 303.5,63.6 304.5,63.5 304.5,64.1 306,63.9 306,69.8" />
+          </g>
+          <circle cx="272.1" cy="44.4" r="5.5" fill="none" stroke="var(--mfm-accent)" stroke-width="1.8" />
+          <path transform="translate(273.6 43.3)" d="M0 -4l3.5 6.5h-7Z" fill="var(--mfm-ink-2)" />
+          <rect x="108" y="30.4" width="7" height="7" fill="var(--mfm-tone-2)" stroke="var(--mfm-ink)" stroke-width="1.7" />
+          <path transform="translate(148.8 41.6)" d="M-3.5 -3.5l7 7m-7 0l7-7" fill="none" stroke="var(--mfm-ink)" stroke-width="1.7" stroke-linecap="round" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Recall</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">Precision</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <p class="mfm-chart__note" id="discovery-d-scores">Precision / recall: River scorer 80.0% / 86.4%; River sampler 80.7% / 87.0%; PC 86.9% / 22.2%; GES 81.8% / 37.1%.</p>
+  </details>
+  <details name="mfm-discovery-conditions">
+    <summary>Luxury Brand Based</summary>
+    <div class="mfm-chart__panels">
+      <div class="mfm-chart__group">
+        <p>Calibration</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Calibration in the Luxury Brand Based test. The River curves stay near the ideal diagonal at the extremes and diverge more in the middle. The scorer’s lowest bin averages 3.2% predicted probability and contains 1.2% true edges.">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 166L306 14" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="63.9,164.1 91.1,141.1 118.1,139 143.1,109.4 166.9,100.4 194.6,71 218.5,69.8 242.8,60.1 270,31.3 304,15" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="64.1,163.5 92.7,141.1 117.7,146.6 144.5,96.3 168.1,90 194.2,76.2 218.5,72.5 245.2,59 271.1,28.8 303.9,15.4" />
+          </g>
+          <g fill="var(--mfm-accent)">
+            <circle cx="63.9" cy="164.1" r="2.3" /><circle cx="91.1" cy="141.1" r="2.3" /><circle cx="118.1" cy="139" r="2.3" /><circle cx="143.1" cy="109.4" r="2.3" /><circle cx="166.9" cy="100.4" r="2.3" />
+            <circle cx="194.6" cy="71" r="2.3" /><circle cx="218.5" cy="69.8" r="2.3" /><circle cx="242.8" cy="60.1" r="2.3" /><circle cx="270" cy="31.3" r="2.3" /><circle cx="304" cy="15" r="2.3" />
+          </g>
+          <path fill="var(--mfm-ink-2)" d="M64.1 160.7l2.9 4.9h-5.8Z M92.7 138.3l2.9 4.9h-5.8Z M117.7 143.8l2.9 4.9h-5.8Z M144.5 93.5l2.9 4.9h-5.8Z M168.1 87.2l2.9 4.9h-5.8Z M194.2 73.4l2.9 4.9h-5.8Z M218.5 69.7l2.9 4.9h-5.8Z M245.2 56.2l2.9 4.9h-5.8Z M271.1 26l2.9 4.9h-5.8Z M303.9 12.6l2.9 4.9h-5.8Z" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Mean predicted edge probability</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">True edge fraction</text>
+          </g>
+        </svg>
+      </div>
+      <div class="mfm-chart__group">
+        <p>Precision–recall</p>
+        <svg viewBox="0 0 320 216" role="img" aria-label="Precision–recall in the Luxury Brand Based test. At 0.5 both River readouts have higher recall than PC or GES. Their precision is below PC and above GES." aria-describedby="discovery-f-scores">
+          <path d="M56 14H306 M56 52H306 M56 90H306 M56 128H306 M118.5 14V166 M181 14V166 M243.5 14V166 M306 14V166" fill="none" stroke="var(--mfm-tone-2)" />
+          <path d="M56 14V166H306" fill="none" stroke="var(--mfm-ink-2)" stroke-opacity=".65" />
+          <path d="M56 77H306" fill="none" stroke="var(--mfm-ink)" stroke-opacity=".55" stroke-dasharray="2 3" />
+          <g fill="none" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <polyline stroke="var(--mfm-accent)" points="56.4,14 230.4,14.4 230.8,15.1 234.5,15 239.3,16 249.5,15.9 250.7,17.7 255.2,17.9 255.6,19.1 264.1,19.4 264.1,20 267,21
+              267,21.8 270.6,22.7 270.6,23.2 274.3,24.5 274.3,25 275.9,25 276.3,25.9 282,26.8 282,28.4 284,28.5 284.9,29.3 284.9,30.2
+              288.1,30.6 288.9,31 288.9,32.2 289.7,32.6 292.2,32.6 294.6,34 297.5,34.6 297.5,37.4 297.9,37.4 298.3,38.8 299.5,38.8 299.5,40.6
+              300.3,41.2 300.3,42.4 300.7,42.3 300.7,45.9 301.5,46.5 301.5,47.5 303.6,48.4 303.6,49.7 304.8,49.9 304.8,54.3 305.2,54.3 305.2,56
+              305.6,55.9 305.6,61.5 306,61.4 306,77" />
+            <polyline stroke="var(--mfm-ink-2)" stroke-dasharray="5 4" points="118.2,14 221.9,14 221.9,14.4 232.4,14.7 232.4,15.4 240.1,16 248.7,15.9 249.1,16.5 251.1,16.5 252.3,17.4 252.3,18.3 266.2,19.4
+              266.6,20.2 267.8,20.2 267.8,23.1 271,23.2 271,23.7 273.5,24.1 273.9,25.8 275.1,25.7 276.3,26.1 276.3,26.6 278.4,26.5 281.2,26.6
+              281.6,27.2 283.6,27.1 284,28.7 285.7,28.6 285.7,29.2 287.7,29.3 288.1,31.4 289.3,31.6 289.3,32.4 293.4,33.1 293.4,33.7 295.4,34
+              295.4,34.7 297.5,35 297.5,35.9 298.3,36 298.3,37.5 299.1,38.5 299.1,40.3 299.5,40.2 299.5,42.1 300.3,42.4 300.7,44 301.5,44.6
+              301.5,45.7 302.7,45.9 303.6,47.3 303.6,49.6 304.4,50.1 304.4,54.9 305.2,55.2 305.2,56.4 305.6,56.3 306,77" />
+          </g>
+          <circle cx="282" cy="26.8" r="5.5" fill="none" stroke="var(--mfm-accent)" stroke-width="1.8" />
+          <path transform="translate(278.4 26.5)" d="M0 -4l3.5 6.5h-7Z" fill="var(--mfm-ink-2)" />
+          <rect x="137.5" y="16.1" width="7" height="7" fill="var(--mfm-tone-2)" stroke="var(--mfm-ink)" stroke-width="1.7" />
+          <path transform="translate(211.3 29.4)" d="M-3.5 -3.5l7 7m-7 0l7-7" fill="none" stroke="var(--mfm-ink)" stroke-width="1.7" stroke-linecap="round" />
+          <g fill="var(--mfm-ink-2)" font-size="14">
+            <g text-anchor="end"><text x="49" y="171">0</text><text x="49" y="133">0.25</text><text x="49" y="95">0.5</text><text x="49" y="57">0.75</text><text x="49" y="19">1</text></g>
+            <g text-anchor="middle"><text x="56" y="185">0</text><text x="118.5" y="185">0.25</text><text x="181" y="185">0.5</text><text x="243.5" y="185">0.75</text><text x="306" y="185">1</text></g>
+          </g>
+          <g fill="var(--mfm-ink)" font-size="15" text-anchor="middle">
+            <text x="181" y="206">Recall</text>
+            <text x="13" y="90" transform="rotate(-90 13 90)">Precision</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <p class="mfm-chart__note" id="discovery-f-scores">Precision / recall: River scorer 91.6% / 90.4%; River sampler 91.8% / 88.9%; PC 96.3% / 34.0%; GES 89.9% / 62.1%.</p>
+  </details>
+  <p class="mfm-chart__note">Each calibration point summarizes a probability bin. The diagonal shows perfect calibration. The precision–recall curves show a simplified sweep of the saved scores, keeping ties together. The dotted horizontal line shows the share of inputs with a true edge. The River markers select probabilities of 0.5 or higher. PC and GES count incoming arrows and unresolved links to sales. Outgoing arrows and conflicts do not count.</p>
+</figure>
+```
