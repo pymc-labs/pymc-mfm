@@ -125,9 +125,7 @@ and array inputs. Its methods take the column roles on each call.
 import numpy as np
 import pandas as pd
 
-from pymc_mfm import from_pretrained
-
-model = from_pretrained("./models/my-model")  # a model folder; see "Load a trained model"
+import pymc_mfm as mfm
 
 rng = np.random.default_rng(0)
 n_weeks, n_context = 104, 80
@@ -149,6 +147,7 @@ roles = {
     "channel_columns": ["search", "social"],
     "control_columns": ["seasonality"],
 }
+model = mfm.load("./models/my-model", **roles).network  # see "Load a trained model"
 # Preflight explicit inputs before sampling; no previous inference is required.
 usage = model.input_usage(history, future, **roles)
 idata = model.inference(history, future, **roles, n_samples=500, random_seed=0)
