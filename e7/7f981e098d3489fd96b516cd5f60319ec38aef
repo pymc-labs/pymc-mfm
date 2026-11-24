@@ -1,0 +1,23 @@
+RELEASE.md
+  s_b2fbf04dbce45a::t_6dde7d2609de21 370
+docs/_scripts/mount.py
+  s_b2fbf04dbce45a::t_d4e2fc598f7a83 22,191-194,217
+tests/test_mount.py
+  s_b2fbf04dbce45a::t_0b46053cae6dd4 134-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "e77f981e098d3489fd96b516cd5f60319ec38aef",
+  "prompts": {},
+  "sessions": {
+    "s_b2fbf04dbce45a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e2c0349-a0b5-481d-a06f-0558ab4339ea",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "root <root@e2b.local>"
+    }
+  }
+}
