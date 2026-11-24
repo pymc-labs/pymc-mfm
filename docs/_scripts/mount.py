@@ -19,9 +19,10 @@ served address ``<origin>/<prefix>`` instead, so the site's own links open in th
 and link previews find their image. The repository never names the host.
 
 With ``--site-url`` and without ``--noindex``, root ``robots.txt`` names the sitemap
-at ``/<prefix>/sitemap.xml``. The sitemap and canonical links use trailing-slash
-URLs for directory indexes, including ``/<prefix>/`` for the landing page. The
-copy at ``/`` points to the same canonical URL and is not listed in the sitemap.
+at the host root, ``/sitemap.xml``, so its scope covers the landing page at ``/``.
+The sitemap and canonical links use trailing-slash URLs for directory indexes.
+The landing page is canonical at the host root ``/``, and its copy at ``/<prefix>/``
+points to the same canonical URL. The sitemap lists the landing page once, as ``/``.
 Pages with intentional canonical links (such as the old blog redirects) keep them.
 ``--noindex`` turns off the generated canonical links and sitemap for staging.
 
@@ -129,12 +130,19 @@ def _page_url(docs_url: str, page: str) -> str:
     return f"{docs_url}/{page}"
 
 
-def served_sitemap(sitemap_xml: str, site: Path, docs_url: str) -> str:
-    """Quarto's sitemap with each page at its canonical URL under the docs prefix."""
+def _canonical_url(site_url: str, docs_url: str, page: str) -> str:
+    """The canonical URL of a page: the landing page is the host root, the rest sit under docs."""
+    if page == "index.html":
+        return f"{site_url}/"
+    return _page_url(docs_url, page)
+
+
+def served_sitemap(sitemap_xml: str, site: Path, site_url: str, docs_url: str) -> str:
+    """Quarto's sitemap with each page at its canonical URL, the landing page at the root."""
 
     def move(match: re.Match[str]) -> str:
         _, page = split_loc(match.group(1), site)
-        return f"<loc>{_page_url(docs_url, page)}</loc>"
+        return f"<loc>{_canonical_url(site_url, docs_url, page)}</loc>"
 
     return LOC.sub(move, sitemap_xml)
 
@@ -178,10 +186,12 @@ def mount(
             raise MountError(f"--site-url {site_url} is not an origin such as https://example.com")
     docs_out = out / prefix
     shutil.copytree(site, docs_out, dirs_exist_ok=True)
-    sitemap_file = docs_out / "sitemap.xml"
     # Quarto's crawler policy points to the unmapped site. Staging gets no sitemap.
     (docs_out / "robots.txt").unlink(missing_ok=True)
-    sitemap_file.unlink(missing_ok=True)
+    (docs_out / "sitemap.xml").unlink(missing_ok=True)
+    # The sitemap lists the landing page at "/", so it must sit at the host root: the
+    # sitemaps protocol only admits URLs at or below the sitemap's own directory.
+    sitemap_file = out / "sitemap.xml"
     sitemap = None
     if site_url is not None:
         built_sitemap = site / "sitemap.xml"
@@ -197,12 +207,14 @@ def mount(
             moved = rebased(text, built, docs_url)
             if not noindex and page.suffix == ".html":
                 name = page.relative_to(docs_out).as_posix()
-                moved = with_canonical(moved, _page_url(docs_url, name), name)
+                moved = with_canonical(moved, _canonical_url(site_url, docs_url, name), name)
             if moved != text:
                 page.write_text(moved, encoding="utf-8")
         if not noindex:
-            sitemap_file.write_text(served_sitemap(sitemap_xml, site, docs_url), encoding="utf-8")
-            sitemap = f"{docs_url}/sitemap.xml"
+            sitemap_file.write_text(
+                served_sitemap(sitemap_xml, site, site_url, docs_url), encoding="utf-8"
+            )
+            sitemap = f"{site_url}/sitemap.xml"
 
     mounted_landing = docs_out / "index.html"
     landing_html = landing_at_root(mounted_landing.read_text(encoding="utf-8"), prefix, noindex)
