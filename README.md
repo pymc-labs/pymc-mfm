@@ -1,11 +1,11 @@
-# PyMC MFM
+# PyMC Marketing Foundational Models
 
 PyMC MFM (marketing foundational models) trains and runs amortized neural
 networks for marketing mix decomposition. A trained network reads one time
 series (media spend, controls and the observed outcome) and returns posterior
 draws of each component's contribution: baseline, each channel, each control
 and unobserved factors.
-The network is trained once on many simulated datasets. For a new dataset,
+The network is trained on many simulated datasets. For a new dataset,
 `inference(context, query, ...)` conditions on observed history without training its weights.
 
 This repository is the library. Simulators, training corpora and trained weights
