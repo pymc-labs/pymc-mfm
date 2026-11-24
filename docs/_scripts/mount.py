@@ -19,10 +19,10 @@ served address ``<origin>/<prefix>`` instead, so the site's own links open in th
 and link previews find their image. The repository never names the host.
 
 With ``--site-url`` and without ``--noindex``, root ``robots.txt`` names the sitemap
-at the host root, ``/sitemap.xml``, so its scope covers the landing page at ``/``. The sitemap and canonical links use trailing-slash
-URLs for directory indexes. The landing page is canonical at the host root ``/``, and
-its copy at ``/<prefix>/`` points to the same canonical URL. The sitemap lists the landing
-page once, as ``/``.
+at the host root, ``/sitemap.xml``, so its scope covers the landing page at ``/``.
+The sitemap and canonical links use trailing-slash URLs for directory indexes.
+The landing page is canonical at the host root ``/``, and its copy at ``/<prefix>/``
+points to the same canonical URL. The sitemap lists the landing page once, as ``/``.
 Pages with intentional canonical links (such as the old blog redirects) keep them.
 ``--noindex`` turns off the generated canonical links and sitemap for staging.
 
