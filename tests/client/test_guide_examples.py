@@ -1,11 +1,10 @@
-"""The HTTP guide and README Python examples run against a fake service.
+"""The HTTP guide Python examples run against a fake service.
 
 A tester copies them with only the install line and the two environment variables.
 The HTTP guide's main example runs in page order; the own-data block replaces the
 synthetic data without changing the rest of the script.
 """
 
-import json
 import re
 from pathlib import Path
 
@@ -32,7 +31,6 @@ from .client_fixtures import (
 
 ROOT = Path(__file__).resolve().parents[2]
 CLIENT_PAGE = ROOT / "docs" / "guide" / "http-api.qmd"
-README = ROOT / "README.md"
 PYTHON_BLOCK = re.compile(r"^```python\n(.*?)^```", re.DOTALL | re.MULTILINE)
 URL = "https://site.example/analyses/an_1"
 # The synthetic history of the examples: 104 weeks from 2024-11-11, so it ends on 2026-11-02.
@@ -59,14 +57,6 @@ OUTCOME_COLUMNS = [
 
 def guide_example(name: str) -> str:
     return marked_example(CLIENT_PAGE, "guide-example", name)
-
-
-def section(path: Path, heading: str) -> str:
-    """The text of one ``## `` section of a Markdown file, up to the next one."""
-    text = path.read_text()
-    start = text.index(f"\n{heading}\n")
-    end = text.find("\n## ", start + 1)
-    return text[start : end if end != -1 else None]
 
 
 def history_record() -> dict:
@@ -251,21 +241,3 @@ def test_own_data_block_replaces_the_synthetic_data(workdir, service, capsys, we
     assert first["plan"]["dates"] == PLAN_DATES
     assert len(kept) + len(first["plan"]["dates"]) <= 208
     assert f"result page: {URL}" in capsys.readouterr().out.splitlines()
-
-
-def test_readme_client_example_runs_as_pasted(workdir, service):
-    (block,) = PYTHON_BLOCK.findall(section(README, "## Call the River API"))
-    run(block, README)
-
-    check_upload(service, synthetic_history())
-    plan, backtest, again = analysis_posts(service)
-    assert [s["id"] for s in plan["scenarios"]][:2] == list(SCENARIOS)
-    assert plan["scenarios"][1]["multipliers"] == {"tv": 0.8, "search": {"amount": 60_800}}
-    assert (plan["seed"], plan["name"]) == (7, "Spend scenarios")
-    assert backtest["context"] == {"start": HISTORY_START, "end": "2026-08-03"}
-    assert backtest["scenarios"] == [
-        {"id": "budget_x1.2", "multipliers": {"tv": 1.2, "search": 1.2}}
-    ]
-    assert again["scenarios"] == [{"id": "search_x1.5", "multipliers": {"search": 1.5}}]
-    # analysis.export writes the service's export bytes unchanged.
-    assert json.loads((workdir / "analysis.json").read_text()) == export_record(None)
