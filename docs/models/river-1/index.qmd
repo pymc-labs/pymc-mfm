@@ -50,7 +50,7 @@ so we can compare estimated contributions with known values and forecasts with h
 <div class="mfm-links mfm-reveal">
   <a href="https://www.pymc-labs.com/white-papers/marketing-foundation-models">White paper <span aria-hidden="true">↗</span></a>
   <a href="https://www.youtube.com/watch?v=UsMRBp6Dq2o">Watch the explainer <span aria-hidden="true">↗</span></a>
-  <a href="../../guide/examples/river_1_quickstart.html">Quickstart <span aria-hidden="true">→</span></a>
+  <a href="../../guide/examples/river_1_quickstart.html">Load model introduction <span aria-hidden="true">→</span></a>
 </div>
 ```
 
@@ -391,7 +391,7 @@ We plan to launch River publicly during December 2026. For early access, sign
 up through our [registration form](https://www.pymc-labs.com/white-papers/marketing-foundation-models#get-paper)
 to join the preview cohort.
 
-Check our [quickstart guide](../../guide/examples/river_1_quickstart.ipynb) for
+Check the [Load model introduction](../../guide/examples/river_1_quickstart.ipynb) for
 loading pre-trained weights and executing inference. Dive into the
 [comprehensive documentation](../../guide/training.qmd) for detailed workflows
 on pre-training custom foundation architectures.

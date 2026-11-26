@@ -90,7 +90,7 @@ Change only the `load` call to choose the model and where it runs:
 | `mfm.load("river-1", **roles)` | On your machine, with River-1 weights from Hugging Face | Access to the PyMC Labs Hugging Face organization |
 | `mfm.load("river-1", engine="hosted", **roles)` | On the hosted River API | An invitation: `MFM_API_URL` and `MFM_API_KEY` |
 
-The [River-1 quickstart notebook](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb) walks through
+The [Load model introduction](https://github.com/pymc-labs/pymc-mfm/blob/main/examples/river_1_quickstart.ipynb) walks through
 this workflow. To call the River API directly for budget scenarios and backtests, see
 [the River API guide](https://github.com/pymc-labs/pymc-mfm/blob/main/docs/guide/http-api.qmd).
 
