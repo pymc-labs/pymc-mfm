@@ -6,6 +6,13 @@
 [[allow]]
 path = "examples/river_1_quickstart.ipynb"
 rules = ["embedded-payload"]
+reason = "Load model introduction: only the title and opening paragraph changed from the reviewed 5e2f671d quickstart below. Code, outputs and notebook metadata are unchanged. These exact bytes are pinned; reruns require a new review and hash in the same pull request. Malformed-image findings are never covered."
+sha256 = "00ae44bfdf6d1fcf338e933ce957f450bb9ef7a23830497150e1047f4e2bd684"
+max_bytes = 1000000
+
+[[allow]]
+path = "examples/river_1_quickstart.ipynb"
+rules = ["embedded-payload"]
 reason = "Shared-workflow quickstart (pymc_mfm.load) run top to bottom on synthetic data with the pinned River-1 bundle (revision 970e6095): one idata HTML output and four PNG charts (inputs, fit, contributions over time, shares). Stderr download and progress streams and per-cell execution timestamps were dropped; outputs hold no local paths, tokens or URLs other than the public repository. These exact bytes are pinned; reruns require a new review and hash in the same pull request. Malformed-image findings are never covered."
 sha256 = "5e2f671d19f0442824ad40973df35343cb845e5e19fb8581d40dcda36ee4d106"
 max_bytes = 1000000

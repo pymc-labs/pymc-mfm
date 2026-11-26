@@ -5,7 +5,7 @@ description: "Run the same analysis with a local model bundle, Hugging Face weig
 
 ## Run a first analysis
 
-`model.inference(context, query)` takes two tables. `context` is the history: one row per week with spend, controls such as price, and the observed outcome such as sales. `query` is the weeks to explain or forecast: the same date, spend and control columns, starting one week after the history ends. This example makes both tables from synthetic data, as the [River-1 quickstart notebook](examples/river_1_quickstart.ipynb) does, and runs a model bundle on your machine:
+`model.inference(context, query)` takes two tables. `context` is the history: one row per week with spend, controls such as price, and the observed outcome such as sales. `query` is the weeks to explain or forecast: the same date, spend and control columns, starting one week after the history ends. This example makes both tables from synthetic data, as the [Load model introduction](examples/river_1_quickstart.ipynb) does, and runs a model bundle on your machine:
 
 <!-- docs-example: first-analysis -->
 ```python
