@@ -1,11 +1,17 @@
 # Release preparation
 
-PyMC MFM **0.0.1** is the first full-package release, in alpha: the API can change
-between releases. These notes describe that release. Nothing is published until a
-maintainer pushes the `v0.0.1` tag; see [Publish a release](#publish-a-release).
-References to `client-v0.1.0` record the earlier client release plan.
+PyMC MFM is in alpha: the API can change between releases. See
+[Publish a release](#publish-a-release) for the release procedure.
 
-## Current changes
+## 0.0.2
+
+- The PyPI project description uses the shorter README, with installation, a
+  quickstart, and links to the guides. This release does not change the Python API.
+
+## 0.0.1
+
+The first full-package release. References to `client-v0.1.0` record the earlier
+client release plan.
 
 - **One package from PyPI, uv or conda-forge.** On Python 3.13 or newer,
   `pip install pymc-mfm`, `uv add pymc-mfm` or `conda install -c conda-forge pymc-mfm`
@@ -16,9 +22,8 @@ References to `client-v0.1.0` record the earlier client release plan.
   notebook dependencies are in the repository-only `generation` and `examples`
   groups. The code is licensed under Apache-2.0.
 - **PyPI 0.1.2 was a mistake.** `pymc-mfm` 0.1.2 is a client-only build (Python
-  3.11+, no local inference) published by mistake. It must be yanked before 0.0.1
-  is published, or pip and uv keep installing it; the release workflow refuses
-  until then. An environment that has 0.1.2 keeps it until `pip uninstall pymc-mfm`.
+  3.11+, no local inference) published by mistake and yanked before 0.0.1.
+  An environment that has 0.1.2 keeps it until `pip uninstall pymc-mfm`.
   The number 0.1.2 stays taken on PyPI, so a later 0.1 series skips it.
 - **Corpora older than schema 4 no longer load.** `load_corpora` reads schema-4 and
   schema-5 archives itself instead of through `pymc_generator.load_corpus`, which
@@ -720,11 +725,11 @@ the package metadata, README and conda recipe link to the repository.
 1. In a pull request, set `version` in `pyproject.toml` and `context.version` in
    `conda.recipe/recipe.yaml`, run `uv lock`, and update the notes above.
 2. Merge it, then tag the merge commit on `main` and push the tag:
-   `git tag -a v0.0.1 -m "pymc-mfm 0.0.1"` and `git push origin v0.0.1`.
+   `git tag -a v0.0.2 -m "pymc-mfm 0.0.2"` and `git push origin v0.0.2`.
 3. Approve the `pypi` deployment. The workflow uploads to PyPI with attestations,
    then creates the GitHub release with the same files.
 4. Check the published package from a clean environment:
-   `uv run --isolated --no-project --python 3.13 --with pymc-mfm==0.0.1 python -c "import pymc_mfm; print(pymc_mfm.__version__)"`.
+   `uv run --isolated --no-project --python 3.13 --with pymc-mfm==0.0.2 python -c "import pymc_mfm; print(pymc_mfm.__version__)"`.
 
 uv installs from PyPI, so a PyPI release is also the uv release.
 
@@ -750,7 +755,7 @@ Until the feedstock publishes, `conda install -c conda-forge pymc-mfm` fails wit
 
 ### Servers that use the SDK
 
-A backend that only calls the hosted API should pin the release, with `pymc-mfm==0.0.1`
+A backend that only calls the hosted API should pin the release, with `pymc-mfm==0.0.2`
 or a `uv.lock`, which records hashes. Verify an authenticated read-only call, for
 example listing datasets, with its configured service URL and key; the release checks
 use a fake service. On Linux, install CPU-only PyTorch unless the server has a GPU, as
